@@ -1,4 +1,4 @@
-package meta
+package fox
 
 import (
 	"errors"
@@ -36,8 +36,6 @@ func (h HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Pa
 	h(w, r, params)
 }
 
-type Middleware func(next Handler) Handler
-
 type Router struct {
 	NotFound               http.Handler
 	MethodNotAllowed       http.Handler
@@ -58,9 +56,6 @@ type Router struct {
 
 	mu sync.Mutex
 
-	// list of middlewares function applied on each route
-	middlewares []Middleware
-
 	// trees contains a pointer to the root node for each http method.
 	// Once allocated, this is mostly a ready-only array and, only atomic update
 	// of the underlying pointer are permitted.
@@ -77,12 +72,6 @@ func New() *Router {
 
 	return &Router{
 		trees: nds,
-	}
-}
-
-func (mux *Router) Use(middlewares ...Middleware) {
-	for _, m := range middlewares {
-		mux.middlewares = append(mux.middlewares, m)
 	}
 }
 
@@ -165,7 +154,7 @@ func (mux *Router) Update(method, path string, handler Handler) error {
 	mux.mu.Lock()
 	defer mux.mu.Unlock()
 
-	return mux.update(idx, path[:end], wildcardKey, mux.applyMiddleware(handler), isWildcard)
+	return mux.update(idx, path[:end], wildcardKey, handler, isWildcard)
 }
 
 func (mux *Router) Upsert(method, path string, handler Handler) error {
@@ -188,22 +177,10 @@ func (mux *Router) Upsert(method, path string, handler Handler) error {
 		updateMaxParams(1)
 	}
 
-	h := mux.applyMiddleware(handler)
-	if err = mux.insert(idx, path[:end], wildcardKey, h, isWildcard); errors.Is(err, ErrRouteExist) {
-		return mux.update(idx, path[:end], wildcardKey, h, isWildcard)
+	if err = mux.insert(idx, path[:end], wildcardKey, handler, isWildcard); errors.Is(err, ErrRouteExist) {
+		return mux.update(idx, path[:end], wildcardKey, handler, isWildcard)
 	}
 	return err
-}
-
-func (mux *Router) UpdateRoutes(r *EmptyRouter) {
-	r.mux.mu.Lock()
-	mux.mu.Lock()
-	for i := range mux.trees {
-		mux.updateRoot(i, r.mux.trees[i].Load())
-	}
-	r.reset()
-	r.mux.mu.Unlock()
-	mux.mu.Unlock()
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
@@ -397,7 +374,7 @@ func (mux *Router) addRoute(idx int, path string, handler Handler) error {
 		updateMaxParams(1)
 	}
 
-	return mux.insert(idx, path[:end], wildcardKey, mux.applyMiddleware(handler), isWildcard)
+	return mux.insert(idx, path[:end], wildcardKey, handler, isWildcard)
 }
 
 func (mux *Router) recover(w http.ResponseWriter, r *http.Request) {
@@ -725,14 +702,6 @@ STOP:
 		p:                       p,
 		pp:                      pp,
 	}
-}
-
-func (mux *Router) applyMiddleware(h Handler) Handler {
-	m := h
-	for _, f := range mux.middlewares {
-		m = f(m)
-	}
-	return m
 }
 
 type resultType int

@@ -1,4 +1,4 @@
-package meta
+package fox
 
 func newIterator(n *node) *iterator {
 	return &iterator{

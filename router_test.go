@@ -1,9 +1,8 @@
-package meta
+package fox
 
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -980,40 +979,6 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 		return nil
 	}))
 	assert.Equal(t, 0, countPath)
-}
-
-func TestMuxRouterUpdateRoutes(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	r := New()
-	require.NoError(t, r.GET("/foo/bar", h))
-
-	want := []string{"/fizz/buzz/", "/foo"}
-
-	p := sync.Pool{
-		New: func() interface{} {
-			return NewEmptyRouter()
-		},
-	}
-
-	fresh := p.Get().(*EmptyRouter)
-	Must(fresh.GET("/boo/baz", h))
-	Must(fresh.GET("/foo", h))
-	r.UpdateRoutes(fresh)
-	p.Put(fresh)
-
-	fresh = p.Get().(*EmptyRouter)
-	Must(fresh.GET("/fizz/buzz/*args", h))
-	Must(fresh.GET("/foo", h))
-	r.UpdateRoutes(fresh)
-	p.Put(fresh)
-
-	got := make([]string, 0, 2)
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
-		got = append(got, route.Path)
-		return nil
-	}))
-
-	assert.Equal(t, want, got)
 }
 
 func TestFuzzServeHTTP(t *testing.T) {

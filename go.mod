@@ -1,4 +1,4 @@
-module github.com/tigerwill90/meta
+module github.com/tigerwill90/fox
 
 go 1.19
 
