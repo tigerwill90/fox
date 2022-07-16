@@ -231,7 +231,7 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 func BenchmarkMuxRouter(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.GET(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
 	}
 	benchRoutes(b, r, staticRoutes)
 }
@@ -249,14 +249,14 @@ func BenchmarkHttpRouterRouter(b *testing.B) {
 func BenchmarkMuxRouterParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.GET(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	}
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }
 
 func BenchmarkRouterMuxCatchAll(b *testing.B) {
 	r := New()
-	require.NoError(b, r.GET("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req, _ := http.NewRequest("GET", "/something/awesome", nil)
 
@@ -270,7 +270,7 @@ func BenchmarkRouterMuxCatchAll(b *testing.B) {
 
 func BenchmarkRouterMuxParallelCatchAll(b *testing.B) {
 	r := New()
-	require.NoError(b, r.GET("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req, _ := http.NewRequest("GET", "/something/awesome", nil)
 
@@ -341,7 +341,7 @@ func TestMuxRouterStatic(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { w.Write([]byte(r.URL.Path)) })
 
 	for _, route := range staticRoutes {
-		require.NoError(t, r.GET(route.path, h))
+		require.NoError(t, r.Get(route.path, h))
 	}
 
 	for _, route := range staticRoutes {
@@ -367,7 +367,7 @@ func TestMuxRouterWildcard(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		require.NoError(t, r.GET(route.path, h))
+		require.NoError(t, r.Get(route.path, h))
 	}
 
 	for _, route := range routes {
@@ -569,7 +569,7 @@ func TestMuxRouerUpdateRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			r.AddRouteParam = true
-			require.NoError(t, r.GET(tc.path, h))
+			require.NoError(t, r.Get(tc.path, h))
 			require.NoError(t, r.Update(http.MethodGet, tc.newPath+tc.newWildcardKey, tc.newHandler))
 			req, _ := http.NewRequest(http.MethodGet, tc.newPath, nil)
 			w := httptest.NewRecorder()
@@ -585,8 +585,8 @@ func TestMuxRouterUpsert(t *testing.T) {
 	new := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte("new")) })
 
 	r := New()
-	require.NoError(t, r.POST("/foo/bar", old))
-	require.NoError(t, r.POST("/foo/", old))
+	require.NoError(t, r.Post("/foo/bar", old))
+	require.NoError(t, r.Post("/foo/", old))
 
 	cases := []struct {
 		name    string
@@ -861,7 +861,7 @@ func TestMuxRouterRedirectFixedPath(t *testing.T) {
 			r := New()
 			r.RedirectFixedPath = true
 			r.RedirectTrailingSlash = tc.tsr
-			require.NoError(t, r.GET(tc.path, h))
+			require.NoError(t, r.Get(tc.path, h))
 			req, _ := http.NewRequest(http.MethodGet, tc.key, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
@@ -934,7 +934,7 @@ func TestRouterPanicHandler(t *testing.T) {
 		w.Write([]byte("foo"))
 	})
 
-	require.NoError(t, r.POST("/", h))
+	require.NoError(t, r.Post("/", h))
 	req, _ := http.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -1000,7 +1000,7 @@ func TestFuzzServeHTTP(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := r.GET("/"+rte, h)
+		err := r.Get("/"+rte, h)
 		require.NoError(t, err)
 	}
 

@@ -33,6 +33,11 @@ type node struct {
 	fullPath string
 }
 
+type rootNode struct {
+	method string
+	atomic.Pointer[node]
+}
+
 func newNode(path string, handler Handler, children []*node, wildcardKey string, isWildcard bool) *node {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].path < children[j].path

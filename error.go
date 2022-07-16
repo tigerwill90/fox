@@ -12,7 +12,7 @@ type ConflictError struct {
 
 func newConflictErr(methodIdx int, path string, matching []string, isWildcard bool) *ConflictError {
 	return &ConflictError{
-		method:     validMethods[methodIdx],
+		method:     commonVerbs[methodIdx],
 		path:       path,
 		matching:   matching,
 		isWildcard: isWildcard,

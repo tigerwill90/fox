@@ -10,12 +10,11 @@ import (
 )
 
 const (
-	verb          = 9
 	ParamRouteKey = "$etf1/mux"
 )
 
 var (
-	validMethods = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace}
+	commonVerbs = [...]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 )
 
 var (
@@ -37,10 +36,13 @@ func (h HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Pa
 }
 
 type Router struct {
-	NotFound               http.Handler
-	MethodNotAllowed       http.Handler
-	PanicHandler           func(http.ResponseWriter, *http.Request, interface{})
+	NotFound         http.Handler
+	MethodNotAllowed http.Handler
+	PanicHandler     func(http.ResponseWriter, *http.Request, interface{})
+
+	// If enabled, fox return a 405 Method Not Allowed instead of 404 Not Found when the route exist for another http verb.
 	HandleMethodNotAllowed bool
+
 	// Enable passing the matching route as a Handler parameter.
 	// Usage: p.Get(ParamRouteKey)
 	AddRouteParam bool
@@ -56,87 +58,64 @@ type Router struct {
 
 	mu sync.Mutex
 
-	// trees contains a pointer to the root node for each http method.
-	// Once allocated, this is mostly a ready-only array and, only atomic update
-	// of the underlying pointer are permitted.
-	trees []atomic.Pointer[node]
+	trees *atomic.Pointer[[]*rootNode]
 }
 
 var _ http.Handler = (*Router)(nil)
 
 func New() *Router {
-	nds := make([]atomic.Pointer[node], len(validMethods))
-	for i := range validMethods {
+	var ptr atomic.Pointer[[]*rootNode]
+	// Pre instantiate nodes for common http verb
+	nds := make([]*rootNode, len(commonVerbs))
+	for i := range commonVerbs {
+		nds[i] = new(rootNode)
+		nds[i].method = commonVerbs[i]
 		nds[i].Store(&node{isRoot: true})
 	}
+	ptr.Store(&nds)
 
 	return &Router{
-		trees: nds,
+		trees: &ptr,
 	}
 }
 
-// GET is a shortcut for Handler(http.MethodGet, path, handler)
-func (mux *Router) GET(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodGet), path, handler)
+// Get is a shortcut for Handler(http.MethodGet, path, handler)
+func (fox *Router) Get(path string, handler Handler) error {
+	return fox.addRoute(mustIndexOfMethod(http.MethodGet), path, handler)
 }
 
-// POST is a shortcut for Handler(http.MethodPost, path, handler)
-func (mux *Router) POST(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodPost), path, handler)
+// Post is a shortcut for Handler(http.MethodPost, path, handler)
+func (fox *Router) Post(path string, handler Handler) error {
+	return fox.addRoute(mustIndexOfMethod(http.MethodPost), path, handler)
 }
 
-// PUT is a shortcut for Handler(http.MethodPut, path, handler)
-func (mux *Router) PUT(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodPut), path, handler)
+// Put is a shortcut for Handler(http.MethodPut, path, handler)
+func (fox *Router) Put(path string, handler Handler) error {
+	return fox.addRoute(mustIndexOfMethod(http.MethodPut), path, handler)
 }
 
-// PATCH is a shortcut for Handler(http.MethodPatch, path, handler)
-func (mux *Router) PATCH(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodPatch), path, handler)
-}
-
-// DELETE is a shortcut for Handler(http.MethodDelete, path, handler)
-func (mux *Router) DELETE(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodDelete), path, handler)
-}
-
-// OPTIONS is a shortcut for Handler(http.MethodOptions, path, handler)
-func (mux *Router) OPTIONS(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodOptions), path, handler)
-}
-
-// CONNECT is a shortcut for Handler(http.MethodConnect, path, handler)
-func (mux *Router) CONNECT(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodConnect), path, handler)
-}
-
-// HEAD is a shortcut for Handler(http.MethodHead, path, handler)
-func (mux *Router) HEAD(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodHead), path, handler)
-}
-
-// TRACE is a shortcut for Handler(http.MethodTrace, path, handler)
-func (mux *Router) TRACE(path string, handler Handler) error {
-	return mux.addRoute(mustIndexOfMethod(http.MethodTrace), path, handler)
+// Delete is a shortcut for Handler(http.MethodDelete, path, handler)
+func (fox *Router) Delete(path string, handler Handler) error {
+	return fox.addRoute(mustIndexOfMethod(http.MethodDelete), path, handler)
 }
 
 // Handler registers a new http.Handler for the given method and path. If the route is already registered,
 // the function return an ErrRouteExist. It's perfectly safe to add a new handler once the server is started.
 // This function is safe for concurrent use by multiple goroutine.
 // To override an existing route, use Update method.
-func (mux *Router) Handler(method, path string, handler Handler) error {
+func (fox *Router) Handler(method, path string, handler Handler) error {
 	idx := indexOfMethod(method)
 	if idx < 0 {
 		return ErrInvalidMethod
 	}
-	return mux.addRoute(idx, path, handler)
+	return fox.addRoute(idx, path, handler)
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler once the server
 // is started. This function is safe for concurrent use by multiple goroutine.
 // To add new handler, use Handler method.
-func (mux *Router) Update(method, path string, handler Handler) error {
+func (fox *Router) Update(method, path string, handler Handler) error {
 	idx := indexOfMethod(method)
 	if idx < 0 {
 		return ErrInvalidMethod
@@ -151,13 +130,13 @@ func (mux *Router) Update(method, path string, handler Handler) error {
 		wildcardKey = path[end+1:]
 	}
 
-	mux.mu.Lock()
-	defer mux.mu.Unlock()
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 
-	return mux.update(idx, path[:end], wildcardKey, handler, isWildcard)
+	return fox.update(idx, path[:end], wildcardKey, handler, isWildcard)
 }
 
-func (mux *Router) Upsert(method, path string, handler Handler) error {
+func (fox *Router) Upsert(method, path string, handler Handler) error {
 	idx := indexOfMethod(method)
 	if idx < 0 {
 		return ErrInvalidMethod
@@ -169,16 +148,16 @@ func (mux *Router) Upsert(method, path string, handler Handler) error {
 	}
 	var wildcardKey string
 
-	mux.mu.Lock()
-	defer mux.mu.Unlock()
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 
 	if isWildcard {
 		wildcardKey = path[end+1:]
 		updateMaxParams(1)
 	}
 
-	if err = mux.insert(idx, path[:end], wildcardKey, handler, isWildcard); errors.Is(err, ErrRouteExist) {
-		return mux.update(idx, path[:end], wildcardKey, handler, isWildcard)
+	if err = fox.insert(idx, path[:end], wildcardKey, handler, isWildcard); errors.Is(err, ErrRouteExist) {
+		return fox.update(idx, path[:end], wildcardKey, handler, isWildcard)
 	}
 	return err
 }
@@ -186,7 +165,7 @@ func (mux *Router) Upsert(method, path string, handler Handler) error {
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler once the server is started. This
 // function is safe for concurrent use by multiple goroutine.
-func (mux *Router) Remove(method, path string) error {
+func (fox *Router) Remove(method, path string) error {
 	idx := indexOfMethod(method)
 	if idx < 0 {
 		return fmt.Errorf("%s method is not supported: %w", method, ErrInvalidMethod)
@@ -197,7 +176,7 @@ func (mux *Router) Remove(method, path string) error {
 		return err
 	}
 
-	if !mux.remove(mustIndexOfMethod(method), path[:end]) {
+	if !fox.remove(mustIndexOfMethod(method), path[:end]) {
 		return ErrRouteNotFound
 	}
 	return nil
@@ -205,12 +184,12 @@ func (mux *Router) Remove(method, path string) error {
 
 // Lookup allow to do  manual lookup of a route. Params passed in callback, are only valid within the callback.
 // This function is safe for concurrent use by multiple goroutine.
-func (mux *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) error {
+func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) error {
 	idx := indexOfMethod(method)
 	if idx < 0 {
 		return fmt.Errorf("%s method is not supported: %w", method, ErrInvalidMethod)
 	}
-	n, params, tsr := mux.lookup(idx, path, false)
+	n, params, tsr := fox.lookup(idx, path, false)
 	if n != nil {
 		fn(n.handler, *params, tsr)
 	} else {
@@ -247,13 +226,14 @@ var ErrSkipMethod = errors.New("skip method")
 
 // WalkRoute allow to walk over all registered route in lexicographical order. This function is safe for
 // concurrent use by multiple goroutine.
-func (mux *Router) WalkRoute(fn WalkFunc) error {
+func (fox *Router) WalkRoute(fn WalkFunc) error {
+	ndsPtr := fox.trees.Load()
 METHODS:
-	for i := range mux.trees {
-		it := newIterator(mux.getRoot(i))
+	for i := range *ndsPtr {
+		it := newIterator(fox.getRoot(i))
 		for it.hasNextLeaf() {
 			err := fn(Route{
-				Method:      validMethods[i],
+				Method:      commonVerbs[i],
 				Path:        it.fullPath(),
 				WildcardKey: it.node().wildcardKey,
 				isCatchAll:  it.node().wildcard,
@@ -270,15 +250,15 @@ METHODS:
 	return nil
 }
 
-func (mux *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if mux.PanicHandler != nil {
-		defer mux.recover(w, r)
+func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if fox.PanicHandler != nil {
+		defer fox.recover(w, r)
 	}
 
-	idx := indexOfMethod(r.Method)
+	idx := fox.indexOfMethod(r.Method)
 	if idx < 0 {
-		if mux.MethodNotAllowed != nil {
-			mux.MethodNotAllowed.ServeHTTP(w, r)
+		if fox.MethodNotAllowed != nil {
+			fox.MethodNotAllowed.ServeHTTP(w, r)
 			return
 		}
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -286,7 +266,7 @@ func (mux *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := r.URL.Path
-	n, params, tsr := mux.lookup(idx, path, false)
+	n, params, tsr := fox.lookup(idx, path, false)
 	if n != nil {
 		if params != nil {
 			n.handler.ServeHTTP(w, r, *params)
@@ -305,21 +285,21 @@ func (mux *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusPermanentRedirect
 		}
 
-		if tsr && mux.RedirectTrailingSlash {
+		if tsr && fox.RedirectTrailingSlash {
 			r.URL.Path = fixTrailingSlash(path)
 			http.Redirect(w, r, r.URL.String(), code)
 			return
 		}
 
-		if mux.RedirectFixedPath {
+		if fox.RedirectFixedPath {
 			cleanedPath := CleanPath(path)
-			n, _, tsr := mux.lookup(idx, cleanedPath, true)
+			n, _, tsr := fox.lookup(idx, cleanedPath, true)
 			if n != nil {
 				r.URL.Path = cleanedPath
 				http.Redirect(w, r, r.URL.String(), code)
 				return
 			}
-			if tsr && mux.RedirectTrailingSlash {
+			if tsr && fox.RedirectTrailingSlash {
 				r.URL.Path = fixTrailingSlash(cleanedPath)
 				http.Redirect(w, r, r.URL.String(), code)
 				return
@@ -328,23 +308,23 @@ func (mux *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	}
 
-	if mux.HandleMethodNotAllowed {
+	if fox.HandleMethodNotAllowed {
 		var sb strings.Builder
-		for i := 0; i < len(validMethods); i++ {
+		for i := 0; i < len(commonVerbs); i++ {
 			if i != idx {
-				if n, _, _ := mux.lookup(i, path, true); n != nil {
+				if n, _, _ := fox.lookup(i, path, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(validMethods[i])
+					sb.WriteString(commonVerbs[i])
 				}
 			}
 		}
 		allowed := sb.String()
 		if allowed != "" {
 			w.Header().Set("Allow", allowed)
-			if mux.MethodNotAllowed != nil {
-				mux.MethodNotAllowed.ServeHTTP(w, r)
+			if fox.MethodNotAllowed != nil {
+				fox.MethodNotAllowed.ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -352,44 +332,44 @@ func (mux *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if mux.NotFound != nil {
-		mux.NotFound.ServeHTTP(w, r)
+	if fox.NotFound != nil {
+		fox.NotFound.ServeHTTP(w, r)
 		return
 	}
 	http.NotFound(w, r)
 }
 
-func (mux *Router) addRoute(idx int, path string, handler Handler) error {
+func (fox *Router) addRoute(idx int, path string, handler Handler) error {
 	end, isWildcard, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 	var wildcardKey string
 
-	mux.mu.Lock()
-	defer mux.mu.Unlock()
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 
 	if isWildcard {
 		wildcardKey = path[end+1:]
 		updateMaxParams(1)
 	}
 
-	return mux.insert(idx, path[:end], wildcardKey, handler, isWildcard)
+	return fox.insert(idx, path[:end], wildcardKey, handler, isWildcard)
 }
 
-func (mux *Router) recover(w http.ResponseWriter, r *http.Request) {
+func (fox *Router) recover(w http.ResponseWriter, r *http.Request) {
 	if val := recover(); val != nil {
-		mux.PanicHandler(w, r, val)
+		fox.PanicHandler(w, r, val)
 	}
 }
 
-func (mux *Router) lookup(index int, path string, lazy bool) (n *node, params *Params, tsr bool) {
+func (fox *Router) lookup(index int, path string, lazy bool) (n *node, params *Params, tsr bool) {
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
 	)
 
-	current := mux.getRoot(index)
+	current := fox.getRoot(index)
 STOP:
 	for charsMatched < len(path) {
 		next := current.getEdge(path[charsMatched])
@@ -421,7 +401,7 @@ STOP:
 		if charsMatchedInNodeFound == len(current.path) {
 			// Exact match, note that if we match a wildcard node, there is no remaining char to match. So we can
 			// safely avoid the extra cost of passing an empty slice params.
-			if !lazy && mux.AddRouteParam {
+			if !lazy && fox.AddRouteParam {
 				p := newParams()
 				*p = append(*p, Param{Key: ParamRouteKey, Value: current.fullPath})
 				return current, p, false
@@ -442,7 +422,7 @@ STOP:
 			if !lazy {
 				p := newParams()
 				*p = append(*p, Param{Key: current.wildcardKey, Value: path[charsMatched:]})
-				if mux.AddRouteParam {
+				if fox.AddRouteParam {
 					*p = append(*p, Param{Key: ParamRouteKey, Value: current.fullPath})
 				}
 				return current, p, false
@@ -458,20 +438,42 @@ STOP:
 	return nil, params, false
 }
 
-func (mux *Router) getRoot(index int) *node {
+// getRoot is safe for concurrent use
+func (fox *Router) getRoot(index int) *node {
+	ndsPtrs := *fox.trees.Load()
 	// ptrsTree := *(*[]*unsafe.Pointer)(atomic.LoadPointer(mux.trees2))
-	return mux.trees[index].Load()
+	return ndsPtrs[index].Load()
 }
 
-func (mux *Router) updateRoot(index int, node *node) {
-	mux.trees[index].Store(node)
+// updateRoot is not safe for concurrent use.
+func (fox *Router) updateRoot(index int, n *node) {
+	trees := *fox.trees.Load()
+	trees[index].Store(n)
 }
 
-func (mux *Router) update(index int, path, wildcardKey string, handler Handler, isWildcard bool) error {
+// addRoot is not safe for concurrent use.
+func (fox *Router) addRoot(n *rootNode) {
+	oldNds := *fox.trees.Load()
+	newNds := make([]*rootNode, 0, len(oldNds)+1)
+	newNds = append(newNds, oldNds...)
+	newNds = append(newNds, n)
+	fox.trees.Store(&newNds)
+}
+
+// removeRoot is not safe for concurrent use.
+func (fox *Router) removeRoot(index int) {
+	oldNds := *fox.trees.Load()
+	newNds := make([]*rootNode, 0, len(oldNds)-1)
+	newNds = append(newNds, oldNds[:index]...)
+	newNds = append(newNds, oldNds[index+1:]...)
+	fox.trees.Store(&newNds)
+}
+
+func (fox *Router) update(index int, path, wildcardKey string, handler Handler, isWildcard bool) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	result := mux.search(index, path)
+	result := fox.search(index, path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
-		return fmt.Errorf("route /%s %s is not registered: %w", validMethods[index], path, ErrRouteNotFound)
+		return fmt.Errorf("route /%s %s is not registered: %w", commonVerbs[index], path, ErrRouteNotFound)
 	}
 
 	if isWildcard && len(result.matched.children) > 0 {
@@ -485,9 +487,9 @@ func (mux *Router) update(index int, path, wildcardKey string, handler Handler, 
 	return nil
 }
 
-func (mux *Router) insert(index int, path, wildcardKey string, handler Handler, isWildcard bool) error {
+func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, isWildcard bool) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	result := mux.search(index, path)
+	result := fox.search(index, path)
 	switch result.classify() {
 	case exactMatch:
 		// e.g. matched exactly "te" node when inserting "te" key.
@@ -496,7 +498,7 @@ func (mux *Router) insert(index int, path, wildcardKey string, handler Handler, 
 		// └── am
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
-			return fmt.Errorf("route /%s %s is already registered: %w", validMethods[index], path, ErrRouteExist)
+			return fmt.Errorf("route /%s %s is already registered: %w", commonVerbs[index], path, ErrRouteExist)
 		}
 
 		// The matched node can only be the result of a previous split and therefore has children.
@@ -560,9 +562,9 @@ func (mux *Router) insert(index int, path, wildcardKey string, handler Handler, 
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(result.matched.path, result.matched.handler, edges, result.matched.wildcardKey, result.matched.wildcard)
-		if result.matched == mux.getRoot(index) {
+		if result.matched == fox.getRoot(index) {
 			n.isRoot = true
-			mux.updateRoot(index, n)
+			fox.updateRoot(index, n)
 			break
 		}
 		result.p.updateEdge(n)
@@ -602,10 +604,10 @@ func (mux *Router) insert(index int, path, wildcardKey string, handler Handler, 
 	return nil
 }
 
-func (mux *Router) remove(index int, path string) bool {
-	mux.mu.Lock()
-	defer mux.mu.Unlock()
-	result := mux.search(index, path)
+func (fox *Router) remove(index int, path string) bool {
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
+	result := fox.search(index, path)
 	if result.classify() != exactMatch {
 		return false
 	}
@@ -641,7 +643,7 @@ func (mux *Router) remove(index int, path string) bool {
 		}
 	}
 
-	parentIsRoot := result.p == mux.getRoot(index)
+	parentIsRoot := result.p == fox.getRoot(index)
 	var parent *node
 	if len(parentEdges) == 1 && !result.p.isLeaf() && !parentIsRoot {
 		child := parentEdges[0]
@@ -652,7 +654,7 @@ func (mux *Router) remove(index int, path string) bool {
 	}
 	if parentIsRoot {
 		parent.isRoot = true
-		mux.updateRoot(index, parent)
+		fox.updateRoot(index, parent)
 		return true
 	}
 
@@ -660,8 +662,8 @@ func (mux *Router) remove(index int, path string) bool {
 	return true
 }
 
-func (mux *Router) search(index int, path string) searchResult {
-	current := mux.getRoot(index)
+func (fox *Router) search(index int, path string) searchResult {
+	current := fox.getRoot(index)
 	var (
 		pp                      *node
 		p                       *node
@@ -778,6 +780,30 @@ func commonPrefix(k1, k2 string) string {
 }
 
 // indexOfMethod return the index of the corresponding root node for a http method or -1.
+// In order to increase speed for common http method, GET, POST, PUT and DELETE nodes are always
+// created at the same position.
+func (fox *Router) indexOfMethod(method string) int {
+	switch method {
+	case http.MethodGet:
+		return 0
+	case http.MethodPost:
+		return 1
+	case http.MethodPut:
+		return 2
+	case http.MethodDelete:
+		return 3
+	}
+
+	nds := *fox.trees.Load()
+	for i, nd := range nds[4:] {
+		if nd.method == method {
+			return i
+		}
+	}
+	return -1
+}
+
+// indexOfMethod return the index of the corresponding root node for a http method or -1.
 // Yes this is ugly, but it's at least 10x - 20x faster than a map or a for loop to retrieve the root
 // node. Note that since the tree array is immutable, we are forced to create an empty root node
 // for each method even if there is no route registered.
@@ -802,8 +828,8 @@ func indexOfMethod(method string) int {
 	case http.MethodTrace:
 		return 8
 	default:
-		for i := 9; i < len(validMethods); i++ {
-			if method == validMethods[i] {
+		for i := 9; i < len(commonVerbs); i++ {
+			if method == commonVerbs[i] {
 				return i
 			}
 		}
