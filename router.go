@@ -10,12 +10,12 @@ import (
 )
 
 const (
+	verb          = 4
 	ParamRouteKey = "$fox/path"
 )
 
 var (
-	verb        = 4
-	commonVerbs = [4]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
+	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 )
 
 var (
@@ -52,6 +52,7 @@ type Router struct {
 	// after cleaning up superfluous path elements (see CleanPath). E.g. /../foo/bar request does not match but /foo/bar would.
 	// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
 	RedirectFixedPath bool
+
 	// Enable automatic redirection fallback when the current request does not match but another handler is found
 	// with/without an additional trailing slash. E.g. /foo/bar/ request does not match but /foo/bar would match.
 	// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
@@ -374,11 +375,11 @@ STOP:
 		current = next
 		charsMatchedInNodeFound = 0
 		for i := 0; charsMatched < len(path); i++ {
-			if i >= len(current.path) {
+			if i >= len(current.key) {
 				break
 			}
 
-			if current.path[i] != path[charsMatched] {
+			if current.key[i] != path[charsMatched] {
 				break STOP
 			}
 
@@ -392,32 +393,32 @@ STOP:
 	}
 
 	if charsMatched == len(path) {
-		if charsMatchedInNodeFound == len(current.path) {
+		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a wildcard node, there is no remaining char to match. So we can
 			// safely avoid the extra cost of passing an empty slice params.
 			if !lazy && fox.AddRouteParam {
 				p := newParams()
-				*p = append(*p, Param{Key: ParamRouteKey, Value: current.fullPath})
+				*p = append(*p, Param{Key: ParamRouteKey, Value: current.path})
 				return current, p, false
 			}
 
 			return current, params, false
-		} else if charsMatchedInNodeFound < len(current.path) {
+		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
 			// Tsr recommendation: add an extra trailing slash (got an exact match)
-			remainingSuffix := current.path[charsMatchedInNodeFound:]
+			remainingSuffix := current.key[charsMatchedInNodeFound:]
 			return nil, params, len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
 		}
 	}
 
 	// Incomplete match to end of edge
-	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.path) {
+	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
 		if current.wildcard {
 			if !lazy {
 				p := newParams()
 				*p = append(*p, Param{Key: current.wildcardKey, Value: path[charsMatched:]})
 				if fox.AddRouteParam {
-					*p = append(*p, Param{Key: ParamRouteKey, Value: current.fullPath})
+					*p = append(*p, Param{Key: ParamRouteKey, Value: current.path})
 				}
 				return current, p, false
 			}
@@ -470,9 +471,9 @@ func (fox *Router) removeRoot(method string) bool {
 	return true
 }
 
+// update is not safe for concurrent use.
 func (fox *Router) update(method string, path, wildcardKey string, handler Handler, isWildcard bool) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -490,11 +491,12 @@ func (fox *Router) update(method string, path, wildcardKey string, handler Handl
 
 	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
 	// the matched one with the updated/added value (handler and wildcard).
-	n := newNodeFromRef(result.matched.path, handler, result.matched.children, result.matched.childKeys, wildcardKey, isWildcard)
+	n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, wildcardKey, isWildcard, path)
 	result.p.updateEdge(n)
 	return nil
 }
 
+// insert is not safe for concurrent use.
 func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isWildcard bool) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	var root *node
@@ -525,7 +527,7 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isW
 		}
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.path, handler, result.matched.children, result.matched.childKeys, wildcardKey, isWildcard)
+		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, wildcardKey, isWildcard, path)
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
@@ -549,11 +551,11 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isW
 		}
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
-		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.path)
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.path, cPrefix)
+		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
+		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 
-		child := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.wildcardKey, result.matched.wildcard)
-		parent := newNode(cPrefix, handler, []*node{child}, wildcardKey, isWildcard)
+		child := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.wildcardKey, result.matched.wildcard, result.matched.path)
+		parent := newNode(cPrefix, handler, []*node{child}, wildcardKey, isWildcard, path)
 
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
@@ -576,10 +578,10 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isW
 		}
 
 		keySuffix := path[result.charsMatched:]
-		child := newNode(keySuffix, handler, nil, wildcardKey, isWildcard)
+		child := newNode(keySuffix, handler, nil, wildcardKey, isWildcard, path)
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
-		n := newNode(result.matched.path, result.matched.handler, edges, result.matched.wildcardKey, result.matched.wildcard)
+		n := newNode(result.matched.key, result.matched.handler, edges, result.matched.wildcardKey, result.matched.wildcard, result.matched.path)
 		if result.matched == root {
 			n.isRoot = true
 			n.method = method
@@ -608,13 +610,13 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isW
 		//    char remain the same).
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
-		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.path)
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.path, cPrefix)
+		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
+		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 		keySuffix := path[result.charsMatched:]
 
-		n1 := newNodeFromRef(keySuffix, handler, nil, nil, wildcardKey, isWildcard)
-		n2 := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.wildcardKey, result.matched.wildcard)
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", false)
+		n1 := newNodeFromRef(keySuffix, handler, nil, nil, wildcardKey, isWildcard, path)
+		n2 := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.wildcardKey, result.matched.wildcard, result.matched.path)
+		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", false, "")
 		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type
@@ -623,8 +625,8 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isW
 	return nil
 }
 
+// remove is not safe for concurrent use.
 func (fox *Router) remove(method, path string) bool {
-
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -643,15 +645,15 @@ func (fox *Router) remove(method, path string) bool {
 	}
 
 	if len(result.matched.children) > 1 {
-		n := newNodeFromRef(result.matched.path, nil, result.matched.children, result.matched.childKeys, "", false)
+		n := newNodeFromRef(result.matched.key, nil, result.matched.children, result.matched.childKeys, "", false, "")
 		result.p.updateEdge(n)
 		return true
 	}
 
 	if len(result.matched.children) == 1 {
 		child := result.matched.get(0)
-		mergedPath := fmt.Sprintf("%s%s", result.matched.path, child.path)
-		n := newNodeFromRef(mergedPath, child.handler, child.children, child.childKeys, child.wildcardKey, child.wildcard)
+		mergedPath := fmt.Sprintf("%s%s", result.matched.key, child.key)
+		n := newNodeFromRef(mergedPath, child.handler, child.children, child.childKeys, child.wildcardKey, child.wildcard, child.path)
 		result.p.updateEdge(n)
 		return true
 	}
@@ -671,10 +673,10 @@ func (fox *Router) remove(method, path string) bool {
 	var parent *node
 	if len(parentEdges) == 1 && !result.p.isLeaf() && !parentIsRoot {
 		child := parentEdges[0]
-		mergedPath := fmt.Sprintf("%s%s", result.p.path, child.path)
-		parent = newNodeFromRef(mergedPath, child.handler, child.children, child.childKeys, child.wildcardKey, child.wildcard)
+		mergedPath := fmt.Sprintf("%s%s", result.p.key, child.key)
+		parent = newNodeFromRef(mergedPath, child.handler, child.children, child.childKeys, child.wildcardKey, child.wildcard, child.path)
 	} else {
-		parent = newNode(result.p.path, result.p.handler, parentEdges, result.p.wildcardKey, result.p.wildcard)
+		parent = newNode(result.p.key, result.p.handler, parentEdges, result.p.wildcardKey, result.p.wildcard, result.p.path)
 	}
 
 	if parentIsRoot {
@@ -713,11 +715,11 @@ STOP:
 		current = next
 		charsMatchedInNodeFound = 0
 		for i := 0; charsMatched < len(path); i++ {
-			if i >= len(current.path) {
+			if i >= len(current.key) {
 				break
 			}
 
-			if current.path[i] != path[charsMatched] {
+			if current.key[i] != path[charsMatched] {
 				break STOP
 			}
 
@@ -747,36 +749,36 @@ const (
 
 func (r searchResult) classify() resultType {
 	if r.charsMatched == len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.path) {
+		if r.charsMatchedInNodeFound == len(r.matched.key) {
 			return exactMatch
 		}
-		if r.charsMatchedInNodeFound < len(r.matched.path) {
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
 			return keyEndMidEdge
 		}
 	} else if r.charsMatched < len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.path) {
+		if r.charsMatchedInNodeFound == len(r.matched.key) {
 			return incompleteMatchToEndOfEdge
 		}
-		if r.charsMatchedInNodeFound < len(r.matched.path) {
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
 			return incompleteMatchToMiddleOfEdge
 		}
 	}
 	panic("internal error: cannot classify the result")
 }
 func (r searchResult) isExactMatch() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.path)
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }
 
 func (r searchResult) isIncompleteMatchToEndOfEdge() bool {
-	return r.charsMatched < len(r.path) && r.charsMatchedInNodeFound == len(r.matched.path)
+	return r.charsMatched < len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }
 
 func (r searchResult) isKeyMidEdge() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.path)
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
 }
 
 func (r *searchResult) isIncompleteMatchToMiddleOfEdge() bool {
-	return r.charsMatched < len(r.path) && r.charsMatchedInNodeFound < len(r.matched.path)
+	return r.charsMatched < len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
 }
 
 func (c resultType) String() string {
@@ -810,6 +812,7 @@ func commonPrefix(k1, k2 string) string {
 }
 
 func findRootNode(method string, nodes []*node) int {
+	// Nodes for common http method are pre instantiated at boot up.
 	switch method {
 	case http.MethodGet:
 		return 0
@@ -864,11 +867,7 @@ func getRouteConflict(basePath string, n *node) []string {
 	routes := make([]string, 0)
 	it := newIterator(n)
 	for it.hasNextLeaf() {
-		path := it.fullPath()
-		if it.current.wildcard {
-			path += "*"
-		}
-		routes = append(routes, basePath+path)
+		routes = append(routes, it.current.path)
 	}
 	return routes
 }

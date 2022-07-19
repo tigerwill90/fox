@@ -47,12 +47,12 @@ func (it *iterator) hasNext() bool {
 		}
 
 		if len(elem.children) > 0 {
-			path := last.path + elem.path
+			path := last.path + elem.key
 			it.stack = append(it.stack, stack{path, elem.getEdgesShallowCopy()})
 		}
 
 		it.current = elem
-		it.path = last.path + elem.path
+		it.path = last.path + elem.key
 		return true
 	}
 

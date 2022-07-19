@@ -7,8 +7,8 @@ import (
 )
 
 type node struct {
-	// path represent a segment of a route which share a common prefix with it parent.
-	path string
+	// key represent a segment of a route which share a common prefix with it parent.
+	key string
 
 	// First char of each outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is a read only slice. It allows to lazily traverse the
@@ -31,38 +31,37 @@ type node struct {
 	isRoot   bool
 	method   string
 	wildcard bool
-	fullPath string
+	path     string
 }
 
-func newNode(path string, handler Handler, children []*node, wildcardKey string, isWildcard bool) *node {
+func newNode(key string, handler Handler, children []*node, wildcardKey string, isWildcard bool, path string) *node {
 	sort.Slice(children, func(i, j int) bool {
-		return children[i].path < children[j].path
+		return children[i].key < children[j].key
 	})
 	nds := make([]atomic.Pointer[node], len(children))
 	childKeys := make([]byte, len(children))
 	for i := range children {
 		assertNotNil(children[i])
-		childKeys[i] = children[i].path[0]
+		childKeys[i] = children[i].key[0]
 		nds[i].Store(children[i])
 	}
 
-	return newNodeFromRef(path, handler, nds, childKeys, wildcardKey, isWildcard)
+	return newNodeFromRef(key, handler, nds, childKeys, wildcardKey, isWildcard, path)
 }
 
-func newNodeFromRef(path string, handler Handler, children []atomic.Pointer[node], childKeys []byte, wildcardKey string, isWildcard bool) *node {
+func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, wildcardKey string, isWildcard bool, path string) *node {
 	n := &node{
-		path:        path,
+		key:         key,
 		childKeys:   childKeys,
 		children:    children,
 		handler:     handler,
 		wildcard:    isWildcard,
 		wildcardKey: wildcardKey,
-		fullPath:    path,
+		path:        path,
 	}
 	if isWildcard {
-		n.fullPath += "*" + wildcardKey
+		n.path += "*" + wildcardKey
 	}
-
 	return n
 }
 
@@ -138,7 +137,7 @@ func (n *node) getEdgesShallowCopy() []*node {
 }
 
 func (n *node) updateEdge(node *node) {
-	id := binarySearch(n.childKeys, node.path[0])
+	id := binarySearch(n.childKeys, node.key[0])
 	if id < 0 {
 		panic("internal error: cannot update the edge with this node")
 	}
@@ -167,7 +166,7 @@ func (n *node) string(space int) string {
 	} else {
 		sb.WriteString("path: ")
 	}
-	sb.WriteString(n.path)
+	sb.WriteString(n.key)
 	if n.isLeaf() {
 		sb.WriteString(" (leaf")
 		if n.wildcard {

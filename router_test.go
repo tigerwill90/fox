@@ -402,7 +402,7 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 				{path: "/foo/baz", wildcard: false, wantErr: nil, wantMatch: nil},
 				{path: "/foo/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar", "/foo/baz"}},
 				{path: "/foo/bar/baz/", wildcard: true, wantErr: nil},
-				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*"}},
+				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*args"}},
 			},
 		},
 		{
@@ -414,9 +414,9 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 				wantMatch []string
 			}{
 				{path: "/foo/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*"}},
+				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*args"}},
 				{path: "/fuzz/baz/bar/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*"}},
+				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*args"}},
 			},
 		},
 		{
@@ -441,7 +441,7 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				err := r.insert(http.MethodGet, rte.path, "", h, rte.wildcard)
+				err := r.insert(http.MethodGet, rte.path, "args", h, rte.wildcard)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*ConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.matching)
