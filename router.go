@@ -10,19 +10,20 @@ import (
 )
 
 const (
-	ParamRouteKey = "$etf1/mux"
+	ParamRouteKey = "$fox/path"
 )
 
 var (
-	commonVerbs = [...]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
+	verb        = 4
+	commonVerbs = [4]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 )
 
 var (
 	ErrRouteNotFound = errors.New("route not found")
 	ErrRouteExist    = errors.New("route already registered")
 	ErrRouteConflict = errors.New("route conflict")
-	ErrInvalidMethod = errors.New("invalid method")
 	ErrInvalidRoute  = errors.New("invalid route")
+	ErrSkipMethod    = errors.New("skip method")
 )
 
 type Handler interface {
@@ -58,19 +59,19 @@ type Router struct {
 
 	mu sync.Mutex
 
-	trees *atomic.Pointer[[]*rootNode]
+	trees *atomic.Pointer[[]*node]
 }
 
 var _ http.Handler = (*Router)(nil)
 
 func New() *Router {
-	var ptr atomic.Pointer[[]*rootNode]
+	var ptr atomic.Pointer[[]*node]
 	// Pre instantiate nodes for common http verb
-	nds := make([]*rootNode, len(commonVerbs))
+	nds := make([]*node, len(commonVerbs))
 	for i := range commonVerbs {
-		nds[i] = new(rootNode)
+		nds[i] = new(node)
 		nds[i].method = commonVerbs[i]
-		nds[i].Store(&node{isRoot: true})
+		nds[i].isRoot = true
 	}
 	ptr.Store(&nds)
 
@@ -81,22 +82,22 @@ func New() *Router {
 
 // Get is a shortcut for Handler(http.MethodGet, path, handler)
 func (fox *Router) Get(path string, handler Handler) error {
-	return fox.addRoute(mustIndexOfMethod(http.MethodGet), path, handler)
+	return fox.addRoute(http.MethodGet, path, handler)
 }
 
 // Post is a shortcut for Handler(http.MethodPost, path, handler)
 func (fox *Router) Post(path string, handler Handler) error {
-	return fox.addRoute(mustIndexOfMethod(http.MethodPost), path, handler)
+	return fox.addRoute(http.MethodPost, path, handler)
 }
 
 // Put is a shortcut for Handler(http.MethodPut, path, handler)
 func (fox *Router) Put(path string, handler Handler) error {
-	return fox.addRoute(mustIndexOfMethod(http.MethodPut), path, handler)
+	return fox.addRoute(http.MethodPut, path, handler)
 }
 
 // Delete is a shortcut for Handler(http.MethodDelete, path, handler)
 func (fox *Router) Delete(path string, handler Handler) error {
-	return fox.addRoute(mustIndexOfMethod(http.MethodDelete), path, handler)
+	return fox.addRoute(http.MethodDelete, path, handler)
 }
 
 // Handler registers a new http.Handler for the given method and path. If the route is already registered,
@@ -104,11 +105,7 @@ func (fox *Router) Delete(path string, handler Handler) error {
 // This function is safe for concurrent use by multiple goroutine.
 // To override an existing route, use Update method.
 func (fox *Router) Handler(method, path string, handler Handler) error {
-	idx := indexOfMethod(method)
-	if idx < 0 {
-		return ErrInvalidMethod
-	}
-	return fox.addRoute(idx, path, handler)
+	return fox.addRoute(method, path, handler)
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
@@ -116,11 +113,6 @@ func (fox *Router) Handler(method, path string, handler Handler) error {
 // is started. This function is safe for concurrent use by multiple goroutine.
 // To add new handler, use Handler method.
 func (fox *Router) Update(method, path string, handler Handler) error {
-	idx := indexOfMethod(method)
-	if idx < 0 {
-		return ErrInvalidMethod
-	}
-
 	end, isWildcard, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -133,15 +125,10 @@ func (fox *Router) Update(method, path string, handler Handler) error {
 	fox.mu.Lock()
 	defer fox.mu.Unlock()
 
-	return fox.update(idx, path[:end], wildcardKey, handler, isWildcard)
+	return fox.update(method, path[:end], wildcardKey, handler, isWildcard)
 }
 
 func (fox *Router) Upsert(method, path string, handler Handler) error {
-	idx := indexOfMethod(method)
-	if idx < 0 {
-		return ErrInvalidMethod
-	}
-
 	end, isWildcard, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -156,8 +143,8 @@ func (fox *Router) Upsert(method, path string, handler Handler) error {
 		updateMaxParams(1)
 	}
 
-	if err = fox.insert(idx, path[:end], wildcardKey, handler, isWildcard); errors.Is(err, ErrRouteExist) {
-		return fox.update(idx, path[:end], wildcardKey, handler, isWildcard)
+	if err = fox.insert(method, path[:end], wildcardKey, handler, isWildcard); errors.Is(err, ErrRouteExist) {
+		return fox.update(method, path[:end], wildcardKey, handler, isWildcard)
 	}
 	return err
 }
@@ -166,17 +153,15 @@ func (fox *Router) Upsert(method, path string, handler Handler) error {
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler once the server is started. This
 // function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Remove(method, path string) error {
-	idx := indexOfMethod(method)
-	if idx < 0 {
-		return fmt.Errorf("%s method is not supported: %w", method, ErrInvalidMethod)
-	}
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 
 	end, _, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	if !fox.remove(mustIndexOfMethod(method), path[:end]) {
+	if !fox.remove(method, path[:end]) {
 		return ErrRouteNotFound
 	}
 	return nil
@@ -184,19 +169,22 @@ func (fox *Router) Remove(method, path string) error {
 
 // Lookup allow to do  manual lookup of a route. Params passed in callback, are only valid within the callback.
 // This function is safe for concurrent use by multiple goroutine.
-func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) error {
-	idx := indexOfMethod(method)
-	if idx < 0 {
-		return fmt.Errorf("%s method is not supported: %w", method, ErrInvalidMethod)
+func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) {
+	nds := *fox.trees.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		fn(nil, nil, false)
+		return
 	}
-	n, params, tsr := fox.lookup(idx, path, false)
+
+	n, params, tsr := fox.lookup(nds[index], path, false)
 	if n != nil {
 		fn(n.handler, *params, tsr)
 	} else {
 		fn(nil, nil, tsr)
 	}
 	params.free()
-	return nil
+	return
 }
 
 type Route struct {
@@ -222,25 +210,24 @@ func (r Route) String() string {
 
 type WalkFunc func(r Route, handler Handler) error
 
-var ErrSkipMethod = errors.New("skip method")
-
 // WalkRoute allow to walk over all registered route in lexicographical order. This function is safe for
 // concurrent use by multiple goroutine.
 func (fox *Router) WalkRoute(fn WalkFunc) error {
-	ndsPtr := fox.trees.Load()
-METHODS:
-	for i := range *ndsPtr {
-		it := newIterator(fox.getRoot(i))
+	nds := *fox.trees.Load()
+NEXT:
+	for i := range nds {
+		method := nds[i].method
+		it := newIterator(nds[i])
 		for it.hasNextLeaf() {
 			err := fn(Route{
-				Method:      commonVerbs[i],
+				Method:      method,
 				Path:        it.fullPath(),
 				WildcardKey: it.node().wildcardKey,
 				isCatchAll:  it.node().wildcard,
 			}, it.node().handler)
 			if err != nil {
 				if errors.Is(err, ErrSkipMethod) {
-					continue METHODS
+					continue NEXT
 				}
 				return err
 			}
@@ -255,18 +242,21 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer fox.recover(w, r)
 	}
 
-	idx := fox.indexOfMethod(r.Method)
-	if idx < 0 {
-		if fox.MethodNotAllowed != nil {
-			fox.MethodNotAllowed.ServeHTTP(w, r)
-			return
-		}
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return
-	}
+	var (
+		n      *node
+		params *Params
+		tsr    bool
+	)
 
 	path := r.URL.Path
-	n, params, tsr := fox.lookup(idx, path, false)
+
+	nds := *fox.trees.Load()
+	index := findRootNode(r.Method, nds)
+	if index < 0 {
+		goto NO_METHOD_FALLBACK
+	}
+
+	n, params, tsr = fox.lookup(nds[index], path, false)
 	if n != nil {
 		if params != nil {
 			n.handler.ServeHTTP(w, r, *params)
@@ -293,7 +283,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.RedirectFixedPath {
 			cleanedPath := CleanPath(path)
-			n, _, tsr := fox.lookup(idx, cleanedPath, true)
+			n, _, tsr := fox.lookup(nds[index], cleanedPath, true)
 			if n != nil {
 				r.URL.Path = cleanedPath
 				http.Redirect(w, r, r.URL.String(), code)
@@ -308,15 +298,16 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	}
 
+NO_METHOD_FALLBACK:
 	if fox.HandleMethodNotAllowed {
 		var sb strings.Builder
-		for i := 0; i < len(commonVerbs); i++ {
-			if i != idx {
-				if n, _, _ := fox.lookup(i, path, true); n != nil {
+		for i := 0; i < len(nds); i++ {
+			if nds[i].method != r.Method {
+				if n, _, _ := fox.lookup(nds[i], path, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(commonVerbs[i])
+					sb.WriteString(nds[i].method)
 				}
 			}
 		}
@@ -339,7 +330,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (fox *Router) addRoute(idx int, path string, handler Handler) error {
+func (fox *Router) addRoute(method, path string, handler Handler) error {
 	end, isWildcard, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -354,22 +345,25 @@ func (fox *Router) addRoute(idx int, path string, handler Handler) error {
 		updateMaxParams(1)
 	}
 
-	return fox.insert(idx, path[:end], wildcardKey, handler, isWildcard)
+	return fox.insert(method, path[:end], wildcardKey, handler, isWildcard)
 }
 
 func (fox *Router) recover(w http.ResponseWriter, r *http.Request) {
 	if val := recover(); val != nil {
+		if abortErr, ok := val.(error); ok && errors.Is(abortErr, http.ErrAbortHandler) {
+			panic(abortErr)
+		}
 		fox.PanicHandler(w, r, val)
 	}
 }
 
-func (fox *Router) lookup(index int, path string, lazy bool) (n *node, params *Params, tsr bool) {
+func (fox *Router) lookup(rootNode *node, path string, lazy bool) (n *node, params *Params, tsr bool) {
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
 	)
 
-	current := fox.getRoot(index)
+	current := rootNode
 STOP:
 	for charsMatched < len(path) {
 		next := current.getEdge(path[charsMatched])
@@ -438,46 +432,60 @@ STOP:
 	return nil, params, false
 }
 
-// getRoot is safe for concurrent use
-func (fox *Router) getRoot(index int) *node {
-	ndsPtrs := *fox.trees.Load()
-	// ptrsTree := *(*[]*unsafe.Pointer)(atomic.LoadPointer(mux.trees2))
-	return ndsPtrs[index].Load()
-}
-
 // updateRoot is not safe for concurrent use.
-func (fox *Router) updateRoot(index int, n *node) {
-	trees := *fox.trees.Load()
-	trees[index].Store(n)
+func (fox *Router) updateRoot(n *node) bool {
+	nds := *fox.trees.Load()
+	index := findRootNode(n.method, nds)
+	if index < 0 {
+		return false
+	}
+	newNds := make([]*node, 0, len(nds))
+	newNds = append(newNds, nds[:index]...)
+	newNds = append(newNds, n)
+	newNds = append(newNds, nds[index+1:]...)
+	fox.trees.Store(&newNds)
+	return true
 }
 
 // addRoot is not safe for concurrent use.
-func (fox *Router) addRoot(n *rootNode) {
-	oldNds := *fox.trees.Load()
-	newNds := make([]*rootNode, 0, len(oldNds)+1)
-	newNds = append(newNds, oldNds...)
+func (fox *Router) addRoot(n *node) {
+	nds := *fox.trees.Load()
+	newNds := make([]*node, 0, len(nds)+1)
+	newNds = append(newNds, nds...)
 	newNds = append(newNds, n)
 	fox.trees.Store(&newNds)
 }
 
 // removeRoot is not safe for concurrent use.
-func (fox *Router) removeRoot(index int) {
-	oldNds := *fox.trees.Load()
-	newNds := make([]*rootNode, 0, len(oldNds)-1)
-	newNds = append(newNds, oldNds[:index]...)
-	newNds = append(newNds, oldNds[index+1:]...)
+func (fox *Router) removeRoot(method string) bool {
+	nds := *fox.trees.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return false
+	}
+	newNds := make([]*node, 0, len(nds)-1)
+	newNds = append(newNds, nds[:index]...)
+	newNds = append(newNds, nds[index+1:]...)
 	fox.trees.Store(&newNds)
+	return true
 }
 
-func (fox *Router) update(index int, path, wildcardKey string, handler Handler, isWildcard bool) error {
+func (fox *Router) update(method string, path, wildcardKey string, handler Handler, isWildcard bool) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	result := fox.search(index, path)
+
+	nds := *fox.trees.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return fmt.Errorf("route /%s %s is not registered: %w", method, path, ErrRouteNotFound)
+	}
+
+	result := fox.search(nds[index], path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
-		return fmt.Errorf("route /%s %s is not registered: %w", commonVerbs[index], path, ErrRouteNotFound)
+		return fmt.Errorf("route /%s %s is not registered: %w", method, path, ErrRouteNotFound)
 	}
 
 	if isWildcard && len(result.matched.children) > 0 {
-		return newConflictErr(index, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched)[1:], isWildcard)
+		return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched)[1:], isWildcard)
 	}
 
 	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
@@ -487,9 +495,19 @@ func (fox *Router) update(index int, path, wildcardKey string, handler Handler, 
 	return nil
 }
 
-func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, isWildcard bool) error {
+func (fox *Router) insert(method, path, wildcardKey string, handler Handler, isWildcard bool) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	result := fox.search(index, path)
+	var root *node
+	nds := *fox.trees.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		root = &node{isRoot: true, method: method}
+		fox.addRoot(root)
+	} else {
+		root = nds[index]
+	}
+
+	result := fox.search(root, path)
 	switch result.classify() {
 	case exactMatch:
 		// e.g. matched exactly "te" node when inserting "te" key.
@@ -498,12 +516,12 @@ func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, 
 		// └── am
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
-			return fmt.Errorf("route /%s %s is already registered: %w", commonVerbs[index], path, ErrRouteExist)
+			return fmt.Errorf("route /%s %s is already registered: %w", method, path, ErrRouteExist)
 		}
 
 		// The matched node can only be the result of a previous split and therefore has children.
 		if isWildcard {
-			return newConflictErr(index, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), isWildcard)
+			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), isWildcard)
 		}
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
@@ -527,7 +545,7 @@ func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, 
 		//    char remain the same).
 
 		if isWildcard {
-			return newConflictErr(index, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), isWildcard)
+			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), isWildcard)
 		}
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
@@ -554,7 +572,7 @@ func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, 
 		// 3. Update the "te" (parent) node to the new "st" node.
 
 		if result.matched.wildcard {
-			return newConflictErr(index, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), isWildcard)
+			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), isWildcard)
 		}
 
 		keySuffix := path[result.charsMatched:]
@@ -562,9 +580,10 @@ func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, 
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(result.matched.path, result.matched.handler, edges, result.matched.wildcardKey, result.matched.wildcard)
-		if result.matched == fox.getRoot(index) {
+		if result.matched == root {
 			n.isRoot = true
-			fox.updateRoot(index, n)
+			n.method = method
+			fox.updateRoot(n)
 			break
 		}
 		result.p.updateEdge(n)
@@ -604,10 +623,15 @@ func (fox *Router) insert(index int, path, wildcardKey string, handler Handler, 
 	return nil
 }
 
-func (fox *Router) remove(index int, path string) bool {
-	fox.mu.Lock()
-	defer fox.mu.Unlock()
-	result := fox.search(index, path)
+func (fox *Router) remove(method, path string) bool {
+
+	nds := *fox.trees.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return false
+	}
+
+	result := fox.search(nds[index], path)
 	if result.classify() != exactMatch {
 		return false
 	}
@@ -643,7 +667,7 @@ func (fox *Router) remove(index int, path string) bool {
 		}
 	}
 
-	parentIsRoot := result.p == fox.getRoot(index)
+	parentIsRoot := result.p == nds[index]
 	var parent *node
 	if len(parentEdges) == 1 && !result.p.isLeaf() && !parentIsRoot {
 		child := parentEdges[0]
@@ -652,9 +676,14 @@ func (fox *Router) remove(index int, path string) bool {
 	} else {
 		parent = newNode(result.p.path, result.p.handler, parentEdges, result.p.wildcardKey, result.p.wildcard)
 	}
+
 	if parentIsRoot {
+		if len(parent.children) == 0 && isRemovable(method) {
+			return fox.removeRoot(method)
+		}
 		parent.isRoot = true
-		fox.updateRoot(index, parent)
+		parent.method = method
+		fox.updateRoot(parent)
 		return true
 	}
 
@@ -662,8 +691,9 @@ func (fox *Router) remove(index int, path string) bool {
 	return true
 }
 
-func (fox *Router) search(index int, path string) searchResult {
-	current := fox.getRoot(index)
+func (fox *Router) search(rootNode *node, path string) searchResult {
+	current := rootNode
+
 	var (
 		pp                      *node
 		p                       *node
@@ -779,10 +809,7 @@ func commonPrefix(k1, k2 string) string {
 	return k1[:minLength]
 }
 
-// indexOfMethod return the index of the corresponding root node for a http method or -1.
-// In order to increase speed for common http method, GET, POST, PUT and DELETE nodes are always
-// created at the same position.
-func (fox *Router) indexOfMethod(method string) int {
+func findRootNode(method string, nodes []*node) int {
 	switch method {
 	case http.MethodGet:
 		return 0
@@ -794,55 +821,12 @@ func (fox *Router) indexOfMethod(method string) int {
 		return 3
 	}
 
-	nds := *fox.trees.Load()
-	for i, nd := range nds[4:] {
+	for i, nd := range nodes[verb:] {
 		if nd.method == method {
-			return i
+			return i + verb
 		}
 	}
 	return -1
-}
-
-// indexOfMethod return the index of the corresponding root node for a http method or -1.
-// Yes this is ugly, but it's at least 10x - 20x faster than a map or a for loop to retrieve the root
-// node. Note that since the tree array is immutable, we are forced to create an empty root node
-// for each method even if there is no route registered.
-func indexOfMethod(method string) int {
-	switch method {
-	case http.MethodGet:
-		return 0
-	case http.MethodPost:
-		return 1
-	case http.MethodPut:
-		return 2
-	case http.MethodDelete:
-		return 3
-	case http.MethodPatch:
-		return 4
-	case http.MethodConnect:
-		return 5
-	case http.MethodOptions:
-		return 6
-	case http.MethodHead:
-		return 7
-	case http.MethodTrace:
-		return 8
-	default:
-		for i := 9; i < len(commonVerbs); i++ {
-			if method == commonVerbs[i] {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func mustIndexOfMethod(method string) int {
-	idx := indexOfMethod(method)
-	if idx < 0 {
-		panic(fmt.Sprintf("internal error: unsupported %s method", method))
-	}
-	return idx
 }
 
 func parseRoute(path string) (end int, isWildcard bool, err error) {
@@ -887,4 +871,13 @@ func getRouteConflict(basePath string, n *node) []string {
 		routes = append(routes, basePath+path)
 	}
 	return routes
+}
+
+func isRemovable(method string) bool {
+	for _, verb := range commonVerbs {
+		if verb == method {
+			return false
+		}
+	}
+	return true
 }

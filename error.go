@@ -10,9 +10,9 @@ type ConflictError struct {
 	err        error
 }
 
-func newConflictErr(methodIdx int, path string, matching []string, isWildcard bool) *ConflictError {
+func newConflictErr(method, path string, matching []string, isWildcard bool) *ConflictError {
 	return &ConflictError{
-		method:     commonVerbs[methodIdx],
+		method:     method,
 		path:       path,
 		matching:   matching,
 		isWildcard: isWildcard,

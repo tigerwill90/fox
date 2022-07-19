@@ -441,7 +441,7 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				err := r.insert(mustIndexOfMethod(http.MethodGet), rte.path, "", h, rte.wildcard)
+				err := r.insert(http.MethodGet, rte.path, "", h, rte.wildcard)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*ConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.matching)
@@ -506,9 +506,9 @@ func TestMuxRouterSwapWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				require.NoError(t, r.insert(mustIndexOfMethod(http.MethodGet), rte.path, "", h, rte.wildcard))
+				require.NoError(t, r.insert(http.MethodGet, rte.path, "", h, rte.wildcard))
 			}
-			err := r.update(mustIndexOfMethod(http.MethodGet), tc.path, "", h, true)
+			err := r.update(http.MethodGet, tc.path, "", h, true)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if cErr, ok := err.(*ConflictError); ok {
 				assert.Equal(t, tc.wantMatch, cErr.matching)
@@ -727,8 +727,9 @@ func TestMuxLookupTsr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
-			require.NoError(t, r.insert(mustIndexOfMethod(http.MethodGet), tc.path, "", h, false))
-			_, _, got := r.lookup(mustIndexOfMethod(http.MethodGet), tc.key, true)
+			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h, false))
+			nds := *r.trees.Load()
+			_, _, got := r.lookup(nds[0], tc.key, true)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -942,6 +943,32 @@ func TestRouterPanicHandler(t *testing.T) {
 	assert.Equal(t, errMsg, w.Body.String())
 }
 
+func TestRouterAbortHandler(t *testing.T) {
+	r := New()
+	r.PanicHandler = func(w http.ResponseWriter, r *http.Request, i interface{}) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(i.(error).Error()))
+	}
+	const errMsg = "unexpected error"
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {
+		func() { panic(http.ErrAbortHandler) }()
+		w.Write([]byte("foo"))
+	})
+
+	require.NoError(t, r.Post("/", h))
+	req, _ := http.NewRequest(http.MethodPost, "/", nil)
+	w := httptest.NewRecorder()
+
+	defer func() {
+		val := recover()
+		require.NotNil(t, val)
+		err := val.(error)
+		require.NotNil(t, err)
+		assert.ErrorIs(t, err, http.ErrAbortHandler)
+	}()
+	r.ServeHTTP(w, req)
+}
+
 func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	f := fuzz.New().NilChance(0).NumElements(1000, 2000)
 	r := New()
@@ -951,7 +978,7 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := r.insert(mustIndexOfMethod(http.MethodGet), "/"+rte, "", h, false)
+		err := r.insert(http.MethodGet, "/"+rte, "", h, false)
 		require.NoError(t, err)
 	}
 
@@ -963,13 +990,14 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	assert.Equal(t, len(routes), countPath)
 
 	for rte := range routes {
-		n, _, _ := r.lookup(mustIndexOfMethod(http.MethodGet), "/"+rte, true)
+		nds := *r.trees.Load()
+		n, _, _ := r.lookup(nds[0], "/"+rte, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 	}
 
 	for rte := range routes {
-		deleted := r.remove(mustIndexOfMethod(http.MethodGet), "/"+rte)
+		deleted := r.remove(http.MethodGet, "/"+rte)
 		require.True(t, deleted)
 	}
 
@@ -1033,7 +1061,7 @@ func TestFuzzServeHTTPNoPanic(t *testing.T) {
 
 	assert.NotPanics(t, func() {
 		for rte := range routes {
-			err := r.insert(mustIndexOfMethod(http.MethodGet), "/"+rte, "", h, false)
+			err := r.insert(http.MethodGet, "/"+rte, "", h, false)
 			require.NoError(t, err)
 		}
 

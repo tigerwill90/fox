@@ -29,13 +29,9 @@ type node struct {
 	handler Handler
 
 	isRoot   bool
+	method   string
 	wildcard bool
 	fullPath string
-}
-
-type rootNode struct {
-	method string
-	atomic.Pointer[node]
 }
 
 func newNode(path string, handler Handler, children []*node, wildcardKey string, isWildcard bool) *node {
@@ -164,7 +160,10 @@ func (n *node) string(space int) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
 	if n.isRoot {
-		sb.WriteString("root: ")
+		sb.WriteString("root:")
+		sb.WriteByte('(')
+		sb.WriteString(n.method)
+		sb.WriteByte(')')
 	} else {
 		sb.WriteString("path: ")
 	}
