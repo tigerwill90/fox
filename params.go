@@ -22,10 +22,10 @@ type Param struct {
 
 type Params []Param
 
-func (p Params) Get(name string) string {
-	for i := range p {
-		if p[i].Key == name {
-			return p[i].Value
+func (p *Params) Get(name string) string {
+	for i := range *p {
+		if (*p)[i].Key == name {
+			return (*p)[i].Value
 		}
 	}
 	return ""

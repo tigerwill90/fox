@@ -40,12 +40,11 @@ type node struct {
 	// The full path when it's a leaf node
 	path string
 
-	isRoot   bool
-	method   string
-	wildcard bool
+	method string
+	nType  nodeType
 }
 
-func newNode(key string, handler Handler, children []*node, wildcardKey string, isWildcard bool, path string) *node {
+func newNode(key string, handler Handler, children []*node, wildcardKey string, nType nodeType, path string) *node {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].key < children[j].key
 	})
@@ -57,20 +56,20 @@ func newNode(key string, handler Handler, children []*node, wildcardKey string, 
 		nds[i].Store(children[i])
 	}
 
-	return newNodeFromRef(key, handler, nds, childKeys, wildcardKey, isWildcard, path)
+	return newNodeFromRef(key, handler, nds, childKeys, wildcardKey, nType, path)
 }
 
-func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, wildcardKey string, isWildcard bool, path string) *node {
+func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, wildcardKey string, nType nodeType, path string) *node {
 	n := &node{
 		key:         key,
 		childKeys:   childKeys,
 		children:    children,
 		handler:     handler,
-		wildcard:    isWildcard,
+		nType:       nType,
 		wildcardKey: wildcardKey,
 		path:        path,
 	}
-	if isWildcard {
+	if nType == catchAll {
 		n.path += "*" + wildcardKey
 	}
 	return n
@@ -169,7 +168,7 @@ func (n *node) String() string {
 func (n *node) string(space int) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
-	if n.isRoot {
+	if n.nType == root {
 		sb.WriteString("root:")
 		sb.WriteByte('(')
 		sb.WriteString(n.method)
@@ -180,7 +179,7 @@ func (n *node) string(space int) string {
 	sb.WriteString(n.key)
 	if n.isLeaf() {
 		sb.WriteString(" (leaf")
-		if n.wildcard {
+		if n.nType == catchAll {
 			sb.WriteString(" & wildcard")
 		}
 		sb.WriteString(")")

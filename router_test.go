@@ -451,7 +451,12 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				err := r.insert(http.MethodGet, rte.path, "args", h, rte.wildcard)
+				// TODO make a refacto of TC
+				nType := static
+				if rte.wildcard {
+					nType = catchAll
+				}
+				err := r.insert(http.MethodGet, rte.path, "args", h, nType)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*ConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.matching)
@@ -516,9 +521,13 @@ func TestMuxRouterSwapWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				require.NoError(t, r.insert(http.MethodGet, rte.path, "", h, rte.wildcard))
+				nType := static
+				if rte.wildcard {
+					nType = catchAll
+				}
+				require.NoError(t, r.insert(http.MethodGet, rte.path, "", h, nType))
 			}
-			err := r.update(http.MethodGet, tc.path, "", h, true)
+			err := r.update(http.MethodGet, tc.path, "", h, catchAll)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if cErr, ok := err.(*ConflictError); ok {
 				assert.Equal(t, tc.wantMatch, cErr.matching)
@@ -639,43 +648,49 @@ func TestMuxRouterParseRoute(t *testing.T) {
 		path         string
 		wantErr      error
 		wantRoute    string
-		wantWildcard bool
+		wantNodeType nodeType
 	}{
 		{
-			name:      "valid static route",
-			path:      "/foo/bar",
-			wantRoute: "/foo/bar",
+			name:         "valid static route",
+			path:         "/foo/bar",
+			wantRoute:    "/foo/bar",
+			wantNodeType: static,
 		},
 		{
 			name:         "valid wildcard route",
 			path:         "/foo/bar/*arg",
 			wantRoute:    "/foo/bar/",
-			wantWildcard: true,
+			wantNodeType: catchAll,
 		},
 		{
-			name:    "missing prefix slash",
-			path:    "foo/bar",
-			wantErr: ErrInvalidRoute,
+			name:         "missing prefix slash",
+			path:         "foo/bar",
+			wantErr:      ErrInvalidRoute,
+			wantNodeType: static,
 		},
 		{
-			name:    "missing slash before wildcard",
-			path:    "/foo/bar*",
-			wantErr: ErrInvalidRoute,
+			name:         "missing slash before wildcard",
+			path:         "/foo/bar*",
+			wantErr:      ErrInvalidRoute,
+			wantNodeType: static,
 		},
 		{
-			name:    "missing arguments name after wildcard",
-			path:    "/foo/bar/*",
-			wantErr: ErrInvalidRoute,
+			name:         "missing arguments name after wildcard",
+			path:         "/foo/bar/*",
+			wantErr:      ErrInvalidRoute,
+			wantNodeType: static,
 		},
 		{
-			name:    "catch all in the middle of the route",
-			path:    "/foo/bar/*/baz",
-			wantErr: ErrInvalidRoute,
+			name:         "catch all in the middle of the route",
+			path:         "/foo/bar/*/baz",
+			wantErr:      ErrInvalidRoute,
+			wantNodeType: static,
 		},
 		{
-			name:    "catch all with args in the middle of the route",
-			path:    "/foo/bar/*args/baz",
-			wantErr: ErrInvalidRoute,
+			name:         "catch all with args in the middle of the route",
+			path:         "/foo/bar/*args/baz",
+			wantErr:      ErrInvalidRoute,
+			wantNodeType: static,
 		},
 	}
 
@@ -685,7 +700,7 @@ func TestMuxRouterParseRoute(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 			if err == nil {
 				assert.Equal(t, tc.wantRoute, tc.path[:idx])
-				assert.Equal(t, tc.wantWildcard, wildcard)
+				assert.Equal(t, tc.wantNodeType, wildcard)
 			}
 		})
 	}
@@ -737,7 +752,7 @@ func TestMuxLookupTsr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
-			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h, false))
+			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h, static))
 			nds := *r.trees.Load()
 			_, _, got := r.lookup(nds[0], tc.key, true)
 			assert.Equal(t, tc.want, got)
@@ -988,7 +1003,7 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := r.insert(http.MethodGet, "/"+rte, "", h, false)
+		err := r.insert(http.MethodGet, "/"+rte, "", h, static)
 		require.NoError(t, err)
 	}
 
@@ -1071,7 +1086,7 @@ func TestFuzzServeHTTPNoPanic(t *testing.T) {
 
 	assert.NotPanics(t, func() {
 		for rte := range routes {
-			err := r.insert(http.MethodGet, "/"+rte, "", h, false)
+			err := r.insert(http.MethodGet, "/"+rte, "", h, static)
 			require.NoError(t, err)
 		}
 
