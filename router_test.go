@@ -2,8 +2,10 @@ package fox
 
 import (
 	"fmt"
+	"github.com/bmizerany/pat"
 	"github.com/gin-gonic/gin"
 	fuzz "github.com/google/gofuzz"
+	"github.com/gorilla/mux"
 	"github.com/julienschmidt/httprouter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,8 +200,8 @@ var staticRoutes = []route{
 
 func TestHttpRouterIntrospection(t *testing.T) {
 	r := httprouter.New()
-	r.GET("/a/:b/c/d/:e", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
-	r.GET("/e/:f/g", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
+	r.GET("/a/:b/c/x", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
+	r.GET("/a/b/c", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
 	fmt.Println()
 }
 
@@ -261,6 +263,30 @@ func BenchmarkGinRouter(b *testing.B) {
 	r := gin.New()
 	for _, route := range staticRoutes {
 		r.GET(route.path, func(context *gin.Context) {})
+	}
+	benchRoutes(b, r, staticRoutes)
+}
+
+func BenchmarkStdRouter(b *testing.B) {
+	r := http.NewServeMux()
+	for _, route := range staticRoutes {
+		r.HandleFunc(route.path, func(writer http.ResponseWriter, request *http.Request) {})
+	}
+	benchRoutes(b, r, staticRoutes)
+}
+
+func BenchmarkGorillaMuxRouter(b *testing.B) {
+	r := mux.NewRouter()
+	for _, route := range staticRoutes {
+		r.HandleFunc(route.path, func(writer http.ResponseWriter, request *http.Request) {}).Methods(http.MethodGet)
+	}
+	benchRoutes(b, r, staticRoutes)
+}
+
+func BenchmarkPatRouter(b *testing.B) {
+	r := pat.New()
+	for _, route := range staticRoutes {
+		r.Get(route.path, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {}))
 	}
 	benchRoutes(b, r, staticRoutes)
 }

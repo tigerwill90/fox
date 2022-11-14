@@ -24,7 +24,11 @@ type node struct {
 	// tree without the extra cost of atomic load operation.
 	childKeys []byte
 
-	// Wildcard key registered retrieve this node parameter.
+	// Indicate whether its child node is a wildcard node type. If true, len(children) == 0.
+	// Once assigned, wildChild is immutable.
+	wildChild bool
+
+	// Wildcard key registered to retrieve this node parameter.
 	// Once assigned, wildcardKey is immutable.
 	wildcardKey string
 

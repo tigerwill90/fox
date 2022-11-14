@@ -60,7 +60,8 @@ type Router struct {
 
 	mu sync.Mutex
 
-	trees *atomic.Pointer[[]*node]
+	// TODO may remove the pointer here
+	trees atomic.Pointer[[]*node]
 }
 
 var _ http.Handler = (*Router)(nil)
@@ -77,7 +78,7 @@ func New() *Router {
 	ptr.Store(&nds)
 
 	return &Router{
-		trees: &ptr,
+		trees: ptr,
 	}
 }
 
@@ -863,6 +864,7 @@ func parseRoute(path string) (end int, nType nodeType, err error) {
 	return len(path), static, nil
 }
 
+// todo remove basePath
 func getRouteConflict(basePath string, n *node) []string {
 	routes := make([]string, 0)
 	it := newIterator(n)
