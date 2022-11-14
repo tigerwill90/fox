@@ -6,6 +6,15 @@ import (
 	"sync/atomic"
 )
 
+type nodeType uint8
+
+const (
+	static nodeType = iota
+	root
+	param
+	catchAll
+)
+
 type node struct {
 	// key represent a segment of a route which share a common prefix with it parent.
 	key string
@@ -28,10 +37,12 @@ type node struct {
 	// Once assigned, handler is immutable.
 	handler Handler
 
+	// The full path when it's a leaf node
+	path string
+
 	isRoot   bool
 	method   string
 	wildcard bool
-	path     string
 }
 
 func newNode(key string, handler Handler, children []*node, wildcardKey string, isWildcard bool, path string) *node {

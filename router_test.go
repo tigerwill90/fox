@@ -1,15 +1,18 @@
 package fox
 
 import (
-	"net/http"
-	"net/http/httptest"
-	"testing"
-
+	"fmt"
 	"github.com/gin-gonic/gin"
 	fuzz "github.com/google/gofuzz"
 	"github.com/julienschmidt/httprouter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
 )
 
 type mockResponseWriter struct{}
@@ -193,6 +196,13 @@ var staticRoutes = []route{
 	{"GET", "/progs/update.bash"},
 }
 
+func TestHttpRouterIntrospection(t *testing.T) {
+	r := httprouter.New()
+	r.GET("/a/:b/c/d/:e", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
+	r.GET("/e/:f/g", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
+	fmt.Println()
+}
+
 func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 	w := new(mockResponseWriter)
 	r, _ := http.NewRequest("GET", "/", nil)
@@ -245,6 +255,16 @@ func BenchmarkHttpRouterRouter(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+// TODO remove this benchmark
+func BenchmarkGinRouter(b *testing.B) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	for _, route := range staticRoutes {
+		r.GET(route.path, func(context *gin.Context) {})
+	}
+	benchRoutes(b, r, staticRoutes)
+}
+
 // BenchmarkMuxRouterParallel-16    	143326886	         8.252 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkMuxRouterParallel(b *testing.B) {
 	r := New()
@@ -254,9 +274,34 @@ func BenchmarkMuxRouterParallel(b *testing.B) {
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }
 
+// TODO remove this benchmark
+func BenchmarkGinRouterParallel(b *testing.B) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	for _, route := range staticRoutes {
+		r.GET(route.path, func(context *gin.Context) {})
+	}
+	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
+}
+
 func BenchmarkRouterMuxCatchAll(b *testing.B) {
 	r := New()
 	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	w := new(mockResponseWriter)
+	req, _ := http.NewRequest("GET", "/something/awesome", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkGinRouterCatchAll(b *testing.B) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.GET("/something/*args", func(context *gin.Context) {})
 	w := new(mockResponseWriter)
 	req, _ := http.NewRequest("GET", "/something/awesome", nil)
 
@@ -282,41 +327,6 @@ func BenchmarkRouterMuxParallelCatchAll(b *testing.B) {
 			r.ServeHTTP(w, req)
 		}
 	})
-}
-
-// TODO remove this benchmark
-func BenchmarkGinRouter(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(context *gin.Context) {})
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-// TODO remove this benchmark
-func BenchmarkGinRouterParallel(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(context *gin.Context) {})
-	}
-	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
-}
-
-func BenchmarkGinRouterCatchAll(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.GET("/something/*args", func(context *gin.Context) {})
-	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/something/awesome", nil)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
 }
 
 func BenchmarkGinRouterParallelCatchAll(b *testing.B) {
@@ -1084,4 +1094,61 @@ func TestFuzzServeHTTPNoPanic(t *testing.T) {
 			assert.Equal(t, "/"+rte, w.Body.String())
 		}
 	})
+}
+
+func TestDataRace(t *testing.T) {
+	var wg sync.WaitGroup
+	start, wait := atomicSync()
+
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { fmt.Println("foo") })
+	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { fmt.Println("bar") })
+
+	r := New()
+
+	w := new(mockResponseWriter)
+
+	wg.Add(len(staticRoutes) * 3)
+
+	for _, rte := range staticRoutes {
+		go func(route string) {
+			wait()
+			assert.NoError(t, r.Get(route, h))
+			assert.NoError(t, r.Handler("PING", route, h))
+			wg.Done()
+		}(rte.path)
+
+		go func(route string) {
+			wait()
+			req, _ := http.NewRequest(http.MethodGet, route, nil)
+			r.ServeHTTP(w, req)
+			wg.Done()
+		}(rte.path)
+
+		go func(route string) {
+			wait()
+			r.Update(http.MethodGet, route, newH)
+			r.Update("PING", route, newH)
+			wg.Done()
+		}(rte.path)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	start()
+	wg.Wait()
+}
+
+func atomicSync() (start func(), wait func()) {
+	var n int32
+
+	start = func() {
+		atomic.StoreInt32(&n, 1)
+	}
+
+	wait = func() {
+		for atomic.LoadInt32(&n) != 1 {
+			time.Sleep(1 * time.Microsecond)
+		}
+	}
+
+	return
 }
