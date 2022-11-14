@@ -173,9 +173,6 @@ func (n *node) string(space int) string {
 	sb.WriteString(strings.Repeat(" ", space))
 	if n.nType == root {
 		sb.WriteString("root:")
-		sb.WriteByte('(')
-		sb.WriteString(n.key)
-		sb.WriteByte(')')
 	} else {
 		sb.WriteString("path: ")
 	}
