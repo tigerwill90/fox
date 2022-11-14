@@ -72,7 +72,7 @@ func New() *Router {
 	nds := make([]*node, len(commonVerbs))
 	for i := range commonVerbs {
 		nds[i] = new(node)
-		nds[i].method = commonVerbs[i]
+		nds[i].key = commonVerbs[i]
 		nds[i].nType = root
 	}
 	ptr.Store(&nds)
@@ -218,7 +218,7 @@ func (fox *Router) WalkRoute(fn WalkFunc) error {
 	nds := *fox.trees.Load()
 NEXT:
 	for i := range nds {
-		method := nds[i].method
+		method := nds[i].key
 		it := newIterator(nds[i])
 		for it.hasNextLeaf() {
 			err := fn(Route{
@@ -304,12 +304,12 @@ NO_METHOD_FALLBACK:
 	if fox.HandleMethodNotAllowed {
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
-			if nds[i].method != r.Method {
+			if nds[i].key != r.Method {
 				if n, _, _ := fox.lookup(nds[i], path, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(nds[i].method)
+					sb.WriteString(nds[i].key)
 				}
 			}
 		}
@@ -437,7 +437,7 @@ STOP:
 // updateRoot is not safe for concurrent use.
 func (fox *Router) updateRoot(n *node) bool {
 	nds := *fox.trees.Load()
-	index := findRootNode(n.method, nds)
+	index := findRootNode(n.key, nds)
 	if index < 0 {
 		return false
 	}
@@ -504,7 +504,7 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, nTy
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		rootNode = &node{nType: root, method: method}
+		rootNode = &node{nType: root, key: method}
 		fox.addRoot(rootNode)
 	} else {
 		rootNode = nds[index]
@@ -585,7 +585,7 @@ func (fox *Router) insert(method, path, wildcardKey string, handler Handler, nTy
 		n := newNode(result.matched.key, result.matched.handler, edges, result.matched.wildcardKey, result.matched.nType, result.matched.path)
 		if result.matched == rootNode {
 			n.nType = root
-			n.method = method
+			n.key = method
 			fox.updateRoot(n)
 			break
 		}
@@ -685,7 +685,7 @@ func (fox *Router) remove(method, path string) bool {
 			return fox.removeRoot(method)
 		}
 		parent.nType = root
-		parent.method = method
+		parent.key = method
 		fox.updateRoot(parent)
 		return true
 	}
@@ -757,7 +757,9 @@ func (r searchResult) classify() resultType {
 			return keyEndMidEdge
 		}
 	} else if r.charsMatched < len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.key) {
+		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
+		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
+		if r.charsMatchedInNodeFound == len(r.matched.key) || r.matched.nType == root {
 			return incompleteMatchToEndOfEdge
 		}
 		if r.charsMatchedInNodeFound < len(r.matched.key) {
@@ -768,18 +770,6 @@ func (r searchResult) classify() resultType {
 }
 func (r searchResult) isExactMatch() bool {
 	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
-}
-
-func (r searchResult) isIncompleteMatchToEndOfEdge() bool {
-	return r.charsMatched < len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
-}
-
-func (r searchResult) isKeyMidEdge() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
-}
-
-func (r *searchResult) isIncompleteMatchToMiddleOfEdge() bool {
-	return r.charsMatched < len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
 }
 
 func (c resultType) String() string {
@@ -826,7 +816,7 @@ func findRootNode(method string, nodes []*node) int {
 	}
 
 	for i, nd := range nodes[verb:] {
-		if nd.method == method {
+		if nd.key == method {
 			return i + verb
 		}
 	}

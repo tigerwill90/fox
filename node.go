@@ -44,8 +44,7 @@ type node struct {
 	// The full path when it's a leaf node
 	path string
 
-	method string
-	nType  nodeType
+	nType nodeType
 }
 
 func newNode(key string, handler Handler, children []*node, wildcardKey string, nType nodeType, path string) *node {
@@ -175,7 +174,7 @@ func (n *node) string(space int) string {
 	if n.nType == root {
 		sb.WriteString("root:")
 		sb.WriteByte('(')
-		sb.WriteString(n.method)
+		sb.WriteString(n.key)
 		sb.WriteByte(')')
 	} else {
 		sb.WriteString("path: ")

@@ -198,13 +198,6 @@ var staticRoutes = []route{
 	{"GET", "/progs/update.bash"},
 }
 
-func TestHttpRouterIntrospection(t *testing.T) {
-	r := httprouter.New()
-	r.GET("/a/:b/c/x", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
-	r.GET("/a/b/c", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
-	fmt.Println()
-}
-
 func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 	w := new(mockResponseWriter)
 	r, _ := http.NewRequest("GET", "/", nil)
