@@ -823,6 +823,38 @@ func findRootNode(method string, nodes []*node) int {
 	return -1
 }
 
+func pathVerify(path string) (int, error) {
+	if !strings.HasPrefix(path, "/") {
+		return -1, fmt.Errorf("path must start with '/': %w", ErrInvalidRoute)
+	}
+
+	var n int
+	p := []byte(path)
+	for i, c := range p {
+		if c != '*' && c != ':' {
+			continue
+		}
+
+		if p[i-1] != '/' {
+			return -1, fmt.Errorf("missing '/' before param/catch all route segment: %w", ErrInvalidRoute)
+		}
+
+		if i == len(p)-1 {
+			return -1, fmt.Errorf("missing argument name after wildcard/catch all operator: %w", ErrInvalidRoute)
+		}
+
+		if c == '*' {
+			for k := i + 1; k < len(path); k++ {
+				if path[k] == '/' {
+					return -1, fmt.Errorf("wildcard are supported only at the end of a route: %w", ErrInvalidRoute)
+				}
+			}
+		}
+		n++
+	}
+	return n, nil
+}
+
 func parseRoute(path string) (end int, nType nodeType, err error) {
 	if !strings.HasPrefix(path, "/") {
 		return -1, static, fmt.Errorf("path must start with '/': %w", ErrInvalidRoute)

@@ -661,6 +661,90 @@ func TestMuxRouterUpsert(t *testing.T) {
 
 }
 
+func TestPathVerify(t *testing.T) {
+	cases := []struct {
+		name    string
+		path    string
+		wantErr error
+		wantN   int
+	}{
+		{
+			name: "valid static route",
+			path: "/foo/bar",
+		},
+		{
+			name:  "valid catch all route",
+			path:  "/foo/bar/*arg",
+			wantN: 1,
+		},
+		{
+			name:  "valid param route",
+			path:  "/foo/bar/:baz",
+			wantN: 1,
+		},
+		{
+			name:  "valid multi params route",
+			path:  "/foo/:bar/:baz",
+			wantN: 2,
+		},
+		{
+			name:  "valid multi params and catch all route",
+			path:  "/foo/:bar/:baz/*arg",
+			wantN: 3,
+		},
+		{
+			name:    "missing prefix slash",
+			path:    "foo/bar",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "missing slash before catch all",
+			path:    "/foo/bar*",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "missing slash before param",
+			path:    "/foo/bar:",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "missing arguments name after catch all",
+			path:    "/foo/bar/*",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "missing arguments name after param",
+			path:    "/foo/bar/:",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "catch all in the middle of the route",
+			path:    "/foo/bar/*/baz",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "catch all with arg in the middle of the route",
+			path:    "/foo/bar/*arg/baz",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n, err := pathVerify(tc.path)
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Equal(t, tc.wantN, n)
+		})
+	}
+}
+
 func TestMuxRouterParseRoute(t *testing.T) {
 	cases := []struct {
 		name         string
