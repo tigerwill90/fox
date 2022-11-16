@@ -24,9 +24,9 @@ type node struct {
 	// tree without the extra cost of atomic load operation.
 	childKeys []byte
 
-	// Indicate whether its child node is a wildcard node type. If true, len(children) == 0.
-	// Once assigned, wildChild is immutable.
-	wildChild bool
+	// Indicate whether its child node is a param node type. If true, len(children) == 1.
+	// Once assigned, paramChild is immutable.
+	paramChild bool
 
 	// Wildcard key registered to retrieve this node parameter.
 	// Once assigned, wildcardKey is immutable.
@@ -84,7 +84,7 @@ func (n *node) isLeaf() bool {
 
 func (n *node) getEdge(s byte) *node {
 	if len(n.children) <= 4 {
-		id := iterativeSearch(n.childKeys, s)
+		id := linearSearch(n.childKeys, s)
 		if id < 0 {
 			return nil
 		}
@@ -97,11 +97,11 @@ func (n *node) getEdge(s byte) *node {
 	return n.children[id].Load()
 }
 
-// iterativeSearch return the index of s in keys or -1, using a simple loop.
+// linearSearch return the index of s in keys or -1, using a simple loop.
 // Although binary search is a more efficient search algorithm,
 // the small size of the child keys array (<= 4) means that the
 // constant factor will dominate (cf Adaptive Radix Tree algorithm).
-func iterativeSearch(keys []byte, s byte) int {
+func linearSearch(keys []byte, s byte) int {
 	for i := 0; i < len(keys); i++ {
 		if keys[i] == s {
 			return i
@@ -177,12 +177,20 @@ func (n *node) string(space int) string {
 		sb.WriteString("path: ")
 	}
 	sb.WriteString(n.key)
+	if n.paramChild {
+		sb.WriteString(" [paramChild]")
+	}
+
+	switch n.nType {
+	case catchAll:
+		sb.WriteString(" [catchAll]")
+	case param:
+		sb.WriteString(" [param]")
+	case static:
+		sb.WriteString(" [static]")
+	}
 	if n.isLeaf() {
-		sb.WriteString(" (leaf")
-		if n.nType == catchAll {
-			sb.WriteString(" & wildcard")
-		}
-		sb.WriteString(")")
+		sb.WriteString(" [leaf]")
 	}
 
 	sb.WriteByte('\n')

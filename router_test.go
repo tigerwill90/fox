@@ -661,21 +661,23 @@ func TestMuxRouterUpsert(t *testing.T) {
 
 }
 
-func TestPathVerify(t *testing.T) {
+func TestParseRoute(t *testing.T) {
 	cases := []struct {
-		name    string
-		path    string
-		wantErr error
-		wantN   int
+		name            string
+		path            string
+		wantErr         error
+		wantN           int
+		wantCatchAllKey string
 	}{
 		{
 			name: "valid static route",
 			path: "/foo/bar",
 		},
 		{
-			name:  "valid catch all route",
-			path:  "/foo/bar/*arg",
-			wantN: 1,
+			name:            "valid catch all route",
+			path:            "/foo/bar/*arg",
+			wantN:           1,
+			wantCatchAllKey: "arg",
 		},
 		{
 			name:  "valid param route",
@@ -688,9 +690,10 @@ func TestPathVerify(t *testing.T) {
 			wantN: 2,
 		},
 		{
-			name:  "valid multi params and catch all route",
-			path:  "/foo/:bar/:baz/*arg",
-			wantN: 3,
+			name:            "valid multi params and catch all route",
+			path:            "/foo/:bar/:baz/*arg",
+			wantN:           3,
+			wantCatchAllKey: "arg",
 		},
 		{
 			name:    "missing prefix slash",
@@ -738,9 +741,10 @@ func TestPathVerify(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, err := pathVerify(tc.path)
+			key, n, err := parseRoute2(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
+			assert.Equal(t, tc.wantCatchAllKey, key)
 		})
 	}
 }
@@ -1269,4 +1273,192 @@ func atomicSync() (start func(), wait func()) {
 	}
 
 	return
+}
+
+func TestLookup3(t *testing.T) {
+	r := New()
+	r.AddRouteParam = true
+	// /foobar/:yolo/boulou
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.Get("/foobar/:a", h))
+	require.NoError(t, r.Get("/foobar/:a/:b", h))
+	require.NoError(t, r.Get("/foobar/:a/:b/boulou", h))
+
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	n, p, _ := r.lookup3(nds[0], "/foobar/:a/:b/boulou", false)
+	if n != nil {
+		fmt.Println(n.path)
+		fmt.Println(p)
+	}
+}
+
+func TestInsert2(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/t/:a/:b/boulou/:c", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	require.NoError(t, r.insert2("GET", "/t/:a/:b/bouboo", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+}
+
+func TestInsert3(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/t/:aaaa", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	require.NoError(t, r.insert2("GET", "/t/:aaaaa", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+}
+
+func TestInsertKeyMidEdge1(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/tes/:t", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	require.NoError(t, r.insert2("GET", "/tes/", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+	// /tes/ but /tes/ss does not match anything !!
+	n, _, _ := r.lookup3(nds[0], "/tes/", false)
+	if n != nil {
+		fmt.Println("matched", n.path)
+	}
+}
+
+func TestInsertKeyIncompleteMatchToMiddleOfEdge(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/tes/:t", "", h, static))
+	require.NoError(t, r.insert2("GET", "/tes/s", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	n, _, _ := r.lookup3(nds[0], "/tes/aaa", false)
+	if n != nil {
+		fmt.Println("matched", n.path)
+	}
+}
+
+func TestInsertKeyMidEdge6(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/tes/:t", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	require.NoError(t, r.insert2("GET", "/tes/", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+	// /tes/ but /tes/ss does not match anything !!
+	n, _, _ := r.lookup3(nds[0], "/tes/ss/", false)
+	if n != nil {
+		fmt.Println("matched", n.path)
+	}
+}
+
+func TestInsertKeyMidEdge5(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/foo/:bar/tes/:t", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	require.NoError(t, r.insert2("GET", "/foo/:bar/tes", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+	n, _, _ := r.lookup3(nds[0], "/foo/bar/tes", false)
+	if n != nil {
+		fmt.Println("matched", n.path)
+	}
+}
+
+func TestInsertKeyMidEdge2(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/t/:aaaa", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	require.NoError(t, r.insert2("GET", "/t/:aa", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+}
+
+// TODO
+func TestInsertKeyMidEdge3(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	// treat end params :e as a catchAll route
+	// and handle /test/ (handler 1) and /test/*args (handler 2) as valid route (may need to add another node)
+	// Note that /tes/ + /tes/:t is working => LOOK GOOD NOW
+	require.NoError(t, r.insert2("GET", "/tes/", "args", h, catchAll))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	// require.NoError(t, r.insert2("GET", "/tes/", "", h, static))
+	nds = *r.trees.Load()
+	fmt.Println(nds[0])
+	n, _, _ := r.lookup3(nds[0], "/tes/", false)
+	if n != nil {
+		fmt.Println("matched", n.path)
+	}
+}
+
+func TestInsert2CatchAll(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(t, r.insert2("GET", "/tes/:e/", "args", h, catchAll))
+	require.NoError(t, r.insert2("GET", "/tes/:e/", "", h, static))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	n, _, _ := r.lookup3(nds[0], "/tes/a/foo/bar", false)
+	if n != nil {
+		fmt.Println("matched", n.path)
+	}
+}
+
+func TestHttpRouter(t *testing.T) {
+	r := httprouter.New()
+	r.GET("/tes/:t/*args", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		fmt.Println("match")
+	})
+	r.GET("/tes/:t/", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		fmt.Println("match")
+	})
+	req := httptest.NewRequest(http.MethodGet, "/tes/t/", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+}
+
+func BenchmarkParams(b *testing.B) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	require.NoError(b, r.Get("/foobar/:a/:b/boulou", h))
+
+	w := new(mockResponseWriter)
+	req, _ := http.NewRequest("GET", "/foobar/baz/bat/boulou", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkGetHttpRouter(b *testing.B) {
+	r := httprouter.New()
+	h := func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {}
+	r.GET("/foobar/:a/:b/boulou", h)
+
+	w := new(mockResponseWriter)
+	req, _ := http.NewRequest("GET", "/foobar/baz/bat/boulou", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
 }
