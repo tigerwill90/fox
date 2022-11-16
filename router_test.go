@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+var emptyHandler = HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+
 type mockResponseWriter struct{}
 
 func (m *mockResponseWriter) Header() (h http.Header) {
@@ -1211,9 +1213,8 @@ func atomicSync() (start func(), wait func()) {
 
 func BenchmarkParams(b *testing.B) {
 	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(b, r.Get("/foobar/boulou/:a/:b/cata", h))
-	require.NoError(b, r.Get("/foobar/badoum/:a/:b/cala", h))
+	require.NoError(b, r.Get("/foobar/boulou/:a/:b/cata", emptyHandler))
+	require.NoError(b, r.Get("/foobar/badoum/:a/:b/cala", emptyHandler))
 
 	w := new(mockResponseWriter)
 	req, _ := http.NewRequest("GET", "/foobar/boulou/xxx/xxx/cata", nil)

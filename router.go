@@ -958,7 +958,6 @@ func (r searchResult) classify() resultType {
 	} else if r.charsMatched < len(r.path) {
 		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
 		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
-		// TODO test with parent == nil, else fallback r.matched.nType == root
 		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
 			return incompleteMatchToEndOfEdge
 		}
