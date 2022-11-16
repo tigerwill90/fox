@@ -470,12 +470,11 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				// TODO make a refacto of TC
-				nType := static
+				var catchAllKey string
 				if rte.wildcard {
-					nType = catchAll
+					catchAllKey = "args"
 				}
-				err := r.insert(http.MethodGet, rte.path, "args", h, nType)
+				err := r.insert(http.MethodGet, rte.path, catchAllKey, h)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*ConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.matching)
@@ -540,13 +539,13 @@ func TestMuxRouterSwapWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				nType := static
+				var catchAllKey string
 				if rte.wildcard {
-					nType = catchAll
+					catchAllKey = "args"
 				}
-				require.NoError(t, r.insert(http.MethodGet, rte.path, "", h, nType))
+				require.NoError(t, r.insert(http.MethodGet, rte.path, catchAllKey, h))
 			}
-			err := r.update(http.MethodGet, tc.path, "", h, catchAll)
+			err := r.update(http.MethodGet, tc.path, "args", h)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if cErr, ok := err.(*ConflictError); ok {
 				assert.Equal(t, tc.wantMatch, cErr.matching)
@@ -661,6 +660,7 @@ func TestMuxRouterUpsert(t *testing.T) {
 
 }
 
+// TODO all params unique in a route
 func TestParseRoute(t *testing.T) {
 	cases := []struct {
 		name            string
@@ -668,32 +668,38 @@ func TestParseRoute(t *testing.T) {
 		wantErr         error
 		wantN           int
 		wantCatchAllKey string
+		wantPath        string
 	}{
 		{
-			name: "valid static route",
-			path: "/foo/bar",
+			name:     "valid static route",
+			path:     "/foo/bar",
+			wantPath: "/foo/bar",
 		},
 		{
 			name:            "valid catch all route",
 			path:            "/foo/bar/*arg",
 			wantN:           1,
 			wantCatchAllKey: "arg",
+			wantPath:        "/foo/bar/",
 		},
 		{
-			name:  "valid param route",
-			path:  "/foo/bar/:baz",
-			wantN: 1,
+			name:     "valid param route",
+			path:     "/foo/bar/:baz",
+			wantN:    1,
+			wantPath: "/foo/bar/:baz",
 		},
 		{
-			name:  "valid multi params route",
-			path:  "/foo/:bar/:baz",
-			wantN: 2,
+			name:     "valid multi params route",
+			path:     "/foo/:bar/:baz",
+			wantN:    2,
+			wantPath: "/foo/:bar/:baz",
 		},
 		{
 			name:            "valid multi params and catch all route",
 			path:            "/foo/:bar/:baz/*arg",
 			wantN:           3,
 			wantCatchAllKey: "arg",
+			wantPath:        "/foo/:bar/:baz/",
 		},
 		{
 			name:    "missing prefix slash",
@@ -741,74 +747,11 @@ func TestParseRoute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			key, n, err := parseRoute2(tc.path)
+			path, key, n, err := parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
 			assert.Equal(t, tc.wantCatchAllKey, key)
-		})
-	}
-}
-
-func TestMuxRouterParseRoute(t *testing.T) {
-	cases := []struct {
-		name         string
-		path         string
-		wantErr      error
-		wantRoute    string
-		wantNodeType nodeType
-	}{
-		{
-			name:         "valid static route",
-			path:         "/foo/bar",
-			wantRoute:    "/foo/bar",
-			wantNodeType: static,
-		},
-		{
-			name:         "valid wildcard route",
-			path:         "/foo/bar/*arg",
-			wantRoute:    "/foo/bar/",
-			wantNodeType: catchAll,
-		},
-		{
-			name:         "missing prefix slash",
-			path:         "foo/bar",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "missing slash before wildcard",
-			path:         "/foo/bar*",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "missing arguments name after wildcard",
-			path:         "/foo/bar/*",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "catch all in the middle of the route",
-			path:         "/foo/bar/*/baz",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "catch all with args in the middle of the route",
-			path:         "/foo/bar/*args/baz",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			idx, wildcard, err := parseRoute(tc.path)
-			require.ErrorIs(t, err, tc.wantErr)
-			if err == nil {
-				assert.Equal(t, tc.wantRoute, tc.path[:idx])
-				assert.Equal(t, tc.wantNodeType, wildcard)
-			}
+			assert.Equal(t, tc.wantPath, path)
 		})
 	}
 }
@@ -859,7 +802,7 @@ func TestMuxLookupTsr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
-			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h, static))
+			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h))
 			nds := *r.trees.Load()
 			_, _, got := r.lookup(nds[0], tc.key, true)
 			assert.Equal(t, tc.want, got)
@@ -1101,8 +1044,47 @@ func TestRouterAbortHandler(t *testing.T) {
 	r.ServeHTTP(w, req)
 }
 
-func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
-	f := fuzz.New().NilChance(0).NumElements(1000, 2000)
+func TestFuzzInsertLookupParam(t *testing.T) {
+	// no '*', ':' and '/' and invalid escape char
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x29},
+		{First: 0x2B, Last: 0x2E},
+		{First: 0x30, Last: 0x39},
+		{First: 0x3B, Last: 0x04FF},
+	}
+
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
+	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	routeFormat := "/%s/:%s/%s/:%s/:%s"
+	reqFormat := "/%s/%s/%s/%s/%s"
+	for i := 0; i < 2000; i++ {
+		var s1, e1, s2, e2, e3 string
+		f.Fuzz(&s1)
+		f.Fuzz(&e1)
+		f.Fuzz(&s2)
+		f.Fuzz(&e2)
+		f.Fuzz(&e3)
+		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
+			continue
+		}
+		if err := r.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", h); err == nil {
+			nds := *r.trees.Load()
+
+			n, params, _ := r.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), false)
+			require.NotNil(t, n)
+			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
+			assert.Equal(t, "xxxx", params.Get(e1))
+			assert.Equal(t, "xxxx", params.Get(e2))
+			assert.Equal(t, "xxxx", params.Get(e3))
+		}
+	}
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+}
+
+func TestFuzzInsertNoPanics(t *testing.T) {
+	f := fuzz.New().NilChance(0).NumElements(5000, 10000)
 	r := New()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
@@ -1110,7 +1092,34 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := r.insert(http.MethodGet, "/"+rte, "", h, static)
+		var catchAllKey string
+		f.Fuzz(&catchAllKey)
+		if rte == "" && catchAllKey == "" {
+			continue
+		}
+		require.NotPanicsf(t, func() {
+			_ = r.insert(http.MethodGet, rte, catchAllKey, h)
+		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
+	}
+}
+
+func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
+	// no '*' and ':' and invalid escape char
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x29},
+		{First: 0x2B, Last: 0x39},
+		{First: 0x3B, Last: 0x04FF},
+	}
+
+	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
+
+	routes := make(map[string]struct{})
+	f.Fuzz(&routes)
+
+	for rte := range routes {
+		err := r.insert(http.MethodGet, "/"+rte, "", h)
 		require.NoError(t, err)
 	}
 
@@ -1126,6 +1135,8 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 		n, _, _ := r.lookup(nds[0], "/"+rte, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
+		require.Equal(t, "/"+rte, n.path)
+		require.NoError(t, r.update(http.MethodGet, "/"+rte, "", h))
 	}
 
 	for rte := range routes {
@@ -1141,89 +1152,12 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	assert.Equal(t, 0, countPath)
 }
 
-func TestFuzzServeHTTP(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { w.Write([]byte(r.URL.Path)) })
-
-	// no wildcard and invalid escape char
-	unicodeRanges := fuzz.UnicodeRanges{
-		{First: 0x2E, Last: 0x2E},
-		{First: 0x30, Last: 0x3E},
-		{First: 0x40, Last: 0x5A},
-		{First: 0x61, Last: 0x7E},
-		{First: 0xA9, Last: 0xBF},
-	}
-
-	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
-
-	routes := make(map[string]struct{})
-	f.Fuzz(&routes)
-
-	for rte := range routes {
-		err := r.Get("/"+rte, h)
-		require.NoError(t, err)
-	}
-
-	countPath := 0
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
-		countPath++
-		return nil
-	}))
-	assert.Equal(t, len(routes), countPath)
-
-	for rte := range routes {
-		req, err := http.NewRequest(http.MethodGet, "/"+rte, nil)
-		require.NoError(t, err)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equalf(t, http.StatusOK, w.Code, "route /%s", rte)
-		assert.Equal(t, "/"+rte, w.Body.String())
-	}
-
-}
-
-func TestFuzzServeHTTPNoPanic(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { w.Write([]byte(r.URL.Path)) })
-
-	f := fuzz.New().NilChance(0).NumElements(5000, 10_000)
-
-	routes := make(map[string]struct{})
-	f.Fuzz(&routes)
-
-	assert.NotPanics(t, func() {
-		for rte := range routes {
-			err := r.insert(http.MethodGet, "/"+rte, "", h, static)
-			require.NoError(t, err)
-		}
-
-		countPath := 0
-		require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
-			countPath++
-			return nil
-		}))
-		assert.Equal(t, len(routes), countPath)
-
-		req, _ := http.NewRequest("GET", "/", nil)
-		u := req.URL
-
-		for rte := range routes {
-			req.RequestURI = "/" + rte
-			u.Path = "/" + rte
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			assert.Equalf(t, http.StatusOK, w.Code, "route /%s", rte)
-			assert.Equal(t, "/"+rte, w.Body.String())
-		}
-	})
-}
-
 func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { fmt.Println("foo") })
-	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { fmt.Println("bar") })
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 
 	r := New()
 
@@ -1275,169 +1209,14 @@ func atomicSync() (start func(), wait func()) {
 	return
 }
 
-func TestLookup3(t *testing.T) {
-	r := New()
-	r.AddRouteParam = true
-	// /foobar/:yolo/boulou
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.Get("/foobar/:a", h))
-	require.NoError(t, r.Get("/foobar/:a/:b", h))
-	require.NoError(t, r.Get("/foobar/:a/:b/boulou", h))
-
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	n, p, _ := r.lookup3(nds[0], "/foobar/:a/:b/boulou", false)
-	if n != nil {
-		fmt.Println(n.path)
-		fmt.Println(p)
-	}
-}
-
-func TestInsert2(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/t/:a/:b/boulou/:c", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	require.NoError(t, r.insert2("GET", "/t/:a/:b/bouboo", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-}
-
-func TestInsert3(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/t/:aaaa", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	require.NoError(t, r.insert2("GET", "/t/:aaaaa", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-}
-
-func TestInsertKeyMidEdge1(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/tes/:t", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	require.NoError(t, r.insert2("GET", "/tes/", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-	// /tes/ but /tes/ss does not match anything !!
-	n, _, _ := r.lookup3(nds[0], "/tes/", false)
-	if n != nil {
-		fmt.Println("matched", n.path)
-	}
-}
-
-func TestInsertKeyIncompleteMatchToMiddleOfEdge(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/tes/:t", "", h, static))
-	require.NoError(t, r.insert2("GET", "/tes/s", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	n, _, _ := r.lookup3(nds[0], "/tes/aaa", false)
-	if n != nil {
-		fmt.Println("matched", n.path)
-	}
-}
-
-func TestInsertKeyMidEdge6(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/tes/:t", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	require.NoError(t, r.insert2("GET", "/tes/", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-	// /tes/ but /tes/ss does not match anything !!
-	n, _, _ := r.lookup3(nds[0], "/tes/ss/", false)
-	if n != nil {
-		fmt.Println("matched", n.path)
-	}
-}
-
-func TestInsertKeyMidEdge5(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/foo/:bar/tes/:t", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	require.NoError(t, r.insert2("GET", "/foo/:bar/tes", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-	n, _, _ := r.lookup3(nds[0], "/foo/bar/tes", false)
-	if n != nil {
-		fmt.Println("matched", n.path)
-	}
-}
-
-func TestInsertKeyMidEdge2(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/t/:aaaa", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	require.NoError(t, r.insert2("GET", "/t/:aa", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-}
-
-// TODO
-func TestInsertKeyMidEdge3(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	// treat end params :e as a catchAll route
-	// and handle /test/ (handler 1) and /test/*args (handler 2) as valid route (may need to add another node)
-	// Note that /tes/ + /tes/:t is working => LOOK GOOD NOW
-	require.NoError(t, r.insert2("GET", "/tes/", "args", h, catchAll))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	// require.NoError(t, r.insert2("GET", "/tes/", "", h, static))
-	nds = *r.trees.Load()
-	fmt.Println(nds[0])
-	n, _, _ := r.lookup3(nds[0], "/tes/", false)
-	if n != nil {
-		fmt.Println("matched", n.path)
-	}
-}
-
-func TestInsert2CatchAll(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(t, r.insert2("GET", "/tes/:e/", "args", h, catchAll))
-	require.NoError(t, r.insert2("GET", "/tes/:e/", "", h, static))
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
-	n, _, _ := r.lookup3(nds[0], "/tes/a/foo/bar", false)
-	if n != nil {
-		fmt.Println("matched", n.path)
-	}
-}
-
-func TestHttpRouter(t *testing.T) {
-	r := httprouter.New()
-	r.GET("/tes/:t/*args", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		fmt.Println("match")
-	})
-	r.GET("/tes/:t/", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-		fmt.Println("match")
-	})
-	req := httptest.NewRequest(http.MethodGet, "/tes/t/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-}
-
 func BenchmarkParams(b *testing.B) {
 	r := New()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	require.NoError(b, r.Get("/foobar/:a/:b/boulou", h))
+	require.NoError(b, r.Get("/foobar/boulou/:a/:b/cata", h))
+	require.NoError(b, r.Get("/foobar/badoum/:a/:b/cala", h))
 
 	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/foobar/baz/bat/boulou", nil)
+	req, _ := http.NewRequest("GET", "/foobar/boulou/xxx/xxx/cata", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -1450,10 +1229,11 @@ func BenchmarkParams(b *testing.B) {
 func BenchmarkGetHttpRouter(b *testing.B) {
 	r := httprouter.New()
 	h := func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {}
-	r.GET("/foobar/:a/:b/boulou", h)
+	r.GET("/foobar/boulou/:a/:b/cata", h)
+	r.GET("/foobar/badoum/:a/:b/cala", h)
 
 	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/foobar/baz/bat/boulou", nil)
+	req, _ := http.NewRequest("GET", "/foobar/boulou/xxx/xxx/cata", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()

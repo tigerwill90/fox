@@ -6,15 +6,6 @@ import (
 	"sync/atomic"
 )
 
-type nodeType uint8
-
-const (
-	static nodeType = iota
-	root
-	param
-	catchAll
-)
-
 type node struct {
 	// key represent a segment of a route which share a common prefix with it parent.
 	key string
@@ -24,13 +15,9 @@ type node struct {
 	// tree without the extra cost of atomic load operation.
 	childKeys []byte
 
-	// Indicate whether its child node is a param node type. If true, len(children) == 1.
-	// Once assigned, paramChild is immutable.
-	paramChild bool
-
-	// Wildcard key registered to retrieve this node parameter.
-	// Once assigned, wildcardKey is immutable.
-	wildcardKey string
+	// Catch all key registered to retrieve this node parameter.
+	// Once assigned, catchAllKey is immutable.
+	catchAllKey string
 
 	// Child nodes representing outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is mostly a read only slice with the exception than we can update atomically
@@ -44,10 +31,12 @@ type node struct {
 	// The full path when it's a leaf node
 	path string
 
-	nType nodeType
+	// Indicate whether its child node is a param node type. If true, len(children) == 1.
+	// Once assigned, paramChild is immutable.
+	paramChild bool
 }
 
-func newNode(key string, handler Handler, children []*node, wildcardKey string, nType nodeType, path string) *node {
+func newNode(key string, handler Handler, children []*node, catchAllKey string, path string) *node {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].key < children[j].key
 	})
@@ -59,27 +48,30 @@ func newNode(key string, handler Handler, children []*node, wildcardKey string, 
 		nds[i].Store(children[i])
 	}
 
-	return newNodeFromRef(key, handler, nds, childKeys, wildcardKey, nType, path)
+	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, path)
 }
 
-func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, wildcardKey string, nType nodeType, path string) *node {
+func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, path string) *node {
 	n := &node{
 		key:         key,
 		childKeys:   childKeys,
 		children:    children,
 		handler:     handler,
-		nType:       nType,
-		wildcardKey: wildcardKey,
+		catchAllKey: catchAllKey,
 		path:        path,
 	}
-	if nType == catchAll {
-		n.path += "*" + wildcardKey
+	if catchAllKey != "" {
+		n.path += "*" + catchAllKey
 	}
 	return n
 }
 
 func (n *node) isLeaf() bool {
 	return n.handler != nil
+}
+
+func (n *node) isCatchAll() bool {
+	return n.catchAllKey != ""
 }
 
 func (n *node) getEdge(s byte) *node {
@@ -171,26 +163,19 @@ func (n *node) String() string {
 func (n *node) string(space int) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
-	if n.nType == root {
-		sb.WriteString("root:")
-	} else {
-		sb.WriteString("path: ")
-	}
+	sb.WriteString("path: ")
 	sb.WriteString(n.key)
 	if n.paramChild {
 		sb.WriteString(" [paramChild]")
 	}
 
-	switch n.nType {
-	case catchAll:
-		sb.WriteString(" [catchAll]")
-	case param:
-		sb.WriteString(" [param]")
-	case static:
+	if n.isCatchAll() {
 		sb.WriteString(" [static]")
 	}
 	if n.isLeaf() {
-		sb.WriteString(" [leaf]")
+		sb.WriteString(" [leaf=")
+		sb.WriteString(n.path)
+		sb.WriteString("]")
 	}
 
 	sb.WriteByte('\n')
