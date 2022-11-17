@@ -5,9 +5,9 @@ import (
 	"net/http"
 )
 
-type ctxParamsKey struct{}
+type key struct{}
 
-var ParamsKey = ctxParamsKey{}
+var ParamsKey = key{}
 
 func ParamsFromContext(ctx context.Context) Params {
 	p, _ := ctx.Value(ParamsKey).(Params)

@@ -36,7 +36,7 @@ type node struct {
 	paramChild bool
 }
 
-func newNode(key string, handler Handler, children []*node, catchAllKey string, path string) *node {
+func newNode(key string, handler Handler, children []*node, catchAllKey string, paramChild bool, path string) *node {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].key < children[j].key
 	})
@@ -48,10 +48,10 @@ func newNode(key string, handler Handler, children []*node, catchAllKey string, 
 		nds[i].Store(children[i])
 	}
 
-	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, path)
+	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, paramChild, path)
 }
 
-func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, path string) *node {
+func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, paramChild bool, path string) *node {
 	n := &node{
 		key:         key,
 		childKeys:   childKeys,
@@ -59,9 +59,14 @@ func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node]
 		handler:     handler,
 		catchAllKey: catchAllKey,
 		path:        path,
+		paramChild:  paramChild,
 	}
+	// TODO find a better way
 	if catchAllKey != "" {
-		n.path += "*" + catchAllKey
+		suffix := "*" + catchAllKey
+		if !strings.HasSuffix(path, suffix) {
+			n.path += suffix
+		}
 	}
 	return n
 }

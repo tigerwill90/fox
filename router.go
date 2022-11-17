@@ -397,6 +397,7 @@ STOP:
 						if params == nil {
 							params = newParams()
 						}
+						// TODO startKey+1 may panic (must have :n where n >= 1)
 						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound], Value: path[startPath:charsMatched]})
 					}
 					continue
@@ -429,6 +430,33 @@ STOP:
 		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
 			// Tsr recommendation: add an extra trailing slash (got an exact match)
+			// TODO this is a test
+			if current.key[charsMatchedInNodeFound] == ':' {
+				// this is a param node
+				if !lazy {
+					if params == nil {
+						params = newParams()
+					}
+					if fox.AddRouteParam {
+						*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
+					}
+
+					startKey := charsMatchedInNodeFound
+					idx := strings.Index(current.key[startKey:], "/")
+					if idx >= 0 {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						charsMatchedInNodeFound += idx
+					} else {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					}
+					// TODO startKey+1 may panic (must have :n where n >= 1)
+					*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound]})
+				}
+				return current, params, false
+			}
+			// TODO end test section
+
 			remainingSuffix := current.key[charsMatchedInNodeFound:]
 			return nil, nil, len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
 		}
@@ -512,12 +540,20 @@ func (fox *Router) update(method string, path, catchAllKey string, handler Handl
 	}
 
 	if catchAllKey != "" && len(result.matched.children) > 0 {
-		return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched)[1:], true)
+		return newConflictErr(method, path, getRouteConflict(result.matched)[1:], true)
 	}
 
 	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
 	// the matched one with the updated/added value (handler and wildcard).
-	n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, path)
+	n := newNodeFromRef(
+		result.matched.key,
+		handler,
+		result.matched.children,
+		result.matched.childKeys,
+		catchAllKey,
+		result.matched.paramChild,
+		path,
+	)
 	result.p.updateEdge(n)
 	return nil
 }
@@ -552,11 +588,11 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 
 		// The matched node can only be the result of a previous split and therefore has children.
 		if isCatchAll {
-			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), true)
+			return newConflictErr(method, path, getRouteConflict(result.matched), true)
 		}
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, path)
+		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChild, path)
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
@@ -576,7 +612,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		//    char remain the same).
 
 		if isCatchAll {
-			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), true)
+			return newConflictErr(method, path, getRouteConflict(result.matched), true)
 		}
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
@@ -591,19 +627,31 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		}
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 
-		child := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.catchAllKey, result.matched.path)
+		child := newNodeFromRef(
+			suffixFromExistingEdge,
+			result.matched.handler,
+			result.matched.children,
+			result.matched.childKeys,
+			result.matched.catchAllKey,
+			result.matched.paramChild,
+			result.matched.path,
+		)
 
-		// e.g. tree encode /tes/ and /tes/:t
-		// /tes/ (paramChild)
-		// ├── :t
-		// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
-		// if paramChild == true {
-		// 	next = current.get(0)
-		// }
-		parent := newNode(cPrefix, handler, []*node{child}, catchAllKey, path)
-		if strings.HasPrefix(suffixFromExistingEdge, ":") {
-			parent.paramChild = true
-		}
+		parent := newNode(
+			cPrefix,
+			handler,
+			[]*node{child},
+			catchAllKey,
+			// e.g. tree encode /tes/ and /tes/:t
+			// /tes/ (paramChild)
+			// ├── :t
+			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
+			// if paramChild == true {
+			// 	next = current.get(0)
+			// }
+			strings.HasPrefix(suffixFromExistingEdge, ":"),
+			path,
+		)
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
 		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
@@ -621,7 +669,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		// 3. Update the "te" (parent) node to the new "st" node.
 
 		if result.matched.isCatchAll() {
-			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), true)
+			return newConflictErr(method, path, getRouteConflict(result.matched), true)
 		}
 
 		keySuffix := path[result.charsMatched:]
@@ -637,10 +685,19 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 				}
 			}
 		}
-		child := newNode(keySuffix, handler, nil, catchAllKey, path)
+
+		// No children, so no paramChild
+		child := newNode(keySuffix, handler, nil, catchAllKey, false, path)
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
-		n := newNode(result.matched.key, result.matched.handler, edges, result.matched.catchAllKey, result.matched.path)
+		n := newNode(
+			result.matched.key,
+			result.matched.handler,
+			edges,
+			result.matched.catchAllKey,
+			result.matched.paramChild,
+			result.matched.path,
+		)
 		if result.matched == rootNode {
 			n.key = method
 			fox.updateRoot(n)
@@ -677,18 +734,25 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 				return fmt.Errorf("params route, not allowed")
 			}
 		}
-		/*		if strings.Contains(cPrefix, ":") && !strings.HasSuffix(cPrefix, "/") {
-				return fmt.Errorf("params route, not allowed")
-			}*/
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 		if strings.HasPrefix(suffixFromExistingEdge, ":") {
 			return fmt.Errorf("params route, not allowed")
 		}
 		keySuffix := path[result.charsMatched:]
 
-		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, path)
-		n2 := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.catchAllKey, result.matched.path)
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", "")
+		// No children, so no paramChild
+		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, false, path) // inserted node
+		n2 := newNodeFromRef(
+			suffixFromExistingEdge,
+			result.matched.handler,
+			result.matched.children,
+			result.matched.childKeys,
+			result.matched.catchAllKey,
+			result.matched.paramChild,
+			result.matched.path,
+		) // previous matched node
+		// TODO paramChild ???
+		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", false, "") // intermediary node
 		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type
@@ -696,135 +760,6 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 	}
 	return nil
 }
-
-/*// insert is not safe for concurrent use.
-func (fox *Router) insert(method, path, wildcardKey string, handler Handler, nType nodeType) error {
-	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	var rootNode *node
-	nds := *fox.trees.Load()
-	index := findRootNode(method, nds)
-	if index < 0 {
-		rootNode = &node{nType: root, key: method}
-		fox.addRoot(rootNode)
-	} else {
-		rootNode = nds[index]
-	}
-
-	result := fox.search(rootNode, path)
-	switch result.classify() {
-	case exactMatch:
-		// e.g. matched exactly "te" node when inserting "te" key.
-		// te
-		// ├── st
-		// └── am
-		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
-		if result.matched.isLeaf() {
-			return fmt.Errorf("route /%s %s is already registered: %w", method, path, ErrRouteExist)
-		}
-
-		// The matched node can only be the result of a previous split and therefore has children.
-		if nType == catchAll {
-			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), true)
-		}
-		// We are updating an existing node. We only need to create a new node from
-		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, wildcardKey, nType, path)
-		result.p.updateEdge(n)
-	case keyEndMidEdge:
-		// e.g. matched until "s" for "st" node when inserting "tes" key.
-		// te
-		// ├── st
-		// └── am
-		//
-		// After patching
-		// te
-		// ├── am
-		// └── s
-		//     └── t
-		// It requires to split "st" node.
-		// 1. Create a "t" node from "st" reference.
-		// 2. Create a new "s" node for "tes" key and link it to the child "t" node.
-		// 3. Update the "te" (parent) reference to the new "s" node (we are swapping old "st" to new "s" node, first
-		//    char remain the same).
-
-		if nType == catchAll {
-			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), true)
-		}
-
-		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
-		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-
-		child := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.catchAllKey, result.matched.nType, result.matched.path)
-		parent := newNode(cPrefix, handler, []*node{child}, wildcardKey, nType, path)
-
-		result.p.updateEdge(parent)
-	case incompleteMatchToEndOfEdge:
-		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
-		// te
-		// ├── st
-		// └── am
-		//
-		// After patching
-		// te
-		// ├── am
-		// └── st
-		//     └── ify
-		// 1. Create a new "ify" child node.
-		// 2. Recreate the "st" node and link it to it's existing children and the new "ify" node.
-		// 3. Update the "te" (parent) node to the new "st" node.
-
-		if result.matched.nType == catchAll {
-			return newConflictErr(method, path, getRouteConflict(path[:result.charsMatched-result.charsMatchedInNodeFound], result.matched), true)
-		}
-
-		keySuffix := path[result.charsMatched:]
-		child := newNode(keySuffix, handler, nil, wildcardKey, nType, path)
-		edges := result.matched.getEdgesShallowCopy()
-		edges = append(edges, child)
-		n := newNode(result.matched.key, result.matched.handler, edges, result.matched.catchAllKey, result.matched.nType, result.matched.path)
-		if result.matched == rootNode {
-			n.nType = root
-			n.key = method
-			fox.updateRoot(n)
-			break
-		}
-		result.p.updateEdge(n)
-	case incompleteMatchToMiddleOfEdge:
-		// e.g. matched until "s" for "st" node but still have remaining char ("s") which does not match anything
-		// when inserting "tess" key.
-		// te
-		// ├── st
-		// └── am
-		//
-		// After patching
-		// te
-		// ├── am
-		// └── s
-		//     ├── s
-		//     └── t
-		// It requires to split "st" node.
-		// 1. Create a new "s" child node for "tess" key.
-		// 2. Create a new "t" node from "st" reference (link "st" children to new "t" node).
-		// 3. Create a new "s" node and link it to "s" and "t" node.
-		// 4. Update the "te" (parent) node to the new "s" node (we are swapping old "st" to new "s" node, first
-		//    char remain the same).
-
-		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
-		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-		keySuffix := path[result.charsMatched:]
-
-		n1 := newNodeFromRef(keySuffix, handler, nil, nil, wildcardKey, nType, path)
-		n2 := newNodeFromRef(suffixFromExistingEdge, result.matched.handler, result.matched.children, result.matched.childKeys, result.matched.catchAllKey, result.matched.nType, result.matched.path)
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", static, "")
-		result.p.updateEdge(n3)
-	default:
-		// safeguard against introducing a new result type
-		panic("internal error: unexpected result type")
-	}
-	return nil
-}*/
 
 // remove is not safe for concurrent use.
 func (fox *Router) remove(method, path string) bool {
@@ -846,7 +781,15 @@ func (fox *Router) remove(method, path string) bool {
 	}
 
 	if len(result.matched.children) > 1 {
-		n := newNodeFromRef(result.matched.key, nil, result.matched.children, result.matched.childKeys, "", "")
+		n := newNodeFromRef(
+			result.matched.key,
+			nil,
+			result.matched.children,
+			result.matched.childKeys,
+			"",
+			result.matched.paramChild,
+			"",
+		)
 		result.p.updateEdge(n)
 		return true
 	}
@@ -854,7 +797,15 @@ func (fox *Router) remove(method, path string) bool {
 	if len(result.matched.children) == 1 {
 		child := result.matched.get(0)
 		mergedPath := fmt.Sprintf("%s%s", result.matched.key, child.key)
-		n := newNodeFromRef(mergedPath, child.handler, child.children, child.childKeys, child.catchAllKey, child.path)
+		n := newNodeFromRef(
+			mergedPath,
+			child.handler,
+			child.children,
+			child.childKeys,
+			child.catchAllKey,
+			child.paramChild,
+			child.path,
+		)
 		result.p.updateEdge(n)
 		return true
 	}
@@ -875,9 +826,24 @@ func (fox *Router) remove(method, path string) bool {
 	if len(parentEdges) == 1 && !result.p.isLeaf() && !parentIsRoot {
 		child := parentEdges[0]
 		mergedPath := fmt.Sprintf("%s%s", result.p.key, child.key)
-		parent = newNodeFromRef(mergedPath, child.handler, child.children, child.childKeys, child.catchAllKey, child.path)
+		parent = newNodeFromRef(
+			mergedPath,
+			child.handler,
+			child.children,
+			child.childKeys,
+			child.catchAllKey,
+			child.paramChild,
+			child.path,
+		)
 	} else {
-		parent = newNode(result.p.key, result.p.handler, parentEdges, result.p.catchAllKey, result.p.path)
+		parent = newNode(
+			result.p.key,
+			result.p.handler,
+			parentEdges,
+			result.p.catchAllKey,
+			result.p.paramChild,
+			result.p.path,
+		)
 	}
 
 	if parentIsRoot {
@@ -1062,8 +1028,7 @@ func parseRoute(path string) (string, string, int, error) {
 	return path, "", n, nil
 }
 
-// todo remove basePath
-func getRouteConflict(basePath string, n *node) []string {
+func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 	it := newIterator(n)
 	for it.hasNextLeaf() {

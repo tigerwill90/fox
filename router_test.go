@@ -7,6 +7,7 @@ import (
 	fuzz "github.com/google/gofuzz"
 	"github.com/gorilla/mux"
 	"github.com/julienschmidt/httprouter"
+	"github.com/naoina/denco"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -278,6 +279,17 @@ func BenchmarkGorillaMuxRouter(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+func BenchmarkDencoRouter(b *testing.B) {
+	r := denco.NewMux()
+	handlers := make([]denco.Handler, 0, len(staticRoutes))
+	for _, route := range staticRoutes {
+		handlers = append(handlers, r.GET(route.path, func(w http.ResponseWriter, r *http.Request, params denco.Params) {}))
+	}
+	handler, err := r.Build(handlers)
+	require.NoError(b, err)
+	benchRoutes(b, handler, staticRoutes)
+}
+
 func BenchmarkPatRouter(b *testing.B) {
 	r := pat.New()
 	for _, route := range staticRoutes {
@@ -407,6 +419,35 @@ func TestMuxRouterWildcard(t *testing.T) {
 		r.ServeHTTP(w, req)
 		require.Equalf(t, http.StatusOK, w.Code, "route: key: %s, path: %s", route.path)
 		assert.Equal(t, route.key, w.Body.String())
+	}
+}
+
+func TestRouteWithParams(t *testing.T) {
+	r := New()
+	routes := [...]string{
+		"/",
+		"/cmd/:tool/:sub",
+		"/cmd/:tool/",
+		"/src/*filepath",
+		"/search/",
+		"/search/:query",
+		// "/user_:name",
+		// "/user_:name/about",
+		"/files/:dir/*filepath",
+		"/doc/",
+		"/doc/go_faq.html",
+		"/doc/go1.html",
+		"/info/:user/public",
+		"/info/:user/project/:project",
+	}
+	for _, rte := range routes {
+		require.NoError(t, r.addRoute(http.MethodGet, rte, emptyHandler))
+	}
+	nds := *r.trees.Load()
+	for _, rte := range routes {
+		n, _, _ := r.lookup(nds[0], rte, false)
+		require.NotNil(t, n)
+		assert.Equal(t, rte, n.path)
 	}
 }
 
@@ -619,7 +660,7 @@ func TestMuxRouerUpdateRoute(t *testing.T) {
 	}
 }
 
-func TestMuxRouterUpsert(t *testing.T) {
+func TestUpsert(t *testing.T) {
 	old := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 	new := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte("new")) })
 
@@ -662,7 +703,6 @@ func TestMuxRouterUpsert(t *testing.T) {
 
 }
 
-// TODO all params unique in a route
 func TestParseRoute(t *testing.T) {
 	cases := []struct {
 		name            string
@@ -695,6 +735,12 @@ func TestParseRoute(t *testing.T) {
 			path:     "/foo/:bar/:baz",
 			wantN:    2,
 			wantPath: "/foo/:bar/:baz",
+		},
+		{
+			name:     "valid same params route",
+			path:     "/foo/:bar/:bar",
+			wantN:    2,
+			wantPath: "/foo/:bar/:bar",
 		},
 		{
 			name:            "valid multi params and catch all route",
@@ -1081,8 +1127,6 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			assert.Equal(t, "xxxx", params.Get(e3))
 		}
 	}
-	nds := *r.trees.Load()
-	fmt.Println(nds[0])
 }
 
 func TestFuzzInsertNoPanics(t *testing.T) {
@@ -1227,6 +1271,26 @@ func BenchmarkParams(b *testing.B) {
 	}
 }
 
+func BenchmarkDencoParams(b *testing.B) {
+	r := denco.NewMux()
+	h := func(w http.ResponseWriter, r *http.Request, params denco.Params) {}
+	handlers, err := r.Build([]denco.Handler{
+		r.GET("/foobar/boulou/:a/:b/cata", h),
+		r.GET("/foobar/badoum/:a/:b/cala", h),
+	})
+	require.NoError(b, err)
+
+	w := new(mockResponseWriter)
+	req, _ := http.NewRequest("GET", "/foobar/boulou/xxx/xxx/cata", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		handlers.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkGetHttpRouter(b *testing.B) {
 	r := httprouter.New()
 	h := func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {}
@@ -1241,5 +1305,61 @@ func BenchmarkGetHttpRouter(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		r.ServeHTTP(w, req)
+	}
+}
+
+// TODO remove experiment
+func TestTODORemove(t *testing.T) {
+	r := httprouter.New()
+	r.GET("/foo:bar", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		fmt.Println(params)
+	})
+	r.GET("/foo", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		fmt.Println(params)
+	})
+	r.GET("/fob", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		fmt.Println(params)
+	})
+	r.GET("/goo/yola:bar/coco:boom", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+		fmt.Println(params)
+	})
+	req := httptest.NewRequest("GET", "/foo/baasdf/boom", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+}
+
+func TestExperiment(t *testing.T) {
+	// only one wildcard per path segment is allowed, has: ':boom:beam'
+	r := New()
+	require.NoError(t, r.insert("GET", "/foo/yolo:bar/coco", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/foo/yolo", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/goo/yolo:bar", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/goo/yolo", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/goo/yolo:bar/coco", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/xoo/:bar/abc", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/xoo/:bar/xyz", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/zoo/:bar/abc:foo", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/zoo/:bar/abc", "", emptyHandler))
+	// require.NoError(t, r.insert("GET", "/zoo/:bar/xyz", "", emptyHandler))
+	nds := *r.trees.Load()
+	// fmt.Println(nds[0])
+	n, params, _ := r.lookup(nds[0], "/zoo/xx/abca", false)
+	if n != nil {
+		fmt.Println(n, params)
+	}
+}
+
+func TestExperiment2(t *testing.T) {
+	// only one wildcard per path segment is allowed, has: ':boom:beam'
+	r := New()
+	require.NoError(t, r.insert("GET", "/foo:bar", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/foo", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/fob", "", emptyHandler))
+	// require.NoError(t, r.insert("GET", "/zoo/:bar/xyz", "", emptyHandler))
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+	n, params, _ := r.lookup(nds[0], "/foo", false)
+	if n != nil {
+		fmt.Println(n, params)
 	}
 }
