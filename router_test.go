@@ -750,6 +750,19 @@ func TestParseRoute(t *testing.T) {
 			wantPath:        "/foo/:bar/:baz/",
 		},
 		{
+			name:     "valid inflight param",
+			path:     "/foo/xyz:bar",
+			wantN:    1,
+			wantPath: "/foo/xyz:bar",
+		},
+		{
+			name:            "valid multi inflight param and catch all",
+			path:            "/foo/xyz:bar/abc:bar/*arg",
+			wantN:           3,
+			wantCatchAllKey: "arg",
+			wantPath:        "/foo/xyz:bar/abc:bar/",
+		},
+		{
 			name:    "missing prefix slash",
 			path:    "foo/bar",
 			wantErr: ErrInvalidRoute,
@@ -788,6 +801,24 @@ func TestParseRoute(t *testing.T) {
 		{
 			name:    "catch all with arg in the middle of the route",
 			path:    "/foo/bar/*arg/baz",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "missing name after param colon",
+			path:    "/foo/::bar",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "multiple param in one route segment",
+			path:    "/foo/:bar:baz",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "in flight param after catch all",
+			path:    "/foo/*args:param",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},

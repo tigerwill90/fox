@@ -35,7 +35,7 @@ func (it *iterator) hasNextLeaf() bool {
 }
 
 func (it *iterator) hasNext() bool {
-	for len(it.stack) > 0 {
+	if len(it.stack) > 0 {
 		n := len(it.stack)
 		last := it.stack[n-1]
 		elem := last.edges[0]

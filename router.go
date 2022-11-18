@@ -134,6 +134,9 @@ func (fox *Router) Upsert(method, path string, handler Handler) error {
 	fox.mu.Lock()
 	defer fox.mu.Unlock()
 
+	if fox.AddRouteParam {
+		n += 1
+	}
 	updateMaxParams(uint32(n))
 
 	if err = fox.insert(method, p, catchAllKey, handler); errors.Is(err, ErrRouteExist) {
@@ -332,6 +335,9 @@ func (fox *Router) addRoute(method, path string, handler Handler) error {
 	fox.mu.Lock()
 	defer fox.mu.Unlock()
 
+	if fox.AddRouteParam {
+		n += 1
+	}
 	updateMaxParams(uint32(n))
 
 	return fox.insert(method, p, catchAllKey, handler)
@@ -1021,18 +1027,38 @@ func parseRoute(path string) (string, string, int, error) {
 		}
 		n++
 
+		// /foo*
 		if p[i-1] != '/' && p[i] == '*' {
 			return "", "", -1, fmt.Errorf("missing '/' before catch all route segment: %w", ErrInvalidRoute)
 		}
 
+		// /foo/:
 		if i == len(p)-1 {
-			return "", "", -1, fmt.Errorf("missing argument name after %s all operator: %w", routeType(c), ErrInvalidRoute)
+			return "", "", -1, fmt.Errorf("missing argument name after %s operator: %w", routeType(c), ErrInvalidRoute)
+		}
+
+		// /foo/:/
+		if p[i+1] == '/' {
+			return "", "", -1, fmt.Errorf("missing argument name after %s operator: %w", routeType(c), ErrInvalidRoute)
+		}
+
+		if c == ':' {
+			for k := i + 1; k < len(path); k++ {
+				if path[k] == '/' {
+					break
+				}
+				// /foo/:abc:xyz
+				if path[k] == ':' {
+					return "", "", -1, fmt.Errorf("only one param per path segment is allowed: %w", ErrInvalidRoute)
+				}
+			}
 		}
 
 		if c == '*' {
 			for k := i + 1; k < len(path); k++ {
-				if path[k] == '/' {
-					return "", "", -1, fmt.Errorf("catch all are supported only at the end of a route: %w", ErrInvalidRoute)
+				// /foo/*args/
+				if path[k] == '/' || path[k] == ':' {
+					return "", "", -1, fmt.Errorf("catch all are allowed only at the end of a route: %w", ErrInvalidRoute)
 				}
 			}
 			return path[:i], path[i+1:], n, nil
