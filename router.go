@@ -540,7 +540,7 @@ func (fox *Router) update(method string, path, catchAllKey string, handler Handl
 	}
 
 	if catchAllKey != "" && len(result.matched.children) > 0 {
-		return newConflictErr(method, path, getRouteConflict(result.matched)[1:], true)
+		return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched)[1:])
 	}
 
 	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
@@ -567,6 +567,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 	index := findRootNode(method, nds)
 	if index < 0 {
 		rootNode = &node{key: method}
+		// TODO delete node on conflict
 		fox.addRoot(rootNode)
 	} else {
 		rootNode = nds[index]
@@ -588,7 +589,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 
 		// The matched node can only be the result of a previous split and therefore has children.
 		if isCatchAll {
-			return newConflictErr(method, path, getRouteConflict(result.matched), true)
+			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
@@ -612,17 +613,19 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		//    char remain the same).
 
 		if isCatchAll {
-			return newConflictErr(method, path, getRouteConflict(result.matched), true)
+			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
+
+		// Rule: a node with :param has no child or has a separator before the end of the key
 		for i := len(cPrefix) - 1; i >= 0; i-- {
 			if cPrefix[i] == '/' {
 				break
 			}
 			if cPrefix[i] == ':' {
-				return fmt.Errorf("params route, not allowed")
+				return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
 			}
 		}
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
@@ -669,10 +672,11 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		// 3. Update the "te" (parent) node to the new "st" node.
 
 		if result.matched.isCatchAll() {
-			return newConflictErr(method, path, getRouteConflict(result.matched), true)
+			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 
 		keySuffix := path[result.charsMatched:]
+		// Rule: a node with :param has no child or has a separator before the end of the key
 		// make sure than and existing params :x is not extended to :xy
 		// :x/:y is of course valid
 		if !strings.HasPrefix(keySuffix, "/") {
@@ -681,7 +685,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 					break
 				}
 				if result.matched.key[i] == ':' {
-					return fmt.Errorf("params route, not allowed")
+					return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
 				}
 			}
 		}
@@ -726,19 +730,28 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
+
+		// Rule: a node with :param has no child or has a separator before the end of the key
 		for i := len(cPrefix) - 1; i >= 0; i-- {
 			if cPrefix[i] == '/' {
 				break
 			}
 			if cPrefix[i] == ':' {
-				return fmt.Errorf("params route, not allowed")
+				return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
 			}
 		}
+
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
+		// Rule: parent's of a node with :param have only one node or are prefixed by a char (e.g /:param)
 		if strings.HasPrefix(suffixFromExistingEdge, ":") {
-			return fmt.Errorf("params route, not allowed")
+			return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
 		}
+
 		keySuffix := path[result.charsMatched:]
+		// Rule: parent's of a node with :param have only one node or are prefixed by a char (e.g /:param)
+		if strings.HasPrefix(keySuffix, ":") {
+			return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+		}
 
 		// No children, so no paramChild
 		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, false, path) // inserted node
@@ -1008,8 +1021,8 @@ func parseRoute(path string) (string, string, int, error) {
 		}
 		n++
 
-		if p[i-1] != '/' {
-			return "", "", -1, fmt.Errorf("missing '/' before %s route segment: %w", routeType(c), ErrInvalidRoute)
+		if p[i-1] != '/' && p[i] == '*' {
+			return "", "", -1, fmt.Errorf("missing '/' before catch all route segment: %w", ErrInvalidRoute)
 		}
 
 		if i == len(p)-1 {

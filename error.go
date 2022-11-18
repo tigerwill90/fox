@@ -1,39 +1,34 @@
 package fox
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
-type ConflictError struct {
-	method     string
-	path       string
-	matching   []string
-	isWildcard bool
-	err        error
+type RouteConflictError struct {
+	Method   string
+	Path     string
+	Matching []string
+	err      error
 }
 
-func newConflictErr(method, path string, matching []string, isWildcard bool) *ConflictError {
-	return &ConflictError{
-		method:     method,
-		path:       path,
-		matching:   matching,
-		isWildcard: isWildcard,
-		err:        ErrRouteConflict,
+func newConflictErr(method, path, catchAllKey string, matching []string) *RouteConflictError {
+	if catchAllKey != "" {
+		path += "*" + catchAllKey
+	}
+	return &RouteConflictError{
+		Method:   method,
+		Path:     path,
+		Matching: matching,
+		err:      ErrRouteConflict,
 	}
 }
 
-func (e *ConflictError) Error() string {
-	path := e.path
-	if e.isWildcard {
-		path += "*"
-	}
-	return fmt.Sprintf("route /%s %s is conflicting with %v", e.method, path, e.matching)
+func (e *RouteConflictError) Error() string {
+	path := e.Path
+	return fmt.Sprintf("new route [%s] %s conflicts with %s", e.Method, path, strings.Join(e.Matching, ", "))
 }
 
-func (e *ConflictError) Unwrap() error {
+func (e *RouteConflictError) Unwrap() error {
 	return e.err
-}
-
-func Must(err error) {
-	if err != nil {
-		panic(err)
-	}
 }

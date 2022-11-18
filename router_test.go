@@ -431,8 +431,8 @@ func TestRouteWithParams(t *testing.T) {
 		"/src/*filepath",
 		"/search/",
 		"/search/:query",
-		// "/user_:name",
-		// "/user_:name/about",
+		"/user_:name",
+		"/user_:name/about",
 		"/files/:dir/*filepath",
 		"/doc/",
 		"/doc/go_faq.html",
@@ -519,8 +519,8 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 				}
 				err := r.insert(http.MethodGet, rte.path, catchAllKey, h)
 				assert.ErrorIs(t, err, rte.wantErr)
-				if cErr, ok := err.(*ConflictError); ok {
-					assert.Equal(t, rte.wantMatch, cErr.matching)
+				if cErr, ok := err.(*RouteConflictError); ok {
+					assert.Equal(t, rte.wantMatch, cErr.Matching)
 				}
 			}
 		})
@@ -590,8 +590,8 @@ func TestMuxRouterSwapWildcardConflict(t *testing.T) {
 			}
 			err := r.update(http.MethodGet, tc.path, "args", h)
 			assert.ErrorIs(t, err, tc.wantErr)
-			if cErr, ok := err.(*ConflictError); ok {
-				assert.Equal(t, tc.wantMatch, cErr.matching)
+			if cErr, ok := err.(*RouteConflictError); ok {
+				assert.Equal(t, tc.wantMatch, cErr.Matching)
 			}
 		})
 	}
@@ -1309,12 +1309,12 @@ func BenchmarkGetHttpRouter(b *testing.B) {
 }
 
 // TODO remove experiment
-func TestTODORemove(t *testing.T) {
+/*func TestTODORemove(t *testing.T) {
 	r := httprouter.New()
-	r.GET("/foo:bar", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+	r.GET("/test/:foo", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		fmt.Println(params)
 	})
-	r.GET("/foo", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
+	r.GET("/tes:foo", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
 		fmt.Println(params)
 	})
 	r.GET("/fob", func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
@@ -1326,6 +1326,237 @@ func TestTODORemove(t *testing.T) {
 	req := httptest.NewRequest("GET", "/foo/baasdf/boom", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
+}
+*/
+func TestRouteParamsConflict(t *testing.T) {
+	cases := []struct {
+		name   string
+		routes []struct {
+			path         string
+			wildcard     string
+			wantErr      error
+			wantMatching []string
+		}
+	}{
+		// KEY_END_MID_EDGE, no remaining char inserting path in the middle of a existing node
+		{
+			// path: GET
+			//    path: /test/ [paramChild] [leaf=/test/]
+			//      path: :foo [leaf=/test/:foo]
+			name: "KEY_END_MID_EDGE split right before param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/:f [leaf=/test/:f]
+			//      path: oo [leaf=/test/:foo]
+			name: "KEY_END_MID_EDGE split param at the start of the path segment",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test [leaf=/test]
+			//      path: /:foo [leaf=/test/:foo]]
+			name: "KEY_END_MID_EDGE split a char before the param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc [paramChild] [leaf=/test/abc]
+			//      path: :foo [leaf=/test/abc:foo]
+			name: "KEY_END_MID_EDGE split right before inflight param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc:f [leaf=/test/abc:f]
+			//      path: oo [leaf=/test/abc:foo]
+			name: "KEY_END_MID_EDGE split param in flight",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		// INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE remaining char when inserting path in the middle of an existing node
+		{
+			// path: GET
+			//    path: /test/
+			//      path: :foo [leaf=/test/:foo]
+			//      path: a [leaf=/test/a]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node right before param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /tes
+			//      path: :foo [leaf=/tes:foo]
+			//      path: t/:foo [leaf=/test/:foo]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split new node right before param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/:f
+			//      path: oo [leaf=/test/:foo]
+			//      path: x [leaf=/test/:fx]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node after param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:fx", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc
+			//      path: :foo [leaf=/test/abc:foo]
+			//      path: d [leaf=/test/abcd]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node right before inflight param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc
+			//      path: :foo [leaf=/test/abc:foo]
+			//      path: d [leaf=/test/abcd]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split new node right before inflight param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/ab:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		// INCOMPLETE_MATCH_TO_END_OF_EDGE remaining char when inserting path at the end of a node
+		{
+			// path: GET
+			//    path: /test/:foo [leaf=/test/:foo]
+			//      path: x [leaf=/test/:foox]
+			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new node right after param without slash",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc:foo [leaf=/test/abc:foo]
+			//      path: x [leaf=/test/abc:foox]
+			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new node right after inflight param without slash",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/:foo [leaf=/test/:foo]
+			//      path: /ba [leaf=/test/:foo/ba]
+			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new static node right after param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:foo/ba", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New()
+			for _, rte := range tc.routes {
+				err := r.insert(http.MethodGet, rte.path, rte.wildcard, emptyHandler)
+				if rte.wantErr != nil {
+					assert.ErrorIs(t, err, rte.wantErr)
+					if cErr, ok := err.(*RouteConflictError); ok {
+						assert.Equal(t, rte.wantMatching, cErr.Matching)
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestExperiment(t *testing.T) {
@@ -1340,10 +1571,12 @@ func TestExperiment(t *testing.T) {
 	require.NoError(t, r.insert("GET", "/xoo/:bar/xyz", "", emptyHandler))
 	require.NoError(t, r.insert("GET", "/zoo/:bar/abc:foo", "", emptyHandler))
 	require.NoError(t, r.insert("GET", "/zoo/:bar/abc", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/test/:foo", "", emptyHandler))
+	require.NoError(t, r.insert("GET", "/test/:foo/bar", "", emptyHandler))
 	// require.NoError(t, r.insert("GET", "/zoo/:bar/xyz", "", emptyHandler))
 	nds := *r.trees.Load()
 	// fmt.Println(nds[0])
-	n, params, _ := r.lookup(nds[0], "/zoo/xx/abca", false)
+	n, params, _ := r.lookup(nds[0], "/test/fooaaaa/bar", false)
 	if n != nil {
 		fmt.Println(n, params)
 	}
