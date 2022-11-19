@@ -60,8 +60,7 @@ type Router struct {
 
 	mu sync.Mutex
 
-	// TODO may remove the pointer here
-	trees atomic.Pointer[[]*node]
+	trees *atomic.Pointer[[]*node]
 }
 
 var _ http.Handler = (*Router)(nil)
@@ -77,7 +76,7 @@ func New() *Router {
 	ptr.Store(&nds)
 
 	return &Router{
-		trees: ptr,
+		trees: &ptr,
 	}
 }
 
@@ -101,7 +100,7 @@ func (fox *Router) Delete(path string, handler Handler) error {
 	return fox.addRoute(http.MethodDelete, path, handler)
 }
 
-// Handler registers a new http.Handler for the given method and path. If the route is already registered,
+// Handler registers a new handler for the given method and path. If the route is already registered,
 // the function return an ErrRouteExist. It's perfectly safe to add a new handler once the server is started.
 // This function is safe for concurrent use by multiple goroutine.
 // To override an existing route, use Update method.
@@ -125,6 +124,9 @@ func (fox *Router) Update(method, path string, handler Handler) error {
 	return fox.update(method, p, catchAllKey, handler)
 }
 
+// Upsert registers a new handler for the given method and path or, if the route already exist, update it with
+// the new handler. It's perfectly safe to upsert a handler once the server is started. This function is safe for
+// concurrent use by multiple goroutine.
 func (fox *Router) Upsert(method, path string, handler Handler) error {
 	p, catchAllKey, n, err := parseRoute(path)
 	if err != nil {
@@ -163,7 +165,7 @@ func (fox *Router) Remove(method, path string) error {
 	return nil
 }
 
-// Lookup allow to do  manual lookup of a route. Params passed in callback, are only valid within the callback.
+// Lookup allow to do manual lookup of a route. Params passed in callback, are only valid within the callback.
 // This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) {
 	nds := *fox.trees.Load()
@@ -181,6 +183,17 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 	}
 	params.free()
 	return
+}
+
+func (fox *Router) Match(method, path string) bool {
+	nds := *fox.trees.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return false
+	}
+
+	n, _, _ := fox.lookup(nds[index], path, true)
+	return n != nil
 }
 
 type Route struct {
@@ -403,7 +416,7 @@ STOP:
 						if params == nil {
 							params = newParams()
 						}
-						// TODO startKey+1 may panic (must have :n where n >= 1)
+						// :n where n > 0
 						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound], Value: path[startPath:charsMatched]})
 					}
 					continue
@@ -435,8 +448,6 @@ STOP:
 			return current, params, false
 		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
-			// Tsr recommendation: add an extra trailing slash (got an exact match)
-			// TODO this is a test
 			if current.key[charsMatchedInNodeFound] == ':' {
 				// this is a param node
 				if !lazy {
@@ -456,13 +467,13 @@ STOP:
 						// -1 since on the next incrementation, if any, 'i' are going to be incremented
 						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
 					}
-					// TODO startKey+1 may panic (must have :n where n >= 1)
+					// :n where n > 0
 					*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound]})
 				}
 				return current, params, false
 			}
-			// TODO end test section
 
+			// Tsr recommendation: add an extra trailing slash (got an exact match)
 			remainingSuffix := current.key[charsMatchedInNodeFound:]
 			return nil, nil, len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
 		}
@@ -470,7 +481,6 @@ STOP:
 
 	// Incomplete match to end of edge
 	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
-		// TODO if current.nType == catchAll => current.get(0) => this should be the right handler
 		if current.isCatchAll() {
 			if !lazy {
 				if params == nil {
@@ -573,7 +583,6 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 	index := findRootNode(method, nds)
 	if index < 0 {
 		rootNode = &node{key: method}
-		// TODO delete node on conflict
 		fox.addRoot(rootNode)
 	} else {
 		rootNode = nds[index]
@@ -624,17 +633,19 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-
-		// Rule: a node with :param has no child or has a separator before the end of the key
-		for i := len(cPrefix) - 1; i >= 0; i-- {
-			if cPrefix[i] == '/' {
-				break
-			}
-			if cPrefix[i] == ':' {
-				return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
+		// Rule: a node with :param has no child or has a separator before the end of the key or its child
+		// start with a separator
+		if !strings.HasPrefix(suffixFromExistingEdge, "/") {
+			for i := len(cPrefix) - 1; i >= 0; i-- {
+				if cPrefix[i] == '/' {
+					break
+				}
+				if cPrefix[i] == ':' {
+					return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+				}
 			}
 		}
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 
 		child := newNodeFromRef(
 			suffixFromExistingEdge,
@@ -770,7 +781,8 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 			result.matched.paramChild,
 			result.matched.path,
 		) // previous matched node
-		// TODO paramChild ???
+
+		// n3 children never start with a param
 		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", false, "") // intermediary node
 		result.p.updateEdge(n3)
 	default:

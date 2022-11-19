@@ -22,6 +22,7 @@ type Param struct {
 
 type Params []Param
 
+// Get the matching wildcard segment by name.
 func (p *Params) Get(name string) string {
 	for i := range *p {
 		if (*p)[i].Key == name {
