@@ -26,25 +26,45 @@ var (
 	ErrSkipMethod    = errors.New("skip method")
 )
 
+// Handler respond to an HTTP request.
+//
+// This interface enforce the same contract as http.Handler except that matched wildcard route segment
+// are accessible via params. Params slice is freed once ServeHTTP returns and may be reused later to
+// save resource. Therefore, if you need to hold params slice longer, you have to copy it.
+//
+// As for http.Handler interface, to abort a handler so the client sees an interrupted response, panic with
+// the value http.ErrAbortHandler.
 type Handler interface {
 	ServeHTTP(w http.ResponseWriter, r *http.Request, params Params)
 }
 
+// HandlerFunc is an adapter to allow the use of ordinary functions as HTTP handlers. If f is a function with the
+// appropriate signature, HandlerFunc(f) is a Handler that calls f.
 type HandlerFunc func(w http.ResponseWriter, r *http.Request, params Params)
 
-func (h HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Params) {
-	h(w, r, params)
+// ServerHTTP calls f(w, r, params)
+func (f HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Params) {
+	f(w, r, params)
 }
 
 type Router struct {
-	NotFound         http.Handler
+	// User-configurable http.Handler which is called when no matching route is found.
+	// By default, http.NotFound is used.
+	NotFound http.Handler
+
+	// User-configurable http.Handler which is called when the request cannot be routed,
+	// but the same route exist for other methods. The "Allow" header it automatically added to
+	// the response. Set HandleMethodNotAllowed to true to enable this option. By default,
+	// http.Error with http.StatusMethodNotAllowed is used.
 	MethodNotAllowed http.Handler
-	PanicHandler     func(http.ResponseWriter, *http.Request, interface{})
+
+	// Register a function to handle panics recovered from http handlers.
+	PanicHandler func(http.ResponseWriter, *http.Request, interface{})
 
 	// If enabled, fox return a 405 Method Not Allowed instead of 404 Not Found when the route exist for another http verb.
 	HandleMethodNotAllowed bool
 
-	// Enable passing the matching route as a Handler parameter.
+	// If enabled, the matched route will be accessible as a Handler parameter.
 	// Usage: p.Get(ParamRouteKey)
 	AddRouteParam bool
 
@@ -165,7 +185,7 @@ func (fox *Router) Remove(method, path string) error {
 	return nil
 }
 
-// Lookup allow to do manual lookup of a route. Params passed in callback, are only valid within the callback.
+// Lookup allow to do manual lookup of a route. Please note that params are only valid until fn callback returns.
 // This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) {
 	nds := *fox.trees.Load()
@@ -185,6 +205,8 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 	return
 }
 
+// Match return true if the requested method and path match a registered handler.
+// This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Match(method, path string) bool {
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
@@ -444,7 +466,6 @@ STOP:
 				*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
 				return current, params, false
 			}
-
 			return current, params, false
 		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge

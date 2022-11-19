@@ -20,7 +20,7 @@ exactly one or no route. As a result, there are also no unintended matches, whic
 user experience.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
-redirects the client, with no extra cost, if another route match with or without a trailing slash (disable by default). 
+redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
 
 **Path auto-correction:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router can remove superfluous path
 elements like `../` or `//` and automatically redirect the client if the cleaned path match a handler (disable by default).
@@ -55,7 +55,7 @@ func main() {
 		_, _ = fmt.Fprint(w, "Welcome!\n")
 	})))
 	Must(r.Get("/hello/:name", new(HelloHandler)))
-
+	
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
@@ -65,3 +65,44 @@ func Must(err error) {
 	}
 }
 ````
+#### Error handling
+Since new route may be added at any given time, Fox, unlike other router, does not panic when a registered route is malformed or conflicts with another one. 
+Instead, it's the user responsibility to handle them gracefully. 
+
+#### Named parameters
+A route can be defined using placeholder (e.g :name). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
+The `Get` method is just a helper to retrieve the value using the placeholder name.
+
+Named parameter only match a single path segment.
+```
+Pattern /avengers/:name
+
+/avengers/ironman       match
+/avengers/thor          match
+/avengers/hulk/angry    no match
+/avengers/              no match
+
+Pattern /users/uuid_:id
+
+/users/uuid_xyz         match
+/users/uuid             no match
+```
+
+**Note:** Since this router has only explicit matches, you can not register static routes and parameters for the same method and path segment.
+
+#### Catch all parameter
+
+#### Warning about params slice
+`Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold params `fox.Params`
+longer, you have to copy it.
+```go
+func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	p := make(fox.Params, len(params))
+	copy(p, params)
+	go func(){
+	    time.Sleep(1 * time.Second)
+		p.Get("name") // Safe
+	}()
+	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+}
+```
