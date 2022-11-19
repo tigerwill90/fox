@@ -448,31 +448,31 @@ STOP:
 			return current, params, false
 		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
-			if current.key[charsMatchedInNodeFound] == ':' {
-				// this is a param node
-				if !lazy {
-					if params == nil {
-						params = newParams()
-					}
-					if fox.AddRouteParam {
-						*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
-					}
+			/*			if current.key[charsMatchedInNodeFound] == ':' {
+							// It's a param child, make sure that there is no more path segment (aka '/')
+							idx := strings.Index(current.key[charsMatchedInNodeFound:], "/")
+							if idx >= 0 {
+								// TODO test for tsr recommendation ??
+								return nil, nil, false
+							}
 
-					startKey := charsMatchedInNodeFound
-					idx := strings.Index(current.key[startKey:], "/")
-					if idx >= 0 {
-						// -1 since on the next incrementation, if any, 'i' are going to be incremented
-						charsMatchedInNodeFound += idx
-					} else {
-						// -1 since on the next incrementation, if any, 'i' are going to be incremented
-						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
-					}
-					// :n where n > 0
-					*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound]})
-				}
-				return current, params, false
-			}
+							// this is a param node
+							if !lazy {
+								if params == nil {
+									params = newParams()
+								}
+								if fox.AddRouteParam {
+									*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
+								}
 
+								startKey := charsMatchedInNodeFound
+								charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+								// :n where n > 0
+								*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound]})
+							}
+							return current, params, false
+						}
+			*/
 			// Tsr recommendation: add an extra trailing slash (got an exact match)
 			remainingSuffix := current.key[charsMatchedInNodeFound:]
 			return nil, nil, len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
@@ -662,7 +662,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 			handler,
 			[]*node{child},
 			catchAllKey,
-			// e.g. tree encode /tes/ and /tes/:t
+			// e.g. tree encode /tes/:t and insert /tes/
 			// /tes/ (paramChild)
 			// ├── :t
 			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
@@ -716,7 +716,14 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 			result.matched.handler,
 			edges,
 			result.matched.catchAllKey,
-			result.matched.paramChild,
+			// e.g. tree encode /tes/ and insert /tes/:t
+			// /tes/ (paramChild)
+			// ├── :t
+			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
+			// if paramChild == true {
+			// 	next = current.get(0)
+			// }
+			strings.HasPrefix(keySuffix, ":"),
 			result.matched.path,
 		)
 		if result.matched == rootNode {

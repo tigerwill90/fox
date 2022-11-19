@@ -987,8 +987,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
 			},
 		},
 		{
@@ -1796,4 +1796,34 @@ func atomicSync() (start func(), wait func()) {
 	}
 
 	return
+}
+
+func TestTmp(t *testing.T) {
+	r := New()
+	r.Get("/hello/", emptyHandler)
+	r.Get("/hello/env:name", emptyHandler)
+	r.Get("/hello/env:name/foo", emptyHandler)
+	// r.Get("/foo/env", emptyHandler)
+	// r.Get("/foo/env:bar", emptyHandler)
+	// r.Get("/foo/env:bar/baz", emptyHandler)
+
+	nds := *r.trees.Load()
+	fmt.Println(nds[0])
+
+	n, params, tsr := r.lookup(nds[0], "/hello/env", false)
+	fmt.Println(n, params, tsr)
+}
+
+func TestTmp2(t *testing.T) {
+	r := httprouter.New()
+	h := func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+		fmt.Fprintf(w, "Hello %s\n", params.ByName("name"))
+	}
+	r.GET("/hello/env:name", h)
+	r.GET("/hello/env:name/foo", h)
+
+	req, _ := http.NewRequest("GET", "/hello/env/foo", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	fmt.Println(w.Body.String())
 }

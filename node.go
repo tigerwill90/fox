@@ -175,7 +175,7 @@ func (n *node) string(space int) string {
 	}
 
 	if n.isCatchAll() {
-		sb.WriteString(" [static]")
+		sb.WriteString(" [catchAll]")
 	}
 	if n.isLeaf() {
 		sb.WriteString(" [leaf=")
