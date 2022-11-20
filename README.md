@@ -221,6 +221,10 @@ For example, here we are inserting the new path `/table` into to the tree which 
 
 As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
 
+## Acknowledgements
+- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are directly inspired from Julien Schmidt's router.
+- [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
+
 ## TODO
 - [ ] Iterator (method, prefix, suffix)
 - [ ] Batch write (aka the transaction api)
