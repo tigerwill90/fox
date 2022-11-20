@@ -70,8 +70,8 @@ Since new route may be added at any given time, Fox, unlike other router, does n
 Instead, it's the user responsibility to handle them gracefully. 
 
 #### Named parameters
-A route can be defined using placeholder (e.g :name). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
-The `Get` method is just a helper to retrieve the value using the placeholder name.
+A route can be defined using placeholder (e.g `:name`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
+The `Get` method can is a helper to retrieve the value using the placeholder name.
 
 Named parameter only match a single path segment.
 ```
@@ -100,7 +100,7 @@ func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params 
 	p := make(fox.Params, len(params))
 	copy(p, params)
 	go func(){
-	    time.Sleep(1 * time.Second)
+		time.Sleep(1 * time.Second)
 		p.Get("name") // Safe
 	}()
 	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))

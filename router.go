@@ -185,7 +185,7 @@ func (fox *Router) Remove(method, path string) error {
 	return nil
 }
 
-// Lookup allow to do manual lookup of a route. Please note that params are only valid until fn callback returns.
+// Lookup allow to do manual lookup of a route. Please note that params are only valid until fn callback returns (see Handler interface).
 // This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) {
 	nds := *fox.trees.Load()
@@ -568,12 +568,12 @@ func (fox *Router) update(method string, path, catchAllKey string, handler Handl
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return fmt.Errorf("route /%s %s is not registered: %w", method, path, ErrRouteNotFound)
+		return fmt.Errorf("route [%s] %s is not registered: %w", method, path, ErrRouteNotFound)
 	}
 
 	result := fox.search(nds[index], path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
-		return fmt.Errorf("route /%s %s is not registered: %w", method, path, ErrRouteNotFound)
+		return fmt.Errorf("route [%s] %s is not registered: %w", method, path, ErrRouteNotFound)
 	}
 
 	if catchAllKey != "" && len(result.matched.children) > 0 {
@@ -620,7 +620,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		// └── am
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
-			return fmt.Errorf("route /%s %s is already registered: %w", method, path, ErrRouteExist)
+			return fmt.Errorf("route [%s] %s conflict: %w", method, path, ErrRouteExist)
 		}
 
 		// The matched node can only be the result of a previous split and therefore has children.
@@ -663,7 +663,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 					break
 				}
 				if cPrefix[i] == ':' {
-					return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 				}
 			}
 		}
@@ -723,7 +723,7 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 					break
 				}
 				if result.matched.key[i] == ':' {
-					return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 				}
 			}
 		}
@@ -782,20 +782,20 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 				break
 			}
 			if cPrefix[i] == ':' {
-				return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 			}
 		}
 
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 		// Rule: parent's of a node with :param have only one node or are prefixed by a char (e.g /:param)
 		if strings.HasPrefix(suffixFromExistingEdge, ":") {
-			return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 
 		keySuffix := path[result.charsMatched:]
 		// Rule: parent's of a node with :param have only one node or are prefixed by a char (e.g /:param)
 		if strings.HasPrefix(keySuffix, ":") {
-			return newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 
 		// No children, so no paramChild
