@@ -203,6 +203,22 @@ _ = r.Get("/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
 }))
 ```
 
+## Concurrency
+Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
+reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
+into a **patch**, which is then applied to the tree in a **single atomic operation**.
+
+Inserting a new path into to the tree which require an existing node to be split:
+
+<img src="assets/tree-apply-patch.png" style="display:block;float:none;margin-left:auto;margin-right:auto;width:60%">
+
+- Routing requests is lock-free (reading thread never block, even while writes are ongoing)
+- The router always see a consistent version of the tree while routing request
+- Routing requests do not block writing threads (adding, updating or removing a handler can be done concurrently)
+- Writing threads block each other but never block reading threads
+
+As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
+
 ## TODO
 - [ ] Iterator (method, prefix, suffix)
 - [ ] Batch write (aka the transaction api)
