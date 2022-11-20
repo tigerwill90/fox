@@ -25,17 +25,8 @@ func (it *iterator) node() *node {
 	return it.current
 }
 
-func (it *iterator) hasNextLeaf() bool {
-	for it.hasNext() {
-		if it.current.isLeaf() {
-			return true
-		}
-	}
-	return false
-}
-
 func (it *iterator) hasNext() bool {
-	if len(it.stack) > 0 {
+	for len(it.stack) > 0 {
 		n := len(it.stack)
 		last := it.stack[n-1]
 		elem := last.edges[0]
@@ -52,8 +43,11 @@ func (it *iterator) hasNext() bool {
 		}
 
 		it.current = elem
-		it.path = last.path + elem.key
-		return true
+
+		if it.current.isLeaf() {
+			it.path = elem.path
+			return true
+		}
 	}
 
 	it.current = nil

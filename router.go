@@ -52,7 +52,7 @@ type Router struct {
 	HandleMethodNotAllowed bool
 
 	// If enabled, the matched route will be accessible as a Handler parameter.
-	// Usage: p.Get(ParamRouteKey)
+	// Usage: p.Get(RouteKey)
 	AddRouteParam bool
 
 	// Enable automatic redirection fallback when the current request does not match but another handler is found
@@ -216,28 +216,7 @@ func (fox *Router) Match(method, path string) bool {
 	return n != nil
 }
 
-type Route struct {
-	Method      string
-	Path        string
-	CatchAllKey string
-	isCatchAll  bool
-}
-
-func (r Route) IsCatchAll() bool {
-	return r.isCatchAll
-}
-
-func (r Route) String() string {
-	sb := strings.Builder{}
-	sb.WriteString(r.Path)
-	if r.isCatchAll {
-		sb.WriteByte('*')
-		sb.WriteString(r.CatchAllKey)
-	}
-	return sb.String()
-}
-
-type WalkFunc func(r Route, handler Handler) error
+type WalkFunc func(method, path string, handler Handler) error
 
 // WalkRoute allow to walk over all registered route in lexicographical order. This function is safe for
 // concurrent use by multiple goroutine.
@@ -246,14 +225,13 @@ func (fox *Router) WalkRoute(fn WalkFunc) error {
 NEXT:
 	for i := range nds {
 		method := nds[i].key
-		it := newIterator(nds[i])
-		for it.hasNextLeaf() {
-			err := fn(Route{
-				Method:      method,
-				Path:        it.fullPath(),
-				CatchAllKey: it.node().catchAllKey,
-				isCatchAll:  it.node().isCatchAll(),
-			}, it.node().handler)
+		// All route start with '/'
+		if len(nds[i].children) != 1 {
+			continue
+		}
+		it := newIterator(nds[i].get(0))
+		for it.hasNext() {
+			err := fn(method, it.fullPath(), it.node().handler)
 			if err != nil {
 				if errors.Is(err, ErrSkipMethod) {
 					continue NEXT
@@ -461,7 +439,7 @@ STOP:
 				if params == nil {
 					params = fox.newParams()
 				}
-				*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
+				*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				return current, params, false
 			}
 			return current, params, false
@@ -481,7 +459,7 @@ STOP:
 									params = newParams()
 								}
 								if fox.AddRouteParam {
-									*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
+									*params = append(*params, Param{Key: RouteKey, Value: current.path})
 								}
 
 								startKey := charsMatchedInNodeFound
@@ -507,7 +485,7 @@ STOP:
 				}
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				if fox.AddRouteParam {
-					*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
+					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}
 				return current, params, false
 			}
@@ -1108,7 +1086,7 @@ func parseRoute(path string) (string, string, int, error) {
 func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 	it := newIterator(n)
-	for it.hasNextLeaf() {
+	for it.hasNext() {
 		routes = append(routes, it.current.path)
 	}
 	return routes

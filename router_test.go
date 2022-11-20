@@ -655,7 +655,7 @@ func TestGithubApi(t *testing.T) {
 		for _, match := range matches {
 			assert.Equal(t, match, params.Get(match[1:]))
 		}
-		assert.Equal(t, r.URL.Path, params.Get(ParamRouteKey))
+		assert.Equal(t, r.URL.Path, params.Get(RouteKey))
 		_, _ = w.Write([]byte(r.URL.Path))
 	})
 	for _, route := range githubAPI {
@@ -1144,7 +1144,7 @@ func TestUpdateRoute(t *testing.T) {
 			newPath:        "/foo/bar/",
 			newWildcardKey: "*new",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(params.Get(ParamRouteKey)))
+				w.Write([]byte(params.Get(RouteKey)))
 			}),
 		},
 		{
@@ -1161,7 +1161,7 @@ func TestUpdateRoute(t *testing.T) {
 			newPath:        "/foo/bar/",
 			newWildcardKey: "*foo",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(params.Get(ParamRouteKey)))
+				w.Write([]byte(params.Get(RouteKey)))
 			}),
 		},
 		{
@@ -1730,7 +1730,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath := 0
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
+	require.NoError(t, r.WalkRoute(func(method, path string, handler Handler) error {
 		countPath++
 		return nil
 	}))
@@ -1751,7 +1751,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath = 0
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
+	require.NoError(t, r.WalkRoute(func(method, path string, handler Handler) error {
 		countPath++
 		return nil
 	}))
