@@ -3,22 +3,12 @@ package fox
 import (
 	"context"
 	"net/http"
-	"sync"
 	"sync/atomic"
 )
 
 const ParamRouteKey = "$fox/path"
 
-var (
-	paramsPool = sync.Pool{
-		New: func() interface{} {
-			params := make(Params, 0, atomic.LoadUint32(&maxParams))
-			return &params
-		},
-	}
-	maxParams uint32
-	ParamsKey = key{}
-)
+var ParamsKey = key{}
 
 type key struct{}
 
@@ -39,24 +29,24 @@ func (p *Params) Get(name string) string {
 	return ""
 }
 
-func newParams() *Params {
-	return paramsPool.Get().(*Params)
+func (fox *Router) newParams() *Params {
+	return fox.p.Get().(*Params)
 }
 
-func (p *Params) free() {
-	if cap(*p) < int(atomic.LoadUint32(&maxParams)) {
+func (p *Params) free(fox *Router) {
+	if cap(*p) < int(atomic.LoadUint32(&fox.maxParams)) {
 		return
 	}
 
 	*p = (*p)[:0]
-	paramsPool.Put(p)
+	fox.p.Put(p)
 }
 
 // updateMaxParams perform an update only if max is greater than the current
 // max params. This function should be guarded by mutex.
-func updateMaxParams(max uint32) {
-	if max > atomic.LoadUint32(&maxParams) {
-		atomic.StoreUint32(&maxParams, max)
+func (fox *Router) updateMaxParams(max uint32) {
+	if max > atomic.LoadUint32(&fox.maxParams) {
+		atomic.StoreUint32(&fox.maxParams, max)
 	}
 }
 

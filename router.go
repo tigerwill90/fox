@@ -65,6 +65,10 @@ type Router struct {
 	// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
 	RedirectTrailingSlash bool
 
+	maxParams uint32
+
+	p sync.Pool
+
 	mu sync.Mutex
 
 	trees *atomic.Pointer[[]*node]
@@ -82,9 +86,16 @@ func New() *Router {
 	}
 	ptr.Store(&nds)
 
-	return &Router{
+	mux := &Router{
 		trees: &ptr,
 	}
+	mux.p = sync.Pool{
+		New: func() interface{} {
+			params := make(Params, 0, atomic.LoadUint32(&mux.maxParams))
+			return &params
+		},
+	}
+	return mux
 }
 
 // Get is a shortcut for Handler(http.MethodGet, path, handler)
@@ -146,7 +157,7 @@ func (fox *Router) Upsert(method, path string, handler Handler) error {
 	if fox.AddRouteParam {
 		n += 1
 	}
-	updateMaxParams(uint32(n))
+	fox.updateMaxParams(uint32(n))
 
 	if err = fox.insert(method, p, catchAllKey, handler); errors.Is(err, ErrRouteExist) {
 		return fox.update(method, p, catchAllKey, handler)
@@ -188,7 +199,7 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 	} else {
 		fn(nil, nil, tsr)
 	}
-	params.free()
+	params.free(fox)
 	return
 }
 
@@ -278,7 +289,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if n != nil {
 		if params != nil {
 			n.handler.ServeHTTP(w, r, *params)
-			params.free()
+			params.free(fox)
 			return
 		}
 		n.handler.ServeHTTP(w, r, nil)
@@ -360,7 +371,7 @@ func (fox *Router) addRoute(method, path string, handler Handler) error {
 	if fox.AddRouteParam {
 		n += 1
 	}
-	updateMaxParams(uint32(n))
+	fox.updateMaxParams(uint32(n))
 
 	return fox.insert(method, p, catchAllKey, handler)
 }
@@ -423,7 +434,7 @@ STOP:
 					}
 					if !lazy {
 						if params == nil {
-							params = newParams()
+							params = fox.newParams()
 						}
 						// :n where n > 0
 						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound], Value: path[startPath:charsMatched]})
@@ -448,7 +459,7 @@ STOP:
 			// safely avoid the extra cost of passing an empty slice params.
 			if !lazy && fox.AddRouteParam {
 				if params == nil {
-					params = newParams()
+					params = fox.newParams()
 				}
 				*params = append(*params, Param{Key: ParamRouteKey, Value: current.path})
 				return current, params, false
@@ -492,7 +503,7 @@ STOP:
 		if current.isCatchAll() {
 			if !lazy {
 				if params == nil {
-					params = newParams()
+					params = fox.newParams()
 				}
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				if fox.AddRouteParam {

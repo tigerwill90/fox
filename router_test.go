@@ -477,6 +477,23 @@ func BenchmarkRouter(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+func BenchmarkRouterParams(b *testing.B) {
+	r := New()
+	for _, route := range githubAPI {
+		require.NoError(b, r.Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+	}
+
+	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkHttpRouterRouter(b *testing.B) {
 	r := httprouter.New()
 	for _, route := range staticRoutes {
