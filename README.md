@@ -211,7 +211,7 @@ into a **patch**, which is then applied to the tree in a **single atomic operati
 Inserting a new path into to the tree which require an existing node to be split:
 
 <p align="center" width="100%">
-    <img width="80%" src="assets/tree-apply-patch.png">
+    <img width="100%" src="assets/tree-apply-patch.png">
 </p>
 
 - Routing requests is lock-free (reading thread never block, even while writes are ongoing)
