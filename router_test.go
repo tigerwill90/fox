@@ -3,6 +3,7 @@ package fox
 import (
 	"fmt"
 	"github.com/bmizerany/pat"
+	"github.com/dimfeld/httptreemux/v5"
 	"github.com/gin-gonic/gin"
 	fuzz "github.com/google/gofuzz"
 	"github.com/gorilla/mux"
@@ -478,6 +479,14 @@ func BenchmarkRouter(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+func BenchmarkTreeMuxRouter(b *testing.B) {
+	r := httptreemux.New()
+	for _, route := range staticRoutes {
+		r.GET(route.path, func(writer http.ResponseWriter, request *http.Request, m map[string]string) {})
+	}
+	benchRoutes(b, r, staticRoutes)
+}
+
 func BenchmarkRouterParams(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
@@ -554,6 +563,15 @@ func BenchmarkMuxRouterParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	}
+	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
+}
+
+func BenchmarkTreeMuxParallel(b *testing.B) {
+	r := httptreemux.New()
+	// r.SafeAddRoutesWhileRunning = true
+	for _, route := range staticRoutes {
+		r.GET(route.path, func(writer http.ResponseWriter, request *http.Request, m map[string]string) {})
 	}
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }

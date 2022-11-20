@@ -203,7 +203,7 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 	return
 }
 
-// Match return true if the requested method and path match a registered handler.
+// Match perform a lazy lookup and return true if the requested method and path match a registered handler.
 // This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Match(method, path string) bool {
 	nds := *fox.trees.Load()

@@ -12,6 +12,7 @@ require (
 require (
 	github.com/bmizerany/pat v0.0.0-20210406213842-e4b6760bdd6f // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dimfeld/httptreemux/v5 v5.5.0 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.0 // indirect
 	github.com/go-playground/universal-translator v0.18.0 // indirect

@@ -1,10 +1,11 @@
 # Fox
 Fox is a lightweight high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing table while handling request concurrently**. Internally, Fox use a 
-[Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that support lock-free 
-reads while allowing concurrent writes.
+[Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that support **lock-free 
+reads** while allowing **concurrent writes**.
 
-The router is optimized for high performance and a small memory footprint. In many case, it does not do a single heap allocation.
+The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. Fox has a small memory footprint, and 
+in many case, it does not do a single heap allocation while handling request.
 
 ## Features
 **Routing mutation:** Register, update and remove route handler at any time without impacting the performance. Fox never block while serving
@@ -13,7 +14,7 @@ request!
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
 name. Due to Fox design, wildcard route are cheap and scale really well.
 
-**Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling a HTTP request.
+**Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling an HTTP request.
 
 **Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
 exactly one or no route. As a result, there are also no unintended matches, which makes it great for SEO and improves the 
@@ -66,7 +67,7 @@ func Must(err error) {
 }
 ````
 #### Error handling
-Since new route may be added at any given time, Fox, unlike other router, does not panic when a registered route is malformed or conflicts with another one. 
+Since new route may be added at any given time, Fox, unlike other router, does not panic at registration when a route is malformed or conflicts with another one. 
 Instead, it returns the following error type
 ```go
 ErrRouteNotFound = errors.New("route not found")
@@ -88,7 +89,6 @@ if errC := err.(*fox.RouteConflictError); ok {
 A route can be defined using placeholder (e.g `:name`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
 The `Get` method is a helper to retrieve the value using the placeholder name.
 
-Named parameter only match a single path segment.
 ```
 Pattern /avengers/:name
 
@@ -129,8 +129,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.P
 
 ### Adding, updating and removing route
 In this is example, the handler for `route/:action` allow to dynamically register, update and remove handler for the given route and method.
-Due to Fox design, this action are perfectly safe and can be executed concurrently and at any time. Even better, it does not block the router 
-from handling request concurrently.
+Due to Fox design, those actions are perfectly safe and can be executed concurrently. Even better, it does not block the router 
+from handling request in parallel.
 
 ```go
 type ActionHandler struct {
@@ -183,6 +183,8 @@ func Must(err error) {
 	}
 }
 ```
+
+
 
 ## Disclaimer
 The current api is not yet stabilize. Breaking change may happen before `v1.0.0`
