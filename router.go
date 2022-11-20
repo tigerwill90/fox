@@ -40,8 +40,8 @@ type Router struct {
 	NotFound http.Handler
 
 	// User-configurable http.Handler which is called when the request cannot be routed,
-	// but the same route exist for other methods. The "Allow" header it automatically added to
-	// the response. Set HandleMethodNotAllowed to true to enable this option. By default,
+	// but the same route exist for other methods. The "Allow" header it automatically set
+	// before calling the handler. Set HandleMethodNotAllowed to true to enable this option. By default,
 	// http.Error with http.StatusMethodNotAllowed is used.
 	MethodNotAllowed http.Handler
 
@@ -52,7 +52,7 @@ type Router struct {
 	HandleMethodNotAllowed bool
 
 	// If enabled, the matched route will be accessible as a Handler parameter.
-	// Usage: p.Get(RouteKey)
+	// Usage: p.Get(fox.RouteKey)
 	AddRouteParam bool
 
 	// Enable automatic redirection fallback when the current request does not match but another handler is found

@@ -20,7 +20,7 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 **Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling an HTTP request.
 
 **Get the current route:** You can easily retrieve the route for the current matched request. This actually makes it easier to integrate
-observability middleware like open telemetry.
+observability middleware like open telemetry (disable by default).
 
 **Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
 exactly one or no route. As a result, there are also no unintended matches, which makes it great for SEO and improves the 
@@ -31,6 +31,8 @@ redirects the client, at no extra cost, if another route match with or without a
 
 **Path auto-correction:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router can remove superfluous path
 elements like `../` or `//` and automatically redirect the client if the cleaned path match a handler (disable by default).
+
+Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
 
 ## Getting started
 ### Installation
@@ -200,3 +202,9 @@ _ = r.Get("/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
 }))
 ```
+
+## TODO
+- [ ] Iterator (method, prefix, suffix)
+- [ ] Batch write (aka the transaction api)
+- [ ] Alloc optimization on tree write
+- [ ] Automatic OPTIONS responses and CORS ?
