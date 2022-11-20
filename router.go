@@ -433,43 +433,25 @@ STOP:
 
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
-			// Exact match, note that if we match a wildcard node, there is no remaining char to match. So we can
-			// safely avoid the extra cost of passing an empty slice params.
-			if !lazy && fox.AddRouteParam {
+			// Exact match, note that if we match a wildcard node, the param value is always '/'
+			if !lazy && (fox.AddRouteParam || current.isCatchAll()) {
 				if params == nil {
 					params = fox.newParams()
 				}
-				*params = append(*params, Param{Key: RouteKey, Value: current.path})
+
+				if fox.AddRouteParam {
+					*params = append(*params, Param{Key: RouteKey, Value: current.path})
+				}
+
+				if current.isCatchAll() {
+					*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched-1:]})
+				}
+
 				return current, params, false
 			}
 			return current, params, false
 		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
-			/*			if current.key[charsMatchedInNodeFound] == ':' {
-							// It's a param child, make sure that there is no more path segment (aka '/')
-							idx := strings.Index(current.key[charsMatchedInNodeFound:], "/")
-							if idx >= 0 {
-								// TODO test for tsr recommendation ??
-								return nil, nil, false
-							}
-
-							// this is a param node
-							if !lazy {
-								if params == nil {
-									params = newParams()
-								}
-								if fox.AddRouteParam {
-									*params = append(*params, Param{Key: RouteKey, Value: current.path})
-								}
-
-								startKey := charsMatchedInNodeFound
-								charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
-								// :n where n > 0
-								*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound]})
-							}
-							return current, params, false
-						}
-			*/
 			// Tsr recommendation: add an extra trailing slash (got an exact match)
 			remainingSuffix := current.key[charsMatchedInNodeFound:]
 			return nil, nil, len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
@@ -483,7 +465,7 @@ STOP:
 				if params == nil {
 					params = fox.newParams()
 				}
-				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
+				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched-1:]})
 				if fox.AddRouteParam {
 					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}

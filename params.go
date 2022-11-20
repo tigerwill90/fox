@@ -29,6 +29,13 @@ func (p *Params) Get(name string) string {
 	return ""
 }
 
+// Clone make a deep copy of Params.
+func (p *Params) Clone() Params {
+	cloned := make(Params, len(*p))
+	copy(cloned, *p)
+	return cloned
+}
+
 func (fox *Router) newParams() *Params {
 	return fox.p.Get().(*Params)
 }

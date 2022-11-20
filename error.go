@@ -15,27 +15,27 @@ var (
 )
 
 type RouteConflictError struct {
-	Method   string
-	Path     string
-	Matching []string
-	err      error
+	Method  string
+	Path    string
+	Matched []string
+	err     error
 }
 
-func newConflictErr(method, path, catchAllKey string, matching []string) *RouteConflictError {
+func newConflictErr(method, path, catchAllKey string, matched []string) *RouteConflictError {
 	if catchAllKey != "" {
 		path += "*" + catchAllKey
 	}
 	return &RouteConflictError{
-		Method:   method,
-		Path:     path,
-		Matching: matching,
-		err:      ErrRouteConflict,
+		Method:  method,
+		Path:    path,
+		Matched: matched,
+		err:     ErrRouteConflict,
 	}
 }
 
 func (e *RouteConflictError) Error() string {
 	path := e.Path
-	return fmt.Sprintf("new route [%s] %s conflicts with %s", e.Method, path, strings.Join(e.Matching, ", "))
+	return fmt.Sprintf("new route [%s] %s conflicts with %s", e.Method, path, strings.Join(e.Matched, ", "))
 }
 
 func (e *RouteConflictError) Unwrap() error {

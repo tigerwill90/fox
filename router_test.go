@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -653,7 +654,12 @@ func TestGithubApi(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		matches := rx.FindAllString(r.URL.Path, -1)
 		for _, match := range matches {
-			assert.Equal(t, match, params.Get(match[1:]))
+			key := match[1:]
+			value := match
+			if strings.HasPrefix(value, "*") {
+				value = "/" + value
+			}
+			assert.Equal(t, value, params.Get(key))
 		}
 		assert.Equal(t, r.URL.Path, params.Get(RouteKey))
 		_, _ = w.Write([]byte(r.URL.Path))
@@ -672,7 +678,7 @@ func TestGithubApi(t *testing.T) {
 
 func TestRouterWildcard(t *testing.T) {
 	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte(r.URL.Path)) })
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	routes := []struct {
 		path string
@@ -794,7 +800,7 @@ func TestInsertWildcardConflict(t *testing.T) {
 				err := r.insert(http.MethodGet, rte.path, catchAllKey, h)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*RouteConflictError); ok {
-					assert.Equal(t, rte.wantMatch, cErr.Matching)
+					assert.Equal(t, rte.wantMatch, cErr.Matched)
 				}
 			}
 		})
@@ -1048,7 +1054,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				if rte.wantErr != nil {
 					assert.ErrorIs(t, err, rte.wantErr)
 					if cErr, ok := err.(*RouteConflictError); ok {
-						assert.Equal(t, rte.wantMatching, cErr.Matching)
+						assert.Equal(t, rte.wantMatching, cErr.Matched)
 					}
 				}
 			}
@@ -1120,7 +1126,7 @@ func TestSwapWildcardConflict(t *testing.T) {
 			err := r.update(http.MethodGet, tc.path, "args", h)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if cErr, ok := err.(*RouteConflictError); ok {
-				assert.Equal(t, tc.wantMatch, cErr.Matching)
+				assert.Equal(t, tc.wantMatch, cErr.Matched)
 			}
 		})
 	}

@@ -67,11 +67,26 @@ func Must(err error) {
 ````
 #### Error handling
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a registered route is malformed or conflicts with another one. 
-Instead, it's the user responsibility to handle them gracefully. 
+Instead, it returns the following error type
+```go
+ErrRouteNotFound = errors.New("route not found")
+ErrRouteExist    = errors.New("route already registered")
+ErrRouteConflict = errors.New("route conflict")
+ErrInvalidRoute  = errors.New("invalid route")
+```
+
+Conflict error may be unwrapped to retrieve conflicting route.
+```go
+if errC := err.(*fox.RouteConflictError); ok {
+    for _, route := range errC.Matched {
+        fmt.Println(route)
+    }
+}
+```
 
 #### Named parameters
 A route can be defined using placeholder (e.g `:name`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
-The `Get` method can is a helper to retrieve the value using the placeholder name.
+The `Get` method is a helper to retrieve the value using the placeholder name.
 
 Named parameter only match a single path segment.
 ```
@@ -88,21 +103,86 @@ Pattern /users/uuid_:id
 /users/uuid             no match
 ```
 
-**Note:** Since this router has only explicit matches, you can not register static routes and parameters for the same method and path segment.
-
 #### Catch all parameter
+Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a name.
+```
+Pattern /src/*filepath
+
+/src/                   match
+/src/conf.txt           match
+/src/dir/config.txt     match
+```
 
 #### Warning about params slice
 `Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold params `fox.Params`
 longer, you have to copy it.
 ```go
-func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	p := make(fox.Params, len(params))
-	copy(p, params)
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	p := params.Clone()
 	go func(){
 		time.Sleep(1 * time.Second)
-		p.Get("name") // Safe
+		log.Println(p.Get("name")) // Safe
 	}()
 	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
 }
 ```
+
+### Adding, updating and removing route
+In this is example, the handler for `route/:action` allow to dynamically register, update and remove handler for the given route and method.
+Due to Fox design, this action are perfectly safe and can be executed concurrently and at any time. Even better, it does not block the router 
+from handling request concurrently.
+
+```go
+type ActionHandler struct {
+	fox *fox.Router
+}
+
+func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	path := r.URL.Query().Get("path")
+	text := r.URL.Query().Get("text")
+	method := strings.ToUpper(r.URL.Query().Get("method"))
+	if text == "" || path == "" || method == "" {
+		http.Error(w, "missing required query parameters", http.StatusBadRequest)
+		return
+	}
+
+	var err error
+	action := params.Get("action")
+	switch action {
+	case "add":
+		err = h.fox.Handler(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
+			_, _ = fmt.Fprintln(w, text)
+		}))
+	case "update":
+		err = h.fox.Update(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
+			_, _ = fmt.Fprintln(w, text)
+		}))
+	case "delete":
+		err = h.fox.Remove(method, path)
+	default:
+		http.Error(w, fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func main() {
+	r := fox.New()
+	Must(r.Get("/routes/:action", &ActionHandler{fox: r}))
+	log.Fatalln(http.ListenAndServe(":8080", r))
+}
+
+func Must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+## Disclaimer
+The current api is not yet stabilize. Breaking change may happen before `v1.0.0`
