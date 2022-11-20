@@ -122,7 +122,7 @@ Pattern /src/*filepath
 ```
 
 #### Warning about params slice
-`Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold params `fox.Params`
+`Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
 longer, you have to copy it.
 ```go
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
