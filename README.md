@@ -7,14 +7,20 @@ reads** while allowing **concurrent writes**.
 The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. Fox has a small memory footprint, and 
 in many case, it does not do a single heap allocation while handling request.
 
+## Disclaimer
+The current api is not yet stabilize. Breaking change may happen before `v1.0.0`
+
 ## Features
-**Routing mutation:** Register, update and remove route handler at any time without impacting the performance. Fox never block while serving
+**Routing mutation:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
 request!
 
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
 name. Due to Fox design, wildcard route are cheap and scale really well.
 
 **Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling an HTTP request.
+
+**Get the current route:** You can easily retrieve the route for the current matched request. This actually makes it easier to integrate
+observability middleware like open telemetry.
 
 **Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
 exactly one or no route. As a result, there are also no unintended matches, which makes it great for SEO and improves the 
@@ -184,7 +190,13 @@ func Must(err error) {
 }
 ```
 
-
-
-## Disclaimer
-The current api is not yet stabilize. Breaking change may happen before `v1.0.0`
+## Working with http.Handler
+Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
+provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
+request context
+```go
+_ = r.Get("/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
+    params := fox.ParamsFromContext(r.Context())
+    fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
+}))
+```
