@@ -9,22 +9,9 @@ import (
 	"sync/atomic"
 )
 
-const (
-	verb          = 4
-	ParamRouteKey = "$fox/path"
-)
+const verb = 4
 
-var (
-	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
-)
-
-var (
-	ErrRouteNotFound = errors.New("route not found")
-	ErrRouteExist    = errors.New("route already registered")
-	ErrRouteConflict = errors.New("route conflict")
-	ErrInvalidRoute  = errors.New("invalid route")
-	ErrSkipMethod    = errors.New("skip method")
-)
+var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 
 // Handler respond to an HTTP request.
 //
