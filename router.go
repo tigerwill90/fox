@@ -225,11 +225,7 @@ func (fox *Router) WalkRoute(fn WalkFunc) error {
 NEXT:
 	for i := range nds {
 		method := nds[i].key
-		// All route start with '/'
-		if len(nds[i].children) != 1 {
-			continue
-		}
-		it := newIterator(nds[i].get(0))
+		it := newIterator(nds[i])
 		for it.hasNext() {
 			err := fn(method, it.fullPath(), it.node().handler)
 			if err != nil {

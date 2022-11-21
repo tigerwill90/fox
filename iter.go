@@ -13,7 +13,6 @@ type iterator struct {
 }
 
 type stack struct {
-	path  string
 	edges []*node
 }
 
@@ -38,8 +37,7 @@ func (it *iterator) hasNext() bool {
 		}
 
 		if len(elem.children) > 0 {
-			path := last.path + elem.key
-			it.stack = append(it.stack, stack{path, elem.getEdgesShallowCopy()})
+			it.stack = append(it.stack, stack{elem.getEdgesShallowCopy()})
 		}
 
 		it.current = elem

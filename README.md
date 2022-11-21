@@ -1,6 +1,6 @@
 # Fox
 Fox is a lightweight high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
-that it supports **mutation on its routing table while handling request concurrently**. Internally, Fox use a 
+that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
 [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that support **lock-free 
 reads** while allowing **concurrent writes**.
 
@@ -75,7 +75,7 @@ func Must(err error) {
 }
 ````
 #### Error handling
-Since new route may be added at any given time, Fox, unlike other router, does not panic at registration when a route is malformed or conflicts with another one. 
+Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another. 
 Instead, it returns the following error type
 ```go
 ErrRouteNotFound = errors.New("route not found")
@@ -123,7 +123,7 @@ Pattern /src/*filepath
 
 #### Warning about params slice
 `Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
-longer, you have to copy it.
+longer, use the `Clone` methods.
 ```go
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
 	p := params.Clone()
@@ -137,8 +137,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.P
 
 ### Adding, updating and removing route
 In this is example, the handler for `route/:action` allow to dynamically register, update and remove handler for the given route and method.
-Due to Fox design, those actions are perfectly safe and can be executed concurrently. Even better, it does not block the router 
-from handling request in parallel.
+Due to Fox design, those actions are perfectly safe and can be executed concurrently. 
 
 ```go
 type ActionHandler struct {
@@ -192,6 +191,29 @@ func Must(err error) {
 }
 ```
 
+## Concurrency
+Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
+reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
+into a **patch**, which is then applied to the tree in a **single atomic operation**.
+
+For example, here we are inserting the new path `toast` into to the tree which require an existing node to be split:
+
+<p align="center" width="100%">
+    <img width="100%" src="assets/tree-apply-patch.png">
+</p>
+
+Routing request while the patch above is applied is lock-free. The reading thread will either see the **old version** or the **new version**
+of the (sub-)tree, but both version are consistent view of the tree.
+
+#### Other key points
+
+- Routing requests is lock-free (reading thread never block, even while writes are ongoing)
+- The router always see a consistent version of the tree while routing request
+- Routing requests do not block writing threads (adding, updating or removing a handler can be done concurrently)
+- Writing threads block each other but never block reading threads
+
+As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
+
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
 provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
@@ -203,30 +225,12 @@ _ = r.Get("/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
 }))
 ```
 
-## Concurrency
-Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
-reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
-into a **patch**, which is then applied to the tree in a **single atomic operation**.
-
-For example, here we are inserting the new path `/table` into to the tree which require an existing node to be split:
-
-<p align="center" width="100%">
-    <img width="100%" src="assets/tree-apply-patch.png">
-</p>
-
-- Routing requests is lock-free (reading thread never block, even while writes are ongoing)
-- The router always see a consistent version of the tree while routing request
-- Routing requests do not block writing threads (adding, updating or removing a handler can be done concurrently)
-- Writing threads block each other but never block reading threads
-
-As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
-
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are directly inspired from Julien Schmidt's router.
 
 ## TODO
 - [ ] Iterator (method, prefix, suffix)
-- [ ] Batch write (aka the transaction api)
-- [ ] Alloc optimization on tree write
+- [ ] Transaction or at least consistent view update
+- [ ] Alloc optimization when writing on the tree
 - [ ] Automatic OPTIONS responses and CORS ?

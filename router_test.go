@@ -1793,29 +1793,28 @@ func TestDataRace(t *testing.T) {
 
 	w := new(mockResponseWriter)
 
-	wg.Add(len(staticRoutes) * 3)
-
-	for _, rte := range staticRoutes {
-		go func(route string) {
+	wg.Add(len(githubAPI) * 3)
+	for _, rte := range githubAPI {
+		go func(method, route string) {
 			wait()
-			assert.NoError(t, r.Get(route, h))
-			assert.NoError(t, r.Handler("PING", route, h))
+			assert.NoError(t, r.Handler(method, route, h))
+			// assert.NoError(t, r.Handler("PING", route, h))
 			wg.Done()
-		}(rte.path)
+		}(rte.method, rte.path)
 
-		go func(route string) {
+		go func(method, route string) {
 			wait()
-			req := httptest.NewRequest(http.MethodGet, route, nil)
+			r.Update(method, route, newH)
+			// r.Update("PING", route, newH)
+			wg.Done()
+		}(rte.method, rte.path)
+
+		go func(method, route string) {
+			wait()
+			req := httptest.NewRequest(method, route, nil)
 			r.ServeHTTP(w, req)
 			wg.Done()
-		}(rte.path)
-
-		go func(route string) {
-			wait()
-			r.Update(http.MethodGet, route, newH)
-			r.Update("PING", route, newH)
-			wg.Done()
-		}(rte.path)
+		}(rte.method, rte.path)
 	}
 
 	time.Sleep(500 * time.Millisecond)
