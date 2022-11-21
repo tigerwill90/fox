@@ -1,39 +1,43 @@
 package fox
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
-type ConflictError struct {
-	method     string
-	path       string
-	matching   []string
-	isWildcard bool
-	err        error
+var (
+	ErrRouteNotFound = errors.New("route not found")
+	ErrRouteExist    = errors.New("route already registered")
+	ErrRouteConflict = errors.New("route conflict")
+	ErrInvalidRoute  = errors.New("invalid route")
+	ErrSkipMethod    = errors.New("skip method")
+)
+
+type RouteConflictError struct {
+	Method  string
+	Path    string
+	Matched []string
+	err     error
 }
 
-func newConflictErr(method, path string, matching []string, isWildcard bool) *ConflictError {
-	return &ConflictError{
-		method:     method,
-		path:       path,
-		matching:   matching,
-		isWildcard: isWildcard,
-		err:        ErrRouteConflict,
+func newConflictErr(method, path, catchAllKey string, matched []string) *RouteConflictError {
+	if catchAllKey != "" {
+		path += "*" + catchAllKey
+	}
+	return &RouteConflictError{
+		Method:  method,
+		Path:    path,
+		Matched: matched,
+		err:     ErrRouteConflict,
 	}
 }
 
-func (e *ConflictError) Error() string {
-	path := e.path
-	if e.isWildcard {
-		path += "*"
-	}
-	return fmt.Sprintf("route /%s %s is conflicting with %v", e.method, path, e.matching)
+func (e *RouteConflictError) Error() string {
+	path := e.Path
+	return fmt.Sprintf("new route [%s] %s conflicts with %s", e.Method, path, strings.Join(e.Matched, ", "))
 }
 
-func (e *ConflictError) Unwrap() error {
+func (e *RouteConflictError) Unwrap() error {
 	return e.err
-}
-
-func Must(err error) {
-	if err != nil {
-		panic(err)
-	}
 }

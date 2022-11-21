@@ -3,19 +3,25 @@ package fox
 import (
 	"fmt"
 	"github.com/bmizerany/pat"
+	"github.com/dimfeld/httptreemux/v5"
 	"github.com/gin-gonic/gin"
 	fuzz "github.com/google/gofuzz"
 	"github.com/gorilla/mux"
 	"github.com/julienschmidt/httprouter"
+	"github.com/naoina/denco"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+var emptyHandler = HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 
 type mockResponseWriter struct{}
 
@@ -38,6 +44,7 @@ type route struct {
 	path   string
 }
 
+// From https://github.com/julienschmidt/go-http-routing-benchmark
 var staticRoutes = []route{
 	{"GET", "/"},
 	{"GET", "/cmd.html"},
@@ -198,9 +205,241 @@ var staticRoutes = []route{
 	{"GET", "/progs/update.bash"},
 }
 
+// From https://github.com/julienschmidt/go-http-routing-benchmark
+var githubAPI = []route{
+	// OAuth Authorizations
+	{"GET", "/authorizations"},
+	{"GET", "/authorizations/:id"},
+	{"POST", "/authorizations"},
+	{"DELETE", "/authorizations/:id"},
+	{"GET", "/applications/:client_id/tokens/:access_token"},
+	{"DELETE", "/applications/:client_id/tokens"},
+	{"DELETE", "/applications/:client_id/tokens/:access_token"},
+
+	// Activity
+	{"GET", "/events"},
+	{"GET", "/repos/:owner/:repo/events"},
+	{"GET", "/networks/:owner/:repo/events"},
+	{"GET", "/orgs/:org/events"},
+	{"GET", "/users/:user/received_events"},
+	{"GET", "/users/:user/received_events/public"},
+	{"GET", "/users/:user/events"},
+	{"GET", "/users/:user/events/public"},
+	{"GET", "/users/:user/events/orgs/:org"},
+	{"GET", "/feeds"},
+	{"GET", "/notifications"},
+	{"GET", "/repos/:owner/:repo/notifications"},
+	{"PUT", "/notifications"},
+	{"PUT", "/repos/:owner/:repo/notifications"},
+	{"GET", "/notifications/threads/:id"},
+	{"GET", "/notifications/threads/:id/subscription"},
+	{"PUT", "/notifications/threads/:id/subscription"},
+	{"DELETE", "/notifications/threads/:id/subscription"},
+	{"GET", "/repos/:owner/:repo/stargazers"},
+	{"GET", "/users/:user/starred"},
+	{"GET", "/user/starred"},
+	{"GET", "/user/starred/:owner/:repo"},
+	{"PUT", "/user/starred/:owner/:repo"},
+	{"DELETE", "/user/starred/:owner/:repo"},
+	{"GET", "/repos/:owner/:repo/subscribers"},
+	{"GET", "/users/:user/subscriptions"},
+	{"GET", "/user/subscriptions"},
+	{"GET", "/repos/:owner/:repo/subscription"},
+	{"PUT", "/repos/:owner/:repo/subscription"},
+	{"DELETE", "/repos/:owner/:repo/subscription"},
+	{"GET", "/user/subscriptions/:owner/:repo"},
+	{"PUT", "/user/subscriptions/:owner/:repo"},
+	{"DELETE", "/user/subscriptions/:owner/:repo"},
+
+	// Gists
+	{"GET", "/users/:user/gists"},
+	{"GET", "/gists"},
+	{"GET", "/gists/:id"},
+	{"POST", "/gists"},
+	{"PUT", "/gists/:id/star"},
+	{"DELETE", "/gists/:id/star"},
+	{"GET", "/gists/:id/star"},
+	{"POST", "/gists/:id/forks"},
+	{"DELETE", "/gists/:id"},
+
+	// Git Data
+	{"GET", "/repos/:owner/:repo/git/blobs/:sha"},
+	{"POST", "/repos/:owner/:repo/git/blobs"},
+	{"GET", "/repos/:owner/:repo/git/commits/:sha"},
+	{"POST", "/repos/:owner/:repo/git/commits"},
+	{"GET", "/repos/:owner/:repo/git/refs/*ref"},
+	{"GET", "/repos/:owner/:repo/git/refs"},
+	{"POST", "/repos/:owner/:repo/git/refs"},
+	{"DELETE", "/repos/:owner/:repo/git/refs/*ref"},
+	{"GET", "/repos/:owner/:repo/git/tags/:sha"},
+	{"POST", "/repos/:owner/:repo/git/tags"},
+	{"GET", "/repos/:owner/:repo/git/trees/:sha"},
+	{"POST", "/repos/:owner/:repo/git/trees"},
+
+	// Issues
+	{"GET", "/issues"},
+	{"GET", "/user/issues"},
+	{"GET", "/orgs/:org/issues"},
+	{"GET", "/repos/:owner/:repo/issues"},
+	{"GET", "/repos/:owner/:repo/issues/:number"},
+	{"POST", "/repos/:owner/:repo/issues"},
+	{"GET", "/repos/:owner/:repo/assignees"},
+	{"GET", "/repos/:owner/:repo/assignees/:assignee"},
+	{"GET", "/repos/:owner/:repo/issues/:number/comments"},
+	{"POST", "/repos/:owner/:repo/issues/:number/comments"},
+	{"GET", "/repos/:owner/:repo/issues/:number/events"},
+	{"GET", "/repos/:owner/:repo/labels"},
+	{"GET", "/repos/:owner/:repo/labels/:name"},
+	{"POST", "/repos/:owner/:repo/labels"},
+	{"DELETE", "/repos/:owner/:repo/labels/:name"},
+	{"GET", "/repos/:owner/:repo/issues/:number/labels"},
+	{"POST", "/repos/:owner/:repo/issues/:number/labels"},
+	{"DELETE", "/repos/:owner/:repo/issues/:number/labels/:name"},
+	{"PUT", "/repos/:owner/:repo/issues/:number/labels"},
+	{"DELETE", "/repos/:owner/:repo/issues/:number/labels"},
+	{"GET", "/repos/:owner/:repo/milestones/:number/labels"},
+	{"GET", "/repos/:owner/:repo/milestones"},
+	{"GET", "/repos/:owner/:repo/milestones/:number"},
+	{"POST", "/repos/:owner/:repo/milestones"},
+	{"DELETE", "/repos/:owner/:repo/milestones/:number"},
+
+	// Miscellaneous
+	{"GET", "/emojis"},
+	{"GET", "/gitignore/templates"},
+	{"GET", "/gitignore/templates/:name"},
+	{"POST", "/markdown"},
+	{"POST", "/markdown/raw"},
+	{"GET", "/meta"},
+	{"GET", "/rate_limit"},
+
+	// Organizations
+	{"GET", "/users/:user/orgs"},
+	{"GET", "/user/orgs"},
+	{"GET", "/orgs/:org"},
+	{"GET", "/orgs/:org/members"},
+	{"GET", "/orgs/:org/members/:user"},
+	{"DELETE", "/orgs/:org/members/:user"},
+	{"GET", "/orgs/:org/public_members"},
+	{"GET", "/orgs/:org/public_members/:user"},
+	{"PUT", "/orgs/:org/public_members/:user"},
+	{"DELETE", "/orgs/:org/public_members/:user"},
+	{"GET", "/orgs/:org/teams"},
+	{"GET", "/teams/:id"},
+	{"POST", "/orgs/:org/teams"},
+	{"DELETE", "/teams/:id"},
+	{"GET", "/teams/:id/members"},
+	{"GET", "/teams/:id/members/:user"},
+	{"PUT", "/teams/:id/members/:user"},
+	{"DELETE", "/teams/:id/members/:user"},
+	{"GET", "/teams/:id/repos"},
+	{"GET", "/teams/:id/repos/:owner/:repo"},
+	{"PUT", "/teams/:id/repos/:owner/:repo"},
+	{"DELETE", "/teams/:id/repos/:owner/:repo"},
+	{"GET", "/user/teams"},
+
+	// Pull Requests
+	{"GET", "/repos/:owner/:repo/pulls"},
+	{"GET", "/repos/:owner/:repo/pulls/:number"},
+	{"POST", "/repos/:owner/:repo/pulls"},
+	{"GET", "/repos/:owner/:repo/pulls/:number/commits"},
+	{"GET", "/repos/:owner/:repo/pulls/:number/files"},
+	{"GET", "/repos/:owner/:repo/pulls/:number/merge"},
+	{"PUT", "/repos/:owner/:repo/pulls/:number/merge"},
+	{"GET", "/repos/:owner/:repo/pulls/:number/comments"},
+	{"PUT", "/repos/:owner/:repo/pulls/:number/comments"},
+
+	// Repositories
+	{"GET", "/user/repos"},
+	{"GET", "/users/:user/repos"},
+	{"GET", "/orgs/:org/repos"},
+	{"GET", "/repositories"},
+	{"POST", "/user/repos"},
+	{"POST", "/orgs/:org/repos"},
+	{"GET", "/repos/:owner/:repo"},
+	{"GET", "/repos/:owner/:repo/contributors"},
+	{"GET", "/repos/:owner/:repo/languages"},
+	{"GET", "/repos/:owner/:repo/teams"},
+	{"GET", "/repos/:owner/:repo/tags"},
+	{"GET", "/repos/:owner/:repo/branches"},
+	{"GET", "/repos/:owner/:repo/branches/:branch"},
+	{"DELETE", "/repos/:owner/:repo"},
+	{"GET", "/repos/:owner/:repo/collaborators"},
+	{"GET", "/repos/:owner/:repo/collaborators/:user"},
+	{"PUT", "/repos/:owner/:repo/collaborators/:user"},
+	{"DELETE", "/repos/:owner/:repo/collaborators/:user"},
+	{"GET", "/repos/:owner/:repo/comments"},
+	{"GET", "/repos/:owner/:repo/commits/:sha/comments"},
+	{"POST", "/repos/:owner/:repo/commits/:sha/comments"},
+	{"GET", "/repos/:owner/:repo/comments/:id"},
+	{"DELETE", "/repos/:owner/:repo/comments/:id"},
+	{"GET", "/repos/:owner/:repo/commits"},
+	{"GET", "/repos/:owner/:repo/commits/:sha"},
+	{"GET", "/repos/:owner/:repo/readme"},
+	{"GET", "/repos/:owner/:repo/contents/*path"},
+	{"DELETE", "/repos/:owner/:repo/contents/*path"},
+	{"GET", "/repos/:owner/:repo/keys"},
+	{"GET", "/repos/:owner/:repo/keys/:id"},
+	{"POST", "/repos/:owner/:repo/keys"},
+	{"DELETE", "/repos/:owner/:repo/keys/:id"},
+	{"GET", "/repos/:owner/:repo/downloads"},
+	{"GET", "/repos/:owner/:repo/downloads/:id"},
+	{"DELETE", "/repos/:owner/:repo/downloads/:id"},
+	{"GET", "/repos/:owner/:repo/forks"},
+	{"POST", "/repos/:owner/:repo/forks"},
+	{"GET", "/repos/:owner/:repo/hooks"},
+	{"GET", "/repos/:owner/:repo/hooks/:id"},
+	{"POST", "/repos/:owner/:repo/hooks"},
+	{"POST", "/repos/:owner/:repo/hooks/:id/tests"},
+	{"DELETE", "/repos/:owner/:repo/hooks/:id"},
+	{"POST", "/repos/:owner/:repo/merges"},
+	{"GET", "/repos/:owner/:repo/releases"},
+	{"GET", "/repos/:owner/:repo/releases/:id"},
+	{"POST", "/repos/:owner/:repo/releases"},
+	{"DELETE", "/repos/:owner/:repo/releases/:id"},
+	{"GET", "/repos/:owner/:repo/releases/:id/assets"},
+	{"GET", "/repos/:owner/:repo/stats/contributors"},
+	{"GET", "/repos/:owner/:repo/stats/commit_activity"},
+	{"GET", "/repos/:owner/:repo/stats/code_frequency"},
+	{"GET", "/repos/:owner/:repo/stats/participation"},
+	{"GET", "/repos/:owner/:repo/stats/punch_card"},
+	{"GET", "/repos/:owner/:repo/statuses/:ref"},
+	{"POST", "/repos/:owner/:repo/statuses/:ref"},
+
+	// Search
+	{"GET", "/search/repositories"},
+	{"GET", "/search/code"},
+	{"GET", "/search/issues"},
+	{"GET", "/search/users"},
+	{"GET", "/legacy/issues/search/:owner/:repository/:state/:keyword"},
+	{"GET", "/legacy/repos/search/:keyword"},
+	{"GET", "/legacy/user/search/:keyword"},
+	{"GET", "/legacy/user/email/:email"},
+
+	// Users
+	{"GET", "/users/:user"},
+	{"GET", "/user"},
+	{"GET", "/users"},
+	{"GET", "/user/emails"},
+	{"POST", "/user/emails"},
+	{"DELETE", "/user/emails"},
+	{"GET", "/users/:user/followers"},
+	{"GET", "/user/followers"},
+	{"GET", "/users/:user/following"},
+	{"GET", "/user/following"},
+	{"GET", "/user/following/:user"},
+	{"GET", "/users/:user/following/:target_user"},
+	{"PUT", "/user/following/:user"},
+	{"DELETE", "/user/following/:user"},
+	{"GET", "/users/:user/keys"},
+	{"GET", "/user/keys"},
+	{"GET", "/user/keys/:id"},
+	{"POST", "/user/keys"},
+	{"DELETE", "/user/keys/:id"},
+}
+
 func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 	w := new(mockResponseWriter)
-	r, _ := http.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", nil)
 	u := r.URL
 	rq := u.RawQuery
 
@@ -220,7 +459,7 @@ func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 
 func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	w := new(mockResponseWriter)
-	r, _ := http.NewRequest(rte.method, rte.path, nil)
+	r := httptest.NewRequest(rte.method, rte.path, nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -232,13 +471,37 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	})
 }
 
-// BenchmarkMuxRouter-16    	  106693	     10751 ns/op	       0 B/op	       0 allocs/op
-func BenchmarkMuxRouter(b *testing.B) {
+func BenchmarkRouter(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
 	}
 	benchRoutes(b, r, staticRoutes)
+}
+
+func BenchmarkTreeMuxRouter(b *testing.B) {
+	r := httptreemux.New()
+	for _, route := range staticRoutes {
+		r.GET(route.path, func(writer http.ResponseWriter, request *http.Request, m map[string]string) {})
+	}
+	benchRoutes(b, r, staticRoutes)
+}
+
+func BenchmarkRouterParams(b *testing.B) {
+	r := New()
+	for _, route := range githubAPI {
+		require.NoError(b, r.Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+	}
+
+	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
 }
 
 func BenchmarkHttpRouterRouter(b *testing.B) {
@@ -276,6 +539,17 @@ func BenchmarkGorillaMuxRouter(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+func BenchmarkDencoRouter(b *testing.B) {
+	r := denco.NewMux()
+	handlers := make([]denco.Handler, 0, len(staticRoutes))
+	for _, route := range staticRoutes {
+		handlers = append(handlers, r.GET(route.path, func(w http.ResponseWriter, r *http.Request, params denco.Params) {}))
+	}
+	handler, err := r.Build(handlers)
+	require.NoError(b, err)
+	benchRoutes(b, handler, staticRoutes)
+}
+
 func BenchmarkPatRouter(b *testing.B) {
 	r := pat.New()
 	for _, route := range staticRoutes {
@@ -289,6 +563,15 @@ func BenchmarkMuxRouterParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	}
+	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
+}
+
+func BenchmarkTreeMuxParallel(b *testing.B) {
+	r := httptreemux.New()
+	// r.SafeAddRoutesWhileRunning = true
+	for _, route := range staticRoutes {
+		r.GET(route.path, func(writer http.ResponseWriter, request *http.Request, m map[string]string) {})
 	}
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }
@@ -307,7 +590,7 @@ func BenchmarkRouterMuxCatchAll(b *testing.B) {
 	r := New()
 	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/something/awesome", nil)
+	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -322,7 +605,7 @@ func BenchmarkGinRouterCatchAll(b *testing.B) {
 	r := gin.New()
 	r.GET("/something/*args", func(context *gin.Context) {})
 	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/something/awesome", nil)
+	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -336,7 +619,7 @@ func BenchmarkRouterMuxParallelCatchAll(b *testing.B) {
 	r := New()
 	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/something/awesome", nil)
+	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -353,7 +636,7 @@ func BenchmarkGinRouterParallelCatchAll(b *testing.B) {
 	r := gin.New()
 	r.GET("/something/*args", func(context *gin.Context) {})
 	w := new(mockResponseWriter)
-	req, _ := http.NewRequest("GET", "/something/awesome", nil)
+	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -365,16 +648,16 @@ func BenchmarkGinRouterParallelCatchAll(b *testing.B) {
 	})
 }
 
-func TestMuxRouterStatic(t *testing.T) {
+func TestRouterStatic(t *testing.T) {
 	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { w.Write([]byte(r.URL.Path)) })
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	for _, route := range staticRoutes {
 		require.NoError(t, r.Get(route.path, h))
 	}
 
 	for _, route := range staticRoutes {
-		req, _ := http.NewRequest(route.method, route.path, nil)
+		req := httptest.NewRequest(route.method, route.path, nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
@@ -382,9 +665,38 @@ func TestMuxRouterStatic(t *testing.T) {
 	}
 }
 
-func TestMuxRouterWildcard(t *testing.T) {
+func TestGithubApi(t *testing.T) {
+	rx := regexp.MustCompile("(:|\\*)[A-z_]+")
 	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte(r.URL.Path)) })
+	r.AddRouteParam = true
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+		matches := rx.FindAllString(r.URL.Path, -1)
+		for _, match := range matches {
+			key := match[1:]
+			value := match
+			if strings.HasPrefix(value, "*") {
+				value = "/" + value
+			}
+			assert.Equal(t, value, params.Get(key))
+		}
+		assert.Equal(t, r.URL.Path, params.Get(RouteKey))
+		_, _ = w.Write([]byte(r.URL.Path))
+	})
+	for _, route := range githubAPI {
+		require.NoError(t, r.Handler(route.method, route.path, h))
+	}
+	for _, route := range githubAPI {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+}
+
+func TestRouterWildcard(t *testing.T) {
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	routes := []struct {
 		path string
@@ -400,7 +712,7 @@ func TestMuxRouterWildcard(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		req, _ := http.NewRequest(http.MethodGet, route.key, nil)
+		req := httptest.NewRequest(http.MethodGet, route.key, nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		require.Equalf(t, http.StatusOK, w.Code, "route: key: %s, path: %s", route.path)
@@ -408,7 +720,36 @@ func TestMuxRouterWildcard(t *testing.T) {
 	}
 }
 
-func TestMuxRouterInsertWildcardConflict(t *testing.T) {
+func TestRouteWithParams(t *testing.T) {
+	r := New()
+	routes := [...]string{
+		"/",
+		"/cmd/:tool/:sub",
+		"/cmd/:tool/",
+		"/src/*filepath",
+		"/search/",
+		"/search/:query",
+		"/user_:name",
+		"/user_:name/about",
+		"/files/:dir/*filepath",
+		"/doc/",
+		"/doc/go_faq.html",
+		"/doc/go1.html",
+		"/info/:user/public",
+		"/info/:user/project/:project",
+	}
+	for _, rte := range routes {
+		require.NoError(t, r.addRoute(http.MethodGet, rte, emptyHandler))
+	}
+	nds := *r.trees.Load()
+	for _, rte := range routes {
+		n, _, _ := r.lookup(nds[0], rte, false)
+		require.NotNil(t, n)
+		assert.Equal(t, rte, n.path)
+	}
+}
+
+func TestInsertWildcardConflict(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	cases := []struct {
 		name   string
@@ -470,22 +811,276 @@ func TestMuxRouterInsertWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				// TODO make a refacto of TC
-				nType := static
+				var catchAllKey string
 				if rte.wildcard {
-					nType = catchAll
+					catchAllKey = "args"
 				}
-				err := r.insert(http.MethodGet, rte.path, "args", h, nType)
+				err := r.insert(http.MethodGet, rte.path, catchAllKey, h)
 				assert.ErrorIs(t, err, rte.wantErr)
-				if cErr, ok := err.(*ConflictError); ok {
-					assert.Equal(t, rte.wantMatch, cErr.matching)
+				if cErr, ok := err.(*RouteConflictError); ok {
+					assert.Equal(t, rte.wantMatch, cErr.Matched)
 				}
 			}
 		})
 	}
 }
 
-func TestMuxRouterSwapWildcardConflict(t *testing.T) {
+func TestInsertParamsConflict(t *testing.T) {
+	cases := []struct {
+		name   string
+		routes []struct {
+			path         string
+			wildcard     string
+			wantErr      error
+			wantMatching []string
+		}
+	}{
+		// KEY_END_MID_EDGE, no remaining char inserting path in the middle of a existing node
+		{
+			// path: GET
+			//    path: /test/ [paramChild] [leaf=/test/]
+			//      path: :foo [leaf=/test/:foo]
+			name: "KEY_END_MID_EDGE split right before param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/:f [leaf=/test/:f]
+			//      path: oo [leaf=/test/:foo]
+			name: "KEY_END_MID_EDGE split param at the start of the path segment",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test [leaf=/test]
+			//      path: /:foo [leaf=/test/:foo]]
+			name: "KEY_END_MID_EDGE split a char before the param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc [paramChild] [leaf=/test/abc]
+			//      path: :foo [leaf=/test/abc:foo]
+			name: "KEY_END_MID_EDGE split right before inflight param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc:f [leaf=/test/abc:f]
+			//      path: oo [leaf=/test/abc:foo]
+			name: "KEY_END_MID_EDGE split param in flight",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		{
+			name: "KEY_END_MID_EDGE param with child starting with separator",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo/star", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		{
+			name: "KEY_END_MID_EDGE inflight param with child starting with separator",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo/star", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+		// INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE remaining char when inserting path in the middle of an existing node
+		{
+			// path: GET
+			//    path: /test/
+			//      path: :foo [leaf=/test/:foo]
+			//      path: a [leaf=/test/a]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node right before param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /tes
+			//      path: :foo [leaf=/tes:foo]
+			//      path: t/:foo [leaf=/test/:foo]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split new node right before param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/:f
+			//      path: oo [leaf=/test/:foo]
+			//      path: x [leaf=/test/:fx]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node after param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:fx", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc
+			//      path: :foo [leaf=/test/abc:foo]
+			//      path: d [leaf=/test/abcd]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node right before inflight param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc
+			//      path: :foo [leaf=/test/abc:foo]
+			//      path: d [leaf=/test/abcd]
+			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split new node right before inflight param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/ab:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		// INCOMPLETE_MATCH_TO_END_OF_EDGE remaining char when inserting path at the end of a node
+		{
+			// path: GET
+			//    path: /test/:foo [leaf=/test/:foo]
+			//      path: x [leaf=/test/:foox]
+			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new node right after param without slash",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/abc:foo [leaf=/test/abc:foo]
+			//      path: x [leaf=/test/abc:foox]
+			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new node right after inflight param without slash",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+			},
+		},
+		{
+			// path: GET
+			//    path: /test/:foo [leaf=/test/:foo]
+			//      path: /ba [leaf=/test/:foo/ba]
+			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new static node right after param",
+			routes: []struct {
+				path         string
+				wildcard     string
+				wantErr      error
+				wantMatching []string
+			}{
+				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/:foo/ba", wildcard: "", wantErr: nil, wantMatching: nil},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New()
+			for _, rte := range tc.routes {
+				err := r.insert(http.MethodGet, rte.path, rte.wildcard, emptyHandler)
+				if rte.wantErr != nil {
+					assert.ErrorIs(t, err, rte.wantErr)
+					if cErr, ok := err.(*RouteConflictError); ok {
+						assert.Equal(t, rte.wantMatching, cErr.Matched)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSwapWildcardConflict(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	cases := []struct {
 		name   string
@@ -540,22 +1135,22 @@ func TestMuxRouterSwapWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				nType := static
+				var catchAllKey string
 				if rte.wildcard {
-					nType = catchAll
+					catchAllKey = "args"
 				}
-				require.NoError(t, r.insert(http.MethodGet, rte.path, "", h, nType))
+				require.NoError(t, r.insert(http.MethodGet, rte.path, catchAllKey, h))
 			}
-			err := r.update(http.MethodGet, tc.path, "", h, catchAll)
+			err := r.update(http.MethodGet, tc.path, "args", h)
 			assert.ErrorIs(t, err, tc.wantErr)
-			if cErr, ok := err.(*ConflictError); ok {
-				assert.Equal(t, tc.wantMatch, cErr.matching)
+			if cErr, ok := err.(*RouteConflictError); ok {
+				assert.Equal(t, tc.wantMatch, cErr.Matched)
 			}
 		})
 	}
 }
 
-func TestMuxRouerUpdateRoute(t *testing.T) {
+func TestUpdateRoute(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		w.Write([]byte(r.URL.Path))
 	})
@@ -573,7 +1168,7 @@ func TestMuxRouerUpdateRoute(t *testing.T) {
 			newPath:        "/foo/bar/",
 			newWildcardKey: "*new",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(params.Get(ParamRouteKey)))
+				w.Write([]byte(params.Get(RouteKey)))
 			}),
 		},
 		{
@@ -590,7 +1185,7 @@ func TestMuxRouerUpdateRoute(t *testing.T) {
 			newPath:        "/foo/bar/",
 			newWildcardKey: "*foo",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(params.Get(ParamRouteKey)))
+				w.Write([]byte(params.Get(RouteKey)))
 			}),
 		},
 		{
@@ -609,7 +1204,7 @@ func TestMuxRouerUpdateRoute(t *testing.T) {
 			r.AddRouteParam = true
 			require.NoError(t, r.Get(tc.path, h))
 			require.NoError(t, r.Update(http.MethodGet, tc.newPath+tc.newWildcardKey, tc.newHandler))
-			req, _ := http.NewRequest(http.MethodGet, tc.newPath, nil)
+			req := httptest.NewRequest(http.MethodGet, tc.newPath, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 			require.Equal(t, http.StatusOK, w.Code)
@@ -618,7 +1213,7 @@ func TestMuxRouerUpdateRoute(t *testing.T) {
 	}
 }
 
-func TestMuxRouterUpsert(t *testing.T) {
+func TestUpsert(t *testing.T) {
 	old := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 	new := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte("new")) })
 
@@ -651,7 +1246,7 @@ func TestMuxRouterUpsert(t *testing.T) {
 			err := r.Upsert(http.MethodPost, tc.path, new)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if err == nil {
-				req, _ := http.NewRequest(http.MethodPost, tc.path, nil)
+				req := httptest.NewRequest(http.MethodPost, tc.path, nil)
 				w := httptest.NewRecorder()
 				r.ServeHTTP(w, req)
 				assert.Equal(t, "new", w.Body.String())
@@ -661,36 +1256,64 @@ func TestMuxRouterUpsert(t *testing.T) {
 
 }
 
-func TestPathVerify(t *testing.T) {
+func TestParseRoute(t *testing.T) {
 	cases := []struct {
-		name    string
-		path    string
-		wantErr error
-		wantN   int
+		name            string
+		path            string
+		wantErr         error
+		wantN           int
+		wantCatchAllKey string
+		wantPath        string
 	}{
 		{
-			name: "valid static route",
-			path: "/foo/bar",
+			name:     "valid static route",
+			path:     "/foo/bar",
+			wantPath: "/foo/bar",
 		},
 		{
-			name:  "valid catch all route",
-			path:  "/foo/bar/*arg",
-			wantN: 1,
+			name:            "valid catch all route",
+			path:            "/foo/bar/*arg",
+			wantN:           1,
+			wantCatchAllKey: "arg",
+			wantPath:        "/foo/bar/",
 		},
 		{
-			name:  "valid param route",
-			path:  "/foo/bar/:baz",
-			wantN: 1,
+			name:     "valid param route",
+			path:     "/foo/bar/:baz",
+			wantN:    1,
+			wantPath: "/foo/bar/:baz",
 		},
 		{
-			name:  "valid multi params route",
-			path:  "/foo/:bar/:baz",
-			wantN: 2,
+			name:     "valid multi params route",
+			path:     "/foo/:bar/:baz",
+			wantN:    2,
+			wantPath: "/foo/:bar/:baz",
 		},
 		{
-			name:  "valid multi params and catch all route",
-			path:  "/foo/:bar/:baz/*arg",
-			wantN: 3,
+			name:     "valid same params route",
+			path:     "/foo/:bar/:bar",
+			wantN:    2,
+			wantPath: "/foo/:bar/:bar",
+		},
+		{
+			name:            "valid multi params and catch all route",
+			path:            "/foo/:bar/:baz/*arg",
+			wantN:           3,
+			wantCatchAllKey: "arg",
+			wantPath:        "/foo/:bar/:baz/",
+		},
+		{
+			name:     "valid inflight param",
+			path:     "/foo/xyz:bar",
+			wantN:    1,
+			wantPath: "/foo/xyz:bar",
+		},
+		{
+			name:            "valid multi inflight param and catch all",
+			path:            "/foo/xyz:bar/abc:bar/*arg",
+			wantN:           3,
+			wantCatchAllKey: "arg",
+			wantPath:        "/foo/xyz:bar/abc:bar/",
 		},
 		{
 			name:    "missing prefix slash",
@@ -734,82 +1357,38 @@ func TestPathVerify(t *testing.T) {
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
+		{
+			name:    "missing name after param colon",
+			path:    "/foo/::bar",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "multiple param in one route segment",
+			path:    "/foo/:bar:baz",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "in flight param after catch all",
+			path:    "/foo/*args:param",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, err := pathVerify(tc.path)
+			path, key, n, err := parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
+			assert.Equal(t, tc.wantCatchAllKey, key)
+			assert.Equal(t, tc.wantPath, path)
 		})
 	}
 }
 
-func TestMuxRouterParseRoute(t *testing.T) {
-	cases := []struct {
-		name         string
-		path         string
-		wantErr      error
-		wantRoute    string
-		wantNodeType nodeType
-	}{
-		{
-			name:         "valid static route",
-			path:         "/foo/bar",
-			wantRoute:    "/foo/bar",
-			wantNodeType: static,
-		},
-		{
-			name:         "valid wildcard route",
-			path:         "/foo/bar/*arg",
-			wantRoute:    "/foo/bar/",
-			wantNodeType: catchAll,
-		},
-		{
-			name:         "missing prefix slash",
-			path:         "foo/bar",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "missing slash before wildcard",
-			path:         "/foo/bar*",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "missing arguments name after wildcard",
-			path:         "/foo/bar/*",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "catch all in the middle of the route",
-			path:         "/foo/bar/*/baz",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-		{
-			name:         "catch all with args in the middle of the route",
-			path:         "/foo/bar/*args/baz",
-			wantErr:      ErrInvalidRoute,
-			wantNodeType: static,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			idx, wildcard, err := parseRoute(tc.path)
-			require.ErrorIs(t, err, tc.wantErr)
-			if err == nil {
-				assert.Equal(t, tc.wantRoute, tc.path[:idx])
-				assert.Equal(t, tc.wantNodeType, wildcard)
-			}
-		})
-	}
-}
-
-func TestMuxLookupTsr(t *testing.T) {
+func TestLookupTsr(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	cases := []struct {
@@ -855,7 +1434,7 @@ func TestMuxLookupTsr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
-			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h, static))
+			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h))
 			nds := *r.trees.Load()
 			_, _, got := r.lookup(nds[0], tc.key, true)
 			assert.Equal(t, tc.want, got)
@@ -863,7 +1442,7 @@ func TestMuxLookupTsr(t *testing.T) {
 	}
 }
 
-func TestMuxRouterRedirectTrailingSlash(t *testing.T) {
+func TestRedirectTrailingSlash(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	cases := []struct {
@@ -937,7 +1516,7 @@ func TestMuxRouterRedirectTrailingSlash(t *testing.T) {
 			r.RedirectTrailingSlash = true
 			require.NoError(t, r.Handler(tc.method, tc.path, h))
 
-			req, _ := http.NewRequest(tc.method, tc.key, nil)
+			req := httptest.NewRequest(tc.method, tc.key, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 			assert.Equal(t, tc.want, w.Code)
@@ -949,7 +1528,7 @@ func TestMuxRouterRedirectTrailingSlash(t *testing.T) {
 
 }
 
-func TestMuxRouterRedirectFixedPath(t *testing.T) {
+func TestRedirectFixedPath(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	cases := []struct {
 		name string
@@ -1002,7 +1581,7 @@ func TestMuxRouterRedirectFixedPath(t *testing.T) {
 	}
 }
 
-func TestMuxRouterWithAllowedMethod(t *testing.T) {
+func TestRouterWithAllowedMethod(t *testing.T) {
 	r := New()
 	r.HandleMethodNotAllowed = true
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
@@ -1042,7 +1621,7 @@ func TestMuxRouterWithAllowedMethod(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, r.Handler(method, tc.path, h))
 			}
-			req, _ := http.NewRequest(tc.target, tc.path, nil)
+			req := httptest.NewRequest(tc.target, tc.path, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
@@ -1051,7 +1630,7 @@ func TestMuxRouterWithAllowedMethod(t *testing.T) {
 	}
 }
 
-func TestRouterPanicHandler(t *testing.T) {
+func TestPanicHandler(t *testing.T) {
 	r := New()
 	r.PanicHandler = func(w http.ResponseWriter, r *http.Request, i interface{}) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1064,27 +1643,27 @@ func TestRouterPanicHandler(t *testing.T) {
 	})
 
 	require.NoError(t, r.Post("/", h))
-	req, _ := http.NewRequest(http.MethodPost, "/", nil)
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, errMsg, w.Body.String())
 }
 
-func TestRouterAbortHandler(t *testing.T) {
+func TestAbortHandler(t *testing.T) {
 	r := New()
 	r.PanicHandler = func(w http.ResponseWriter, r *http.Request, i interface{}) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(i.(error).Error()))
 	}
-	const errMsg = "unexpected error"
+
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {
 		func() { panic(http.ErrAbortHandler) }()
 		w.Write([]byte("foo"))
 	})
 
 	require.NoError(t, r.Post("/", h))
-	req, _ := http.NewRequest(http.MethodPost, "/", nil)
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 
 	defer func() {
@@ -1097,8 +1676,45 @@ func TestRouterAbortHandler(t *testing.T) {
 	r.ServeHTTP(w, req)
 }
 
-func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
-	f := fuzz.New().NilChance(0).NumElements(1000, 2000)
+func TestFuzzInsertLookupParam(t *testing.T) {
+	// no '*', ':' and '/' and invalid escape char
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x29},
+		{First: 0x2B, Last: 0x2E},
+		{First: 0x30, Last: 0x39},
+		{First: 0x3B, Last: 0x04FF},
+	}
+
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
+	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	routeFormat := "/%s/:%s/%s/:%s/:%s"
+	reqFormat := "/%s/%s/%s/%s/%s"
+	for i := 0; i < 2000; i++ {
+		var s1, e1, s2, e2, e3 string
+		f.Fuzz(&s1)
+		f.Fuzz(&e1)
+		f.Fuzz(&s2)
+		f.Fuzz(&e2)
+		f.Fuzz(&e3)
+		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
+			continue
+		}
+		if err := r.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", h); err == nil {
+			nds := *r.trees.Load()
+
+			n, params, _ := r.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), false)
+			require.NotNil(t, n)
+			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
+			assert.Equal(t, "xxxx", params.Get(e1))
+			assert.Equal(t, "xxxx", params.Get(e2))
+			assert.Equal(t, "xxxx", params.Get(e3))
+		}
+	}
+}
+
+func TestFuzzInsertNoPanics(t *testing.T) {
+	f := fuzz.New().NilChance(0).NumElements(5000, 10000)
 	r := New()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
@@ -1106,12 +1722,39 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := r.insert(http.MethodGet, "/"+rte, "", h, static)
+		var catchAllKey string
+		f.Fuzz(&catchAllKey)
+		if rte == "" && catchAllKey == "" {
+			continue
+		}
+		require.NotPanicsf(t, func() {
+			_ = r.insert(http.MethodGet, rte, catchAllKey, h)
+		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
+	}
+}
+
+func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
+	// no '*' and ':' and invalid escape char
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x29},
+		{First: 0x2B, Last: 0x39},
+		{First: 0x3B, Last: 0x04FF},
+	}
+
+	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	r := New()
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
+
+	routes := make(map[string]struct{})
+	f.Fuzz(&routes)
+
+	for rte := range routes {
+		err := r.insert(http.MethodGet, "/"+rte, "", h)
 		require.NoError(t, err)
 	}
 
 	countPath := 0
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
+	require.NoError(t, r.WalkRoute(func(method, path string, handler Handler) error {
 		countPath++
 		return nil
 	}))
@@ -1122,6 +1765,8 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 		n, _, _ := r.lookup(nds[0], "/"+rte, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
+		require.Equal(t, "/"+rte, n.path)
+		require.NoError(t, r.update(http.MethodGet, "/"+rte, "", h))
 	}
 
 	for rte := range routes {
@@ -1130,96 +1775,19 @@ func TestFuzzRouterInsertLookupAndDelete(t *testing.T) {
 	}
 
 	countPath = 0
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
+	require.NoError(t, r.WalkRoute(func(method, path string, handler Handler) error {
 		countPath++
 		return nil
 	}))
 	assert.Equal(t, 0, countPath)
 }
 
-func TestFuzzServeHTTP(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { w.Write([]byte(r.URL.Path)) })
-
-	// no wildcard and invalid escape char
-	unicodeRanges := fuzz.UnicodeRanges{
-		{First: 0x2E, Last: 0x2E},
-		{First: 0x30, Last: 0x3E},
-		{First: 0x40, Last: 0x5A},
-		{First: 0x61, Last: 0x7E},
-		{First: 0xA9, Last: 0xBF},
-	}
-
-	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
-
-	routes := make(map[string]struct{})
-	f.Fuzz(&routes)
-
-	for rte := range routes {
-		err := r.Get("/"+rte, h)
-		require.NoError(t, err)
-	}
-
-	countPath := 0
-	require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
-		countPath++
-		return nil
-	}))
-	assert.Equal(t, len(routes), countPath)
-
-	for rte := range routes {
-		req, err := http.NewRequest(http.MethodGet, "/"+rte, nil)
-		require.NoError(t, err)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equalf(t, http.StatusOK, w.Code, "route /%s", rte)
-		assert.Equal(t, "/"+rte, w.Body.String())
-	}
-
-}
-
-func TestFuzzServeHTTPNoPanic(t *testing.T) {
-	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { w.Write([]byte(r.URL.Path)) })
-
-	f := fuzz.New().NilChance(0).NumElements(5000, 10_000)
-
-	routes := make(map[string]struct{})
-	f.Fuzz(&routes)
-
-	assert.NotPanics(t, func() {
-		for rte := range routes {
-			err := r.insert(http.MethodGet, "/"+rte, "", h, static)
-			require.NoError(t, err)
-		}
-
-		countPath := 0
-		require.NoError(t, r.WalkRoute(func(route Route, handler Handler) error {
-			countPath++
-			return nil
-		}))
-		assert.Equal(t, len(routes), countPath)
-
-		req, _ := http.NewRequest("GET", "/", nil)
-		u := req.URL
-
-		for rte := range routes {
-			req.RequestURI = "/" + rte
-			u.Path = "/" + rte
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			assert.Equalf(t, http.StatusOK, w.Code, "route /%s", rte)
-			assert.Equal(t, "/"+rte, w.Body.String())
-		}
-	})
-}
-
 func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { fmt.Println("foo") })
-	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { fmt.Println("bar") })
+	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 
 	r := New()
 
@@ -1237,7 +1805,7 @@ func TestDataRace(t *testing.T) {
 
 		go func(route string) {
 			wait()
-			req, _ := http.NewRequest(http.MethodGet, route, nil)
+			req := httptest.NewRequest(http.MethodGet, route, nil)
 			r.ServeHTTP(w, req)
 			wg.Done()
 		}(rte.path)
