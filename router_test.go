@@ -2,13 +2,7 @@ package fox
 
 import (
 	"fmt"
-	"github.com/bmizerany/pat"
-	"github.com/dimfeld/httptreemux/v5"
-	"github.com/gin-gonic/gin"
 	fuzz "github.com/google/gofuzz"
-	"github.com/gorilla/mux"
-	"github.com/julienschmidt/httprouter"
-	"github.com/naoina/denco"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -459,7 +453,7 @@ func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 
 func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	w := new(mockResponseWriter)
-	r := httptest.NewRequest(rte.method, rte.path, nil)
+	r, _ := http.NewRequest(rte.method, rte.path, nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -471,7 +465,7 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	})
 }
 
-func BenchmarkRouter(b *testing.B) {
+func BenchmarkStaticAll(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
@@ -479,15 +473,7 @@ func BenchmarkRouter(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
-func BenchmarkTreeMuxRouter(b *testing.B) {
-	r := httptreemux.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(writer http.ResponseWriter, request *http.Request, m map[string]string) {})
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkRouterParams(b *testing.B) {
+func BenchmarkGithubParamsAll(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
 		require.NoError(b, r.Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
@@ -504,89 +490,15 @@ func BenchmarkRouterParams(b *testing.B) {
 	}
 }
 
-func BenchmarkHttpRouterRouter(b *testing.B) {
-	r := httprouter.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {})
-	}
-
-	benchRoutes(b, r, staticRoutes)
-}
-
-// TODO remove this benchmark
-func BenchmarkGinRouter(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(context *gin.Context) {})
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkStdRouter(b *testing.B) {
-	r := http.NewServeMux()
-	for _, route := range staticRoutes {
-		r.HandleFunc(route.path, func(writer http.ResponseWriter, request *http.Request) {})
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkGorillaMuxRouter(b *testing.B) {
-	r := mux.NewRouter()
-	for _, route := range staticRoutes {
-		r.HandleFunc(route.path, func(writer http.ResponseWriter, request *http.Request) {}).Methods(http.MethodGet)
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkDencoRouter(b *testing.B) {
-	r := denco.NewMux()
-	handlers := make([]denco.Handler, 0, len(staticRoutes))
-	for _, route := range staticRoutes {
-		handlers = append(handlers, r.GET(route.path, func(w http.ResponseWriter, r *http.Request, params denco.Params) {}))
-	}
-	handler, err := r.Build(handlers)
-	require.NoError(b, err)
-	benchRoutes(b, handler, staticRoutes)
-}
-
-func BenchmarkPatRouter(b *testing.B) {
-	r := pat.New()
-	for _, route := range staticRoutes {
-		r.Get(route.path, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {}))
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-// BenchmarkMuxRouterParallel-16    	143326886	         8.252 ns/op	       0 B/op	       0 allocs/op
-func BenchmarkMuxRouterParallel(b *testing.B) {
+func BenchmarkStaticParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+		require.NoError(b, r.Get(route.path, HandlerFunc(func(_ http.ResponseWriter, _ *http.Request, _ Params) {})))
 	}
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }
 
-func BenchmarkTreeMuxParallel(b *testing.B) {
-	r := httptreemux.New()
-	// r.SafeAddRoutesWhileRunning = true
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(writer http.ResponseWriter, request *http.Request, m map[string]string) {})
-	}
-	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
-}
-
-// TODO remove this benchmark
-func BenchmarkGinRouterParallel(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(context *gin.Context) {})
-	}
-	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
-}
-
-func BenchmarkRouterMuxCatchAll(b *testing.B) {
+func BenchmarkCatchAll(b *testing.B) {
 	r := New()
 	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
@@ -600,41 +512,9 @@ func BenchmarkRouterMuxCatchAll(b *testing.B) {
 	}
 }
 
-func BenchmarkGinRouterCatchAll(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.GET("/something/*args", func(context *gin.Context) {})
-	w := new(mockResponseWriter)
-	req := httptest.NewRequest("GET", "/something/awesome", nil)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkRouterMuxParallelCatchAll(b *testing.B) {
+func BenchmarkCatchAllParallel(b *testing.B) {
 	r := New()
 	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
-	w := new(mockResponseWriter)
-	req := httptest.NewRequest("GET", "/something/awesome", nil)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			r.ServeHTTP(w, req)
-		}
-	})
-}
-
-func BenchmarkGinRouterParallelCatchAll(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.GET("/something/*args", func(context *gin.Context) {})
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -1771,6 +1651,72 @@ func TestDataRace(t *testing.T) {
 	}
 
 	time.Sleep(500 * time.Millisecond)
+	start()
+	wg.Wait()
+}
+
+func TestConcurrentRequestHandling(t *testing.T) {
+	r := New()
+	r.AddRouteParam = true
+
+	// /repos/:owner/:repo/keys
+	h1 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+		assert.Equal(t, "john", params.Get("owner"))
+		assert.Equal(t, "fox", params.Get("repo"))
+		_, _ = fmt.Fprint(w, params.Get(RouteKey))
+	})
+
+	// /repos/:owner/:repo/contents/*path
+	h2 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+		assert.Equal(t, "alex", params.Get("owner"))
+		assert.Equal(t, "vault", params.Get("repo"))
+		assert.Equal(t, "/file.txt", params.Get("path"))
+		_, _ = fmt.Fprint(w, params.Get(RouteKey))
+	})
+
+	// /users/:user/received_events/public
+	h3 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+		assert.Equal(t, "go", params.Get("user"))
+		_, _ = fmt.Fprint(w, params.Get(RouteKey))
+	})
+
+	require.NoError(t, r.Get("/repos/:owner/:repo/keys", h1))
+	require.NoError(t, r.Get("/repos/:owner/:repo/contents/*path", h2))
+	require.NoError(t, r.Get("/users/:user/received_events/public", h3))
+
+	r1 := httptest.NewRequest(http.MethodGet, "/repos/john/fox/keys", nil)
+	r2 := httptest.NewRequest(http.MethodGet, "/repos/alex/vault/contents/file.txt", nil)
+	r3 := httptest.NewRequest(http.MethodGet, "/users/go/received_events/public", nil)
+
+	var wg sync.WaitGroup
+	wg.Add(300)
+	start, wait := atomicSync()
+	for i := 0; i < 100; i++ {
+		go func() {
+			defer wg.Done()
+			wait()
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, r1)
+			assert.Equal(t, "/repos/:owner/:repo/keys", w.Body.String())
+		}()
+
+		go func() {
+			defer wg.Done()
+			wait()
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, r2)
+			assert.Equal(t, "/repos/:owner/:repo/contents/*path", w.Body.String())
+		}()
+
+		go func() {
+			defer wg.Done()
+			wait()
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, r3)
+			assert.Equal(t, "/users/:user/received_events/public", w.Body.String())
+		}()
+	}
+
 	start()
 	wg.Wait()
 }
