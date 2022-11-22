@@ -552,6 +552,9 @@ func (fox *Router) update(method string, path, catchAllKey string, handler Handl
 // insert is not safe for concurrent use.
 func (fox *Router) insert(method, path, catchAllKey string, handler Handler) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
+	if method == "" {
+		return fmt.Errorf("http method is missing: %w", ErrInvalidRoute)
+	}
 
 	var rootNode *node
 	nds := *fox.trees.Load()

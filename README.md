@@ -51,7 +51,11 @@ import (
 	"net/http"
 )
 
-type HelloHandler struct {}
+var WelcomeHandler = fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	_, _ = fmt.Fprint(w, "Welcome!\n")
+})
+
+type HelloHandler struct{}
 
 func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
 	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
@@ -60,11 +64,9 @@ func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params 
 func main() {
 	r := fox.New()
 
-	Must(r.Get("/", fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-		_, _ = fmt.Fprint(w, "Welcome!\n")
-	})))
+	Must(r.Get("/", WelcomeHandler))
 	Must(r.Get("/hello/:name", new(HelloHandler)))
-	
+
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
@@ -76,7 +78,7 @@ func Must(err error) {
 ````
 #### Error handling
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another. 
-Instead, it returns the following error type
+Instead, it returns the following error values
 ```go
 ErrRouteNotFound = errors.New("route not found")
 ErrRouteExist    = errors.New("route already registered")
@@ -86,8 +88,9 @@ ErrInvalidRoute  = errors.New("invalid route")
 
 Conflict error may be unwrapped to retrieve conflicting route.
 ```go
-if errC := err.(*fox.RouteConflictError); ok {
-    for _, route := range errC.Matched {
+if errors.Is(err, fox.ErrRouteConflict) {
+    matched := err.(*fox.RouteConflictError).Matched
+    for _, route := range matched {
         fmt.Println(route)
     }
 }
@@ -122,7 +125,7 @@ Pattern /src/*filepath
 ```
 
 #### Warning about params slice
-`Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
+`fox.Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
 longer, use the `Clone` methods.
 ```go
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
@@ -136,20 +139,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.P
 ```
 
 ### Adding, updating and removing route
-In this is example, the handler for `route/:action` allow to dynamically register, update and remove handler for the given route and method.
-Due to Fox design, those actions are perfectly safe and can be executed concurrently. 
+In this example, the handler for `route/:action` allow to dynamically register, update and remove handler for the given route and method.
+Due to Fox design, those actions are perfectly safe and may be executed concurrently. 
 
 ```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/tigerwill90/fox"
+	"log"
+	"net/http"
+	"strings"
+)
+
 type ActionHandler struct {
 	fox *fox.Router
 }
 
 func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	path := r.URL.Query().Get("path")
-	text := r.URL.Query().Get("text")
-	method := strings.ToUpper(r.URL.Query().Get("method"))
-	if text == "" || path == "" || method == "" {
-		http.Error(w, "missing required query parameters", http.StatusBadRequest)
+	var data map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	method := strings.ToUpper(data["method"])
+	path := data["path"]
+	text := data["text"]
+
+	if path == "" || method == "" {
+		http.Error(w, "missing method or path", http.StatusBadRequest)
 		return
 	}
 
@@ -171,16 +192,16 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprintf(w, "%s route [%s] %s: success\n", action, method, path)
 }
 
 func main() {
 	r := fox.New()
-	Must(r.Get("/routes/:action", &ActionHandler{fox: r}))
+	Must(r.Post("/routes/:action", &ActionHandler{fox: r}))
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
@@ -202,14 +223,14 @@ For example, here we are inserting the new path `toast` into to the tree which r
     <img width="100%" src="assets/tree-apply-patch.png">
 </p>
 
-Routing request while the patch above is applied is lock-free. The reading thread will either see the **old version** or the **new version**
-of the (sub-)tree, but both version are consistent view of the tree.
+When traversing the tree during a patch, reading threads will either see the **old version** or the **new version** of the (sub-)tree, but both version are 
+consistent view of the tree.
 
 #### Other key points
 
 - Routing requests is lock-free (reading thread never block, even while writes are ongoing)
 - The router always see a consistent version of the tree while routing request
-- Routing requests do not block writing threads (adding, updating or removing a handler can be done concurrently)
+- Reading threads do not block writing threads (adding, updating or removing a handler can be done concurrently)
 - Writing threads block each other but never block reading threads
 
 As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
@@ -275,7 +296,7 @@ BenchmarkHttpTreeMux_StaticAllParallel-16                           997074      
 BenchmarkFox_StaticAllParallel-16                                  1000000                 1105 ns/op           0 B/op          0 allocs/op
 BenchmarkHttpTreeMux_SafeAddRouteFlag_StaticAllParallel-16          197578                 6017 ns/op           0 B/op          0 allocs/op
 ```
-This benchmark simply highlights the benefice of the **lock-free** Radix Tree that Fox use internally.
+As you can see, this benchmark highlight the cost of using higher synchronisation primitive like `RWMutex` to be able to register new route while handling requests.
 
 ### Micro Benchmarks
 The following benchmarks measure the cost of some very basic operations.
@@ -346,8 +367,8 @@ BenchmarkMartini_ParamWrite                               398594                
 
 In those micro benchmarks, we can see that `Fox` scale really well, even with long wildcard routes. Like `Gin`, this router reuse the
 data structure (e.g. `fox.Params` slice) containing the matching parameters in order to remove completely heap allocation. We can also
-notice that there is a small overhead comparing to `Gin` when the number of parameters scale. This is due to the fact that every tree's node
-in Fox are `atomic.Pointer` and that traversing the tree require to load the underlying node pointer atomically. Whatever, even
+notice that there is a very small overhead comparing to `Gin` when the number of parameters scale. This is due to the fact that every tree's node
+in Fox are `atomic.Pointer` and that traversing the tree require to load the underlying node pointer atomically. Despite that, even
 with 20 parameters, the performance of Fox is still better than most other contender.
 
 ### Github
@@ -368,6 +389,10 @@ BenchmarkMartini_GithubAll                                   572           20428
 BenchmarkGorillaMux_GithubAll                                562           2110880 ns/op          199683 B/op       1588 allocs/op
 BenchmarkPat_GithubAll                                       550           2117715 ns/op         1410624 B/op      22515 allocs/op
 ```
+
+## Contributions
+Fox's philosophy it to be a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
+The intention behind these choices is that it may serve as a building block for more "batteries included" frameworks. Feature requests and PR along these lines are welcome. 
 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
