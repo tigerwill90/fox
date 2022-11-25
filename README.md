@@ -1,3 +1,4 @@
+![example workflow](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)
 # Fox
 Fox is a lightweight high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
