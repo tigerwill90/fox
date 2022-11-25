@@ -391,15 +391,9 @@ BenchmarkPat_GithubAll                                       550           21177
 ```
 
 ## Contributions
-The philosophy of this project is to offer a **lightweight**, **high performance** and easy to use http router. It purposely has a **limited set of features** and exposes a relatively low-level api.
-The intention behind these choices is that it may serve as a building block for more "batteries included" frameworks. Feature requests and PR along these lines are welcome. 
+This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
+The intention behind these choices is that it can serve as a building block for more "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
-- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are directly inspired from Julien Schmidt's router.
-
-## TODO
-- [ ] Iterator (method, prefix, suffix)
-- [ ] Transaction or at least consistent view update
-- [ ] Alloc optimization when writing on the tree
-- [ ] Automatic OPTIONS responses and CORS ?
+- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are inspired from Julien Schmidt's router.
