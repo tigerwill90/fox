@@ -634,19 +634,19 @@ func TestInsertWildcardConflict(t *testing.T) {
 	cases := []struct {
 		name   string
 		routes []struct {
-			path      string
-			wildcard  bool
 			wantErr   error
+			path      string
 			wantMatch []string
+			wildcard  bool
 		}
 	}{
 		{
 			name: "key mid edge conflicts",
 			routes: []struct {
-				path      string
-				wildcard  bool
 				wantErr   error
+				path      string
 				wantMatch []string
+				wildcard  bool
 			}{
 				{path: "/foo/bar", wildcard: false, wantErr: nil, wantMatch: nil},
 				{path: "/foo/baz", wildcard: false, wantErr: nil, wantMatch: nil},
@@ -658,10 +658,10 @@ func TestInsertWildcardConflict(t *testing.T) {
 		{
 			name: "incomplete match to the end of edge conflict",
 			routes: []struct {
-				path      string
-				wildcard  bool
 				wantErr   error
+				path      string
 				wantMatch []string
+				wildcard  bool
 			}{
 				{path: "/foo/", wildcard: true, wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*args"}},
@@ -672,10 +672,10 @@ func TestInsertWildcardConflict(t *testing.T) {
 		{
 			name: "exact match conflict",
 			routes: []struct {
-				path      string
-				wildcard  bool
 				wantErr   error
+				path      string
 				wantMatch []string
+				wildcard  bool
 			}{
 				{path: "/foo/1", wildcard: false, wantErr: nil, wantMatch: nil},
 				{path: "/foo/2", wildcard: false, wantErr: nil, wantMatch: nil},
@@ -916,15 +916,15 @@ func TestInsertParamsConflict(t *testing.T) {
 func TestSwapWildcardConflict(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	cases := []struct {
-		name   string
-		routes []struct {
+		wantErr error
+		name    string
+		path    string
+		routes  []struct {
 			path     string
 			wildcard bool
 		}
-		path      string
-		wildcard  bool
-		wantErr   error
 		wantMatch []string
+		wildcard  bool
 	}{
 		{
 			name: "replace existing node with wildcard",
@@ -989,11 +989,11 @@ func TestUpdateRoute(t *testing.T) {
 	})
 
 	cases := []struct {
+		newHandler     Handler
 		name           string
 		path           string
 		newPath        string
 		newWildcardKey string
-		newHandler     Handler
 	}{
 		{
 			name:           "update wildcard with another wildcard",
@@ -1055,9 +1055,9 @@ func TestUpsert(t *testing.T) {
 	require.NoError(t, r.Post("/foo/", old))
 
 	cases := []struct {
+		wantErr error
 		name    string
 		path    string
-		wantErr error
 	}{
 		{
 			name: "upsert an existing route with no conflict",
@@ -1091,12 +1091,12 @@ func TestUpsert(t *testing.T) {
 
 func TestParseRoute(t *testing.T) {
 	cases := []struct {
+		wantErr         error
 		name            string
 		path            string
-		wantErr         error
-		wantN           int
 		wantCatchAllKey string
 		wantPath        string
+		wantN           int
 	}{
 		{
 			name:     "valid static route",
@@ -1421,10 +1421,10 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		methods []string
 		target  string
 		path    string
 		want    string
+		methods []string
 	}{
 		{
 			name:    "all route except the last one",

@@ -7,9 +7,9 @@ func newIterator(n *node) *iterator {
 }
 
 type iterator struct {
-	stack   []stack
 	current *node
 	path    string
+	stack   []stack
 }
 
 type stack struct {
