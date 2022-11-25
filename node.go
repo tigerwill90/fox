@@ -7,29 +7,29 @@ import (
 )
 
 type node struct {
+	// The registered handler matching the full path. Nil if the node is not a leaf.
+	// Once assigned, handler is immutable.
+	handler Handler
+
 	// key represent a segment of a route which share a common prefix with it parent.
 	key string
+
+	// Catch all key registered to retrieve this node parameter.
+	// Once assigned, catchAllKey is immutable.
+	catchAllKey string
+
+	// The full path when it's a leaf node
+	path string
 
 	// First char of each outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is a read only slice. It allows to lazily traverse the
 	// tree without the extra cost of atomic load operation.
 	childKeys []byte
 
-	// Catch all key registered to retrieve this node parameter.
-	// Once assigned, catchAllKey is immutable.
-	catchAllKey string
-
 	// Child nodes representing outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is mostly a read only slice with the exception than we can update atomically
 	// each pointer reference to a new child node starting with the same character.
 	children []atomic.Pointer[node]
-
-	// The registered handler matching the full path. Nil if the node is not a leaf.
-	// Once assigned, handler is immutable.
-	handler Handler
-
-	// The full path when it's a leaf node
-	path string
 
 	// Indicate whether its child node is a param node type. If true, len(children) == 1.
 	// Once assigned, paramChild is immutable.

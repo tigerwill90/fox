@@ -391,7 +391,7 @@ BenchmarkPat_GithubAll                                       550           21177
 ```
 
 ## Contributions
-Fox's philosophy it to be a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
+The philosophy of this project is to offer a **lightweight**, **high performance** and easy to use http router. It purposely has a **limited set of features** and exposes a relatively low-level api.
 The intention behind these choices is that it may serve as a building block for more "batteries included" frameworks. Feature requests and PR along these lines are welcome. 
 
 ## Acknowledgements

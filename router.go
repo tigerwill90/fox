@@ -35,6 +35,8 @@ func (f HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Pa
 }
 
 type Router struct {
+	p sync.Pool
+
 	// User-configurable http.Handler which is called when no matching route is found.
 	// By default, http.NotFound is used.
 	NotFound http.Handler
@@ -47,6 +49,10 @@ type Router struct {
 
 	// Register a function to handle panics recovered from http handlers.
 	PanicHandler func(http.ResponseWriter, *http.Request, interface{})
+
+	trees     *atomic.Pointer[[]*node]
+	mu        sync.Mutex
+	maxParams uint32
 
 	// If enabled, fox return a 405 Method Not Allowed instead of 404 Not Found when the route exist for another http verb.
 	HandleMethodNotAllowed bool
@@ -64,14 +70,6 @@ type Router struct {
 	// with/without an additional trailing slash. E.g. /foo/bar/ request does not match but /foo/bar would match.
 	// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
 	RedirectTrailingSlash bool
-
-	maxParams uint32
-
-	p sync.Pool
-
-	mu sync.Mutex
-
-	trees *atomic.Pointer[[]*node]
 }
 
 var _ http.Handler = (*Router)(nil)
@@ -958,12 +956,12 @@ func (c resultType) String() string {
 }
 
 type searchResult struct {
-	path                    string
 	matched                 *node
-	charsMatched            int
-	charsMatchedInNodeFound int
 	p                       *node
 	pp                      *node
+	path                    string
+	charsMatched            int
+	charsMatchedInNodeFound int
 }
 
 func min(a, b int) int {

@@ -15,10 +15,10 @@ var (
 )
 
 type RouteConflictError struct {
+	err     error
 	Method  string
 	Path    string
 	Matched []string
-	err     error
 }
 
 func newConflictErr(method, path, catchAllKey string, matched []string) *RouteConflictError {
