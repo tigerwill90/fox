@@ -924,10 +924,10 @@ func TestSwapWildcardConflict(t *testing.T) {
 			wildcard bool
 		}
 		wantMatch []string
-		wildcard  bool
+		wildcard  string
 	}{
 		{
-			name: "replace existing node with wildcard",
+			name: "replace existing static node with wildcard",
 			routes: []struct {
 				path     string
 				wildcard bool
@@ -937,7 +937,7 @@ func TestSwapWildcardConflict(t *testing.T) {
 				{path: "/foo/", wildcard: false},
 			},
 			path:      "/foo/",
-			wildcard:  true,
+			wildcard:  "args",
 			wantErr:   ErrRouteConflict,
 			wantMatch: []string{"/foo/bar", "/foo/baz"},
 		},
@@ -960,7 +960,7 @@ func TestSwapWildcardConflict(t *testing.T) {
 				{path: "/foo/", wildcard: true},
 			},
 			path:     "/foo/",
-			wildcard: true,
+			wildcard: "new",
 		},
 	}
 
@@ -974,7 +974,7 @@ func TestSwapWildcardConflict(t *testing.T) {
 				}
 				require.NoError(t, r.insert(http.MethodGet, rte.path, catchAllKey, h))
 			}
-			err := r.update(http.MethodGet, tc.path, "args", h)
+			err := r.update(http.MethodGet, tc.path, tc.wildcard, h)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if cErr, ok := err.(*RouteConflictError); ok {
 				assert.Equal(t, tc.wantMatch, cErr.Matched)
