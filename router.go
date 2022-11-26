@@ -17,7 +17,7 @@ var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, 
 //
 // This interface enforce the same contract as http.Handler except that matched wildcard route segment
 // are accessible via params. Params slice is freed once ServeHTTP returns and may be reused later to
-// save resource. Therefore, if you need to hold params slice longer, you have to copy it.
+// save resource. Therefore, if you need to hold params slice longer, you have to copy it (see Clone method).
 //
 // As for http.Handler interface, to abort a handler so the client sees an interrupted response, panic with
 // the value http.ErrAbortHandler.
@@ -96,38 +96,16 @@ func New() *Router {
 	return mux
 }
 
-// Get is a shortcut for Handler(http.MethodGet, path, handler)
-func (fox *Router) Get(path string, handler Handler) error {
-	return fox.addRoute(http.MethodGet, path, handler)
-}
-
-// Post is a shortcut for Handler(http.MethodPost, path, handler)
-func (fox *Router) Post(path string, handler Handler) error {
-	return fox.addRoute(http.MethodPost, path, handler)
-}
-
-// Put is a shortcut for Handler(http.MethodPut, path, handler)
-func (fox *Router) Put(path string, handler Handler) error {
-	return fox.addRoute(http.MethodPut, path, handler)
-}
-
-// Delete is a shortcut for Handler(http.MethodDelete, path, handler)
-func (fox *Router) Delete(path string, handler Handler) error {
-	return fox.addRoute(http.MethodDelete, path, handler)
-}
-
-// Handler registers a new handler for the given method and path. If the route is already registered,
-// the function return an ErrRouteExist. It's perfectly safe to add a new handler once the server is started.
-// This function is safe for concurrent use by multiple goroutine.
-// To override an existing route, use Update method.
+// Handler registers a new handler for the given method and path. This function return an error if the route
+// is already registered or conflict with another. It's perfectly safe to add a new handler while serving requests.
+// This function is safe for concurrent use by multiple goroutine. To override an existing route, use Update.
 func (fox *Router) Handler(method, path string, handler Handler) error {
 	return fox.addRoute(method, path, handler)
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
-// the function return an ErrRouteNotFound. It's perfectly safe to update a handler once the server
-// is started. This function is safe for concurrent use by multiple goroutine.
-// To add new handler, use Handler method.
+// the function return an ErrRouteNotFound. It's perfectly safe to update a handler while serving requests.
+// This function is safe for concurrent use by multiple goroutine. To add new handler, use Handler method.
 func (fox *Router) Update(method, path string, handler Handler) error {
 	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
@@ -141,7 +119,7 @@ func (fox *Router) Update(method, path string, handler Handler) error {
 }
 
 // Upsert registers a new handler for the given method and path or, if the route already exist, update it with
-// the new handler. It's perfectly safe to upsert a handler once the server is started. This function is safe for
+// the new handler. It's perfectly safe to upsert a handler while serving requests. This function is safe for
 // concurrent use by multiple goroutine.
 func (fox *Router) Upsert(method, path string, handler Handler) error {
 	p, catchAllKey, n, err := parseRoute(path)
@@ -164,7 +142,7 @@ func (fox *Router) Upsert(method, path string, handler Handler) error {
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
-// return an ErrRouteNotFound. It's perfectly safe to remove a handler once the server is started. This
+// return an ErrRouteNotFound. It's perfectly safe to remove a handler while serving requests. This
 // function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Remove(method, path string) error {
 	fox.mu.Lock()

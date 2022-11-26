@@ -468,7 +468,7 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 func BenchmarkStaticAll(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Get(route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+		require.NoError(b, r.Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
 	}
 	benchRoutes(b, r, staticRoutes)
 }
@@ -493,14 +493,14 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 func BenchmarkStaticParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Get(route.path, HandlerFunc(func(_ http.ResponseWriter, _ *http.Request, _ Params) {})))
+		require.NoError(b, r.Handler(route.method, route.path, HandlerFunc(func(_ http.ResponseWriter, _ *http.Request, _ Params) {})))
 	}
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }
 
 func BenchmarkCatchAll(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -514,7 +514,7 @@ func BenchmarkCatchAll(b *testing.B) {
 
 func BenchmarkCatchAllParallel(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Get("/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -533,7 +533,7 @@ func TestStaticRoute(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	for _, route := range staticRoutes {
-		require.NoError(t, r.Get(route.path, h))
+		require.NoError(t, r.Handler(route.method, route.path, h))
 	}
 
 	for _, route := range staticRoutes {
@@ -588,7 +588,7 @@ func TestRouterWildcard(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		require.NoError(t, r.Get(route.path, h))
+		require.NoError(t, r.Handler(http.MethodGet, route.path, h))
 	}
 
 	for _, route := range routes {
@@ -1035,7 +1035,7 @@ func TestUpdateRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			r.AddRouteParam = true
-			require.NoError(t, r.Get(tc.path, h))
+			require.NoError(t, r.Handler(http.MethodGet, tc.path, h))
 			require.NoError(t, r.Update(http.MethodGet, tc.newPath+tc.newWildcardKey, tc.newHandler))
 			req := httptest.NewRequest(http.MethodGet, tc.newPath, nil)
 			w := httptest.NewRecorder()
@@ -1051,8 +1051,8 @@ func TestUpsert(t *testing.T) {
 	new := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte("new")) })
 
 	r := New()
-	require.NoError(t, r.Post("/foo/bar", old))
-	require.NoError(t, r.Post("/foo/", old))
+	require.NoError(t, r.Handler(http.MethodPost, "/foo/bar", old))
+	require.NoError(t, r.Handler(http.MethodPost, "/foo/", old))
 
 	cases := []struct {
 		wantErr error
@@ -1402,7 +1402,7 @@ func TestRedirectFixedPath(t *testing.T) {
 			r := New()
 			r.RedirectFixedPath = true
 			r.RedirectTrailingSlash = tc.tsr
-			require.NoError(t, r.Get(tc.path, h))
+			require.NoError(t, r.Handler(http.MethodGet, tc.path, h))
 			req, _ := http.NewRequest(http.MethodGet, tc.key, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
@@ -1475,7 +1475,7 @@ func TestPanicHandler(t *testing.T) {
 		w.Write([]byte("foo"))
 	})
 
-	require.NoError(t, r.Post("/", h))
+	require.NoError(t, r.Handler(http.MethodPost, "/", h))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -1495,7 +1495,7 @@ func TestAbortHandler(t *testing.T) {
 		w.Write([]byte("foo"))
 	})
 
-	require.NoError(t, r.Post("/", h))
+	require.NoError(t, r.Handler(http.MethodPost, "/", h))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 
@@ -1680,9 +1680,9 @@ func TestConcurrentRequestHandling(t *testing.T) {
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
-	require.NoError(t, r.Get("/repos/:owner/:repo/keys", h1))
-	require.NoError(t, r.Get("/repos/:owner/:repo/contents/*path", h2))
-	require.NoError(t, r.Get("/users/:user/received_events/public", h3))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/keys", h1))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/contents/*path", h2))
+	require.NoError(t, r.Handler(http.MethodGet, "/users/:user/received_events/public", h3))
 
 	r1 := httptest.NewRequest(http.MethodGet, "/repos/john/fox/keys", nil)
 	r2 := httptest.NewRequest(http.MethodGet, "/repos/alex/vault/contents/file.txt", nil)

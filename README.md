@@ -1,5 +1,5 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tigerwill90/fox.svg)](https://pkg.go.dev/github.com/tigerwill90/fox)
-![example workflow](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)
+[![tests](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/tigerwill90/fox/actions?query=workflow%3Atests)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
 # Fox
 Fox is a lightweight high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
@@ -11,7 +11,7 @@ The router tree is optimized for high-concurrency and high performance reads, an
 in many case, it does not do a single heap allocation while handling request.
 
 ## Disclaimer
-The current api is not yet stabilize. Breaking change may happen before `v1.0.0`
+The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
 **Routing mutation:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
@@ -67,8 +67,8 @@ func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params 
 func main() {
 	r := fox.New()
 
-	Must(r.Get("/", WelcomeHandler))
-	Must(r.Get("/hello/:name", new(HelloHandler)))
+	Must(r.Handler(http.MethodGet, "/", WelcomeHandler))
+	Must(r.Handler(http.MethodGet, "/hello/:name", new(HelloHandler)))
 
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
@@ -83,7 +83,6 @@ func Must(err error) {
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another. 
 Instead, it returns the following error values
 ```go
-ErrRouteNotFound = errors.New("route not found")
 ErrRouteExist    = errors.New("route already registered")
 ErrRouteConflict = errors.New("route conflict")
 ErrInvalidRoute  = errors.New("invalid route")
@@ -204,7 +203,7 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 
 func main() {
 	r := fox.New()
-	Must(r.Post("/routes/:action", &ActionHandler{fox: r}))
+	Must(r.Handler(http.MethodPost, "/routes/:action", &ActionHandler{fox: r}))
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
