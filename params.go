@@ -29,7 +29,7 @@ func (p *Params) Get(name string) string {
 	return ""
 }
 
-// Clone make a deep copy of Params.
+// Clone make a copy of Params.
 func (p *Params) Clone() Params {
 	cloned := make(Params, len(*p))
 	copy(cloned, *p)
@@ -57,11 +57,14 @@ func (fox *Router) updateMaxParams(max uint32) {
 	}
 }
 
+// ParamsFromContext is a helper function to retrieve parameters from the request context.
 func ParamsFromContext(ctx context.Context) Params {
 	p, _ := ctx.Value(ParamsKey).(Params)
 	return p
 }
 
+// WrapF is a helper function for wrapping http.HandlerFunc and returns a Fox Handler.
+// Params are forwarded via the request context. See ParamsFromContext to retrieve parameters.
 func WrapF(f http.HandlerFunc) Handler {
 	return HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		if len(params) > 0 {
@@ -72,6 +75,8 @@ func WrapF(f http.HandlerFunc) Handler {
 	})
 }
 
+// WrapH is a helper function for wrapping http.Handler and returns a Fox Handler.
+// Params are forwarded via the request context. See ParamsFromContext to retrieve parameters.
 func WrapH(h http.Handler) Handler {
 	return HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		if len(params) > 0 {
