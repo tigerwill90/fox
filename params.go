@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 )
 
-const RouteKey = "$fox/path"
+const RouteKey = "$k/fox"
 
 var ParamsKey = key{}
 
