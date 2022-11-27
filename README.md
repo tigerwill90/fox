@@ -40,7 +40,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
 ## Getting started
 ### Installation
 ```shell
-go get -u tigerwill90/github.com/fox
+go get -u github.com/tigerwill90/fox
 ```
 
 ### Basic example
@@ -256,9 +256,10 @@ repository.
 
 ### Config
 ```
-GOOS: Linux
-GOARVH: amd64
-CPU: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
+GOOS:   Linux
+GOARCH: amd64
+GO:     1.19
+CPU:    Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
 ```
 ### Static Routes
 It is just a collection of random static paths inspired by the structure of the Go directory. It might not be a realistic URL-structure.
