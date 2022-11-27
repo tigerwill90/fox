@@ -242,9 +242,9 @@ Fox itself implements the `http.Handler` interface which make easy to chain any 
 provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
 request context
 ```go
-_ = r.Get("/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
+_ = r.Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
-    fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
+    _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
 }))
 ```
 

@@ -22,12 +22,12 @@ var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, 
 // As for http.Handler interface, to abort a handler so the client sees an interrupted response, panic with
 // the value http.ErrAbortHandler.
 type Handler interface {
-	ServeHTTP(w http.ResponseWriter, r *http.Request, params Params)
+	ServeHTTP(http.ResponseWriter, *http.Request, Params)
 }
 
 // HandlerFunc is an adapter to allow the use of ordinary functions as HTTP handlers. If f is a function with the
 // appropriate signature, HandlerFunc(f) is a Handler that calls f.
-type HandlerFunc func(w http.ResponseWriter, r *http.Request, params Params)
+type HandlerFunc func(http.ResponseWriter, *http.Request, Params)
 
 // ServerHTTP calls f(w, r, params)
 func (f HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Params) {
@@ -201,7 +201,7 @@ func (fox *Router) WalkRoute(fn WalkFunc) error {
 NEXT:
 	for i := range nds {
 		method := nds[i].key
-		it := newIterator(nds[i])
+		it := newRawIterator(nds[i])
 		for it.hasNext() {
 			err := fn(method, it.fullPath(), it.node().handler)
 			if err != nil {
@@ -929,6 +929,10 @@ func (r searchResult) isExactMatch() bool {
 	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }
 
+func (r searchResult) isKeyMidEdge() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
+}
+
 func (c resultType) String() string {
 	return [...]string{"EXACT_MATCH", "INCOMPLETE_MATCH_TO_END_OF_EDGE", "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE", "KEY_END_MID_EDGE"}[c]
 }
@@ -1042,7 +1046,7 @@ func parseRoute(path string) (string, string, int, error) {
 
 func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
-	it := newIterator(n)
+	it := newRawIterator(n)
 	for it.hasNext() {
 		routes = append(routes, it.current.path)
 	}
