@@ -171,12 +171,15 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 
 	n, params, tsr := fox.lookup(nds[index], path, false)
 	if n != nil {
-		fn(n.handler, *params, tsr)
-	} else {
-		fn(nil, nil, tsr)
+		if params != nil {
+			fn(n.handler, *params, tsr)
+			params.free(fox)
+			return
+		}
+		fn(n.handler, nil, tsr)
+		return
 	}
-	params.free(fox)
-	return
+	fn(nil, nil, tsr)
 }
 
 // Match perform a lazy lookup and return true if the requested method and path match a registered handler.
