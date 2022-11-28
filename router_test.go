@@ -1587,7 +1587,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath := 0
-	require.NoError(t, r.WalkRoute(func(method, path string, handler Handler) error {
+	require.NoError(t, r.Walk(func(method, path string, handler Handler) error {
 		countPath++
 		return nil
 	}))
@@ -1608,7 +1608,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath = 0
-	require.NoError(t, r.WalkRoute(func(method, path string, handler Handler) error {
+	require.NoError(t, r.Walk(func(method, path string, handler Handler) error {
 		countPath++
 		return nil
 	}))

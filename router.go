@@ -182,7 +182,7 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 	fn(nil, nil, tsr)
 }
 
-// Match perform a lazy lookup and return true if the requested method and path match a registered handler.
+// Match perform a lazy lookup and return true if the requested method and path match a registered route.
 // This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Match(method, path string) bool {
 	nds := *fox.trees.Load()
@@ -195,11 +195,17 @@ func (fox *Router) Match(method, path string) bool {
 	return n != nil
 }
 
+// SkipMethod is used as a return value from WalkFunc to indicate that
+// the method named in the call is to be skipped.
+var SkipMethod = errors.New("skip method")
+
+// WalkFunc is the type of the function called by Walk to visit each registered routes.
 type WalkFunc func(method, path string, handler Handler) error
 
-// WalkRoute allow to walk over all registered route in lexicographical order. This function is safe for
-// concurrent use by multiple goroutine.
-func (fox *Router) WalkRoute(fn WalkFunc) error {
+// Walk allow to walk over all registered route in lexicographical order. If the function
+// return the special value SkipMethod, Walk skips the current method. This function is
+// safe for concurrent use by multiple goroutine.
+func (fox *Router) Walk(fn WalkFunc) error {
 	nds := *fox.trees.Load()
 NEXT:
 	for i := range nds {
@@ -208,7 +214,7 @@ NEXT:
 		for it.hasNext() {
 			err := fn(method, it.fullPath(), it.node().handler)
 			if err != nil {
-				if errors.Is(err, ErrSkipMethod) {
+				if errors.Is(err, SkipMethod) {
 					continue NEXT
 				}
 				return err
