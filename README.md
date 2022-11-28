@@ -26,8 +26,7 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 observability middleware like open telemetry (disable by default).
 
 **Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
-exactly one or no route. As a result, there are also no unintended matches, which makes it great for SEO and improves the 
-user experience.
+exactly one or no route. As a result there are no unintended matches, and it's also encourage good RESTful api design.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
@@ -40,7 +39,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
 ## Getting started
 ### Installation
 ```shell
-go get -u tigerwill90/github.com/fox
+go get -u github.com/tigerwill90/fox
 ```
 
 ### Basic example
@@ -242,9 +241,9 @@ Fox itself implements the `http.Handler` interface which make easy to chain any 
 provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
 request context
 ```go
-_ = r.Get("/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
+_ = r.Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
-    fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
+    _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
 }))
 ```
 
@@ -256,9 +255,10 @@ repository.
 
 ### Config
 ```
-GOOS: Linux
-GOARVH: amd64
-CPU: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
+GOOS:   Linux
+GOARCH: amd64
+GO:     1.19
+CPU:    Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
 ```
 ### Static Routes
 It is just a collection of random static paths inspired by the structure of the Go directory. It might not be a realistic URL-structure.

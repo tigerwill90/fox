@@ -22,12 +22,12 @@ var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, 
 // As for http.Handler interface, to abort a handler so the client sees an interrupted response, panic with
 // the value http.ErrAbortHandler.
 type Handler interface {
-	ServeHTTP(w http.ResponseWriter, r *http.Request, params Params)
+	ServeHTTP(http.ResponseWriter, *http.Request, Params)
 }
 
 // HandlerFunc is an adapter to allow the use of ordinary functions as HTTP handlers. If f is a function with the
 // appropriate signature, HandlerFunc(f) is a Handler that calls f.
-type HandlerFunc func(w http.ResponseWriter, r *http.Request, params Params)
+type HandlerFunc func(http.ResponseWriter, *http.Request, Params)
 
 // ServerHTTP calls f(w, r, params)
 func (f HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Params) {
@@ -74,6 +74,7 @@ type Router struct {
 
 var _ http.Handler = (*Router)(nil)
 
+// New returns a ready to use Router.
 func New() *Router {
 	var ptr atomic.Pointer[[]*node]
 	// Pre instantiate nodes for common http verb
@@ -160,8 +161,8 @@ func (fox *Router) Remove(method, path string) error {
 }
 
 // Lookup allow to do manual lookup of a route. Please note that params are only valid until fn callback returns (see Handler interface).
-// This function is safe for concurrent use by multiple goroutine.
-func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) {
+// If lazy is set to true, params are not parsed. This function is safe for concurrent use by multiple goroutine.
+func (fox *Router) Lookup(method, path string, lazy bool, fn func(handler Handler, params Params, tsr bool)) {
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -169,17 +170,20 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 		return
 	}
 
-	n, params, tsr := fox.lookup(nds[index], path, false)
+	n, params, tsr := fox.lookup(nds[index], path, lazy)
 	if n != nil {
-		fn(n.handler, *params, tsr)
-	} else {
-		fn(nil, nil, tsr)
+		if params != nil {
+			fn(n.handler, *params, tsr)
+			params.free(fox)
+			return
+		}
+		fn(n.handler, nil, tsr)
+		return
 	}
-	params.free(fox)
-	return
+	fn(nil, nil, tsr)
 }
 
-// Match perform a lazy lookup and return true if the requested method and path match a registered handler.
+// Match perform a lazy lookup and return true if the requested method and path match a registered route.
 // This function is safe for concurrent use by multiple goroutine.
 func (fox *Router) Match(method, path string) bool {
 	nds := *fox.trees.Load()
@@ -192,20 +196,26 @@ func (fox *Router) Match(method, path string) bool {
 	return n != nil
 }
 
+// SkipMethod is used as a return value from WalkFunc to indicate that
+// the method named in the call is to be skipped.
+var SkipMethod = errors.New("skip method")
+
+// WalkFunc is the type of the function called by Walk to visit each registered routes.
 type WalkFunc func(method, path string, handler Handler) error
 
-// WalkRoute allow to walk over all registered route in lexicographical order. This function is safe for
-// concurrent use by multiple goroutine.
-func (fox *Router) WalkRoute(fn WalkFunc) error {
+// Walk allow to walk over all registered route in lexicographical order. If the function
+// return the special value SkipMethod, Walk skips the current method. This function is
+// safe for concurrent use by multiple goroutine.
+func (fox *Router) Walk(fn WalkFunc) error {
 	nds := *fox.trees.Load()
 NEXT:
 	for i := range nds {
 		method := nds[i].key
-		it := newIterator(nds[i])
+		it := newRawIterator(nds[i])
 		for it.hasNext() {
 			err := fn(method, it.fullPath(), it.node().handler)
 			if err != nil {
-				if errors.Is(err, ErrSkipMethod) {
+				if errors.Is(err, SkipMethod) {
 					continue NEXT
 				}
 				return err
@@ -359,9 +369,6 @@ STOP:
 				break
 			}
 
-			// s1 := string(current.key[i])
-			// s2 := string(path[charsMatched])
-			// fmt.Println(s1, s2)
 			if current.key[i] != path[charsMatched] || path[charsMatched] == ':' {
 				if current.key[i] == ':' {
 					startPath := charsMatched
@@ -929,6 +936,10 @@ func (r searchResult) isExactMatch() bool {
 	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }
 
+func (r searchResult) isKeyMidEdge() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
+}
+
 func (c resultType) String() string {
 	return [...]string{"EXACT_MATCH", "INCOMPLETE_MATCH_TO_END_OF_EDGE", "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE", "KEY_END_MID_EDGE"}[c]
 }
@@ -1042,7 +1053,7 @@ func parseRoute(path string) (string, string, int, error) {
 
 func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
-	it := newIterator(n)
+	it := newRawIterator(n)
 	for it.hasNext() {
 		routes = append(routes, it.current.path)
 	}

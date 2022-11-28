@@ -11,7 +11,6 @@ var (
 	ErrRouteExist    = errors.New("route already registered")
 	ErrRouteConflict = errors.New("route conflict")
 	ErrInvalidRoute  = errors.New("invalid route")
-	ErrSkipMethod    = errors.New("skip method")
 )
 
 type RouteConflictError struct {
