@@ -80,7 +80,7 @@ func (n *node) isCatchAll() bool {
 }
 
 func (n *node) getEdge(s byte) *node {
-	if len(n.children) <= 4 {
+	if len(n.children) <= 50 {
 		id := linearSearch(n.childKeys, s)
 		if id < 0 {
 			return nil
@@ -94,9 +94,25 @@ func (n *node) getEdge(s byte) *node {
 	return n.children[id].Load()
 }
 
+func (n *node) updateEdge(node *node) {
+	if len(n.children) <= 50 {
+		id := linearSearch(n.childKeys, node.key[0])
+		if id < 0 {
+			panic("internal error: cannot update the edge with this node")
+		}
+		n.children[id].Store(node)
+		return
+	}
+	id := binarySearch(n.childKeys, node.key[0])
+	if id < 0 {
+		panic("internal error: cannot update the edge with this node")
+	}
+	n.children[id].Store(node)
+}
+
 // linearSearch return the index of s in keys or -1, using a simple loop.
 // Although binary search is a more efficient search algorithm,
-// the small size of the child keys array (<= 4) means that the
+// the small size of the child keys array means that the
 // constant factor will dominate (cf Adaptive Radix Tree algorithm).
 func linearSearch(keys []byte, s byte) int {
 	for i := 0; i < len(keys); i++ {
@@ -144,14 +160,6 @@ func (n *node) getEdgesShallowCopy() []*node {
 		nodes[i] = n.get(i)
 	}
 	return nodes
-}
-
-func (n *node) updateEdge(node *node) {
-	id := binarySearch(n.childKeys, node.key[0])
-	if id < 0 {
-		panic("internal error: cannot update the edge with this node")
-	}
-	n.children[id].Store(node)
 }
 
 // assertNotNil is a safeguard against creating unsafe.Pointer(nil).

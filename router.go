@@ -74,6 +74,7 @@ type Router struct {
 
 var _ http.Handler = (*Router)(nil)
 
+// New returns a ready to use Router.
 func New() *Router {
 	var ptr atomic.Pointer[[]*node]
 	// Pre instantiate nodes for common http verb
@@ -160,8 +161,8 @@ func (fox *Router) Remove(method, path string) error {
 }
 
 // Lookup allow to do manual lookup of a route. Please note that params are only valid until fn callback returns (see Handler interface).
-// This function is safe for concurrent use by multiple goroutine.
-func (fox *Router) Lookup(method, path string, fn func(handler Handler, params Params, tsr bool)) {
+// If lazy is set to true, params are not parsed. This function is safe for concurrent use by multiple goroutine.
+func (fox *Router) Lookup(method, path string, lazy bool, fn func(handler Handler, params Params, tsr bool)) {
 	nds := *fox.trees.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -169,7 +170,7 @@ func (fox *Router) Lookup(method, path string, fn func(handler Handler, params P
 		return
 	}
 
-	n, params, tsr := fox.lookup(nds[index], path, false)
+	n, params, tsr := fox.lookup(nds[index], path, lazy)
 	if n != nil {
 		if params != nil {
 			fn(n.handler, *params, tsr)
@@ -368,9 +369,6 @@ STOP:
 				break
 			}
 
-			// s1 := string(current.key[i])
-			// s2 := string(path[charsMatched])
-			// fmt.Println(s1, s2)
 			if current.key[i] != path[charsMatched] || path[charsMatched] == ':' {
 				if current.key[i] == ':' {
 					startPath := charsMatched

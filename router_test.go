@@ -5,6 +5,7 @@ import (
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -1735,4 +1736,22 @@ func atomicSync() (start func(), wait func()) {
 	}
 
 	return
+}
+
+// When AddRouteParam is enabled, the route matching the current request will be available in parameters.
+func ExampleNew() {
+	r := New()
+	r.AddRouteParam = true
+
+	metrics := func(next HandlerFunc) Handler {
+		return HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+			start := time.Now()
+			next.ServeHTTP(w, r, params)
+			log.Printf("url=%s; route=%s; time=%d", r.URL, params.Get(RouteKey), time.Since(start))
+		})
+	}
+
+	_ = r.Handler(http.MethodGet, "/hello/:name", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
+		_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+	}))
 }

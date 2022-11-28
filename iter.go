@@ -14,9 +14,9 @@ type Iterator struct {
 }
 
 // NewIterator returns an Iterator that traverses all registered routes in lexicographic order.
-// An Iterator is safe to use when the router is serving request and when routing updates are ongoing. Changes that
-// happen while iterating over routes may not be reflected by the Iterator. This api is EXPERIMENTAL and is
-// likely to change in future release.
+// An Iterator is safe to use when the router is serving request, when routing updates are ongoing or
+// concurrently with other Iterator. Note that changes that happen while iterating over routes may not be reflected
+// by the Iterator. This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewIterator() *Iterator {
 	return &Iterator{
 		r: fox,
