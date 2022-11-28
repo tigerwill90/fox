@@ -26,7 +26,7 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 observability middleware like open telemetry (disable by default).
 
 **Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
-exactly one or no route. As a result there are no unintended matches, and it's also encourage good RESTful api design.
+exactly one or no route. As a result there are no unintended matches, and it's also encourages good RESTful api design.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
