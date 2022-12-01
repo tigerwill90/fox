@@ -466,7 +466,6 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	})
 }
 
-// BenchmarkStaticAll-16    	  130482	      9106 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkStaticAll(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
@@ -475,7 +474,6 @@ func BenchmarkStaticAll(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
-// BenchmarkGithubParamsAll-16    	12677887	        92.48 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkGithubParamsAll(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
