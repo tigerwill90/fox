@@ -119,29 +119,6 @@ func (fox *Router) Update(method, path string, handler Handler) error {
 	return fox.update(method, p, catchAllKey, handler)
 }
 
-// Upsert registers a new handler for the given method and path or, if the route already exist, update it with
-// the new handler. It's perfectly safe to upsert a handler while serving requests. This function is safe for
-// concurrent use by multiple goroutine.
-func (fox *Router) Upsert(method, path string, handler Handler) error {
-	p, catchAllKey, n, err := parseRoute(path)
-	if err != nil {
-		return err
-	}
-
-	fox.mu.Lock()
-	defer fox.mu.Unlock()
-
-	if fox.AddRouteParam {
-		n += 1
-	}
-	fox.updateMaxParams(uint32(n))
-
-	if err = fox.insert(method, p, catchAllKey, handler); errors.Is(err, ErrRouteExist) {
-		return fox.update(method, p, catchAllKey, handler)
-	}
-	return err
-}
-
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler while serving requests. This
 // function is safe for concurrent use by multiple goroutine.
@@ -331,9 +308,8 @@ func (fox *Router) addRoute(method, path string, handler Handler) error {
 	if fox.AddRouteParam {
 		n += 1
 	}
-	fox.updateMaxParams(uint32(n))
 
-	return fox.insert(method, p, catchAllKey, handler)
+	return fox.insert(method, p, catchAllKey, uint32(n), handler)
 }
 
 func (fox *Router) recover(w http.ResponseWriter, r *http.Request) {
@@ -533,7 +509,7 @@ func (fox *Router) update(method string, path, catchAllKey string, handler Handl
 }
 
 // insert is not safe for concurrent use.
-func (fox *Router) insert(method, path, catchAllKey string, handler Handler) error {
+func (fox *Router) insert(method, path, catchAllKey string, paramsN uint32, handler Handler) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if method == "" {
 		return fmt.Errorf("http method is missing: %w", ErrInvalidRoute)
@@ -570,6 +546,8 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
 		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChild, path)
+
+		fox.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
@@ -633,6 +611,8 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 			strings.HasPrefix(suffixFromExistingEdge, ":"),
 			path,
 		)
+
+		fox.updateMaxParams(paramsN)
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
 		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
@@ -687,6 +667,8 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 			strings.HasPrefix(keySuffix, ":"),
 			result.matched.path,
 		)
+
+		fox.updateMaxParams(paramsN)
 		if result.matched == rootNode {
 			n.key = method
 			fox.updateRoot(n)
@@ -752,6 +734,8 @@ func (fox *Router) insert(method, path, catchAllKey string, handler Handler) err
 
 		// n3 children never start with a param
 		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", false, "") // intermediary node
+
+		fox.updateMaxParams(paramsN)
 		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type

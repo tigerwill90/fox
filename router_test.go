@@ -696,7 +696,7 @@ func TestInsertWildcardConflict(t *testing.T) {
 				if rte.wildcard {
 					catchAllKey = "args"
 				}
-				err := r.insert(http.MethodGet, rte.path, catchAllKey, h)
+				err := r.insert(http.MethodGet, rte.path, catchAllKey, 0, h)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*RouteConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.Matched)
@@ -902,7 +902,7 @@ func TestInsertParamsConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
 			for _, rte := range tc.routes {
-				err := r.insert(http.MethodGet, rte.path, rte.wildcard, emptyHandler)
+				err := r.insert(http.MethodGet, rte.path, rte.wildcard, 0, emptyHandler)
 				if rte.wantErr != nil {
 					assert.ErrorIs(t, err, rte.wantErr)
 					if cErr, ok := err.(*RouteConflictError); ok {
@@ -973,7 +973,7 @@ func TestSwapWildcardConflict(t *testing.T) {
 				if rte.wildcard {
 					catchAllKey = "args"
 				}
-				require.NoError(t, r.insert(http.MethodGet, rte.path, catchAllKey, h))
+				require.NoError(t, r.insert(http.MethodGet, rte.path, catchAllKey, 0, h))
 			}
 			err := r.update(http.MethodGet, tc.path, tc.wildcard, h)
 			assert.ErrorIs(t, err, tc.wantErr)
@@ -1045,49 +1045,6 @@ func TestUpdateRoute(t *testing.T) {
 			assert.Equal(t, tc.newPath+tc.newWildcardKey, w.Body.String())
 		})
 	}
-}
-
-func TestUpsert(t *testing.T) {
-	old := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	new := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { w.Write([]byte("new")) })
-
-	r := New()
-	require.NoError(t, r.Handler(http.MethodPost, "/foo/bar", old))
-	require.NoError(t, r.Handler(http.MethodPost, "/foo/", old))
-
-	cases := []struct {
-		wantErr error
-		name    string
-		path    string
-	}{
-		{
-			name: "upsert an existing route with no conflict",
-			path: "/foo/bar",
-		},
-		{
-			name: "upsert a new route",
-			path: "/fizz/buzz",
-		},
-		{
-			name:    "upsert an existing route with wildcard conflict",
-			path:    "/foo/*args",
-			wantErr: ErrRouteConflict,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := r.Upsert(http.MethodPost, tc.path, new)
-			assert.ErrorIs(t, err, tc.wantErr)
-			if err == nil {
-				req := httptest.NewRequest(http.MethodPost, tc.path, nil)
-				w := httptest.NewRecorder()
-				r.ServeHTTP(w, req)
-				assert.Equal(t, "new", w.Body.String())
-			}
-		})
-	}
-
 }
 
 func TestParseRoute(t *testing.T) {
@@ -1268,7 +1225,7 @@ func TestLookupTsr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New()
-			require.NoError(t, r.insert(http.MethodGet, tc.path, "", h))
+			require.NoError(t, r.insert(http.MethodGet, tc.path, "", 0, h))
 			nds := *r.trees.Load()
 			_, _, got := r.lookup(nds[0], tc.key, true)
 			assert.Equal(t, tc.want, got)
@@ -1534,7 +1491,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
 			continue
 		}
-		if err := r.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", h); err == nil {
+		if err := r.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", 3, h); err == nil {
 			nds := *r.trees.Load()
 
 			n, params, _ := r.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), false)
@@ -1562,7 +1519,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = r.insert(http.MethodGet, rte, catchAllKey, h)
+			_ = r.insert(http.MethodGet, rte, catchAllKey, 0, h)
 		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
 	}
 }
@@ -1583,7 +1540,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := r.insert(http.MethodGet, "/"+rte, "", h)
+		err := r.insert(http.MethodGet, "/"+rte, "", 0, h)
 		require.NoError(t, err)
 	}
 

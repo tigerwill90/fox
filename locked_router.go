@@ -28,8 +28,7 @@ func (lr *LockedRouter) Handler(method, path string, handler Handler) error {
 	if lr.r.AddRouteParam {
 		n += 1
 	}
-	lr.r.updateMaxParams(uint32(n))
-	return lr.r.insert(method, p, catchAllKey, handler)
+	return lr.r.insert(method, p, catchAllKey, uint32(n), handler)
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,

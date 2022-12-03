@@ -219,7 +219,7 @@ Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-tr
 reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
 into a **patch**, which is then applied to the tree in a **single atomic operation**.
 
-For example, here we are inserting the new path `toast` into to the tree which require an existing node to be split:
+For example, here we are inserting the new key `toast` into to the tree which require an existing node to be split:
 
 <p align="center" width="100%">
     <img width="100%" src="assets/tree-apply-patch.png">
