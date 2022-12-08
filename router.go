@@ -955,7 +955,7 @@ func commonPrefix(k1, k2 string) string {
 }
 
 func findRootNode(method string, nodes []*node) int {
-	// Nodes for common http method are pre instantiated at boot up.
+	// Nodes for common http method are pre instantiated.
 	switch method {
 	case http.MethodGet:
 		return 0
