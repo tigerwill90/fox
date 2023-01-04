@@ -7,7 +7,8 @@ type LockedRouter struct {
 
 // LockRouter acquire a lock on the router which allow to perform multiple mutation while
 // keeping a consistent view of the routing tree. LockedRouter's holder must always ensure
-// to call Release in order to unlock the router.
+// to call Release in order to unlock the router. The LockedRouter api is EXPERIMENTAL and is
+// likely to change in future release.
 func (fox *Router) LockRouter() *LockedRouter {
 	fox.mu.Lock()
 	return &LockedRouter{
@@ -75,7 +76,7 @@ func (lr *LockedRouter) Match(method, path string) bool {
 // NewIterator returns an Iterator that traverses all registered routes in lexicographic order.
 // An Iterator is safe to use when the router is serving request, when routing updates are ongoing or
 // in parallel with other Iterators. Note that changes that happen while iterating over routes may not be reflected
-// by the Iterator. This api is EXPERIMENTAL and is likely to change in future release.
+// by the Iterator.
 func (lr *LockedRouter) NewIterator() *Iterator {
 	return lr.r.NewIterator()
 }
