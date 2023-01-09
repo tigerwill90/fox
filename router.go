@@ -738,7 +738,7 @@ func (fox *Router) insert(method, path, catchAllKey string, paramsN uint32, hand
 		fox.updateMaxParams(paramsN)
 		result.p.updateEdge(n3)
 	default:
-		// safeguard against introducing a new result type
+		// Safeguard against introducing a new result type
 		panic("internal error: unexpected result type")
 	}
 	return nil

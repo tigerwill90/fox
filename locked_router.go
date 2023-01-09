@@ -5,10 +5,16 @@ type LockedRouter struct {
 	locked bool
 }
 
-// LockRouter acquire a lock on the router which allow to perform multiple mutation while
-// keeping a consistent view of the routing tree. LockedRouter's holder must always ensure
-// to call Release in order to unlock the router. The LockedRouter api is EXPERIMENTAL and is
-// likely to change in future release.
+// LockRouter allow to perform multiple mutation while keeping a consistent
+// view of the routing tree. All changes are committed to the tree immediately.
+//
+// It's safe to run multiple batch concurrently. However, a batch itself
+// is not thread safe and all BatchWriter APIs should be run serially.
+//
+// LockedRouter's holder must always ensure to call Release in order to unlock
+// the router.
+//
+// The LockedRouter API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) LockRouter() *LockedRouter {
 	fox.mu.Lock()
 	return &LockedRouter{
@@ -19,7 +25,7 @@ func (fox *Router) LockRouter() *LockedRouter {
 
 // Handler registers a new handler for the given method and path. This function return an error if the route
 // is already registered or conflict with another. It's perfectly safe to add a new handler while serving requests.
-// This function is NOT safe for concurrent use by multiple goroutine and panic if called after lr.Release().
+// This function panic if called after Release.
 func (lr *LockedRouter) Handler(method, path string, handler Handler) error {
 	lr.assertLock()
 	p, catchAllKey, n, err := parseRoute(path)
@@ -34,7 +40,7 @@ func (lr *LockedRouter) Handler(method, path string, handler Handler) error {
 
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while serving requests.
-// This function is NOT safe for concurrent use by multiple goroutine and panic if called after lr.Release().
+// This function panic if called after Release.
 func (lr *LockedRouter) Update(method, path string, handler Handler) error {
 	lr.assertLock()
 	p, catchAllKey, _, err := parseRoute(path)
@@ -46,8 +52,8 @@ func (lr *LockedRouter) Update(method, path string, handler Handler) error {
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
-// return an ErrRouteNotFound. It's perfectly safe to remove a handler while serving requests. This function is
-// NOT safe for concurrent use by multiple goroutine and panic if called after lr.Release().
+// return an ErrRouteNotFound. It's perfectly safe to remove a handler while serving requests. This function
+// panic if called after Release.
 func (lr *LockedRouter) Remove(method, path string) error {
 	lr.assertLock()
 	path, _, _, err := parseRoute(path)
@@ -81,7 +87,7 @@ func (lr *LockedRouter) NewIterator() *Iterator {
 	return lr.r.NewIterator()
 }
 
-// Release unlock the router. Calling this function on a released LockedRouter is a noop.
+// Release unlock the router. Calling this function on a released LockedRouter is a no-op.
 func (lr *LockedRouter) Release() {
 	if !lr.locked {
 		return
