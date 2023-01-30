@@ -35,7 +35,7 @@ func (it *Iterator) methods() map[string]*node {
 }
 
 // SeekPrefix reset the iterator cursor to the first route starting with key.
-// It does not keep tracking of previous seek.
+// It does not keep track of previous seek.
 func (it *Iterator) SeekPrefix(key string) {
 	nds := it.methods()
 	keys := make([]string, 0, len(nds))
@@ -60,7 +60,7 @@ func (it *Iterator) SeekPrefix(key string) {
 }
 
 // SeekMethod reset the iterator cursor to the first route for the given method.
-// It does not keep tracking of previous seek.
+// It does not keep track of previous seek.
 func (it *Iterator) SeekMethod(method string) {
 	nds := it.methods()
 	stacks := make([]stack, 0, 1)
@@ -76,7 +76,7 @@ func (it *Iterator) SeekMethod(method string) {
 }
 
 // SeekMethodPrefix reset the iterator cursor to the first route starting with key for the given method.
-// It does not keep tracking of previous seek.
+// It does not keep track of previous seek.
 func (it *Iterator) SeekMethodPrefix(method, key string) {
 	nds := it.methods()
 	stacks := make([]stack, 0, 1)
