@@ -4,9 +4,9 @@ import (
 	"sync/atomic"
 )
 
-type Tx struct {
+type Txn struct {
 	r   *LockedRouter
-	tmp *LockedRouter
+	tmp *Router
 }
 
 // NewTransaction creates a new transaction. A transaction allow to perform
@@ -14,17 +14,21 @@ type Tx struct {
 // BatchWriter, transaction are only applied on Commit.
 //
 // It's safe to run multiple transaction concurrently. However, a transaction itself
-// is not thread safe and all Tx APIs should be run serially.
+// is not thread safe and all Txn APIs should be run serially.
 //
 // Discard must always be call at the end of the transaction. Internally, Commit API
 // runs Discard but running it twice is perfectly OK.
 //
-// The Tx API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) NewTransaction(reset bool) *Tx {
+// The Txn API is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) NewTransaction(reset bool) *Txn {
 	r := fox.LockRouter()
-	tmp := New().LockRouter()
+	var ptr atomic.Pointer[[]*node]
+	initTree(&ptr)
+	tmp := &Router{
+		trees: &ptr,
+	}
 	if reset {
-		return &Tx{
+		return &Txn{
 			r:   r,
 			tmp: tmp,
 		}
@@ -38,49 +42,48 @@ func (fox *Router) NewTransaction(reset bool) *Tx {
 		}
 	}
 
-	return &Tx{
+	return &Txn{
 		r:   r,
 		tmp: tmp,
 	}
 }
 
-func (tx *Tx) Handler(method, path string, handler Handler) error {
-	return tx.tmp.Handler(method, path, handler)
+func (txn *Txn) Handler(method, path string, handler Handler) error {
+	return txn.tmp.Handler(method, path, handler)
 }
 
-func (tx *Tx) Update(method, path string, handler Handler) error {
-	return tx.tmp.Update(method, path, handler)
+func (txn *Txn) Update(method, path string, handler Handler) error {
+	return txn.tmp.Update(method, path, handler)
 }
 
-func (tx *Tx) Remove(method, path string) error {
-	return tx.tmp.Remove(method, path)
+func (txn *Txn) Remove(method, path string) error {
+	return txn.tmp.Remove(method, path)
 }
 
-func (tx *Tx) Lookup(method, path string, lazy bool, fn func(handler Handler, params Params, tsr bool)) {
-	tx.tmp.Lookup(method, path, lazy, fn)
+func (txn *Txn) Lookup(method, path string, lazy bool, fn func(handler Handler, params Params, tsr bool)) {
+	txn.tmp.Lookup(method, path, lazy, fn)
 }
 
-func (tx *Tx) Match(method, path string) bool {
-	return tx.tmp.Match(method, path)
+func (txn *Txn) Match(method, path string) bool {
+	return txn.tmp.Match(method, path)
 }
 
-func (tx *Tx) NewIterator() *Iterator {
-	return tx.tmp.NewIterator()
+func (txn *Txn) NewIterator() *Iterator {
+	return txn.tmp.NewIterator()
 }
 
-func (tx *Tx) Commit() {
-	tx.r.assertLock()
-	nds := tx.tmp.r.trees.Load()
-	max := atomic.LoadUint32(&tx.tmp.r.maxParams)
-	atomic.StoreUint32(&tx.r.r.maxParams, max)
-	tx.r.r.trees.Store(nds)
-	tx.Discard()
+func (txn *Txn) Commit() {
+	txn.r.assertLock()
+	nds := txn.tmp.trees.Load()
+	max := atomic.LoadUint32(&txn.tmp.maxParams)
+	atomic.StoreUint32(&txn.r.r.maxParams, max)
+	txn.r.r.trees.Store(nds)
+	txn.Discard()
 }
 
 // Discard the transaction. This function must always be call at
 // the end of a transaction. Calling this function on a discarded
 // transaction is a no-op.
-func (tx *Tx) Discard() {
-	tx.tmp.Release()
-	tx.r.Release()
+func (txn *Txn) Discard() {
+	txn.r.Release()
 }

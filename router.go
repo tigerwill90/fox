@@ -77,13 +77,7 @@ var _ http.Handler = (*Router)(nil)
 // New returns a ready to use Router.
 func New() *Router {
 	var ptr atomic.Pointer[[]*node]
-	// Pre instantiate nodes for common http verb
-	nds := make([]*node, len(commonVerbs))
-	for i := range commonVerbs {
-		nds[i] = new(node)
-		nds[i].key = commonVerbs[i]
-	}
-	ptr.Store(&nds)
+	initTree(&ptr)
 
 	mux := &Router{
 		trees: &ptr,
@@ -135,6 +129,14 @@ func (fox *Router) Remove(method, path string) error {
 		return ErrRouteNotFound
 	}
 	return nil
+}
+
+// Reset deletes all registered route. It's perfectly safe to reset the router while serving requests and this
+// function is safe for concurrent use by multiple goroutine.
+func (fox *Router) Reset() {
+	fox.mu.Lock()
+	fox.reset()
+	fox.mu.Unlock()
 }
 
 // Lookup allow to do manual lookup of a route. Please note that params are only valid until fn callback returns (see Handler interface).
@@ -473,6 +475,16 @@ func (fox *Router) removeRoot(method string) bool {
 	newNds = append(newNds, nds[index+1:]...)
 	fox.trees.Store(&newNds)
 	return true
+}
+
+// initTree pre instantiate nodes for common http verb.
+func initTree(ptr *atomic.Pointer[[]*node]) {
+	nds := make([]*node, len(commonVerbs))
+	for i := range commonVerbs {
+		nds[i] = new(node)
+		nds[i].key = commonVerbs[i]
+	}
+	ptr.Store(&nds)
 }
 
 // update is not safe for concurrent use.
@@ -840,6 +852,11 @@ func (fox *Router) remove(method, path string) bool {
 
 	result.pp.updateEdge(parent)
 	return true
+}
+
+func (fox *Router) reset() {
+	initTree(fox.trees)
+	atomic.StoreUint32(&fox.maxParams, 0)
 }
 
 func (fox *Router) search(rootNode *node, path string) searchResult {
