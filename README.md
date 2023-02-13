@@ -65,10 +65,10 @@ func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params 
 }
 
 func main() {
-	r := fox.New()
+	r := fox.New(fox.NewTree())
 
-	Must(r.Handler(http.MethodGet, "/", WelcomeHandler))
-	Must(r.Handler(http.MethodGet, "/hello/:name", new(HelloHandler)))
+	Must(r.Tree().Handler(http.MethodGet, "/", WelcomeHandler))
+	Must(r.Tree().Handler(http.MethodGet, "/hello/:name", new(HelloHandler)))
 
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
@@ -180,15 +180,15 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 	action := params.Get("action")
 	switch action {
 	case "add":
-		err = h.fox.Handler(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
+		err = h.fox.Tree().Handler(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
 			_, _ = fmt.Fprintln(w, text)
 		}))
 	case "update":
-		err = h.fox.Update(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
+		err = h.fox.Tree().Update(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
 			_, _ = fmt.Fprintln(w, text)
 		}))
 	case "delete":
-		err = h.fox.Remove(method, path)
+		err = h.fox.Tree().Remove(method, path)
 	default:
 		http.Error(w, fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
 		return
@@ -202,8 +202,8 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 }
 
 func main() {
-	r := fox.New()
-	Must(r.Handler(http.MethodPost, "/routes/:action", &ActionHandler{fox: r}))
+	r := fox.New(fox.NewTree())
+	Must(r.Tree().Handler(http.MethodPost, "/routes/:action", &ActionHandler{fox: r}))
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
@@ -213,6 +213,66 @@ func Must(err error) {
 	}
 }
 ```
+
+Additionally, fox allows the entire tree to be replaced in a single atomic operation (see Update and Swap method).
+````go
+package main
+
+import (
+	"fox-ex/db"
+	"github.com/tigerwill90/fox"
+	"html/template"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type HtmlRenderer struct {
+	Template template.HTML
+}
+
+func (h *HtmlRenderer) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.Copy(w, strings.NewReader(string(h.Template)))
+}
+
+func main() {
+	r := fox.New(fox.NewTree())
+
+	routes := db.GetRoutes()
+	for _, rte := range routes {
+		Must(r.Tree().Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}))
+	}
+
+	go Reload(r)
+
+	log.Fatalln(http.ListenAndServe(":8080", r))
+}
+
+func Reload(r *fox.Router) {
+	for range time.Tick(10 * time.Second) {
+		routes := db.GetRoutes()
+		newTree := fox.NewTree()
+		for _, rte := range routes {
+			if err := newTree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
+				log.Printf("error reloading route: %s\n", err)
+				continue
+			}
+		}
+		// Replace the tree in use by newTree.
+		r.Update(newTree)
+		log.Println("route reloaded")
+	}
+}
+
+func Must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+````
 
 ## Concurrency
 Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
@@ -242,7 +302,7 @@ Fox itself implements the `http.Handler` interface which make easy to chain any 
 provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
 request context
 ```go
-_ = r.Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
+_ = r.Tree().Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
     _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
 }))
@@ -400,3 +460,6 @@ The intention behind these choices is that it can serve as a building block for 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are inspired from Julien Schmidt's router.
+
+## TODO
+- Consistent view & transaction
