@@ -11,16 +11,16 @@ type Option func(*Tree)
 
 func AddRouteParam(enable bool) Option {
 	return func(tree *Tree) {
-		tree.addParams = true
+		tree.addRouteParam = true
 	}
 }
 
 type Tree struct {
-	nodes     atomic.Pointer[[]*node]
-	mu        sync.Mutex
-	maxParams atomic.Uint32
-	p         sync.Pool
-	addParams bool
+	p             sync.Pool
+	nodes         atomic.Pointer[[]*node]
+	mu            sync.Mutex
+	maxParams     atomic.Uint32
+	addRouteParam bool
 }
 
 func NewTree(opts ...Option) *Tree {
@@ -62,7 +62,7 @@ func (t *Tree) Handler(method, path string, handler Handler) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.addParams {
+	if t.addRouteParam {
 		n += 1
 	}
 
@@ -538,12 +538,12 @@ STOP:
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a wildcard node, the param value is always '/'
-			if !lazy && (t.addParams || current.isCatchAll()) {
+			if !lazy && (t.addRouteParam || current.isCatchAll()) {
 				if params == nil {
 					params = t.newParams()
 				}
 
-				if t.addParams {
+				if t.addRouteParam {
 					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}
 
@@ -570,7 +570,7 @@ STOP:
 					params = t.newParams()
 				}
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched-1:]})
-				if t.addParams {
+				if t.addRouteParam {
 					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}
 				return current, params, false
@@ -716,7 +716,7 @@ func (t *LTree) Handler(method, path string, handler Handler) error {
 	if err != nil {
 		return err
 	}
-	if t.tree.addParams {
+	if t.tree.addRouteParam {
 		n += 1
 	}
 

@@ -194,8 +194,8 @@ type rawIterator struct {
 }
 
 type stack struct {
-	edges  []*node
 	method string
+	edges  []*node
 }
 
 func (it *rawIterator) fullPath() string {
