@@ -8,7 +8,7 @@ import (
 )
 
 func TestWrapHandler(t *testing.T) {
-	tree := NewTree()
+	tree := New().Tree()
 
 	cases := []struct {
 		name   string
@@ -82,7 +82,7 @@ func TestWrapHandler(t *testing.T) {
 }
 
 func TestParamsClone(t *testing.T) {
-	tree := NewTree()
+	tree := New().Tree()
 	params := tree.newParams()
 	defer params.Free(tree)
 	*params = append(*params,

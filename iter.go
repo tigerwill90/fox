@@ -17,9 +17,9 @@ type Iterator struct {
 // An Iterator is safe to use when the router is serving request, when routing updates are ongoing or
 // in parallel with other Iterators. Note that changes that happen while iterating over routes may not be reflected
 // by the Iterator. This api is EXPERIMENTAL and is likely to change in future release.
-func NewIterator(tree *Tree) *Iterator {
+func NewIterator(t *Tree) *Iterator {
 	return &Iterator{
-		tree: tree,
+		tree: t,
 	}
 }
 

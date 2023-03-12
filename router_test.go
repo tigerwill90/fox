@@ -3,7 +3,6 @@ package fox
 import (
 	"fmt"
 	fuzz "github.com/google/gofuzz"
-	"github.com/julienschmidt/httprouter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"log"
@@ -468,43 +467,18 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 }
 
 func BenchmarkStaticAll(b *testing.B) {
-	r := New(NewTree())
+	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
 	}
 
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkHttpRouterStaticAll(b *testing.B) {
-	r := httprouter.New()
-	for _, route := range staticRoutes {
-		r.Handle(route.method, route.path, func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {})
-	}
 	benchRoutes(b, r, staticRoutes)
 }
 
 func BenchmarkGithubParamsAll(b *testing.B) {
-	r := New(NewTree())
+	r := New()
 	for _, route := range githubAPI {
 		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
-	}
-
-	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
-	w := new(mockResponseWriter)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkHttpRouterGithubParamsAll(b *testing.B) {
-	r := httprouter.New()
-	for _, route := range githubAPI {
-		r.Handle(route.method, route.path, func(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {})
 	}
 
 	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
@@ -519,7 +493,7 @@ func BenchmarkHttpRouterGithubParamsAll(b *testing.B) {
 }
 
 func BenchmarkStaticParallel(b *testing.B) {
-	r := New(NewTree())
+	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(_ http.ResponseWriter, _ *http.Request, _ Params) {})))
 	}
@@ -527,7 +501,7 @@ func BenchmarkStaticParallel(b *testing.B) {
 }
 
 func BenchmarkCatchAll(b *testing.B) {
-	r := New(NewTree())
+	r := New()
 	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
@@ -541,7 +515,7 @@ func BenchmarkCatchAll(b *testing.B) {
 }
 
 func BenchmarkCatchAllParallel(b *testing.B) {
-	r := New(NewTree())
+	r := New()
 	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
@@ -557,7 +531,7 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 }
 
 func TestStaticRoute(t *testing.T) {
-	r := New(NewTree())
+	r := New()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	for _, route := range staticRoutes {
@@ -574,8 +548,8 @@ func TestStaticRoute(t *testing.T) {
 }
 
 func TestParamsRoute(t *testing.T) {
-	rx := regexp.MustCompile("(:|\\*)[A-z_]+")
-	r := New(NewTree(AddRouteParam(true)))
+	rx := regexp.MustCompile("([:*])[A-z_]+")
+	r := New(WithSaveMatchedRoute(true))
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		matches := rx.FindAllString(r.URL.Path, -1)
 		for _, match := range matches {
@@ -602,7 +576,7 @@ func TestParamsRoute(t *testing.T) {
 }
 
 func TestRouterWildcard(t *testing.T) {
-	r := New(NewTree())
+	r := New()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	routes := []struct {
@@ -628,7 +602,7 @@ func TestRouterWildcard(t *testing.T) {
 }
 
 func TestRouteWithParams(t *testing.T) {
-	tree := NewTree()
+	tree := New().Tree()
 	routes := [...]string{
 		"/",
 		"/cmd/:tool/:sub",
@@ -717,7 +691,7 @@ func TestInsertWildcardConflict(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tree := NewTree()
+			tree := New().Tree()
 			for _, rte := range tc.routes {
 				var catchAllKey string
 				if rte.wildcard {
@@ -927,7 +901,7 @@ func TestInsertParamsConflict(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tree := NewTree()
+			tree := New().Tree()
 			for _, rte := range tc.routes {
 				err := tree.insert(http.MethodGet, rte.path, rte.wildcard, 0, emptyHandler)
 				if rte.wantErr != nil {
@@ -994,7 +968,7 @@ func TestSwapWildcardConflict(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tree := NewTree()
+			tree := New().Tree()
 			for _, rte := range tc.routes {
 				var catchAllKey string
 				if rte.wildcard {
@@ -1061,7 +1035,7 @@ func TestUpdateRoute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New(NewTree(AddRouteParam(true)))
+			r := New(WithSaveMatchedRoute(true))
 			require.NoError(t, r.Tree().Handler(http.MethodGet, tc.path, h))
 			require.NoError(t, r.Tree().Update(http.MethodGet, tc.newPath+tc.newWildcardKey, tc.newHandler))
 			req := httptest.NewRequest(http.MethodGet, tc.newPath, nil)
@@ -1250,7 +1224,7 @@ func TestLookupTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tree := NewTree()
+			tree := New().Tree()
 			require.NoError(t, tree.insert(http.MethodGet, tc.path, "", 0, h))
 			nds := tree.load()
 			_, _, got := tree.lookup(nds[0], tc.key, true)
@@ -1329,8 +1303,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New(NewTree())
-			r.RedirectTrailingSlash = true
+			r := New(WithRedirectTrailingSlash(true))
 			require.NoError(t, r.Tree().Handler(tc.method, tc.path, h))
 
 			req := httptest.NewRequest(tc.method, tc.key, nil)
@@ -1383,9 +1356,7 @@ func TestRedirectFixedPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New(NewTree())
-			r.RedirectFixedPath = true
-			r.RedirectTrailingSlash = tc.tsr
+			r := New(WithRedirectFixedPath(true), WithRedirectTrailingSlash(tc.tsr))
 			require.NoError(t, r.Tree().Handler(http.MethodGet, tc.path, h))
 			req, _ := http.NewRequest(http.MethodGet, tc.key, nil)
 			w := httptest.NewRecorder()
@@ -1399,8 +1370,7 @@ func TestRedirectFixedPath(t *testing.T) {
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
-	r := New(NewTree())
-	r.HandleMethodNotAllowed = true
+	r := New(WithHandleMethodNotAllowed(true))
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	cases := []struct {
@@ -1448,11 +1418,11 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 }
 
 func TestPanicHandler(t *testing.T) {
-	r := New(NewTree())
-	r.PanicHandler = func(w http.ResponseWriter, r *http.Request, i interface{}) {
+	r := New(WithPanicHandler(func(w http.ResponseWriter, r *http.Request, i interface{}) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(i.(string)))
-	}
+	}))
+
 	const errMsg = "unexpected error"
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {
 		func() { panic(errMsg) }()
@@ -1468,11 +1438,10 @@ func TestPanicHandler(t *testing.T) {
 }
 
 func TestAbortHandler(t *testing.T) {
-	r := New(NewTree())
-	r.PanicHandler = func(w http.ResponseWriter, r *http.Request, i interface{}) {
+	r := New(WithPanicHandler(func(w http.ResponseWriter, r *http.Request, i interface{}) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(i.(error).Error()))
-	}
+	}))
 
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {
 		func() { panic(http.ErrAbortHandler) }()
@@ -1502,7 +1471,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 		{First: 0x3B, Last: 0x04FF},
 	}
 
-	tree := NewTree()
+	tree := New().Tree()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	routeFormat := "/%s/:%s/%s/:%s/:%s"
@@ -1532,7 +1501,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 
 func TestFuzzInsertNoPanics(t *testing.T) {
 	f := fuzz.New().NilChance(0).NumElements(5000, 10000)
-	tree := NewTree()
+	tree := New().Tree()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	routes := make(map[string]struct{})
@@ -1559,7 +1528,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
-	tree := NewTree()
+	tree := New().Tree()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	routes := make(map[string]struct{})
@@ -1606,7 +1575,7 @@ func TestDataRace(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
 
-	r := New(NewTree())
+	r := New()
 
 	w := new(mockResponseWriter)
 
@@ -1614,15 +1583,14 @@ func TestDataRace(t *testing.T) {
 	for _, rte := range githubAPI {
 		go func(method, route string) {
 			wait()
-			assert.NoError(t, r.Tree().Handler(method, route, h))
+			assert.NoError(t, r.Handler(method, route, h))
 			// assert.NoError(t, r.Handler("PING", route, h))
 			wg.Done()
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
 			wait()
-			r.Tree().Update(method, route, newH)
-			// r.Update("PING", route, newH)
+			r.Update(method, route, newH)
 			wg.Done()
 		}(rte.method, rte.path)
 
@@ -1640,7 +1608,7 @@ func TestDataRace(t *testing.T) {
 }
 
 func TestConcurrentRequestHandling(t *testing.T) {
-	r := New(NewTree(AddRouteParam(true)))
+	r := New(WithSaveMatchedRoute(true))
 
 	// /repos/:owner/:repo/keys
 	h1 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
@@ -1663,9 +1631,9 @@ func TestConcurrentRequestHandling(t *testing.T) {
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
-	require.NoError(t, r.Tree().Handler(http.MethodGet, "/repos/:owner/:repo/keys", h1))
-	require.NoError(t, r.Tree().Handler(http.MethodGet, "/repos/:owner/:repo/contents/*path", h2))
-	require.NoError(t, r.Tree().Handler(http.MethodGet, "/users/:user/received_events/public", h3))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/keys", h1))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/contents/*path", h2))
+	require.NoError(t, r.Handler(http.MethodGet, "/users/:user/received_events/public", h3))
 
 	r1 := httptest.NewRequest(http.MethodGet, "/repos/john/fox/keys", nil)
 	r2 := httptest.NewRequest(http.MethodGet, "/repos/alex/vault/contents/file.txt", nil)
@@ -1720,9 +1688,9 @@ func atomicSync() (start func(), wait func()) {
 	return
 }
 
-// When AddRouteParam is enabled, the route matching the current request will be available in parameters.
-func ExampleNewTree() {
-	tree := NewTree(AddRouteParam(true))
+// When SaveMatchingRoute is enabled, the route matching the current request will be available in parameters.
+func ExampleNew() {
+	r := New(WithSaveMatchedRoute(true))
 
 	metrics := func(next HandlerFunc) Handler {
 		return HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
@@ -1732,7 +1700,29 @@ func ExampleNewTree() {
 		})
 	}
 
-	_ = tree.Handler(http.MethodGet, "/hello/:name", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
+	_ = r.Handler(http.MethodGet, "/hello/:name", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
 		_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
 	}))
+}
+
+func ExampleLookup() {
+	r := New()
+	_ = r.Handler(http.MethodGet, "/hello/:name", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+		_, _ = fmt.Fprintf(w, "Hello, %s\n", params.Get("name"))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/hello/fox", nil)
+
+	// Since the router tree may be swapped at any given time, its best practice is to
+	// copy the pointer locally.
+	tree := r.Tree()
+	handler, params, _ := Lookup(r.Tree(), http.MethodGet, req.URL.Path, false)
+	// If the params slice is not nil, its should always be free.
+	if params != nil {
+		params.Free(tree)
+	}
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req, params)
+	fmt.Print(w.Body.String()) //
 }

@@ -7,62 +7,25 @@ import (
 	"sync/atomic"
 )
 
-type Option func(*Tree)
-
-func AddRouteParam(enable bool) Option {
-	return func(tree *Tree) {
-		tree.addRouteParam = true
-	}
-}
-
 type Tree struct {
-	p             sync.Pool
-	nodes         atomic.Pointer[[]*node]
-	mu            sync.Mutex
-	maxParams     atomic.Uint32
-	addRouteParam bool
-}
-
-func NewTree(opts ...Option) *Tree {
-
-	tree := new(Tree)
-	// Pre instantiate nodes for common http verb
-	nds := make([]*node, len(commonVerbs))
-	for i := range commonVerbs {
-		nds[i] = new(node)
-		nds[i].key = commonVerbs[i]
-	}
-	tree.nodes.Store(&nds)
-
-	tree.p = sync.Pool{
-		New: func() any {
-			params := make(Params, 0, tree.maxParams.Load())
-			return &params
-		},
-	}
-
-	// setup option
-	for _, opt := range opts {
-		opt(tree)
-	}
-
-	return tree
+	p     sync.Pool
+	nodes atomic.Pointer[[]*node]
+	sync.Mutex
+	maxParams atomic.Uint32
+	saveRoute bool
 }
 
 // Handler registers a new handler for the given method and path. This function return an error if the route
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
-// for serving requests. This function is safe for concurrent use by multiple goroutine.
-// To override an existing route, use Update.
+// for serving requests. However, this function is NOT thread safe and should be run serially, along with
+// all other Tree's APIs. To override an existing route, use Update.
 func (t *Tree) Handler(method, path string, handler Handler) error {
 	p, catchAllKey, n, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.addRouteParam {
+	if t.saveRoute {
 		n += 1
 	}
 
@@ -71,35 +34,30 @@ func (t *Tree) Handler(method, path string, handler Handler) error {
 
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
-// serving requests. This function is safe for concurrent use by multiple goroutine.
-// To add new handler, use Handler method.
+// serving requests. However, this function is NOT thread safe and should be run serially, along with
+// all other Tree's APIs. To add new handler, use Handler method.
 func (t *Tree) Update(method, path string, handler Handler) error {
 	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	return t.update(method, p, catchAllKey, handler)
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
-// This function is safe for concurrent use by multiple goroutine.
+// However, this function is NOT thread safe and should be run serially, along with all other Tree's APIs.
 func (t *Tree) Remove(method, path string) error {
 	path, _, _, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if !t.remove(method, path) {
 		return ErrRouteNotFound
 	}
+
 	return nil
 }
 
@@ -538,12 +496,12 @@ STOP:
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a wildcard node, the param value is always '/'
-			if !lazy && (t.addRouteParam || current.isCatchAll()) {
+			if !lazy && (t.saveRoute || current.isCatchAll()) {
 				if params == nil {
 					params = t.newParams()
 				}
 
-				if t.addRouteParam {
+				if t.saveRoute {
 					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}
 
@@ -570,7 +528,7 @@ STOP:
 					params = t.newParams()
 				}
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched-1:]})
-				if t.addRouteParam {
+				if t.saveRoute {
 					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}
 				return current, params, false
@@ -683,86 +641,4 @@ func (t *Tree) load() []*node {
 
 func (t *Tree) newParams() *Params {
 	return t.p.Get().(*Params)
-}
-
-type LTree struct {
-	tree   *Tree
-	locked bool
-}
-
-// LockTree acquire a lock on the tree which allow to perform multiple mutation while
-// keeping a consistent view during the entire transaction. LTree's holder must always ensure to
-// call Release in order to unlock the router.
-//
-// It's safe to create multiple LTree concurrently. However, a LTree itself is not thread safe
-// and all its APIs should be run serially.
-//
-// The LTree api is EXPERIMENTAL and is likely to change in future release.
-func LockTree(tree *Tree) *LTree {
-	tree.mu.Lock()
-	return &LTree{
-		tree:   tree,
-		locked: true,
-	}
-}
-
-// Handler registers a new handler for the given method and path. This function return an error if the route
-// is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
-// for serving requests. This function is NOT safe for concurrent use by multiple goroutine and panic if called
-// after lr.Release().
-func (t *LTree) Handler(method, path string, handler Handler) error {
-	t.assertLock()
-	p, catchAllKey, n, err := parseRoute(path)
-	if err != nil {
-		return err
-	}
-	if t.tree.addRouteParam {
-		n += 1
-	}
-
-	return t.tree.insert(method, p, catchAllKey, uint32(n), handler)
-}
-
-// Update override an existing handler for the given method and path. If the route does not exist,
-// the function return an ErrRouteNotFound. It's perfectly safe to update a handler while serving requests.
-// This function is NOT safe for concurrent use by multiple goroutine and panic if called after lr.Release().
-func (t *LTree) Update(method, path string, handler Handler) error {
-	t.assertLock()
-	p, catchAllKey, _, err := parseRoute(path)
-	if err != nil {
-		return err
-	}
-
-	return t.tree.update(method, p, catchAllKey, handler)
-}
-
-// Remove delete an existing handler for the given method and path. If the route does not exist, the function
-// return an ErrRouteNotFound. It's perfectly safe to remove a handler while serving requests. This function is
-// NOT safe for concurrent use by multiple goroutine and panic if called after lr.Release().
-func (t *LTree) Remove(method, path string) error {
-	t.assertLock()
-	path, _, _, err := parseRoute(path)
-	if err != nil {
-		return err
-	}
-
-	if !t.tree.remove(method, path) {
-		return ErrRouteNotFound
-	}
-	return nil
-}
-
-// Release unlock the router. Calling this function on a released LockedRouter is a noop.
-func (t *LTree) Release() {
-	if !t.locked {
-		return
-	}
-	t.locked = false
-	t.tree.mu.Unlock()
-}
-
-func (t *LTree) assertLock() {
-	if !t.locked {
-		panic("lock already released")
-	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -36,40 +37,104 @@ func (f HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Pa
 type Router struct {
 	// User-configurable http.Handler which is called when no matching route is found.
 	// By default, http.NotFound is used.
-	NotFound http.Handler
+	notFound http.Handler
 
 	// User-configurable http.Handler which is called when the request cannot be routed,
 	// but the same route exist for other methods. The "Allow" header it automatically set
 	// before calling the handler. Set HandleMethodNotAllowed to true to enable this option. By default,
 	// http.Error with http.StatusMethodNotAllowed is used.
-	MethodNotAllowed http.Handler
+	methodNotAllowed http.Handler
 
 	// Register a function to handle panics recovered from http handlers.
-	PanicHandler func(http.ResponseWriter, *http.Request, interface{})
+	panicHandler func(http.ResponseWriter, *http.Request, interface{})
 
 	tree atomic.Pointer[Tree]
 
 	// If enabled, fox return a 405 Method Not Allowed instead of 404 Not Found when the route exist for another http verb.
-	HandleMethodNotAllowed bool
+	handleMethodNotAllowed bool
 
 	// Enable automatic redirection fallback when the current request does not match but another handler is found
 	// after cleaning up superfluous path elements (see CleanPath). E.g. /../foo/bar request does not match but /foo/bar would.
 	// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
-	RedirectFixedPath bool
+	redirectFixedPath bool
 
 	// Enable automatic redirection fallback when the current request does not match but another handler is found
 	// with/without an additional trailing slash. E.g. /foo/bar/ request does not match but /foo/bar would match.
 	// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
-	RedirectTrailingSlash bool
+	redirectTrailingSlash bool
+
+	// If enabled, the matched route will be accessible as a Handler parameter.
+	// Usage: p.Get(fox.RouteKey)
+	saveMatchedRoute bool
 }
 
 var _ http.Handler = (*Router)(nil)
 
 // New returns a ready to use Router.
-func New(tree *Tree) *Router {
+func New(opts ...Options) *Router {
 	r := new(Router)
-	r.tree.Store(tree)
+	for _, opt := range opts {
+		opt(r)
+	}
+	r.tree.Store(r.NewTree())
 	return r
+}
+
+// NewTree returns a fresh routing Tree which allow to register, update and delete route.
+// It's safe to create multiple Tree concurrently. However, a Tree itself is not thread safe
+// and all its APIs should be run serially. Note that a Tree give direct access to the
+// underlying sync.Mutex.
+func (fox *Router) NewTree() *Tree {
+	tree := new(Tree)
+	tree.saveRoute = fox.saveMatchedRoute
+	// Pre instantiate nodes for common http verb
+	nds := make([]*node, len(commonVerbs))
+	for i := range commonVerbs {
+		nds[i] = new(node)
+		nds[i].key = commonVerbs[i]
+	}
+	tree.nodes.Store(&nds)
+
+	tree.p = sync.Pool{
+		New: func() any {
+			params := make(Params, 0, tree.maxParams.Load())
+			return &params
+		},
+	}
+
+	return tree
+}
+
+// Handler registers a new handler for the given method and path. This function return an error if the route
+// is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
+// for serving requests. This function is safe for concurrent use by multiple goroutine.
+// To override an existing route, use Update.
+func (fox *Router) Handler(method, path string, handler Handler) error {
+	t := fox.Tree()
+	t.Lock()
+	defer t.Unlock()
+	return t.Handler(method, path, handler)
+}
+
+// Update override an existing handler for the given method and path. If the route does not exist,
+// the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
+// serving requests. This function is safe for concurrent use by multiple goroutine.
+// To add new handler, use Handler method.
+func (fox *Router) Update(method, path string, handler Handler) error {
+	t := fox.Tree()
+	t.Lock()
+	defer t.Unlock()
+	return t.Update(method, path, handler)
+}
+
+// Remove delete an existing handler for the given method and path. If the route does not exist, the function
+// return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
+// This function is safe for concurrent use by multiple goroutine.
+func (fox *Router) Remove(method, path string) error {
+	t := fox.Tree()
+	t.Lock()
+	defer t.Unlock()
+	return t.Remove(method, path)
 }
 
 // Tree atomically loads and return the tree in use.
@@ -82,38 +147,37 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 	return fox.tree.Swap(new)
 }
 
-// Update atomically replace the in use tree with the new provided.
-func (fox *Router) Update(new *Tree) {
+// Store atomically replace the in use tree with the new provided.
+func (fox *Router) Store(new *Tree) {
 	fox.tree.Store(new)
 }
 
-// Lookup allow to do manual lookup of a route. Please note that you should always release params by calling params.Free(t).
-// If lazy is set to true, params are not parsed. This function is safe for concurrent use by multiple goroutine.
-func Lookup(tree *Tree, method, path string, lazy bool) (handler Handler, params Params, tsr bool) {
-	nds := tree.load()
+// Lookup allow to do manual lookup of a route. Please note that you should always free params if not nil by calling
+// params.Free(t). If lazy is set to true, params are not parsed. This function is safe for concurrent use
+// by multiple goroutine and while mutation on Tree are ongoing.
+func Lookup(t *Tree, method, path string, lazy bool) (handler Handler, params Params, tsr bool) {
+	nds := t.load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return nil, nil, false
 	}
 
-	n, ps, tsr := tree.lookup(nds[index], path, lazy)
+	n, ps, tsr := t.lookup(nds[index], path, lazy)
 	if n != nil {
 		return n.handler, *ps, tsr
 	}
 	return nil, nil, tsr
 }
 
-// Match perform a lazy lookup and return true if the requested method and path match a registered route.
-// This function is safe for concurrent use by multiple goroutine.
-func Match(tree *Tree, method, path string) bool {
-	nds := tree.load()
+func Match(t *Tree, method, path string) bool {
+	nds := t.load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return false
 	}
 
-	n, _, _ := tree.lookup(nds[index], path, true)
-	return n != nil
+	n, _, _ := t.lookup(nds[index], path, true)
+	return n != nil && n.path == path
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -147,7 +211,7 @@ NEXT:
 }
 
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if fox.PanicHandler != nil {
+	if fox.panicHandler != nil {
 		defer fox.recover(w, r)
 	}
 
@@ -157,8 +221,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tsr    bool
 	)
 
-	path := r.URL.Path
-
 	tree := fox.Tree()
 	nds := tree.load()
 	index := findRootNode(r.Method, nds)
@@ -166,7 +228,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NO_METHOD_FALLBACK
 	}
 
-	n, params, tsr = tree.lookup(nds[index], path, false)
+	n, params, tsr = tree.lookup(nds[index], r.URL.Path, false)
 	if n != nil {
 		if params != nil {
 			n.handler.ServeHTTP(w, r, *params)
@@ -177,7 +239,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodConnect && path != "/" {
+	if r.Method != http.MethodConnect && r.URL.Path != "/" {
 
 		code := http.StatusMovedPermanently
 		if r.Method != http.MethodGet {
@@ -185,21 +247,21 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusPermanentRedirect
 		}
 
-		if tsr && fox.RedirectTrailingSlash {
-			r.URL.Path = fixTrailingSlash(path)
+		if tsr && fox.redirectTrailingSlash {
+			r.URL.Path = fixTrailingSlash(r.URL.Path)
 			http.Redirect(w, r, r.URL.String(), code)
 			return
 		}
 
-		if fox.RedirectFixedPath {
-			cleanedPath := CleanPath(path)
+		if fox.redirectFixedPath {
+			cleanedPath := CleanPath(r.URL.Path)
 			n, _, tsr := tree.lookup(nds[index], cleanedPath, true)
 			if n != nil {
 				r.URL.Path = cleanedPath
 				http.Redirect(w, r, r.URL.String(), code)
 				return
 			}
-			if tsr && fox.RedirectTrailingSlash {
+			if tsr && fox.redirectTrailingSlash {
 				r.URL.Path = fixTrailingSlash(cleanedPath)
 				http.Redirect(w, r, r.URL.String(), code)
 				return
@@ -209,11 +271,11 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 NO_METHOD_FALLBACK:
-	if fox.HandleMethodNotAllowed {
+	if fox.handleMethodNotAllowed {
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, _, _ := tree.lookup(nds[i], path, true); n != nil {
+				if n, _, _ := tree.lookup(nds[i], r.URL.Path, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -224,8 +286,8 @@ NO_METHOD_FALLBACK:
 		allowed := sb.String()
 		if allowed != "" {
 			w.Header().Set("Allow", allowed)
-			if fox.MethodNotAllowed != nil {
-				fox.MethodNotAllowed.ServeHTTP(w, r)
+			if fox.methodNotAllowed != nil {
+				fox.methodNotAllowed.ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -233,8 +295,8 @@ NO_METHOD_FALLBACK:
 		}
 	}
 
-	if fox.NotFound != nil {
-		fox.NotFound.ServeHTTP(w, r)
+	if fox.notFound != nil {
+		fox.notFound.ServeHTTP(w, r)
 		return
 	}
 	http.NotFound(w, r)
@@ -245,7 +307,7 @@ func (fox *Router) recover(w http.ResponseWriter, r *http.Request) {
 		if abortErr, ok := val.(error); ok && errors.Is(abortErr, http.ErrAbortHandler) {
 			panic(abortErr)
 		}
-		fox.PanicHandler(w, r, val)
+		fox.panicHandler(w, r, val)
 	}
 }
 
