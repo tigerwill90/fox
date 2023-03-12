@@ -72,7 +72,7 @@ func New(tree *Tree) *Router {
 	return r
 }
 
-// Tree atomically return the tree in use.
+// Tree atomically loads and return the tree in use.
 func (fox *Router) Tree() *Tree {
 	return fox.tree.Load()
 }
