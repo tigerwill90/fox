@@ -35,6 +35,7 @@ func (p *Params) Clone() Params {
 	return cloned
 }
 
+// Free release the params to be reused later.
 func (p *Params) Free(t *Tree) {
 	if cap(*p) < int(t.maxParams.Load()) {
 		return

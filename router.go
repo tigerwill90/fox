@@ -34,6 +34,8 @@ func (f HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request, params Pa
 	f(w, r, params)
 }
 
+// Router is a lightweight high performance HTTP request router that support mutation on its routing tree
+// while handling request concurrently.
 type Router struct {
 	// User-configurable http.Handler which is called when no matching route is found.
 	// By default, http.NotFound is used.
@@ -84,6 +86,7 @@ func New(opts ...Options) *Router {
 // It's safe to create multiple Tree concurrently. However, a Tree itself is not thread safe
 // and all its APIs should be run serially. Note that a Tree give direct access to the
 // underlying sync.Mutex.
+// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.saveRoute = fox.saveMatchedRoute
@@ -138,21 +141,25 @@ func (fox *Router) Remove(method, path string) error {
 }
 
 // Tree atomically loads and return the tree in use.
+// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Tree() *Tree {
 	return fox.tree.Load()
 }
 
 // Swap atomically replace the in use tree with new provided. It returns the previous value.
+// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Swap(new *Tree) (old *Tree) {
 	return fox.tree.Swap(new)
 }
 
 // Store atomically replace the in use tree with the new provided.
+// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Store(new *Tree) {
 	fox.tree.Store(new)
 }
 
-// Lookup allow to do manual lookup of a route. Please note that you should always free params if not nil by calling
+// Lookup allow to do manual lookup of a route and return the matched handler along with parsed params and
+// trailing slash redirect recommendation. Please note that you should always free params if not nil by calling
 // params.Free(t). If lazy is set to true, params are not parsed. This function is safe for concurrent use
 // by multiple goroutine and while mutation on Tree are ongoing.
 func Lookup(t *Tree, method, path string, lazy bool) (handler Handler, params Params, tsr bool) {
@@ -169,7 +176,10 @@ func Lookup(t *Tree, method, path string, lazy bool) (handler Handler, params Pa
 	return nil, nil, tsr
 }
 
-func Match(t *Tree, method, path string) bool {
+// Has allows to check if the given method and path exactly match a registered route. This function is safe for
+// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func Has(t *Tree, method, path string) bool {
 	nds := t.load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -178,6 +188,22 @@ func Match(t *Tree, method, path string) bool {
 
 	n, _, _ := t.lookup(nds[index], path, true)
 	return n != nil && n.path == path
+}
+
+// Reverse perform a lookup on the tree for the give method and path and return the matching registered route if any.
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func Reverse(t *Tree, method, path string) string {
+	nds := t.load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return ""
+	}
+	n, _, _ := t.lookup(nds[index], path, true)
+	if n == nil {
+		return ""
+	}
+	return n.path
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -189,7 +215,8 @@ type WalkFunc func(method, path string, handler Handler) error
 
 // Walk allow to walk over all registered route in lexicographical order. If the function
 // return the special value SkipMethod, Walk skips the current method. This function is
-// safe for concurrent use by multiple goroutine.
+// safe for concurrent use by multiple goroutine and while mutation are ongoing.
+// This api is EXPERIMENTAL and is likely to change in future release.
 func Walk(tree *Tree, fn WalkFunc) error {
 	nds := tree.load()
 NEXT:

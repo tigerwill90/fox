@@ -245,7 +245,7 @@ Note that router's options apply automatically on the new tree.
 package main
 
 import (
-	"fox-ex/db"
+	"fox-by-example/db"
 	"github.com/tigerwill90/fox"
 	"html/template"
 	"io"
@@ -260,16 +260,17 @@ type HtmlRenderer struct {
 }
 
 func (h *HtmlRenderer) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	log.Printf("matched route: %s", params.Get(fox.RouteKey))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.Copy(w, strings.NewReader(string(h.Template)))
 }
 
 func main() {
-	r := fox.New(fox.NewTree())
+	r := fox.New(fox.WithSaveMatchedRoute(true))
 
 	routes := db.GetRoutes()
 	for _, rte := range routes {
-		Must(r.Tree().Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}))
+		Must(r.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}))
 	}
 
 	go Reload(r)
@@ -280,7 +281,7 @@ func main() {
 func Reload(r *fox.Router) {
 	for range time.Tick(10 * time.Second) {
 		routes := db.GetRoutes()
-		newTree := fox.NewTree()
+		newTree := r.NewTree()
 		for _, rte := range routes {
 			if err := newTree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
 				log.Printf("error reloading route: %s\n", err)
@@ -308,17 +309,37 @@ other threads.
 In the following example, the `Upsert` function needs to perform a lookup on the tree to check if a handler
 is already registered for the provided method and path. By locking the `Tree`, this operation ensures
 atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
+Note that all read operation on the tree remain lock-free.
 ````go
 func Upsert(t *fox.Tree, method, path string, handler fox.Handler) error {
     t.Lock()
     defer t.Unlock()
-    if fox.Match(t, method, path) {
+    if fox.Has(t, method, path) {
         return t.Update(method, path, handler)
     }
     return t.Handler(method, path, handler)
 }
 ````
-Note that all read operation on the tree remain lock free.
+
+#### Concurrent safety and proper usage of Tree APIs
+Some important consideration to keep in mind when using `Tree` API. Each instance as its own `sync.Mutex` and `sync.Pool` 
+that may be used to serialize write and reduce memory allocation. Since the router tree may be swapped at any
+given time, you **MUST always copy the pointer locally** to avoid inadvertently releasing Params to the wrong pool 
+or worst, causing a deadlock by locking/unlocking the wrong `Tree`.
+
+````go
+// Good
+t := r.Tree()
+t.Lock()
+defer t.Unlock()
+
+// Dramatically bad, may cause deadlock:
+r.Tree().Lock()
+defer r.Tree().Unlock()
+```` 
+
+This principle also applies to the `fox.Lookup` function, which requires releasing the `fox.Params` slice by calling `params.Free(tree)`.
+Always ensure that the `Tree` pointer passed as a parameter to `params.Free` is the same as the one passed to the `fox.Lookup` function.
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router

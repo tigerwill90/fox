@@ -7,6 +7,24 @@ import (
 	"sync/atomic"
 )
 
+// Tree implements a Concurrent Radix Tree that supports lock-free reads while allowing concurrent writes.
+// Each tree as its own sync.Mutex and sync.Pool that may be used to serialize write and reduce memory allocation.
+//
+// IMPORTANT: Since the router tree may be swapped at any given time, you MUST always copy the pointer locally
+// to avoid inadvertently releasing Params to the wrong pool or worst, causing a deadlock by locking/unlocking the
+// wrong Tree.
+//
+// Good:
+// t := r.Tree()
+// t.Lock()
+// defer t.Unlock()
+//
+// Dramatically bad, may cause deadlock:
+// r.Tree().Lock()
+// defer r.Tree().Unlock()
+//
+// This principle also applies to the Lookup function, which requires releasing the Params slice by calling params.Free(tree).
+// Always ensure that the Tree pointer passed as a parameter to params.Free is the same as the one passed to the Lookup function.
 type Tree struct {
 	p     sync.Pool
 	nodes atomic.Pointer[[]*node]

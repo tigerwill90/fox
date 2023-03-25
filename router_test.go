@@ -1688,7 +1688,7 @@ func atomicSync() (start func(), wait func()) {
 	return
 }
 
-// When SaveMatchingRoute is enabled, the route matching the current request will be available in parameters.
+// When WithSaveMatchedRoute is enabled, the route matching the current request will be available in parameters.
 func ExampleNew() {
 	r := New(WithSaveMatchedRoute(true))
 
@@ -1705,6 +1705,7 @@ func ExampleNew() {
 	}))
 }
 
+// This example cover some important consideration when using Lookup funciton.
 func ExampleLookup() {
 	r := New()
 	_ = r.Handler(http.MethodGet, "/hello/:name", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
@@ -1713,16 +1714,56 @@ func ExampleLookup() {
 
 	req := httptest.NewRequest(http.MethodGet, "/hello/fox", nil)
 
-	// Since the router tree may be swapped at any given time, its best practice is to
-	// copy the pointer locally.
+	// Each tree as its own sync.Pool that is used to reuse Params slice. Since the router tree may be swapped at
+	// any given time, it's recommended to copy the pointer locally so when the params is released,
+	// it returns to the correct pool.
 	tree := r.Tree()
-	handler, params, _ := Lookup(r.Tree(), http.MethodGet, req.URL.Path, false)
+	handler, params, _ := Lookup(tree, http.MethodGet, req.URL.Path, false)
 	// If the params slice is not nil, its should always be free.
 	if params != nil {
 		params.Free(tree)
 	}
 
+	// Bad, instead make a local copy of the tree!
+	handler, params, _ = Lookup(r.Tree(), http.MethodGet, req.URL.Path, false)
+	// If the params slice is not nil, its should always be free.
+	if params != nil {
+		params.Free(r.Tree())
+	}
+
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req, params)
 	fmt.Print(w.Body.String()) //
+}
+
+// This example cover some important consideration when using the Tree API.
+func ExampleRouter_Tree() {
+	r := New()
+
+	// Each tree as its own sync.Mutex that is used to lock write on the tree. Since the router tree may be swapped at
+	// any given time, you MUST always copy the pointer locally, so you not inadvertently cause a deadlock by
+	// locking/unlocking the wrong tree.
+	tree := r.Tree()
+	upsert := func(method, path string, handler Handler) error {
+		tree.Lock()
+		defer tree.Unlock()
+		if Has(tree, method, path) {
+			return tree.Update(method, path, handler)
+		}
+		return tree.Handler(method, path, handler)
+	}
+
+	_ = upsert(http.MethodGet, "/foo/bar", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+		_, _ = fmt.Fprintln(w, "foo bar")
+	}))
+
+	// Bad, instead make a local copy of the tree!
+	upsert = func(method, path string, handler Handler) error {
+		r.Tree().Lock()
+		defer r.Tree().Unlock()
+		if Has(r.Tree(), method, path) {
+			return r.Tree().Update(method, path, handler)
+		}
+		return r.Tree().Handler(method, path, handler)
+	}
 }
