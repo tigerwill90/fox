@@ -23,8 +23,9 @@ import (
 // r.Tree().Lock()
 // defer r.Tree().Unlock()
 //
-// This principle also applies to the Lookup function, which requires releasing the Params slice by calling params.Free(tree).
-// Always ensure that the Tree pointer passed as a parameter to params.Free is the same as the one passed to the Lookup function.
+// This principle also applies to the Lookup function, which requires releasing the Params slice, if not nil, by
+// calling params.Free(tree). Always ensure that the Tree pointer passed as a parameter to params.Free is the same
+// as the one passed to the Lookup function.
 type Tree struct {
 	p     sync.Pool
 	nodes atomic.Pointer[[]*node]

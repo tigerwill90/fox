@@ -475,6 +475,26 @@ func BenchmarkStaticAll(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+func BenchmarkLookup(b *testing.B) {
+	r := New()
+	for _, route := range staticRoutes {
+		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	tree := r.Tree()
+	for i := 0; i < b.N; i++ {
+		for _, route := range staticRoutes {
+			_, p, _ := Lookup(tree, route.method, route.path, false)
+			if p != nil {
+				p.Free(tree)
+			}
+		}
+	}
+}
+
 func BenchmarkGithubParamsAll(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
@@ -1605,7 +1625,9 @@ func TestLookup(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, params, tsr := Lookup(r.Tree(), http.MethodGet, tc.path, false)
-			defer params.Free(r.Tree())
+			if params != nil {
+				defer params.Free(r.Tree())
+			}
 			if tc.wantHandler {
 				assert.NotNil(t, handler)
 			}
@@ -1886,7 +1908,7 @@ func ExampleNew() {
 	}))
 }
 
-// This example cover some important consideration when using Lookup function.
+// This example demonstrates some important considerations when using the Lookup function.
 func ExampleLookup() {
 	r := New()
 	_ = r.Handler(http.MethodGet, "/hello/:name", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
@@ -1900,25 +1922,29 @@ func ExampleLookup() {
 	// it returns to the correct pool.
 	tree := r.Tree()
 	handler, params, _ := Lookup(tree, http.MethodGet, req.URL.Path, false)
-	// Params should be freed to reduce memory allocation
-	defer params.Free(tree)
+	// If not nit, Params should be freed to reduce memory allocation.
+	if params != nil {
+		defer params.Free(tree)
+	}
 
 	// Bad, instead make a local copy of the tree!
 	handler, params, _ = Lookup(r.Tree(), http.MethodGet, req.URL.Path, false)
-	defer params.Free(r.Tree())
+	if params != nil {
+		defer params.Free(r.Tree())
+	}
 
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req, params)
-	fmt.Print(w.Body.String()) //
+	handler.ServeHTTP(w, req, nil)
+	fmt.Print(w.Body.String())
 }
 
-// This example cover some important consideration when using the Tree API.
+// This example demonstrates some important considerations when using the Tree API.
 func ExampleRouter_Tree() {
 	r := New()
 
 	// Each tree as its own sync.Mutex that is used to lock write on the tree. Since the router tree may be swapped at
-	// any given time, you MUST always copy the pointer locally, so you not inadvertently cause a deadlock by
-	// locking/unlocking the wrong tree.
+	// any given time, you MUST always copy the pointer locally, This ensures that you do not inadvertently cause a
+	// deadlock by locking/unlocking the wrong tree.
 	tree := r.Tree()
 	upsert := func(method, path string, handler Handler) error {
 		tree.Lock()

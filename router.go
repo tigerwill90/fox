@@ -159,10 +159,10 @@ func (fox *Router) Store(new *Tree) {
 }
 
 // Lookup allow to do manual lookup of a route and return the matched handler along with parsed params and
-// trailing slash redirect recommendation. Please note that you should always free Params by calling
+// trailing slash redirect recommendation. Note that you should always free Params if NOT nil by calling
 // params.Free(t). If lazy is set to true, route params are not parsed. This function is safe for concurrent use
 // by multiple goroutine and while mutation on Tree are ongoing.
-func Lookup(t *Tree, method, path string, lazy bool) (handler Handler, params Params, tsr bool) {
+func Lookup(t *Tree, method, path string, lazy bool) (handler Handler, params *Params, tsr bool) {
 	nds := t.load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -171,10 +171,7 @@ func Lookup(t *Tree, method, path string, lazy bool) (handler Handler, params Pa
 
 	n, ps, tsr := t.lookup(nds[index], path, lazy)
 	if n != nil {
-		if ps != nil {
-			return n.handler, *ps, tsr
-		}
-		return n.handler, nil, tsr
+		return n.handler, ps, tsr
 	}
 	return nil, nil, tsr
 }
