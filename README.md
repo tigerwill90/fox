@@ -11,6 +11,9 @@ reads** while allowing **concurrent writes**.
 The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. Fox has a small memory footprint, and 
 in many case, it does not do a single heap allocation while handling request.
 
+Fox supports various use cases, but it is especially designed for applications that require changes at runtime to their 
+routing structure based on user input, configuration changes, or other runtime events.
+
 ## Disclaimer
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
@@ -163,8 +166,8 @@ consistent view of the tree.
 
 As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
 
-### Managing routes in concurrency context
-#### Routing mutation while serving requests
+### Managing routes a runtime
+#### Routing mutation
 In this example, the handler for `routes/:action` allow to dynamically register, update and remove handler for the
 given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
@@ -238,7 +241,7 @@ func Must(err error) {
 }
 ```
 
-#### Tree swapping while serving requests
+#### Tree swapping
 Fox also enables you to replace the entire tree in a single atomic operation using the `Store` and `Swap` methods.
 Note that router's options apply automatically on the new tree.
 ````go
@@ -281,15 +284,15 @@ func main() {
 func Reload(r *fox.Router) {
 	for range time.Tick(10 * time.Second) {
 		routes := db.GetRoutes()
-		newTree := r.NewTree()
+		tree := r.NewTree()
 		for _, rte := range routes {
-			if err := newTree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
+			if err := tree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
 				log.Printf("error reloading route: %s\n", err)
 				continue
 			}
 		}
-		// Replace the tree in use by newTree.
-		r.Store(newTree)
+		// Replace the currently in-use routing tree with the new provided.
+		r.Use(tree)
 		log.Println("route reloaded")
 	}
 }
@@ -304,7 +307,7 @@ func Must(err error) {
 #### Advanced usage: consistent view updates
 In certain situations, it's necessary to maintain a consistent view of the tree while performing updates.
 The `Tree` API allow you to take control of the internal `sync.Mutex` to prevent concurrent writes from
-other threads.
+other threads. **Remember that all write operation should be run serially.**
 
 In the following example, the `Upsert` function needs to perform a lookup on the tree to check if a handler
 is already registered for the provided method and path. By locking the `Tree`, this operation ensures

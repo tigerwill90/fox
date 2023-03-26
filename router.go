@@ -140,21 +140,21 @@ func (fox *Router) Remove(method, path string) error {
 	return t.Remove(method, path)
 }
 
-// Tree atomically loads and return the tree in use.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// Tree atomically loads and return the currently in-use routing tree.
+// This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Tree() *Tree {
 	return fox.tree.Load()
 }
 
-// Swap atomically replace the in use tree with new provided. It returns the previous value.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// Swap atomically replaces the currently in-use routing tree with the provided new tree, and returns the previous tree.
+// This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Swap(new *Tree) (old *Tree) {
 	return fox.tree.Swap(new)
 }
 
-// Store atomically replace the in use tree with the new provided.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Store(new *Tree) {
+// Use atomically replaces the currently in-use routing tree with the provided new tree.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) Use(new *Tree) {
 	fox.tree.Store(new)
 }
 

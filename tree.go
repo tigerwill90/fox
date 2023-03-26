@@ -8,9 +8,11 @@ import (
 )
 
 // Tree implements a Concurrent Radix Tree that supports lock-free reads while allowing concurrent writes.
-// Each tree as its own sync.Mutex and sync.Pool that may be used to serialize write and reduce memory allocation.
+// The caller is responsible for ensuring that all writes are run serially.
 //
-// IMPORTANT: Since the router tree may be swapped at any given time, you MUST always copy the pointer locally
+// IMPORTANT:
+// Each tree as its own sync.Mutex and sync.Pool that may be used to serialize write and reduce memory allocation.
+// Since the router tree may be swapped at any given time, you MUST always copy the pointer locally
 // to avoid inadvertently releasing Params to the wrong pool or worst, causing a deadlock by locking/unlocking the
 // wrong Tree.
 //

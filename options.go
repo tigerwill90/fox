@@ -24,7 +24,7 @@ func WithNotFoundHandler(handler http.Handler) Option {
 
 // WithNotAllowedHandler register a http.Handler which is called when the request cannot be routed,
 // but the same route exist for other methods. The "Allow" header it automatically set
-// before calling the handler. Use WithHandleMethodNotAllowed to enable this option. By default,
+// before calling the handler. Mount WithHandleMethodNotAllowed to enable this option. By default,
 // http.Error with http.StatusMethodNotAllowed is used.
 func WithNotAllowedHandler(handler http.Handler) Option {
 	return optionFunc(func(r *Router) {
