@@ -73,10 +73,10 @@ type Router struct {
 var _ http.Handler = (*Router)(nil)
 
 // New returns a ready to use Router.
-func New(opts ...Options) *Router {
+func New(opts ...Option) *Router {
 	r := new(Router)
 	for _, opt := range opts {
-		opt(r)
+		opt.apply(r)
 	}
 	r.tree.Store(r.NewTree())
 	return r
