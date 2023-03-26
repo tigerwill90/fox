@@ -19,7 +19,7 @@ import (
 // t.Lock()
 // defer t.Unlock()
 //
-// Dramatically bad, may cause deadlock:
+// Dramatically bad, may cause deadlock
 // r.Tree().Lock()
 // defer r.Tree().Unlock()
 //

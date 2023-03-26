@@ -1179,7 +1179,7 @@ func TestParseRoute(t *testing.T) {
 	}
 }
 
-func TestLookupTsr(t *testing.T) {
+func TestTree_LookupTsr(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	cases := []struct {
@@ -1435,6 +1435,187 @@ func TestPanicHandler(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, errMsg, w.Body.String())
+}
+
+func TestHas(t *testing.T) {
+	routes := []string{
+		"/foo/bar",
+		"/welcome/:name",
+		"/users/uid_:id",
+	}
+
+	r := New()
+	for _, rte := range routes {
+		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{
+			name: "strict match static route",
+			path: "/foo/bar",
+			want: true,
+		},
+		{
+			name: "no match static route",
+			path: "/foo/bar/",
+		},
+		{
+			name: "strict match route params",
+			path: "/welcome/:name",
+			want: true,
+		},
+		{
+			name: "no match route params",
+			path: "/welcome/fox",
+		},
+		{
+			name: "strict match mid route params",
+			path: "/users/uid_:id",
+			want: true,
+		},
+		{
+			name: "no match mid route params",
+			path: "/users/uid_123",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, Has(r.Tree(), http.MethodGet, tc.path))
+		})
+	}
+}
+
+func TestReverse(t *testing.T) {
+	routes := []string{
+		"/foo/bar",
+		"/welcome/:name",
+		"/users/uid_:id",
+	}
+
+	r := New()
+	for _, rte := range routes {
+		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "reverse static route",
+			path: "/foo/bar",
+			want: "/foo/bar",
+		},
+		{
+			name: "reverse params route",
+			path: "/welcome/fox",
+			want: "/welcome/:name",
+		},
+		{
+			name: "reverse mid params route",
+			path: "/users/uid_123",
+			want: "/users/uid_:id",
+		},
+		{
+			name: "reverse no match",
+			path: "/users/fox",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, Reverse(r.Tree(), http.MethodGet, tc.path))
+		})
+	}
+}
+
+func TestLookup(t *testing.T) {
+	routes := []string{
+		"/foo/bar",
+		"/welcome/:name",
+		"/users/uid_:id",
+		"/john/doe/",
+	}
+
+	r := New()
+	for _, rte := range routes {
+		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
+	}
+
+	cases := []struct {
+		name           string
+		path           string
+		paramKey       string
+		wantHandler    bool
+		wantParamValue string
+		wantTsr        bool
+	}{
+		{
+			name:        "matching static route",
+			path:        "/foo/bar",
+			wantHandler: true,
+		},
+		{
+			name:    "tsr remove slash for static route",
+			path:    "/foo/bar/",
+			wantTsr: true,
+		},
+		{
+			name:    "tsr add slash for static route",
+			path:    "/john/doe",
+			wantTsr: true,
+		},
+		{
+			name:    "tsr for static route",
+			path:    "/foo/bar/",
+			wantTsr: true,
+		},
+		{
+			name:           "matching params route",
+			path:           "/welcome/fox",
+			wantHandler:    true,
+			paramKey:       "name",
+			wantParamValue: "fox",
+		},
+		{
+			name:    "tsr for params route",
+			path:    "/welcome/fox/",
+			wantTsr: true,
+		},
+		{
+			name:           "matching mid route params",
+			path:           "/users/uid_123",
+			wantHandler:    true,
+			paramKey:       "id",
+			wantParamValue: "123",
+		},
+		{
+			name:    "matching mid route params",
+			path:    "/users/uid_123/",
+			wantTsr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, params, tsr := Lookup(r.Tree(), http.MethodGet, tc.path, false)
+			defer params.Free(r.Tree())
+			if tc.wantHandler {
+				assert.NotNil(t, handler)
+			}
+			assert.Equal(t, tc.wantTsr, tsr)
+			if tc.paramKey != "" {
+				require.NotNil(t, params)
+				assert.Equal(t, tc.wantParamValue, params.Get(tc.paramKey))
+			}
+		})
+	}
 }
 
 func TestAbortHandler(t *testing.T) {
@@ -1705,7 +1886,7 @@ func ExampleNew() {
 	}))
 }
 
-// This example cover some important consideration when using Lookup funciton.
+// This example cover some important consideration when using Lookup function.
 func ExampleLookup() {
 	r := New()
 	_ = r.Handler(http.MethodGet, "/hello/:name", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
@@ -1719,17 +1900,12 @@ func ExampleLookup() {
 	// it returns to the correct pool.
 	tree := r.Tree()
 	handler, params, _ := Lookup(tree, http.MethodGet, req.URL.Path, false)
-	// If the params slice is not nil, its should always be free.
-	if params != nil {
-		params.Free(tree)
-	}
+	// Params should be freed to reduce memory allocation
+	defer params.Free(tree)
 
 	// Bad, instead make a local copy of the tree!
 	handler, params, _ = Lookup(r.Tree(), http.MethodGet, req.URL.Path, false)
-	// If the params slice is not nil, its should always be free.
-	if params != nil {
-		params.Free(r.Tree())
-	}
+	defer params.Free(r.Tree())
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req, params)
