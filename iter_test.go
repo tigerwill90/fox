@@ -11,16 +11,16 @@ import (
 var routesCases = []string{"/fox/router", "/foo/bar/:baz", "/foo/bar/:baz/:name", "/john/doe/*args", "/john/doe"}
 
 func TestIterator_Rewind(t *testing.T) {
-	r := New()
+	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
 	}
 
 	results := make(map[string][]string)
 
-	it := r.NewIterator()
+	it := NewIterator(tree)
 	for it.Rewind(); it.Valid(); it.Next() {
 		assert.NotNil(t, it.Handler())
 		results[it.Method()] = append(results[it.method], it.Path())
@@ -32,16 +32,16 @@ func TestIterator_Rewind(t *testing.T) {
 }
 
 func TestIterator_SeekMethod(t *testing.T) {
-	r := New()
+	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
 	}
 
 	results := make(map[string][]string)
 
-	it := r.NewIterator()
+	it := NewIterator(tree)
 	for it.SeekMethod(http.MethodHead); it.Valid(); it.Next() {
 		assert.NotNil(t, it.Handler())
 		results[it.Method()] = append(results[it.method], it.Path())
@@ -52,17 +52,17 @@ func TestIterator_SeekMethod(t *testing.T) {
 }
 
 func TestIterator_SeekPrefix(t *testing.T) {
-	r := New()
+	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
 	}
 
 	want := []string{"/foo/bar/:baz", "/foo/bar/:baz/:name"}
 	results := make(map[string][]string)
 
-	it := r.NewIterator()
+	it := NewIterator(tree)
 	for it.SeekPrefix("/foo"); it.Valid(); it.Next() {
 		assert.NotNil(t, it.Handler())
 		results[it.Method()] = append(results[it.method], it.Path())
@@ -74,17 +74,17 @@ func TestIterator_SeekPrefix(t *testing.T) {
 }
 
 func TestIterator_SeekMethodPrefix(t *testing.T) {
-	r := New()
+	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, r.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
 	}
 
 	want := []string{"/foo/bar/:baz", "/foo/bar/:baz/:name"}
 	results := make(map[string][]string)
 
-	it := r.NewIterator()
+	it := NewIterator(tree)
 	for it.SeekMethodPrefix(http.MethodHead, "/foo"); it.Valid(); it.Next() {
 		results[it.Method()] = append(results[it.method], it.Path())
 	}
@@ -93,9 +93,9 @@ func TestIterator_SeekMethodPrefix(t *testing.T) {
 	assert.ElementsMatch(t, want, results[http.MethodHead])
 }
 
-func ExampleRouter_NewIterator() {
+func ExampleNewIterator() {
 	r := New()
-	it := r.NewIterator()
+	it := NewIterator(r.Tree())
 
 	// Iterate over all routes
 	for it.Rewind(); it.Valid(); it.Next() {

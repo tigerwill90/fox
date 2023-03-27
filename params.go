@@ -3,7 +3,6 @@ package fox
 import (
 	"context"
 	"net/http"
-	"sync/atomic"
 )
 
 const RouteKey = "$k/fox"
@@ -36,25 +35,13 @@ func (p *Params) Clone() Params {
 	return cloned
 }
 
-func (fox *Router) newParams() *Params {
-	return fox.p.Get().(*Params)
-}
-
-func (p *Params) free(fox *Router) {
-	if cap(*p) < int(atomic.LoadUint32(&fox.maxParams)) {
+// Free release the params to be reused later.
+func (p *Params) Free(t *Tree) {
+	if cap(*p) < int(t.maxParams.Load()) {
 		return
 	}
-
 	*p = (*p)[:0]
-	fox.p.Put(p)
-}
-
-// updateMaxParams perform an update only if max is greater than the current
-// max params. This function should be guarded by mutex.
-func (fox *Router) updateMaxParams(max uint32) {
-	if max > atomic.LoadUint32(&fox.maxParams) {
-		atomic.StoreUint32(&fox.maxParams, max)
-	}
+	t.p.Put(p)
 }
 
 // ParamsFromContext is a helper function to retrieve parameters from the request context.

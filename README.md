@@ -11,6 +11,9 @@ reads** while allowing **concurrent writes**.
 The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. Fox has a small memory footprint, and 
 in many case, it does not do a single heap allocation while handling request.
 
+Fox supports various use cases, but it is especially designed for applications that require changes at runtime to their 
+routing structure based on user input, configuration changes, or other runtime events.
+
 ## Disclaimer
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
@@ -23,7 +26,7 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 
 **Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling an HTTP request.
 
-**Get the current route:** You can easily retrieve the route for the current matched request. This actually makes it easier to integrate
+**Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
 observability middleware like open telemetry (disable by default).
 
 **Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
@@ -116,7 +119,7 @@ Pattern /users/uuid_:id
 /users/uuid             no match
 ```
 
-#### Catch all parameter
+### Catch all parameter
 Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a name.
 ```
 Pattern /src/*filepath
@@ -140,9 +143,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.P
 }
 ```
 
-### Adding, updating and removing route
-In this example, the handler for `route/:action` allow to dynamically register, update and remove handler for the given route and method.
-Due to Fox design, those actions are perfectly safe and may be executed concurrently. 
+## Concurrency
+Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
+reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
+into a **patch**, which is then applied to the tree in a **single atomic operation**.
+
+For example, here we are inserting the new key `toast` into to the tree which require an existing node to be split:
+
+<p align="center" width="100%">
+    <img width="100%" src="assets/tree-apply-patch.png">
+</p>
+
+When traversing the tree during a patch, reading threads will either see the **old version** or the **new version** of the (sub-)tree, but both version are 
+consistent view of the tree.
+
+#### Other key points
+
+- Routing requests is lock-free (reading thread never block, even while writes are ongoing)
+- The router always see a consistent version of the tree while routing request
+- Reading threads do not block writing threads (adding, updating or removing a handler can be done concurrently)
+- Writing threads block each other but never block reading threads
+
+As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
+
+### Managing routes a runtime
+#### Routing mutation
+In this example, the handler for `routes/:action` allow to dynamically register, update and remove handler for the
+given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
 ```go
 package main
@@ -214,35 +241,115 @@ func Must(err error) {
 }
 ```
 
-## Concurrency
-Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
-reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
-into a **patch**, which is then applied to the tree in a **single atomic operation**.
+#### Tree swapping
+Fox also enables you to replace the entire tree in a single atomic operation using the `Store` and `Swap` methods.
+Note that router's options apply automatically on the new tree.
+````go
+package main
 
-For example, here we are inserting the new key `toast` into to the tree which require an existing node to be split:
+import (
+	"fox-by-example/db"
+	"github.com/tigerwill90/fox"
+	"html/template"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
 
-<p align="center" width="100%">
-    <img width="100%" src="assets/tree-apply-patch.png">
-</p>
+type HtmlRenderer struct {
+	Template template.HTML
+}
 
-When traversing the tree during a patch, reading threads will either see the **old version** or the **new version** of the (sub-)tree, but both version are 
-consistent view of the tree.
+func (h *HtmlRenderer) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+	log.Printf("matched route: %s", params.Get(fox.RouteKey))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.Copy(w, strings.NewReader(string(h.Template)))
+}
 
-#### Other key points
+func main() {
+	r := fox.New(fox.WithSaveMatchedRoute(true))
 
-- Routing requests is lock-free (reading thread never block, even while writes are ongoing)
-- The router always see a consistent version of the tree while routing request
-- Reading threads do not block writing threads (adding, updating or removing a handler can be done concurrently)
-- Writing threads block each other but never block reading threads
+	routes := db.GetRoutes()
+	for _, rte := range routes {
+		Must(r.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}))
+	}
 
-As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
+	go Reload(r)
+
+	log.Fatalln(http.ListenAndServe(":8080", r))
+}
+
+func Reload(r *fox.Router) {
+	for range time.Tick(10 * time.Second) {
+		routes := db.GetRoutes()
+		tree := r.NewTree()
+		for _, rte := range routes {
+			if err := tree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
+				log.Printf("error reloading route: %s\n", err)
+				continue
+			}
+		}
+		// Replace the currently in-use routing tree with the new provided.
+		r.Use(tree)
+		log.Println("route reloaded")
+	}
+}
+
+func Must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+````
+
+#### Advanced usage: consistent view updates
+In certain situations, it's necessary to maintain a consistent view of the tree while performing updates.
+The `Tree` API allow you to take control of the internal `sync.Mutex` to prevent concurrent writes from
+other threads. **Remember that all write operation should be run serially.**
+
+In the following example, the `Upsert` function needs to perform a lookup on the tree to check if a handler
+is already registered for the provided method and path. By locking the `Tree`, this operation ensures
+atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
+Note that all read operation on the tree remain lock-free.
+````go
+func Upsert(t *fox.Tree, method, path string, handler fox.Handler) error {
+    t.Lock()
+    defer t.Unlock()
+    if fox.Has(t, method, path) {
+        return t.Update(method, path, handler)
+    }
+    return t.Handler(method, path, handler)
+}
+````
+
+#### Concurrent safety and proper usage of Tree APIs
+Some important consideration to keep in mind when using `Tree` API. Each instance as its own `sync.Mutex` and `sync.Pool` 
+that may be used to serialize write and reduce memory allocation. Since the router tree may be swapped at any
+given time, you **MUST always copy the pointer locally** to avoid inadvertently releasing Params to the wrong pool 
+or worst, causing a deadlock by locking/unlocking the wrong `Tree`.
+
+````go
+// Good
+t := r.Tree()
+t.Lock()
+defer t.Unlock()
+
+// Dramatically bad, may cause deadlock:
+r.Tree().Lock()
+defer r.Tree().Unlock()
+```` 
+
+This principle also applies to the `fox.Lookup` function, which requires releasing the `fox.Params` slice by calling `params.Free(tree)`.
+Always ensure that the `Tree` pointer passed as a parameter to `params.Free` is the same as the one passed to the `fox.Lookup` function.
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
 provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
 request context
 ```go
-_ = r.Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
+_ = r.Tree().Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
     _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
 }))

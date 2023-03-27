@@ -5,7 +5,7 @@ import (
 )
 
 type Iterator struct {
-	r       *Router
+	tree    *Tree
 	method  string
 	current *node
 	stacks  []stack
@@ -17,14 +17,14 @@ type Iterator struct {
 // An Iterator is safe to use when the router is serving request, when routing updates are ongoing or
 // in parallel with other Iterators. Note that changes that happen while iterating over routes may not be reflected
 // by the Iterator. This api is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) NewIterator() *Iterator {
+func NewIterator(t *Tree) *Iterator {
 	return &Iterator{
-		r: fox,
+		tree: t,
 	}
 }
 
 func (it *Iterator) methods() map[string]*node {
-	nds := *it.r.trees.Load()
+	nds := it.tree.load()
 	m := make(map[string]*node, len(nds))
 	for i := range nds {
 		if len(nds[i].children) > 0 {
@@ -40,7 +40,7 @@ func (it *Iterator) SeekPrefix(key string) {
 	nds := it.methods()
 	keys := make([]string, 0, len(nds))
 	for method, n := range nds {
-		result := it.r.search(n, key)
+		result := it.tree.search(n, key)
 		if result.isExactMatch() || result.isKeyMidEdge() {
 			nds[method] = result.matched
 			keys = append(keys, method)
@@ -82,7 +82,7 @@ func (it *Iterator) SeekMethodPrefix(method, key string) {
 	stacks := make([]stack, 0, 1)
 	n, ok := nds[method]
 	if ok {
-		result := it.r.search(n, key)
+		result := it.tree.search(n, key)
 		if result.isExactMatch() || result.isKeyMidEdge() {
 			stacks = append(stacks, stack{
 				edges:  []*node{result.matched},
@@ -194,8 +194,8 @@ type rawIterator struct {
 }
 
 type stack struct {
-	edges  []*node
 	method string
+	edges  []*node
 }
 
 func (it *rawIterator) fullPath() string {

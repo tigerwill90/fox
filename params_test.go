@@ -8,7 +8,7 @@ import (
 )
 
 func TestWrapHandler(t *testing.T) {
-	r := New()
+	tree := New().Tree()
 
 	cases := []struct {
 		name   string
@@ -71,8 +71,8 @@ func TestWrapHandler(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			params := r.newParams()
-			defer params.free(r)
+			params := tree.newParams()
+			defer params.Free(tree)
 			*params = append(*params, tc.params...)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -82,9 +82,9 @@ func TestWrapHandler(t *testing.T) {
 }
 
 func TestParamsClone(t *testing.T) {
-	r := New()
-	params := r.newParams()
-	defer params.free(r)
+	tree := New().Tree()
+	params := tree.newParams()
+	defer params.Free(tree)
 	*params = append(*params,
 		Param{
 			Key:   "foo",

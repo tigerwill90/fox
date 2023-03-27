@@ -1,3 +1,5 @@
 .idea
 .prof
 .test
+go.work
+go.work.sum
