@@ -507,3 +507,5 @@ The intention behind these choices is that it can serve as a building block for 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are inspired from Julien Schmidt's router.
+
+## RFC Route format declaration
