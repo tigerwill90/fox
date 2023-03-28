@@ -242,7 +242,7 @@ func Must(err error) {
 ```
 
 #### Tree swapping
-Fox also enables you to replace the entire tree in a single atomic operation using the `Store` and `Swap` methods.
+Fox also enables you to replace the entire tree in a single atomic operation using the `Use` and `Swap` methods.
 Note that router's options apply automatically on the new tree.
 ````go
 package main
@@ -499,6 +499,10 @@ BenchmarkMartini_GithubAll                                   572           20428
 BenchmarkGorillaMux_GithubAll                                562           2110880 ns/op          199683 B/op       1588 allocs/op
 BenchmarkPat_GithubAll                                       550           2117715 ns/op         1410624 B/op      22515 allocs/op
 ```
+
+## Road to v1
+- [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309)
+- [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919)
 
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
