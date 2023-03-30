@@ -147,14 +147,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-		// Rule: a node with :param has no child or has a separator before the end of the key or its child
+		// Rule: a node with {param} has no child or has a separator before the end of the key or its child
 		// start with a separator
 		if !strings.HasPrefix(suffixFromExistingEdge, "/") {
 			for i := len(cPrefix) - 1; i >= 0; i-- {
 				if cPrefix[i] == '/' {
 					break
 				}
-				if cPrefix[i] == ':' {
+				if cPrefix[i] == '{' {
 					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 				}
 			}
@@ -175,14 +175,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			handler,
 			[]*node{child},
 			catchAllKey,
-			// e.g. tree encode /tes/:t and insert /tes/
+			// e.g. tree encode /tes/{t} and insert /tes/
 			// /tes/ (paramChild)
-			// ├── :t
+			// ├── {t}
 			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
 			// if paramChild == true {
 			// 	next = current.get(0)
 			// }
-			strings.HasPrefix(suffixFromExistingEdge, ":"),
+			strings.HasPrefix(suffixFromExistingEdge, "{"),
 			path,
 		)
 
@@ -209,14 +209,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 
 		keySuffix := path[result.charsMatched:]
 		// Rule: a node with :param has no child or has a separator before the end of the key
-		// make sure than and existing params :x is not extended to :xy
-		// :x/:y is of course valid
+		// make sure than and existing params {x} is not extended to {xy}
+		// {x}/{y} is of course valid
 		if !strings.HasPrefix(keySuffix, "/") {
 			for i := len(result.matched.key) - 1; i >= 0; i-- {
 				if result.matched.key[i] == '/' {
 					break
 				}
-				if result.matched.key[i] == ':' {
+				if result.matched.key[i] == '{' {
 					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 				}
 			}
@@ -231,14 +231,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			result.matched.handler,
 			edges,
 			result.matched.catchAllKey,
-			// e.g. tree encode /tes/ and insert /tes/:t
+			// e.g. tree encode /tes/ and insert /tes/{t}
 			// /tes/ (paramChild)
-			// ├── :t
+			// ├── {t}
 			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
 			// if paramChild == true {
 			// 	next = current.get(0)
 			// }
-			strings.HasPrefix(keySuffix, ":"),
+			strings.HasPrefix(keySuffix, "{"),
 			result.matched.path,
 		)
 
@@ -272,25 +272,25 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
 
-		// Rule: a node with :param has no child or has a separator before the end of the key
+		// Rule: a node with {param} has no child or has a separator before the end of the key
 		for i := len(cPrefix) - 1; i >= 0; i-- {
 			if cPrefix[i] == '/' {
 				break
 			}
-			if cPrefix[i] == ':' {
+			if cPrefix[i] == '{' {
 				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 			}
 		}
 
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-		// Rule: parent's of a node with :param have only one node or are prefixed by a char (e.g /:param)
-		if strings.HasPrefix(suffixFromExistingEdge, ":") {
+		// Rule: parent's of a node with {param} have only one node or are prefixed by a char (e.g /{param})
+		if strings.HasPrefix(suffixFromExistingEdge, "{") {
 			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 
 		keySuffix := path[result.charsMatched:]
-		// Rule: parent's of a node with :param have only one node or are prefixed by a char (e.g /:param)
-		if strings.HasPrefix(keySuffix, ":") {
+		// Rule: parent's of a node with {param} have only one node or are prefixed by a char (e.g /{param})
+		if strings.HasPrefix(keySuffix, "{") {
 			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 		}
 
@@ -473,16 +473,35 @@ STOP:
 				break
 			}
 
-			if current.key[i] != path[charsMatched] || path[charsMatched] == ':' {
-				if current.key[i] == ':' {
+			/*			tmp1 := string(path[charsMatched])
+						_ = tmp1
+
+						tmp2 := string(current.key[charsMatchedInNodeFound])
+						_ = tmp2*/
+
+			if current.key[i] != path[charsMatched] || path[charsMatched] == '{' {
+				if current.key[i] == '{' {
 					startPath := charsMatched
+
+					/*					tmp3 := path[charsMatched:]
+										_ = tmp3*/
+
 					idx := strings.Index(path[charsMatched:], "/")
-					if idx >= 0 {
+					if idx > 0 {
+						// There is another path segment (e.g. /foo/{bar}/baz)
 						charsMatched += idx
-					} else {
+					} else if idx < 0 {
+						// This is the end of the path (e.g. /foo/{bar})
 						charsMatched += len(path[charsMatched:])
+					} else {
+						// segment is empty
+						break STOP
 					}
 					startKey := charsMatchedInNodeFound
+
+					/*			tmp4 := current.key[startKey:]
+								_ = tmp4*/
+
 					idx = strings.Index(current.key[startKey:], "/")
 					if idx >= 0 {
 						// -1 since on the next incrementation, if any, 'i' are going to be incremented
@@ -498,7 +517,7 @@ STOP:
 							params = t.newParams()
 						}
 						// :n where n > 0
-						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound], Value: path[startPath:charsMatched]})
+						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound-1], Value: path[startPath:charsMatched]})
 					}
 					continue
 				}

@@ -426,64 +426,84 @@ func findRootNode(method string, nodes []*node) int {
 	return -1
 }
 
+const (
+	stateDefault uint8 = iota
+	stateParam
+	stateParamContent
+	stateCatchAll
+)
+
 func parseRoute(path string) (string, string, int, error) {
+
 	if !strings.HasPrefix(path, "/") {
 		return "", "", -1, fmt.Errorf("path must start with '/': %w", ErrInvalidRoute)
 	}
 
-	routeType := func(key byte) string {
-		if key == '*' {
-			return "catch all"
+	state := stateDefault
+	previous := stateDefault
+	startCatchAll := 0
+	paramCnt := 0
+
+	i := 0
+	for i < len(path) {
+		switch state {
+		case stateDefault:
+			if path[i] == '{' {
+				state = stateParam
+			} else if path[i] == '*' {
+				state = stateCatchAll
+			}
+			i++
+		case stateParam:
+			if path[i] == '}' {
+				return "", "", -1, fmt.Errorf("missing parameter name between '{}': %w", ErrInvalidRoute)
+			}
+			state = stateParamContent
+			paramCnt++
+
+		case stateParamContent:
+			if path[i] == '}' {
+				if previous != stateCatchAll {
+					if i+1 < len(path) && path[i+1] != '/' {
+						return "", "", -1, fmt.Errorf("unexpected character after '{param}': %w", ErrInvalidRoute)
+					}
+				} else {
+					if i+1 != len(path) {
+						return "", "", -1, fmt.Errorf("catch-all '*{params}' are allowed only at the end of a route: %w", ErrInvalidRoute)
+					}
+				}
+				state = stateDefault
+				i++
+				continue
+			}
+
+			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
+				return "", "", -1, fmt.Errorf("unexpected character in '{params}': %w", ErrInvalidRoute)
+			}
+			i++
+		case stateCatchAll:
+			if path[i] != '{' {
+				return "", "", -1, fmt.Errorf("unexpected character after '*' catch-all delimiter: %w", ErrInvalidRoute)
+			}
+			startCatchAll = i
+			previous = state
+			state = stateParam
+			i++
 		}
-		return "param"
 	}
 
-	var n int
-	p := []byte(path)
-	for i, c := range p {
-		if c != '*' && c != ':' {
-			continue
-		}
-		n++
-
-		// /foo*
-		if p[i-1] != '/' && p[i] == '*' {
-			return "", "", -1, fmt.Errorf("missing '/' before catch all route segment: %w", ErrInvalidRoute)
-		}
-
-		// /foo/:
-		if i == len(p)-1 {
-			return "", "", -1, fmt.Errorf("missing argument name after %s operator: %w", routeType(c), ErrInvalidRoute)
-		}
-
-		// /foo/:/
-		if p[i+1] == '/' {
-			return "", "", -1, fmt.Errorf("missing argument name after %s operator: %w", routeType(c), ErrInvalidRoute)
-		}
-
-		if c == ':' {
-			for k := i + 1; k < len(path); k++ {
-				if path[k] == '/' {
-					break
-				}
-				// /foo/:abc:xyz
-				if path[k] == ':' {
-					return "", "", -1, fmt.Errorf("only one param per path segment is allowed: %w", ErrInvalidRoute)
-				}
-			}
-		}
-
-		if c == '*' {
-			for k := i + 1; k < len(path); k++ {
-				// /foo/*args/
-				if path[k] == '/' || path[k] == ':' {
-					return "", "", -1, fmt.Errorf("catch all are allowed only at the end of a route: %w", ErrInvalidRoute)
-				}
-			}
-			return path[:i], path[i+1:], n, nil
-		}
+	if state == stateParam || state == stateParamContent {
+		return "", "", -1, fmt.Errorf("unclosed '{params}': %w", ErrInvalidRoute)
 	}
-	return path, "", n, nil
+	if state == stateCatchAll {
+		return "", "", -1, fmt.Errorf("missing '{params}' after '*' catch-all delimiter: %w", ErrInvalidRoute)
+	}
+
+	if startCatchAll > 0 {
+		return path[:startCatchAll-1], path[startCatchAll+1 : len(path)-1], paramCnt, nil
+	}
+
+	return path, "", paramCnt, nil
 }
 
 func getRouteConflict(n *node) []string {
