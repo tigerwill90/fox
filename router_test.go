@@ -654,6 +654,45 @@ func TestRouteWithParams(t *testing.T) {
 	}
 }
 
+func TestRoutParamEmptySegment(t *testing.T) {
+	tree := New().Tree()
+	cases := []struct {
+		name  string
+		route string
+		path  string
+	}{
+		{
+			name:  "empty segment",
+			route: "/cmd/{tool}/{sub}",
+			path:  "/cmd//sub",
+		},
+		{
+			name:  "empty inflight end of route",
+			route: "/command/exec:{tool}",
+			path:  "/command/exec:",
+		},
+		{
+			name:  "empty inflight segment",
+			route: "/command/exec:{tool}/id",
+			path:  "/command/exec:/id",
+		},
+	}
+
+	for _, tc := range cases {
+		require.NoError(t, tree.Handler(http.MethodGet, tc.route, emptyHandler))
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nds := tree.load()
+			n, ps, tsr := tree.lookup(nds[0], tc.path, false)
+			assert.Nil(t, n)
+			assert.Nil(t, ps)
+			assert.False(t, tsr)
+		})
+	}
+}
+
 func TestInsertWildcardConflict(t *testing.T) {
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	cases := []struct {
