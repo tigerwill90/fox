@@ -461,12 +461,12 @@ STOP:
 		idx := linearSearch(current.childKeys, path[charsMatched])
 		if idx < 0 {
 			if !current.paramChild {
-				break STOP
+				break
 			}
 			idx = 0
 		}
 
-		current = current.get(idx)
+		current = current.children[idx].Load()
 		charsMatchedInNodeFound = 0
 		for i := 0; charsMatched < len(path); i++ {
 			if i >= len(current.key) {
