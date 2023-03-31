@@ -476,7 +476,7 @@ STOP:
 			if current.key[i] != path[charsMatched] || path[charsMatched] == '{' {
 				if current.key[i] == '{' {
 					startPath := charsMatched
-					idx := strings.Index(path[charsMatched:], "/")
+					idx := strings.IndexByte(path[charsMatched:], '/')
 					if idx > 0 {
 						// There is another path segment (e.g. /foo/{bar}/baz)
 						charsMatched += idx
@@ -488,7 +488,7 @@ STOP:
 						break STOP
 					}
 					startKey := charsMatchedInNodeFound
-					idx = strings.Index(current.key[startKey:], "/")
+					idx = strings.IndexByte(current.key[startKey:], '/')
 					if idx >= 0 {
 						// -1 since on the next incrementation, if any, 'i' are going to be incremented
 						i += idx - 1
