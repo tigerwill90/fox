@@ -429,10 +429,10 @@ func findRootNode(method string, nodes []*node) int {
 const (
 	stateDefault uint8 = iota
 	stateParam
-	stateParamContent
 	stateCatchAll
 )
 
+// parseRoute parse and validate the route in a single pass.
 func parseRoute(path string) (string, string, int, error) {
 
 	if !strings.HasPrefix(path, "/") {
@@ -443,33 +443,24 @@ func parseRoute(path string) (string, string, int, error) {
 	previous := stateDefault
 	startCatchAll := 0
 	paramCnt := 0
+	inParam := false
 
 	i := 0
 	for i < len(path) {
 		switch state {
-		case stateDefault:
-			if path[i] == '{' {
-				state = stateParam
-			} else if path[i] == '*' {
-				state = stateCatchAll
-			}
-			i++
 		case stateParam:
 			if path[i] == '}' {
-				return "", "", -1, fmt.Errorf("missing parameter name between '{}': %w", ErrInvalidRoute)
-			}
-			state = stateParamContent
-			paramCnt++
-
-		case stateParamContent:
-			if path[i] == '}' {
+				if !inParam {
+					return "", "", -1, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
+				}
+				inParam = false
 				if previous != stateCatchAll {
 					if i+1 < len(path) && path[i+1] != '/' {
-						return "", "", -1, fmt.Errorf("unexpected character after '{param}': %w", ErrInvalidRoute)
+						return "", "", -1, fmt.Errorf("%w: unexpected character after '{param}'", ErrInvalidRoute)
 					}
 				} else {
 					if i+1 != len(path) {
-						return "", "", -1, fmt.Errorf("catch-all '*{params}' are allowed only at the end of a route: %w", ErrInvalidRoute)
+						return "", "", -1, fmt.Errorf("%w: catch-all '*{params}' are allowed only at the end of a route", ErrInvalidRoute)
 					}
 				}
 				state = stateDefault
@@ -478,25 +469,37 @@ func parseRoute(path string) (string, string, int, error) {
 			}
 
 			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
-				return "", "", -1, fmt.Errorf("unexpected character in '{params}': %w", ErrInvalidRoute)
+				return "", "", -1, fmt.Errorf("%w: unexpected character in '{params}'", ErrInvalidRoute)
 			}
+			inParam = true
 			i++
+
 		case stateCatchAll:
 			if path[i] != '{' {
-				return "", "", -1, fmt.Errorf("unexpected character after '*' catch-all delimiter: %w", ErrInvalidRoute)
+				return "", "", -1, fmt.Errorf("%w: unexpected character after '*' catch-all delimiter", ErrInvalidRoute)
 			}
 			startCatchAll = i
 			previous = state
 			state = stateParam
 			i++
+
+		default:
+			if path[i] == '{' {
+				state = stateParam
+				paramCnt++
+			} else if path[i] == '*' {
+				state = stateCatchAll
+				paramCnt++
+			}
+			i++
 		}
 	}
 
-	if state == stateParam || state == stateParamContent {
-		return "", "", -1, fmt.Errorf("unclosed '{params}': %w", ErrInvalidRoute)
+	if state == stateParam {
+		return "", "", -1, fmt.Errorf("%w: unclosed '{params}'", ErrInvalidRoute)
 	}
 	if state == stateCatchAll {
-		return "", "", -1, fmt.Errorf("missing '{params}' after '*' catch-all delimiter: %w", ErrInvalidRoute)
+		return "", "", -1, fmt.Errorf("%w: missing '{params}' after '*' catch-all delimiter", ErrInvalidRoute)
 	}
 
 	if startCatchAll > 0 {

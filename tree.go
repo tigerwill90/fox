@@ -473,19 +473,9 @@ STOP:
 				break
 			}
 
-			/*			tmp1 := string(path[charsMatched])
-						_ = tmp1
-
-						tmp2 := string(current.key[charsMatchedInNodeFound])
-						_ = tmp2*/
-
 			if current.key[i] != path[charsMatched] || path[charsMatched] == '{' {
 				if current.key[i] == '{' {
 					startPath := charsMatched
-
-					/*					tmp3 := path[charsMatched:]
-										_ = tmp3*/
-
 					idx := strings.Index(path[charsMatched:], "/")
 					if idx > 0 {
 						// There is another path segment (e.g. /foo/{bar}/baz)
@@ -498,9 +488,6 @@ STOP:
 						break STOP
 					}
 					startKey := charsMatchedInNodeFound
-
-					/*			tmp4 := current.key[startKey:]
-								_ = tmp4*/
 
 					idx = strings.Index(current.key[startKey:], "/")
 					if idx >= 0 {
@@ -546,7 +533,7 @@ STOP:
 				}
 
 				if current.isCatchAll() {
-					*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched-1:]})
+					*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				}
 
 				return current, params, false
@@ -567,7 +554,7 @@ STOP:
 				if params == nil {
 					params = t.newParams()
 				}
-				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched-1:]})
+				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				if t.saveRoute {
 					*params = append(*params, Param{Key: RouteKey, Value: current.path})
 				}

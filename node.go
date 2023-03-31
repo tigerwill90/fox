@@ -63,7 +63,7 @@ func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node]
 	}
 	// TODO find a better way
 	if catchAllKey != "" {
-		suffix := "*" + catchAllKey
+		suffix := "*{" + catchAllKey + "}"
 		if !strings.HasSuffix(path, suffix) {
 			n.path += suffix
 		}

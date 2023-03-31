@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var routesCases = []string{"/fox/router", "/foo/bar/:baz", "/foo/bar/:baz/:name", "/john/doe/*args", "/john/doe"}
+var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/john/doe/*{args}", "/john/doe"}
 
 func TestIterator_Rewind(t *testing.T) {
 	tree := New().Tree()
@@ -59,7 +59,7 @@ func TestIterator_SeekPrefix(t *testing.T) {
 		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
 	}
 
-	want := []string{"/foo/bar/:baz", "/foo/bar/:baz/:name"}
+	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
 	results := make(map[string][]string)
 
 	it := NewIterator(tree)
@@ -81,7 +81,7 @@ func TestIterator_SeekMethodPrefix(t *testing.T) {
 		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
 	}
 
-	want := []string{"/foo/bar/:baz", "/foo/bar/:baz/:name"}
+	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
 	results := make(map[string][]string)
 
 	it := NewIterator(tree)

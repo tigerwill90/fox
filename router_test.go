@@ -603,9 +603,10 @@ func TestRouterWildcard(t *testing.T) {
 		path string
 		key  string
 	}{
-		{"/github.com/etf1/*repo", "/github.com/etf1/mux"},
-		{"/github.com/johndoe/*repo", "/github.com/johndoe/buzz"},
-		{"/foo/bar/*args", "/foo/bar/"},
+		{"/github.com/etf1/*{repo}", "/github.com/etf1/mux"},
+		{"/github.com/johndoe/*{repo}", "/github.com/johndoe/buzz"},
+		{"/foo/bar/*{args}", "/foo/bar/"},
+		{"/filepath/path=*{path}", "/filepath/path=/file.txt"},
 	}
 
 	for _, route := range routes {
@@ -625,19 +626,19 @@ func TestRouteWithParams(t *testing.T) {
 	tree := New().Tree()
 	routes := [...]string{
 		"/",
-		"/cmd/:tool/:sub",
-		"/cmd/:tool/",
-		"/src/*filepath",
+		"/cmd/{tool}/{sub}",
+		"/cmd/{tool}/",
+		"/src/*{filepath}",
 		"/search/",
-		"/search/:query",
-		"/user_:name",
-		"/user_:name/about",
-		"/files/:dir/*filepath",
+		"/search/{query}",
+		"/user_{name}",
+		"/user_{name}/about",
+		"/files/{dir}/*{filepath}",
 		"/doc/",
 		"/doc/go_faq.html",
 		"/doc/go1.html",
-		"/info/:user/public",
-		"/info/:user/project/:project",
+		"/info/{user}/public",
+		"/info/{user}/project/{project}",
 	}
 	for _, rte := range routes {
 		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
@@ -674,7 +675,7 @@ func TestInsertWildcardConflict(t *testing.T) {
 				{path: "/foo/baz", wildcard: false, wantErr: nil, wantMatch: nil},
 				{path: "/foo/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar", "/foo/baz"}},
 				{path: "/foo/bar/baz/", wildcard: true, wantErr: nil},
-				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*args"}},
+				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*{args}"}},
 			},
 		},
 		{
@@ -686,9 +687,9 @@ func TestInsertWildcardConflict(t *testing.T) {
 				wildcard  bool
 			}{
 				{path: "/foo/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*args"}},
+				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*{args}"}},
 				{path: "/fuzz/baz/bar/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*args"}},
+				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*{args}"}},
 			},
 		},
 		{
@@ -745,7 +746,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 				{path: "/test/", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
@@ -757,8 +758,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{f}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -769,7 +770,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 				{path: "/test", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
@@ -781,7 +782,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 				{path: "/test/abc", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
@@ -793,8 +794,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{f}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -805,8 +806,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo/star", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}/star", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
 		{
@@ -817,8 +818,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo/star", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foo}/star", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
 		{
@@ -829,8 +830,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -841,8 +842,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test{foo}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -853,8 +854,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:fx", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{fx}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -865,8 +866,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -877,8 +878,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/ab:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/ab{foo}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -889,8 +890,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foox}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -901,8 +902,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foox}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -913,8 +914,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:foo/ba", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}/ba", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
 	}
@@ -1019,16 +1020,16 @@ func TestUpdateRoute(t *testing.T) {
 	}{
 		{
 			name:           "update wildcard with another wildcard",
-			path:           "/foo/bar/*args",
+			path:           "/foo/bar/*{args}",
 			newPath:        "/foo/bar/",
-			newWildcardKey: "*new",
+			newWildcardKey: "*{new}",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 				w.Write([]byte(params.Get(RouteKey)))
 			}),
 		},
 		{
 			name:    "update wildcard with non wildcard",
-			path:    "/foo/bar/*args",
+			path:    "/foo/bar/*{args}",
 			newPath: "/foo/bar/",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 				w.Write([]byte(r.URL.Path))
@@ -1038,7 +1039,7 @@ func TestUpdateRoute(t *testing.T) {
 			name:           "update non wildcard with wildcard",
 			path:           "/foo/bar/",
 			newPath:        "/foo/bar/",
-			newWildcardKey: "*foo",
+			newWildcardKey: "*{foo}",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 				w.Write([]byte(params.Get(RouteKey)))
 			}),
@@ -1120,6 +1121,13 @@ func TestParseRoute(t *testing.T) {
 			wantPath: "/foo/xyz:{bar}",
 		},
 		{
+			name:            "valid inflight catchall",
+			path:            "/foo/xyz:*{bar}",
+			wantN:           1,
+			wantPath:        "/foo/xyz:",
+			wantCatchAllKey: "bar",
+		},
+		{
 			name:            "valid multi inflight param and catch all",
 			path:            "/foo/xyz:{bar}/abc:{bar}/*{arg}",
 			wantN:           3,
@@ -1129,12 +1137,6 @@ func TestParseRoute(t *testing.T) {
 		{
 			name:    "missing prefix slash",
 			path:    "foo/bar",
-			wantErr: ErrInvalidRoute,
-			wantN:   -1,
-		},
-		{
-			name:    "missing slash before catch all",
-			path:    "/foo/bar*",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
@@ -1169,8 +1171,14 @@ func TestParseRoute(t *testing.T) {
 			wantN:   -1,
 		},
 		{
-			name:    "missing name after param colon",
+			name:    "unexpected character in param",
 			path:    "/foo/{{bar}",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "in flight catch-all after param in one route segment",
+			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
@@ -1460,8 +1468,8 @@ func TestPanicHandler(t *testing.T) {
 func TestHas(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
-		"/welcome/:name",
-		"/users/uid_:id",
+		"/welcome/{name}",
+		"/users/uid_{id}",
 	}
 
 	r := New()
@@ -1485,7 +1493,7 @@ func TestHas(t *testing.T) {
 		},
 		{
 			name: "strict match route params",
-			path: "/welcome/:name",
+			path: "/welcome/{name}",
 			want: true,
 		},
 		{
@@ -1494,7 +1502,7 @@ func TestHas(t *testing.T) {
 		},
 		{
 			name: "strict match mid route params",
-			path: "/users/uid_:id",
+			path: "/users/uid_{id}",
 			want: true,
 		},
 		{
@@ -1513,8 +1521,8 @@ func TestHas(t *testing.T) {
 func TestReverse(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
-		"/welcome/:name",
-		"/users/uid_:id",
+		"/welcome/{name}",
+		"/users/uid_{id}",
 	}
 
 	r := New()
@@ -1535,12 +1543,12 @@ func TestReverse(t *testing.T) {
 		{
 			name: "reverse params route",
 			path: "/welcome/fox",
-			want: "/welcome/:name",
+			want: "/welcome/{name}",
 		},
 		{
 			name: "reverse mid params route",
 			path: "/users/uid_123",
-			want: "/users/uid_:id",
+			want: "/users/uid_{id}",
 		},
 		{
 			name: "reverse no match",
@@ -1558,8 +1566,8 @@ func TestReverse(t *testing.T) {
 func TestLookup(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
-		"/welcome/:name",
-		"/users/uid_:id",
+		"/welcome/{name}",
+		"/users/uid_{id}",
 		"/john/doe/",
 	}
 
@@ -1666,18 +1674,19 @@ func TestAbortHandler(t *testing.T) {
 }
 
 func TestFuzzInsertLookupParam(t *testing.T) {
-	// no '*', ':' and '/' and invalid escape char
+	// no '*', '{}' and '/' and invalid escape char
 	unicodeRanges := fuzz.UnicodeRanges{
 		{First: 0x20, Last: 0x29},
 		{First: 0x2B, Last: 0x2E},
-		{First: 0x30, Last: 0x39},
-		{First: 0x3B, Last: 0x04FF},
+		{First: 0x30, Last: 0x7A},
+		{First: 0x7C, Last: 0x7C},
+		{First: 0x7E, Last: 0x04FF},
 	}
 
 	tree := New().Tree()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
-	routeFormat := "/%s/:%s/%s/:%s/:%s"
+	routeFormat := "/%s/{%s}/%s/{%s}/{%s}"
 	reqFormat := "/%s/%s/%s/%s/%s"
 	for i := 0; i < 2000; i++ {
 		var s1, e1, s2, e2, e3 string
@@ -1723,11 +1732,12 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 }
 
 func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
-	// no '*' and ':' and invalid escape char
+	// no '*' and '{}' and invalid escape char
 	unicodeRanges := fuzz.UnicodeRanges{
 		{First: 0x20, Last: 0x29},
-		{First: 0x2B, Last: 0x39},
-		{First: 0x3B, Last: 0x04FF},
+		{First: 0x2B, Last: 0x7A},
+		{First: 0x7C, Last: 0x7C},
+		{First: 0x7E, Last: 0x04FF},
 	}
 
 	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
@@ -1824,7 +1834,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	h2 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		assert.Equal(t, "alex", params.Get("owner"))
 		assert.Equal(t, "vault", params.Get("repo"))
-		assert.Equal(t, "/file.txt", params.Get("path"))
+		assert.Equal(t, "file.txt", params.Get("path"))
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
@@ -1834,9 +1844,9 @@ func TestConcurrentRequestHandling(t *testing.T) {
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
-	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/keys", h1))
-	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/contents/*path", h2))
-	require.NoError(t, r.Handler(http.MethodGet, "/users/:user/received_events/public", h3))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/{owner}/{repo}/keys", h1))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/{owner}/{repo}/contents/*{path}", h2))
+	require.NoError(t, r.Handler(http.MethodGet, "/users/{user}/received_events/public", h3))
 
 	r1 := httptest.NewRequest(http.MethodGet, "/repos/john/fox/keys", nil)
 	r2 := httptest.NewRequest(http.MethodGet, "/repos/alex/vault/contents/file.txt", nil)
@@ -1851,7 +1861,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 			wait()
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, r1)
-			assert.Equal(t, "/repos/:owner/:repo/keys", w.Body.String())
+			assert.Equal(t, "/repos/{owner}/{repo}/keys", w.Body.String())
 		}()
 
 		go func() {
@@ -1859,7 +1869,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 			wait()
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, r2)
-			assert.Equal(t, "/repos/:owner/:repo/contents/*path", w.Body.String())
+			assert.Equal(t, "/repos/{owner}/{repo}/contents/*{path}", w.Body.String())
 		}()
 
 		go func() {
@@ -1867,7 +1877,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 			wait()
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, r3)
-			assert.Equal(t, "/users/:user/received_events/public", w.Body.String())
+			assert.Equal(t, "/users/{user}/received_events/public", w.Body.String())
 		}()
 	}
 
@@ -1903,7 +1913,7 @@ func ExampleNew() {
 		})
 	}
 
-	_ = r.Handler(http.MethodGet, "/hello/:name", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
+	_ = r.Handler(http.MethodGet, "/hello/{name}", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
 		_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
 	}))
 }
@@ -1911,7 +1921,7 @@ func ExampleNew() {
 // This example demonstrates some important considerations when using the Lookup function.
 func ExampleLookup() {
 	r := New()
-	_ = r.Handler(http.MethodGet, "/hello/:name", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+	_ = r.Handler(http.MethodGet, "/hello/{name}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		_, _ = fmt.Fprintf(w, "Hello, %s\n", params.Get("name"))
 	}))
 
