@@ -522,7 +522,7 @@ func BenchmarkStaticParallel(b *testing.B) {
 
 func BenchmarkCatchAll(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*{args}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
