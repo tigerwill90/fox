@@ -147,21 +147,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-		// Rule: a node with {param} has no child or has a separator before the end of the key or its child
-		// start with a separator
-		if !strings.HasPrefix(suffixFromExistingEdge, "/") {
-			for i := len(cPrefix) - 1; i >= 0; i-- {
-				if cPrefix[i] == '/' {
-					break
-				}
-				if cPrefix[i] == '{' {
-					// TODO remove this
-					// /test/abc:foo => /test/abc{foo}
-					// /test/abc:f => /test/abc{f} => is now an incomplete match to middle of edge
-					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-				}
-			}
-		}
 
 		child := newNodeFromRef(
 			suffixFromExistingEdge,
@@ -211,22 +196,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		}
 
 		keySuffix := path[result.charsMatched:]
-		// Rule: a node with :param has no child or has a separator before the end of the key
-		// make sure than and existing params {x} is not extended to {xy}
-		// {x}/{y} is of course valid
-		if !strings.HasPrefix(keySuffix, "/") {
-			for i := len(result.matched.key) - 1; i >= 0; i-- {
-				if result.matched.key[i] == '/' {
-					break
-				}
-				if result.matched.key[i] == '{' {
-					// TODO remove this
-					// /foo:bar => /foo{bar}
-					// /foo:barx => /foo{barx} is now incomplete match to middle of edge.
-					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-				}
-			}
-		}
 
 		// No children, so no paramChild
 		child := newNode(keySuffix, handler, nil, catchAllKey, false, path)
