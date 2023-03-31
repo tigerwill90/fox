@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -1436,6 +1437,31 @@ func TestRedirectFixedPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTree_Remove(t *testing.T) {
+	tree := New().Tree()
+
+	routes := make([]route, len(githubAPI))
+	copy(routes, githubAPI)
+
+	for _, rte := range routes {
+		require.NoError(t, tree.Handler(rte.method, rte.path, emptyHandler))
+	}
+
+	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
+
+	for _, rte := range routes {
+		require.NoError(t, tree.Remove(rte.method, rte.path))
+	}
+
+	cnt := 0
+	_ = Walk(tree, func(method, path string, handler Handler) error {
+		cnt++
+		return nil
+	})
+
+	assert.Equal(t, 0, cnt)
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
