@@ -155,6 +155,9 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 					break
 				}
 				if cPrefix[i] == '{' {
+					// TODO remove this
+					// /test/abc:foo => /test/abc{foo}
+					// /test/abc:f => /test/abc{f} => is now an incomplete match to middle of edge
 					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 				}
 			}
@@ -217,6 +220,9 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 					break
 				}
 				if result.matched.key[i] == '{' {
+					// TODO remove this
+					// /foo:bar => /foo{bar}
+					// /foo:barx => /foo{barx} is now incomplete match to middle of edge.
 					return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 				}
 			}
