@@ -488,7 +488,6 @@ STOP:
 						break STOP
 					}
 					startKey := charsMatchedInNodeFound
-
 					idx = strings.Index(current.key[startKey:], "/")
 					if idx >= 0 {
 						// -1 since on the next incrementation, if any, 'i' are going to be incremented
