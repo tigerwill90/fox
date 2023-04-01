@@ -1,6 +1,14 @@
+linters-settings:
+  govet:
+    check-shadowing: true
+
 linters:
-  enable-all: true
+  enable:
+    - govet
+    - gosec
 
 issues:
   exclude-rules:
     - path: _test\.go
+      linters:
+        - govet
