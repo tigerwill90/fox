@@ -71,7 +71,7 @@ func main() {
 	r := fox.New()
 
 	Must(r.Handler(http.MethodGet, "/", WelcomeHandler))
-	Must(r.Handler(http.MethodGet, "/hello/:name", new(HelloHandler)))
+	Must(r.Handler(http.MethodGet, "/hello/{name}", new(HelloHandler)))
 
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
@@ -102,31 +102,38 @@ if errors.Is(err, fox.ErrRouteConflict) {
 ```
 
 #### Named parameters
-A route can be defined using placeholder (e.g `:name`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
+A route can be defined using placeholder (e.g `{name}`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
 The `Get` method is a helper to retrieve the value using the placeholder name.
 
 ```
-Pattern /avengers/:name
+Pattern /avengers/{name}
 
 /avengers/ironman       match
 /avengers/thor          match
 /avengers/hulk/angry    no match
 /avengers/              no match
 
-Pattern /users/uuid_:id
+Pattern /users/uuid:{id}
 
-/users/uuid_xyz         match
-/users/uuid             no match
+/users/uuid:123             match
+/users/uuid                 no match
 ```
 
 ### Catch all parameter
-Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a name.
+Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a regular
+named parameter (e.g. `*{name}`).
 ```
-Pattern /src/*filepath
+Pattern /src/*{filepath}
 
-/src/                   match
-/src/conf.txt           match
-/src/dir/config.txt     match
+/src/                       match
+/src/conf.txt               match
+/src/dir/config.txt         match
+
+Patter /src/file=*{path}
+
+/src/file=                  match
+/src/file=config.txt        match
+/src/file=/dir/config.txt   match
 ```
 
 #### Warning about params slice
@@ -168,7 +175,7 @@ As such threads that route requests should never encounter latency due to ongoin
 
 ### Managing routes a runtime
 #### Routing mutation
-In this example, the handler for `routes/:action` allow to dynamically register, update and remove handler for the
+In this example, the handler for `routes/{action}` allow to dynamically register, update and remove handler for the
 given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
 ```go
@@ -230,7 +237,7 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 
 func main() {
 	r := fox.New()
-	Must(r.Handler(http.MethodPost, "/routes/:action", &ActionHandler{fox: r}))
+	Must(r.Handler(http.MethodPost, "/routes/{action}", &ActionHandler{fox: r}))
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
@@ -242,7 +249,7 @@ func Must(err error) {
 ```
 
 #### Tree swapping
-Fox also enables you to replace the entire tree in a single atomic operation using the `Store` and `Swap` methods.
+Fox also enables you to replace the entire tree in a single atomic operation using the `Use` and `Swap` methods.
 Note that router's options apply automatically on the new tree.
 ````go
 package main
@@ -349,7 +356,7 @@ Fox itself implements the `http.Handler` interface which make easy to chain any 
 provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
 request context
 ```go
-_ = r.Handler(http.MethodGet, "/users/:id", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
+_ = r.Handler(http.MethodGet, "/users/{id}", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
     _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
 }))
@@ -499,6 +506,11 @@ BenchmarkMartini_GithubAll                                   572           20428
 BenchmarkGorillaMux_GithubAll                                562           2110880 ns/op          199683 B/op       1588 allocs/op
 BenchmarkPat_GithubAll                                       550           2117715 ns/op         1410624 B/op      22515 allocs/op
 ```
+
+## Road to v1
+- [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
+- [ ] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
+- [ ] Collect feedback and polishing
 
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
