@@ -508,8 +508,9 @@ BenchmarkPat_GithubAll                                       550           21177
 ```
 
 ## Road to v1
-- [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309)
-- [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919)
+- [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309)
+- [ ] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919)
+- [ ] Collect feedback and polishing
 
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
