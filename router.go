@@ -95,13 +95,21 @@ func (fox *Router) NewTree() *Tree {
 	for i := range commonVerbs {
 		nds[i] = new(node)
 		nds[i].key = commonVerbs[i]
+		nds[i].paramChildIndex = -1
 	}
 	tree.nodes.Store(&nds)
 
-	tree.p = sync.Pool{
+	tree.pp = sync.Pool{
 		New: func() any {
 			params := make(Params, 0, tree.maxParams.Load())
 			return &params
+		},
+	}
+
+	tree.np = sync.Pool{
+		New: func() any {
+			skippedNodes := make([]skippedNode, 0, tree.maxDepth.Load())
+			return &skippedNodes
 		},
 	}
 
@@ -386,6 +394,7 @@ type searchResult struct {
 	path                    string
 	charsMatched            int
 	charsMatchedInNodeFound int
+	depth                   uint32
 }
 
 func min(a, b int) int {

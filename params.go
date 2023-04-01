@@ -41,7 +41,7 @@ func (p *Params) Free(t *Tree) {
 		return
 	}
 	*p = (*p)[:0]
-	t.p.Put(p)
+	t.pp.Put(p)
 }
 
 // ParamsFromContext is a helper function to retrieve parameters from the request context.

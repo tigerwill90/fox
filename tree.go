@@ -29,10 +29,12 @@ import (
 // calling params.Free(tree). Always ensure that the Tree pointer passed as a parameter to params.Free is the same
 // as the one passed to the Lookup function.
 type Tree struct {
-	p     sync.Pool
+	pp    sync.Pool
+	np    sync.Pool
 	nodes atomic.Pointer[[]*node]
 	sync.Mutex
 	maxParams atomic.Uint32
+	maxDepth  atomic.Uint32
 	saveRoute bool
 }
 
@@ -119,7 +121,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		}
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChild, path)
+		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex, path)
 
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
@@ -154,7 +156,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			result.matched.children,
 			result.matched.childKeys,
 			result.matched.catchAllKey,
-			result.matched.paramChild,
+			result.matched.paramChildIndex,
 			result.matched.path,
 		)
 
@@ -163,18 +165,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			handler,
 			[]*node{child},
 			catchAllKey,
-			// e.g. tree encode /tes/{t} and insert /tes/
-			// /tes/ (paramChild)
-			// ├── {t}
-			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
-			// if paramChild == true {
-			// 	next = current.get(0)
-			// }
-			strings.HasPrefix(suffixFromExistingEdge, "{"),
 			path,
 		)
 
 		t.updateMaxParams(paramsN)
+		t.updateMaxDepth(result.depth + 1)
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
 		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
@@ -198,7 +193,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keySuffix := path[result.charsMatched:]
 
 		// No children, so no paramChild
-		child := newNode(keySuffix, handler, nil, catchAllKey, false, path)
+		child := newNode(keySuffix, handler, nil, catchAllKey, path)
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(
@@ -206,20 +201,15 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			result.matched.handler,
 			edges,
 			result.matched.catchAllKey,
-			// e.g. tree encode /tes/ and insert /tes/{t}
-			// /tes/ (paramChild)
-			// ├── {t}
-			// since /tes/xyz will match until /tes/ and when looking for next child, 'x' will match nothing
-			// if paramChild == true {
-			// 	next = current.get(0)
-			// }
-			strings.HasPrefix(keySuffix, "{"),
 			result.matched.path,
 		)
 
+		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
+
 		if result.matched == rootNode {
 			n.key = method
+			n.paramChildIndex = -1
 			t.updateRoot(n)
 			break
 		}
@@ -259,31 +249,32 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 		// Rule: parent's of a node with {param} have only one node or are prefixed by a char (e.g /{param})
-		if strings.HasPrefix(suffixFromExistingEdge, "{") {
-			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-		}
+		/*		if strings.HasPrefix(suffixFromExistingEdge, "{") {
+				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
+			}*/
 
 		keySuffix := path[result.charsMatched:]
 		// Rule: parent's of a node with {param} have only one node or are prefixed by a char (e.g /{param})
-		if strings.HasPrefix(keySuffix, "{") {
-			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-		}
+		/*		if strings.HasPrefix(keySuffix, "{") {
+				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
+			}*/
 
 		// No children, so no paramChild
-		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, false, path) // inserted node
+		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, -1, path) // inserted node
 		n2 := newNodeFromRef(
 			suffixFromExistingEdge,
 			result.matched.handler,
 			result.matched.children,
 			result.matched.childKeys,
 			result.matched.catchAllKey,
-			result.matched.paramChild,
+			result.matched.paramChildIndex,
 			result.matched.path,
 		) // previous matched node
 
 		// n3 children never start with a param
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", false, "") // intermediary node
+		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", "") // intermediary node
 
+		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n3)
 	default:
@@ -319,7 +310,7 @@ func (t *Tree) update(method string, path, catchAllKey string, handler Handler) 
 		result.matched.children,
 		result.matched.childKeys,
 		catchAllKey,
-		result.matched.paramChild,
+		result.matched.paramChildIndex,
 		path,
 	)
 	result.p.updateEdge(n)
@@ -352,7 +343,7 @@ func (t *Tree) remove(method, path string) bool {
 			result.matched.children,
 			result.matched.childKeys,
 			"",
-			result.matched.paramChild,
+			result.matched.paramChildIndex,
 			"",
 		)
 		result.p.updateEdge(n)
@@ -368,7 +359,7 @@ func (t *Tree) remove(method, path string) bool {
 			child.children,
 			child.childKeys,
 			child.catchAllKey,
-			child.paramChild,
+			child.paramChildIndex,
 			child.path,
 		)
 		result.p.updateEdge(n)
@@ -397,7 +388,7 @@ func (t *Tree) remove(method, path string) bool {
 			child.children,
 			child.childKeys,
 			child.catchAllKey,
-			child.paramChild,
+			child.paramChildIndex,
 			child.path,
 		)
 	} else {
@@ -406,7 +397,6 @@ func (t *Tree) remove(method, path string) bool {
 			result.p.handler,
 			parentEdges,
 			result.p.catchAllKey,
-			result.p.paramChild,
 			result.p.path,
 		)
 	}
@@ -416,6 +406,7 @@ func (t *Tree) remove(method, path string) bool {
 			return t.removeRoot(method)
 		}
 		parent.key = method
+		parent.paramChildIndex = -1
 		t.updateRoot(parent)
 		return true
 	}
@@ -424,29 +415,43 @@ func (t *Tree) remove(method, path string) bool {
 	return true
 }
 
+type skippedNode struct {
+	node      *node
+	pathIndex int
+}
+
 func (t *Tree) lookup(rootNode *node, path string, lazy bool) (n *node, params *Params, tsr bool) {
+	if len(rootNode.children) == 0 {
+		return nil, nil, false
+	}
+
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
+		paramCnt                int
+		skippedNodes            *[]skippedNode
 	)
 
-	current := rootNode
-STOP:
-	for charsMatched < len(path) {
-		idx := linearSearch(current.childKeys, path[charsMatched])
-		if idx < 0 {
-			if !current.paramChild {
-				break
-			}
-			idx = 0
-		}
+	current := rootNode.children[0].Load()
 
-		current = current.children[idx].Load()
+walk:
+	for charsMatched < len(path) {
 		charsMatchedInNodeFound = 0
 		for i := 0; charsMatched < len(path); i++ {
 			if i >= len(current.key) {
 				break
 			}
+
+			/*	tmp1 := string(path[charsMatched])
+				_ = tmp1
+				tmp2 := string(current.key[i])
+				_ = tmp2
+
+				tmp3 := charsMatchedInNodeFound
+				_ = tmp3
+
+				tmp4 := charsMatched
+				_ = tmp4*/
 
 			if current.key[i] != path[charsMatched] || path[charsMatched] == '{' {
 				if current.key[i] == '{' {
@@ -460,8 +465,9 @@ STOP:
 						charsMatched += len(path[charsMatched:])
 					} else {
 						// segment is empty
-						break STOP
+						break walk
 					}
+
 					startKey := charsMatchedInNodeFound
 					idx = strings.IndexByte(current.key[startKey:], '/')
 					if idx >= 0 {
@@ -473,25 +479,83 @@ STOP:
 						i += len(current.key[charsMatchedInNodeFound:]) - 1
 						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
 					}
+
 					if !lazy {
 						if params == nil {
 							params = t.newParams()
 						}
+						paramCnt++
 						// :n where n > 0
 						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound-1], Value: path[startPath:charsMatched]})
 					}
+
 					continue
 				}
-				break STOP
+
+				break walk
 			}
 
 			charsMatched++
 			charsMatchedInNodeFound++
 		}
+
+		if charsMatched < len(path) {
+			// linear search
+			idx := -1
+			for i := 0; i < len(current.childKeys); i++ {
+				if current.childKeys[i] == path[charsMatched] {
+					idx = i
+					break
+				}
+			}
+
+			if idx < 0 {
+				if current.paramChildIndex < 0 {
+					break
+				}
+				// child param: go deeper and since the child param is evaluated
+				// now, no need to backtrack later.
+				idx = current.paramChildIndex
+				current = current.children[idx].Load()
+				continue
+			}
+
+			if current.paramChildIndex >= 0 && len(current.children) > 1 {
+				if skippedNodes == nil {
+					skippedNodes = t.newSkippedNods()
+				}
+				*skippedNodes = append(*skippedNodes, skippedNode{current, charsMatched})
+				paramCnt = 0
+			}
+			current = current.children[idx].Load()
+		}
 	}
 
 	if !current.isLeaf() {
-		return nil, params, false
+		if skippedNodes != nil && len(*skippedNodes) > 0 {
+			skipped := (*skippedNodes)[len(*skippedNodes)-1]
+			current = skipped.node.children[skipped.node.paramChildIndex].Load()
+			// pop
+			*skippedNodes = (*skippedNodes)[:len(*skippedNodes)-1]
+
+			/*			pp := path[skipped.pathIndex:]
+						_ = pp
+			*/
+			if params != nil {
+				*params = (*params)[:len(*params)-paramCnt]
+			}
+			charsMatched = skipped.pathIndex
+			paramCnt = 0
+			goto walk
+		}
+
+		if params != nil {
+			params.Free(t)
+		}
+		if skippedNodes != nil {
+			t.np.Put(skippedNodes)
+		}
+		return nil, nil, false
 	}
 
 	if charsMatched == len(path) {
@@ -510,14 +574,49 @@ STOP:
 					*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				}
 
+				if skippedNodes != nil {
+					t.np.Put(skippedNodes)
+				}
 				return current, params, false
+			}
+
+			if skippedNodes != nil {
+				t.np.Put(skippedNodes)
 			}
 			return current, params, false
 		} else if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
 			// Tsr recommendation: add an extra trailing slash (got an exact match)
-			remainingSuffix := current.key[charsMatchedInNodeFound:]
-			return nil, nil, len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
+
+			if !tsr {
+				remainingSuffix := current.key[charsMatchedInNodeFound:]
+				tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == '/'
+			}
+
+			if skippedNodes != nil && len(*skippedNodes) > 0 {
+				skipped := (*skippedNodes)[len(*skippedNodes)-1]
+				current = skipped.node.children[skipped.node.paramChildIndex].Load()
+				// pop
+				*skippedNodes = (*skippedNodes)[:len(*skippedNodes)-1]
+
+				/*				pp := path[skipped.pathIndex:]
+								_ = pp*/
+
+				if params != nil {
+					*params = (*params)[:len(*params)-paramCnt]
+				}
+				charsMatched = skipped.pathIndex
+				paramCnt = 0
+				goto walk
+			}
+
+			if params != nil {
+				params.Free(t)
+			}
+			if skippedNodes != nil {
+				t.np.Put(skippedNodes)
+			}
+			return nil, nil, tsr
 		}
 	}
 
@@ -537,12 +636,62 @@ STOP:
 			// Same as exact match, no tsr recommendation
 			return current, params, false
 		}
+
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
-		remainingKeySuffix := path[charsMatched:]
-		return nil, nil, len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == '/'
+		if !tsr {
+			remainingKeySuffix := path[charsMatched:]
+			tsr = len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == '/'
+		}
+
+		if skippedNodes != nil && len(*skippedNodes) > 0 {
+			skipped := (*skippedNodes)[len(*skippedNodes)-1]
+			current = skipped.node.children[skipped.node.paramChildIndex].Load()
+			// pop
+			*skippedNodes = (*skippedNodes)[:len(*skippedNodes)-1]
+
+			/*			pp := path[skipped.pathIndex:]
+						_ = pp*/
+
+			if params != nil {
+				*params = (*params)[:len(*params)-paramCnt]
+			}
+			charsMatched = skipped.pathIndex
+			paramCnt = 0
+			goto walk
+		}
+
+		if skippedNodes != nil {
+			t.np.Put(skippedNodes)
+		}
+		return nil, nil, tsr
 	}
 
-	return nil, nil, false
+	if skippedNodes != nil && len(*skippedNodes) > 0 {
+		skipped := (*skippedNodes)[len(*skippedNodes)-1]
+		current = skipped.node.children[skipped.node.paramChildIndex].Load()
+		// pop
+		*skippedNodes = (*skippedNodes)[:len(*skippedNodes)-1]
+
+		/*		pp := path[skipped.pathIndex:]
+				_ = pp*/
+
+		if params != nil {
+			*params = (*params)[:len(*params)-paramCnt]
+		}
+		charsMatched = skipped.pathIndex
+		paramCnt = 0
+		goto walk
+	}
+
+	if params != nil {
+		params.Free(t)
+	}
+
+	if skippedNodes != nil {
+		t.np.Put(skippedNodes)
+	}
+
+	return nil, nil, tsr
 }
 
 func (t *Tree) search(rootNode *node, path string) searchResult {
@@ -553,6 +702,7 @@ func (t *Tree) search(rootNode *node, path string) searchResult {
 		p                       *node
 		charsMatched            int
 		charsMatchedInNodeFound int
+		depth                   uint32
 	)
 
 STOP:
@@ -562,6 +712,7 @@ STOP:
 			break STOP
 		}
 
+		depth++
 		pp = p
 		p = current
 		current = next
@@ -587,6 +738,7 @@ STOP:
 		charsMatchedInNodeFound: charsMatchedInNodeFound,
 		p:                       p,
 		pp:                      pp,
+		depth:                   depth,
 	}
 }
 
@@ -636,10 +788,22 @@ func (t *Tree) updateMaxParams(max uint32) {
 	}
 }
 
+// updateMaxDepth perform an update only if max is greater than the current
+// max depth. This function should be guarded my mutex.
+func (t *Tree) updateMaxDepth(max uint32) {
+	if max > t.maxDepth.Load() {
+		t.maxDepth.Store(max)
+	}
+}
+
 func (t *Tree) load() []*node {
 	return *t.nodes.Load()
 }
 
 func (t *Tree) newParams() *Params {
-	return t.p.Get().(*Params)
+	return t.pp.Get().(*Params)
+}
+
+func (t *Tree) newSkippedNods() *[]skippedNode {
+	return t.np.Get().(*[]skippedNode)
 }
