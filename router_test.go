@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -204,232 +205,232 @@ var staticRoutes = []route{
 var githubAPI = []route{
 	// OAuth Authorizations
 	{"GET", "/authorizations"},
-	{"GET", "/authorizations/:id"},
+	{"GET", "/authorizations/{id}"},
 	{"POST", "/authorizations"},
-	{"DELETE", "/authorizations/:id"},
-	{"GET", "/applications/:client_id/tokens/:access_token"},
-	{"DELETE", "/applications/:client_id/tokens"},
-	{"DELETE", "/applications/:client_id/tokens/:access_token"},
+	{"DELETE", "/authorizations/{id}"},
+	{"GET", "/applications/{client_id}/tokens/{access_token}"},
+	{"DELETE", "/applications/{client_id}/tokens"},
+	{"DELETE", "/applications/{client_id}/tokens/{access_token}"},
 
 	// Activity
 	{"GET", "/events"},
-	{"GET", "/repos/:owner/:repo/events"},
-	{"GET", "/networks/:owner/:repo/events"},
-	{"GET", "/orgs/:org/events"},
-	{"GET", "/users/:user/received_events"},
-	{"GET", "/users/:user/received_events/public"},
-	{"GET", "/users/:user/events"},
-	{"GET", "/users/:user/events/public"},
-	{"GET", "/users/:user/events/orgs/:org"},
+	{"GET", "/repos/{owner}/{repo}/events"},
+	{"GET", "/networks/{owner}/{repo}/events"},
+	{"GET", "/orgs/{org}/events"},
+	{"GET", "/users/{user}/received_events"},
+	{"GET", "/users/{user}/received_events/public"},
+	{"GET", "/users/{user}/events"},
+	{"GET", "/users/{user}/events/public"},
+	{"GET", "/users/{user}/events/orgs/{org}"},
 	{"GET", "/feeds"},
 	{"GET", "/notifications"},
-	{"GET", "/repos/:owner/:repo/notifications"},
+	{"GET", "/repos/{owner}/{repo}/notifications"},
 	{"PUT", "/notifications"},
-	{"PUT", "/repos/:owner/:repo/notifications"},
-	{"GET", "/notifications/threads/:id"},
-	{"GET", "/notifications/threads/:id/subscription"},
-	{"PUT", "/notifications/threads/:id/subscription"},
-	{"DELETE", "/notifications/threads/:id/subscription"},
-	{"GET", "/repos/:owner/:repo/stargazers"},
-	{"GET", "/users/:user/starred"},
+	{"PUT", "/repos/{owner}/{repo}/notifications"},
+	{"GET", "/notifications/threads/{id}"},
+	{"GET", "/notifications/threads/{id}/subscription"},
+	{"PUT", "/notifications/threads/{id}/subscription"},
+	{"DELETE", "/notifications/threads/{id}/subscription"},
+	{"GET", "/repos/{owner}/{repo}/stargazers"},
+	{"GET", "/users/{user}/starred"},
 	{"GET", "/user/starred"},
-	{"GET", "/user/starred/:owner/:repo"},
-	{"PUT", "/user/starred/:owner/:repo"},
-	{"DELETE", "/user/starred/:owner/:repo"},
-	{"GET", "/repos/:owner/:repo/subscribers"},
-	{"GET", "/users/:user/subscriptions"},
+	{"GET", "/user/starred/{owner}/{repo}"},
+	{"PUT", "/user/starred/{owner}/{repo}"},
+	{"DELETE", "/user/starred/{owner}/{repo}"},
+	{"GET", "/repos/{owner}/{repo}/subscribers"},
+	{"GET", "/users/{user}/subscriptions"},
 	{"GET", "/user/subscriptions"},
-	{"GET", "/repos/:owner/:repo/subscription"},
-	{"PUT", "/repos/:owner/:repo/subscription"},
-	{"DELETE", "/repos/:owner/:repo/subscription"},
-	{"GET", "/user/subscriptions/:owner/:repo"},
-	{"PUT", "/user/subscriptions/:owner/:repo"},
-	{"DELETE", "/user/subscriptions/:owner/:repo"},
+	{"GET", "/repos/{owner}/{repo}/subscription"},
+	{"PUT", "/repos/{owner}/{repo}/subscription"},
+	{"DELETE", "/repos/{owner}/{repo}/subscription"},
+	{"GET", "/user/subscriptions/{owner}/{repo}"},
+	{"PUT", "/user/subscriptions/{owner}/{repo}"},
+	{"DELETE", "/user/subscriptions/{owner}/{repo}"},
 
 	// Gists
-	{"GET", "/users/:user/gists"},
+	{"GET", "/users/{user}/gists"},
 	{"GET", "/gists"},
-	{"GET", "/gists/:id"},
+	{"GET", "/gists/{id}"},
 	{"POST", "/gists"},
-	{"PUT", "/gists/:id/star"},
-	{"DELETE", "/gists/:id/star"},
-	{"GET", "/gists/:id/star"},
-	{"POST", "/gists/:id/forks"},
-	{"DELETE", "/gists/:id"},
+	{"PUT", "/gists/{id}/star"},
+	{"DELETE", "/gists/{id}/star"},
+	{"GET", "/gists/{id}/star"},
+	{"POST", "/gists/{id}/forks"},
+	{"DELETE", "/gists/{id}"},
 
 	// Git Data
-	{"GET", "/repos/:owner/:repo/git/blobs/:sha"},
-	{"POST", "/repos/:owner/:repo/git/blobs"},
-	{"GET", "/repos/:owner/:repo/git/commits/:sha"},
-	{"POST", "/repos/:owner/:repo/git/commits"},
-	{"GET", "/repos/:owner/:repo/git/refs/*ref"},
-	{"GET", "/repos/:owner/:repo/git/refs"},
-	{"POST", "/repos/:owner/:repo/git/refs"},
-	{"DELETE", "/repos/:owner/:repo/git/refs/*ref"},
-	{"GET", "/repos/:owner/:repo/git/tags/:sha"},
-	{"POST", "/repos/:owner/:repo/git/tags"},
-	{"GET", "/repos/:owner/:repo/git/trees/:sha"},
-	{"POST", "/repos/:owner/:repo/git/trees"},
+	{"GET", "/repos/{owner}/{repo}/git/blobs/{sha}"},
+	{"POST", "/repos/{owner}/{repo}/git/blobs"},
+	{"GET", "/repos/{owner}/{repo}/git/commits/{sha}"},
+	{"POST", "/repos/{owner}/{repo}/git/commits"},
+	{"GET", "/repos/{owner}/{repo}/git/refs/*{ref}"},
+	{"GET", "/repos/{owner}/{repo}/git/refs"},
+	{"POST", "/repos/{owner}/{repo}/git/refs"},
+	{"DELETE", "/repos/{owner}/{repo}/git/refs/*{ref}"},
+	{"GET", "/repos/{owner}/{repo}/git/tags/{sha}"},
+	{"POST", "/repos/{owner}/{repo}/git/tags"},
+	{"GET", "/repos/{owner}/{repo}/git/trees/{sha}"},
+	{"POST", "/repos/{owner}/{repo}/git/trees"},
 
 	// Issues
 	{"GET", "/issues"},
 	{"GET", "/user/issues"},
-	{"GET", "/orgs/:org/issues"},
-	{"GET", "/repos/:owner/:repo/issues"},
-	{"GET", "/repos/:owner/:repo/issues/:number"},
-	{"POST", "/repos/:owner/:repo/issues"},
-	{"GET", "/repos/:owner/:repo/assignees"},
-	{"GET", "/repos/:owner/:repo/assignees/:assignee"},
-	{"GET", "/repos/:owner/:repo/issues/:number/comments"},
-	{"POST", "/repos/:owner/:repo/issues/:number/comments"},
-	{"GET", "/repos/:owner/:repo/issues/:number/events"},
-	{"GET", "/repos/:owner/:repo/labels"},
-	{"GET", "/repos/:owner/:repo/labels/:name"},
-	{"POST", "/repos/:owner/:repo/labels"},
-	{"DELETE", "/repos/:owner/:repo/labels/:name"},
-	{"GET", "/repos/:owner/:repo/issues/:number/labels"},
-	{"POST", "/repos/:owner/:repo/issues/:number/labels"},
-	{"DELETE", "/repos/:owner/:repo/issues/:number/labels/:name"},
-	{"PUT", "/repos/:owner/:repo/issues/:number/labels"},
-	{"DELETE", "/repos/:owner/:repo/issues/:number/labels"},
-	{"GET", "/repos/:owner/:repo/milestones/:number/labels"},
-	{"GET", "/repos/:owner/:repo/milestones"},
-	{"GET", "/repos/:owner/:repo/milestones/:number"},
-	{"POST", "/repos/:owner/:repo/milestones"},
-	{"DELETE", "/repos/:owner/:repo/milestones/:number"},
+	{"GET", "/orgs/{org}/issues"},
+	{"GET", "/repos/{owner}/{repo}/issues"},
+	{"GET", "/repos/{owner}/{repo}/issues/{number}"},
+	{"POST", "/repos/{owner}/{repo}/issues"},
+	{"GET", "/repos/{owner}/{repo}/assignees"},
+	{"GET", "/repos/{owner}/{repo}/assignees/:assignee"},
+	{"GET", "/repos/{owner}/{repo}/issues/{number}/comments"},
+	{"POST", "/repos/{owner}/{repo}/issues/{number}/comments"},
+	{"GET", "/repos/{owner}/{repo}/issues/{number}/events"},
+	{"GET", "/repos/{owner}/{repo}/labels"},
+	{"GET", "/repos/{owner}/{repo}/labels/{name}"},
+	{"POST", "/repos/{owner}/{repo}/labels"},
+	{"DELETE", "/repos/{owner}/{repo}/labels/{name}"},
+	{"GET", "/repos/{owner}/{repo}/issues/{number}/labels"},
+	{"POST", "/repos/{owner}/{repo}/issues/{number}/labels"},
+	{"DELETE", "/repos/{owner}/{repo}/issues/{number}/labels/{name}"},
+	{"PUT", "/repos/{owner}/{repo}/issues/{number}/labels"},
+	{"DELETE", "/repos/{owner}/{repo}/issues/{number}/labels"},
+	{"GET", "/repos/{owner}/{repo}/milestones/{number}/labels"},
+	{"GET", "/repos/{owner}/{repo}/milestones"},
+	{"GET", "/repos/{owner}/{repo}/milestones/{number}"},
+	{"POST", "/repos/{owner}/{repo}/milestones"},
+	{"DELETE", "/repos/{owner}/{repo}/milestones/{number}"},
 
 	// Miscellaneous
 	{"GET", "/emojis"},
 	{"GET", "/gitignore/templates"},
-	{"GET", "/gitignore/templates/:name"},
+	{"GET", "/gitignore/templates/{name}"},
 	{"POST", "/markdown"},
 	{"POST", "/markdown/raw"},
 	{"GET", "/meta"},
 	{"GET", "/rate_limit"},
 
 	// Organizations
-	{"GET", "/users/:user/orgs"},
+	{"GET", "/users/{user}/orgs"},
 	{"GET", "/user/orgs"},
-	{"GET", "/orgs/:org"},
-	{"GET", "/orgs/:org/members"},
-	{"GET", "/orgs/:org/members/:user"},
-	{"DELETE", "/orgs/:org/members/:user"},
-	{"GET", "/orgs/:org/public_members"},
-	{"GET", "/orgs/:org/public_members/:user"},
-	{"PUT", "/orgs/:org/public_members/:user"},
-	{"DELETE", "/orgs/:org/public_members/:user"},
-	{"GET", "/orgs/:org/teams"},
-	{"GET", "/teams/:id"},
-	{"POST", "/orgs/:org/teams"},
-	{"DELETE", "/teams/:id"},
-	{"GET", "/teams/:id/members"},
-	{"GET", "/teams/:id/members/:user"},
-	{"PUT", "/teams/:id/members/:user"},
-	{"DELETE", "/teams/:id/members/:user"},
-	{"GET", "/teams/:id/repos"},
-	{"GET", "/teams/:id/repos/:owner/:repo"},
-	{"PUT", "/teams/:id/repos/:owner/:repo"},
-	{"DELETE", "/teams/:id/repos/:owner/:repo"},
+	{"GET", "/orgs/{org}"},
+	{"GET", "/orgs/{org}/members"},
+	{"GET", "/orgs/{org}/members/{user}"},
+	{"DELETE", "/orgs/{org}/members/{user}"},
+	{"GET", "/orgs/{org}/public_members"},
+	{"GET", "/orgs/{org}/public_members/{user}"},
+	{"PUT", "/orgs/{org}/public_members/{user}"},
+	{"DELETE", "/orgs/{org}/public_members/{user}"},
+	{"GET", "/orgs/{org}/teams"},
+	{"GET", "/teams/{id}"},
+	{"POST", "/orgs/{org}/teams"},
+	{"DELETE", "/teams/{id}"},
+	{"GET", "/teams/{id}/members"},
+	{"GET", "/teams/{id}/members/{user}"},
+	{"PUT", "/teams/{id}/members/{user}"},
+	{"DELETE", "/teams/{id}/members/{user}"},
+	{"GET", "/teams/{id}/repos"},
+	{"GET", "/teams/{id}/repos/{owner}/{repo}"},
+	{"PUT", "/teams/{id}/repos/{owner}/{repo}"},
+	{"DELETE", "/teams/{id}/repos/{owner}/{repo}"},
 	{"GET", "/user/teams"},
 
 	// Pull Requests
-	{"GET", "/repos/:owner/:repo/pulls"},
-	{"GET", "/repos/:owner/:repo/pulls/:number"},
-	{"POST", "/repos/:owner/:repo/pulls"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/commits"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/files"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/merge"},
-	{"PUT", "/repos/:owner/:repo/pulls/:number/merge"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/comments"},
-	{"PUT", "/repos/:owner/:repo/pulls/:number/comments"},
+	{"GET", "/repos/{owner}/{repo}/pulls"},
+	{"GET", "/repos/{owner}/{repo}/pulls/{number}"},
+	{"POST", "/repos/{owner}/{repo}/pulls"},
+	{"GET", "/repos/{owner}/{repo}/pulls/{number}/commits"},
+	{"GET", "/repos/{owner}/{repo}/pulls/{number}/files"},
+	{"GET", "/repos/{owner}/{repo}/pulls/{number}/merge"},
+	{"PUT", "/repos/{owner}/{repo}/pulls/{number}/merge"},
+	{"GET", "/repos/{owner}/{repo}/pulls/{number}/comments"},
+	{"PUT", "/repos/{owner}/{repo}/pulls/{number}/comments"},
 
 	// Repositories
 	{"GET", "/user/repos"},
-	{"GET", "/users/:user/repos"},
-	{"GET", "/orgs/:org/repos"},
+	{"GET", "/users/{user}/repos"},
+	{"GET", "/orgs/{org}/repos"},
 	{"GET", "/repositories"},
 	{"POST", "/user/repos"},
-	{"POST", "/orgs/:org/repos"},
-	{"GET", "/repos/:owner/:repo"},
-	{"GET", "/repos/:owner/:repo/contributors"},
-	{"GET", "/repos/:owner/:repo/languages"},
-	{"GET", "/repos/:owner/:repo/teams"},
-	{"GET", "/repos/:owner/:repo/tags"},
-	{"GET", "/repos/:owner/:repo/branches"},
-	{"GET", "/repos/:owner/:repo/branches/:branch"},
-	{"DELETE", "/repos/:owner/:repo"},
-	{"GET", "/repos/:owner/:repo/collaborators"},
-	{"GET", "/repos/:owner/:repo/collaborators/:user"},
-	{"PUT", "/repos/:owner/:repo/collaborators/:user"},
-	{"DELETE", "/repos/:owner/:repo/collaborators/:user"},
-	{"GET", "/repos/:owner/:repo/comments"},
-	{"GET", "/repos/:owner/:repo/commits/:sha/comments"},
-	{"POST", "/repos/:owner/:repo/commits/:sha/comments"},
-	{"GET", "/repos/:owner/:repo/comments/:id"},
-	{"DELETE", "/repos/:owner/:repo/comments/:id"},
-	{"GET", "/repos/:owner/:repo/commits"},
-	{"GET", "/repos/:owner/:repo/commits/:sha"},
-	{"GET", "/repos/:owner/:repo/readme"},
-	{"GET", "/repos/:owner/:repo/contents/*path"},
-	{"DELETE", "/repos/:owner/:repo/contents/*path"},
-	{"GET", "/repos/:owner/:repo/keys"},
-	{"GET", "/repos/:owner/:repo/keys/:id"},
-	{"POST", "/repos/:owner/:repo/keys"},
-	{"DELETE", "/repos/:owner/:repo/keys/:id"},
-	{"GET", "/repos/:owner/:repo/downloads"},
-	{"GET", "/repos/:owner/:repo/downloads/:id"},
-	{"DELETE", "/repos/:owner/:repo/downloads/:id"},
-	{"GET", "/repos/:owner/:repo/forks"},
-	{"POST", "/repos/:owner/:repo/forks"},
-	{"GET", "/repos/:owner/:repo/hooks"},
-	{"GET", "/repos/:owner/:repo/hooks/:id"},
-	{"POST", "/repos/:owner/:repo/hooks"},
-	{"POST", "/repos/:owner/:repo/hooks/:id/tests"},
-	{"DELETE", "/repos/:owner/:repo/hooks/:id"},
-	{"POST", "/repos/:owner/:repo/merges"},
-	{"GET", "/repos/:owner/:repo/releases"},
-	{"GET", "/repos/:owner/:repo/releases/:id"},
-	{"POST", "/repos/:owner/:repo/releases"},
-	{"DELETE", "/repos/:owner/:repo/releases/:id"},
-	{"GET", "/repos/:owner/:repo/releases/:id/assets"},
-	{"GET", "/repos/:owner/:repo/stats/contributors"},
-	{"GET", "/repos/:owner/:repo/stats/commit_activity"},
-	{"GET", "/repos/:owner/:repo/stats/code_frequency"},
-	{"GET", "/repos/:owner/:repo/stats/participation"},
-	{"GET", "/repos/:owner/:repo/stats/punch_card"},
-	{"GET", "/repos/:owner/:repo/statuses/:ref"},
-	{"POST", "/repos/:owner/:repo/statuses/:ref"},
+	{"POST", "/orgs/{org}/repos"},
+	{"GET", "/repos/{owner}/{repo}"},
+	{"GET", "/repos/{owner}/{repo}/contributors"},
+	{"GET", "/repos/{owner}/{repo}/languages"},
+	{"GET", "/repos/{owner}/{repo}/teams"},
+	{"GET", "/repos/{owner}/{repo}/tags"},
+	{"GET", "/repos/{owner}/{repo}/branches"},
+	{"GET", "/repos/{owner}/{repo}/branches/{branch}"},
+	{"DELETE", "/repos/{owner}/{repo}"},
+	{"GET", "/repos/{owner}/{repo}/collaborators"},
+	{"GET", "/repos/{owner}/{repo}/collaborators/{user}"},
+	{"PUT", "/repos/{owner}/{repo}/collaborators/{user}"},
+	{"DELETE", "/repos/{owner}/{repo}/collaborators/{user}"},
+	{"GET", "/repos/{owner}/{repo}/comments"},
+	{"GET", "/repos/{owner}/{repo}/commits/{sha}/comments"},
+	{"POST", "/repos/{owner}/{repo}/commits/{sha}/comments"},
+	{"GET", "/repos/{owner}/{repo}/comments/{id}"},
+	{"DELETE", "/repos/{owner}/{repo}/comments/{id}"},
+	{"GET", "/repos/{owner}/{repo}/commits"},
+	{"GET", "/repos/{owner}/{repo}/commits/{sha}"},
+	{"GET", "/repos/{owner}/{repo}/readme"},
+	{"GET", "/repos/{owner}/{repo}/contents/*{path}"},
+	{"DELETE", "/repos/{owner}/{repo}/contents/*{path}"},
+	{"GET", "/repos/{owner}/{repo}/keys"},
+	{"GET", "/repos/{owner}/{repo}/keys/{id}"},
+	{"POST", "/repos/{owner}/{repo}/keys"},
+	{"DELETE", "/repos/{owner}/{repo}/keys/{id}"},
+	{"GET", "/repos/{owner}/{repo}/downloads"},
+	{"GET", "/repos/{owner}/{repo}/downloads/{id}"},
+	{"DELETE", "/repos/{owner}/{repo}/downloads/{id}"},
+	{"GET", "/repos/{owner}/{repo}/forks"},
+	{"POST", "/repos/{owner}/{repo}/forks"},
+	{"GET", "/repos/{owner}/{repo}/hooks"},
+	{"GET", "/repos/{owner}/{repo}/hooks/{id}"},
+	{"POST", "/repos/{owner}/{repo}/hooks"},
+	{"POST", "/repos/{owner}/{repo}/hooks/{id}/tests"},
+	{"DELETE", "/repos/{owner}/{repo}/hooks/{id}"},
+	{"POST", "/repos/{owner}/{repo}/merges"},
+	{"GET", "/repos/{owner}/{repo}/releases"},
+	{"GET", "/repos/{owner}/{repo}/releases/{id}"},
+	{"POST", "/repos/{owner}/{repo}/releases"},
+	{"DELETE", "/repos/{owner}/{repo}/releases/{id}"},
+	{"GET", "/repos/{owner}/{repo}/releases/{id}/assets"},
+	{"GET", "/repos/{owner}/{repo}/stats/contributors"},
+	{"GET", "/repos/{owner}/{repo}/stats/commit_activity"},
+	{"GET", "/repos/{owner}/{repo}/stats/code_frequency"},
+	{"GET", "/repos/{owner}/{repo}/stats/participation"},
+	{"GET", "/repos/{owner}/{repo}/stats/punch_card"},
+	{"GET", "/repos/{owner}/{repo}/statuses/{ref}"},
+	{"POST", "/repos/{owner}/{repo}/statuses/{ref}"},
 
 	// Search
 	{"GET", "/search/repositories"},
 	{"GET", "/search/code"},
 	{"GET", "/search/issues"},
 	{"GET", "/search/users"},
-	{"GET", "/legacy/issues/search/:owner/:repository/:state/:keyword"},
-	{"GET", "/legacy/repos/search/:keyword"},
-	{"GET", "/legacy/user/search/:keyword"},
-	{"GET", "/legacy/user/email/:email"},
+	{"GET", "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"},
+	{"GET", "/legacy/repos/search/{keyword}"},
+	{"GET", "/legacy/user/search/{keyword}"},
+	{"GET", "/legacy/user/email/{email}"},
 
 	// Users
-	{"GET", "/users/:user"},
+	{"GET", "/users/{user}"},
 	{"GET", "/user"},
 	{"GET", "/users"},
 	{"GET", "/user/emails"},
 	{"POST", "/user/emails"},
 	{"DELETE", "/user/emails"},
-	{"GET", "/users/:user/followers"},
+	{"GET", "/users/{user}/followers"},
 	{"GET", "/user/followers"},
-	{"GET", "/users/:user/following"},
+	{"GET", "/users/{user}/following"},
 	{"GET", "/user/following"},
-	{"GET", "/user/following/:user"},
-	{"GET", "/users/:user/following/:target_user"},
-	{"PUT", "/user/following/:user"},
-	{"DELETE", "/user/following/:user"},
-	{"GET", "/users/:user/keys"},
+	{"GET", "/user/following/{user}"},
+	{"GET", "/users/{user}/following/{target_user}"},
+	{"PUT", "/user/following/{user}"},
+	{"DELETE", "/user/following/{user}"},
+	{"GET", "/users/{user}/keys"},
 	{"GET", "/user/keys"},
-	{"GET", "/user/keys/:id"},
+	{"GET", "/user/keys/{id}"},
 	{"POST", "/user/keys"},
-	{"DELETE", "/user/keys/:id"},
+	{"DELETE", "/user/keys/{id}"},
 }
 
 func benchRoutes(b *testing.B, router http.Handler, routes []route) {
@@ -522,7 +523,7 @@ func BenchmarkStaticParallel(b *testing.B) {
 
 func BenchmarkCatchAll(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*{args}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -536,7 +537,7 @@ func BenchmarkCatchAll(b *testing.B) {
 
 func BenchmarkCatchAllParallel(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*args", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*{args}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -568,16 +569,18 @@ func TestStaticRoute(t *testing.T) {
 }
 
 func TestParamsRoute(t *testing.T) {
-	rx := regexp.MustCompile("([:*])[A-z_]+")
+	rx := regexp.MustCompile("({|\\*{)[A-z_]+[}]")
 	r := New(WithSaveMatchedRoute(true))
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		matches := rx.FindAllString(r.URL.Path, -1)
 		for _, match := range matches {
-			key := match[1:]
-			value := match
-			if strings.HasPrefix(value, "*") {
-				value = "/" + value
+			var key string
+			if strings.HasPrefix(match, "*") {
+				key = match[2 : len(match)-1]
+			} else {
+				key = match[1 : len(match)-1]
 			}
+			value := match
 			assert.Equal(t, value, params.Get(key))
 		}
 		assert.Equal(t, r.URL.Path, params.Get(RouteKey))
@@ -603,9 +606,10 @@ func TestRouterWildcard(t *testing.T) {
 		path string
 		key  string
 	}{
-		{"/github.com/etf1/*repo", "/github.com/etf1/mux"},
-		{"/github.com/johndoe/*repo", "/github.com/johndoe/buzz"},
-		{"/foo/bar/*args", "/foo/bar/"},
+		{"/github.com/etf1/*{repo}", "/github.com/etf1/mux"},
+		{"/github.com/johndoe/*{repo}", "/github.com/johndoe/buzz"},
+		{"/foo/bar/*{args}", "/foo/bar/"},
+		{"/filepath/path=*{path}", "/filepath/path=/file.txt"},
 	}
 
 	for _, route := range routes {
@@ -625,19 +629,19 @@ func TestRouteWithParams(t *testing.T) {
 	tree := New().Tree()
 	routes := [...]string{
 		"/",
-		"/cmd/:tool/:sub",
-		"/cmd/:tool/",
-		"/src/*filepath",
+		"/cmd/{tool}/{sub}",
+		"/cmd/{tool}/",
+		"/src/*{filepath}",
 		"/search/",
-		"/search/:query",
-		"/user_:name",
-		"/user_:name/about",
-		"/files/:dir/*filepath",
+		"/search/{query}",
+		"/user_{name}",
+		"/user_{name}/about",
+		"/files/{dir}/*{filepath}",
 		"/doc/",
 		"/doc/go_faq.html",
 		"/doc/go1.html",
-		"/info/:user/public",
-		"/info/:user/project/:project",
+		"/info/{user}/public",
+		"/info/{user}/project/{project}",
 	}
 	for _, rte := range routes {
 		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
@@ -648,6 +652,45 @@ func TestRouteWithParams(t *testing.T) {
 		n, _, _ := tree.lookup(nds[0], rte, false)
 		require.NotNil(t, n)
 		assert.Equal(t, rte, n.path)
+	}
+}
+
+func TestRoutParamEmptySegment(t *testing.T) {
+	tree := New().Tree()
+	cases := []struct {
+		name  string
+		route string
+		path  string
+	}{
+		{
+			name:  "empty segment",
+			route: "/cmd/{tool}/{sub}",
+			path:  "/cmd//sub",
+		},
+		{
+			name:  "empty inflight end of route",
+			route: "/command/exec:{tool}",
+			path:  "/command/exec:",
+		},
+		{
+			name:  "empty inflight segment",
+			route: "/command/exec:{tool}/id",
+			path:  "/command/exec:/id",
+		},
+	}
+
+	for _, tc := range cases {
+		require.NoError(t, tree.Handler(http.MethodGet, tc.route, emptyHandler))
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nds := tree.load()
+			n, ps, tsr := tree.lookup(nds[0], tc.path, false)
+			assert.Nil(t, n)
+			assert.Nil(t, ps)
+			assert.False(t, tsr)
+		})
 	}
 }
 
@@ -674,7 +717,7 @@ func TestInsertWildcardConflict(t *testing.T) {
 				{path: "/foo/baz", wildcard: false, wantErr: nil, wantMatch: nil},
 				{path: "/foo/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar", "/foo/baz"}},
 				{path: "/foo/bar/baz/", wildcard: true, wantErr: nil},
-				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*args"}},
+				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*{args}"}},
 			},
 		},
 		{
@@ -686,9 +729,9 @@ func TestInsertWildcardConflict(t *testing.T) {
 				wildcard  bool
 			}{
 				{path: "/foo/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*args"}},
+				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*{args}"}},
 				{path: "/fuzz/baz/bar/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*args"}},
+				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*{args}"}},
 			},
 		},
 		{
@@ -745,7 +788,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 				{path: "/test/", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
@@ -757,8 +800,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{f}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -769,7 +812,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 				{path: "/test", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
@@ -781,7 +824,7 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 				{path: "/test/abc", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
@@ -793,8 +836,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:f", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{f}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -805,8 +848,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo/star", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}/star", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
 		{
@@ -817,8 +860,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo/star", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foo}/star", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
 		{
@@ -829,8 +872,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -841,8 +884,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test{foo}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -853,8 +896,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:fx", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{fx}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -865,8 +908,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -877,8 +920,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/ab:foo", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/ab{foo}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -889,8 +932,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/:foo"}},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foox}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
 			},
 		},
 		{
@@ -901,8 +944,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/abc:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc:foox", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc:foo"}},
+				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/abc{foox}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
 			},
 		},
 		{
@@ -913,8 +956,8 @@ func TestInsertParamsConflict(t *testing.T) {
 				wantErr      error
 				wantMatching []string
 			}{
-				{path: "/test/:foo", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/:foo/ba", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
+				{path: "/test/{foo}/ba", wildcard: "", wantErr: nil, wantMatching: nil},
 			},
 		},
 	}
@@ -1019,16 +1062,16 @@ func TestUpdateRoute(t *testing.T) {
 	}{
 		{
 			name:           "update wildcard with another wildcard",
-			path:           "/foo/bar/*args",
+			path:           "/foo/bar/*{args}",
 			newPath:        "/foo/bar/",
-			newWildcardKey: "*new",
+			newWildcardKey: "*{new}",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 				w.Write([]byte(params.Get(RouteKey)))
 			}),
 		},
 		{
 			name:    "update wildcard with non wildcard",
-			path:    "/foo/bar/*args",
+			path:    "/foo/bar/*{args}",
 			newPath: "/foo/bar/",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 				w.Write([]byte(r.URL.Path))
@@ -1038,7 +1081,7 @@ func TestUpdateRoute(t *testing.T) {
 			name:           "update non wildcard with wildcard",
 			path:           "/foo/bar/",
 			newPath:        "/foo/bar/",
-			newWildcardKey: "*foo",
+			newWildcardKey: "*{foo}",
 			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 				w.Write([]byte(params.Get(RouteKey)))
 			}),
@@ -1083,48 +1126,55 @@ func TestParseRoute(t *testing.T) {
 		},
 		{
 			name:            "valid catch all route",
-			path:            "/foo/bar/*arg",
+			path:            "/foo/bar/*{arg}",
 			wantN:           1,
 			wantCatchAllKey: "arg",
 			wantPath:        "/foo/bar/",
 		},
 		{
 			name:     "valid param route",
-			path:     "/foo/bar/:baz",
+			path:     "/foo/bar/{baz}",
 			wantN:    1,
-			wantPath: "/foo/bar/:baz",
+			wantPath: "/foo/bar/{baz}",
 		},
 		{
 			name:     "valid multi params route",
-			path:     "/foo/:bar/:baz",
+			path:     "/foo/{bar}/{baz}",
 			wantN:    2,
-			wantPath: "/foo/:bar/:baz",
+			wantPath: "/foo/{bar}/{baz}",
 		},
 		{
 			name:     "valid same params route",
-			path:     "/foo/:bar/:bar",
+			path:     "/foo/{bar}/{bar}",
 			wantN:    2,
-			wantPath: "/foo/:bar/:bar",
+			wantPath: "/foo/{bar}/{bar}",
 		},
 		{
 			name:            "valid multi params and catch all route",
-			path:            "/foo/:bar/:baz/*arg",
+			path:            "/foo/{bar}/{baz}/*{arg}",
 			wantN:           3,
 			wantCatchAllKey: "arg",
-			wantPath:        "/foo/:bar/:baz/",
+			wantPath:        "/foo/{bar}/{baz}/",
 		},
 		{
 			name:     "valid inflight param",
-			path:     "/foo/xyz:bar",
+			path:     "/foo/xyz:{bar}",
 			wantN:    1,
-			wantPath: "/foo/xyz:bar",
+			wantPath: "/foo/xyz:{bar}",
+		},
+		{
+			name:            "valid inflight catchall",
+			path:            "/foo/xyz:*{bar}",
+			wantN:           1,
+			wantPath:        "/foo/xyz:",
+			wantCatchAllKey: "bar",
 		},
 		{
 			name:            "valid multi inflight param and catch all",
-			path:            "/foo/xyz:bar/abc:bar/*arg",
+			path:            "/foo/xyz:{bar}/abc:{bar}/*{arg}",
 			wantN:           3,
 			wantCatchAllKey: "arg",
-			wantPath:        "/foo/xyz:bar/abc:bar/",
+			wantPath:        "/foo/xyz:{bar}/abc:{bar}/",
 		},
 		{
 			name:    "missing prefix slash",
@@ -1133,14 +1183,8 @@ func TestParseRoute(t *testing.T) {
 			wantN:   -1,
 		},
 		{
-			name:    "missing slash before catch all",
-			path:    "/foo/bar*",
-			wantErr: ErrInvalidRoute,
-			wantN:   -1,
-		},
-		{
-			name:    "missing slash before param",
-			path:    "/foo/bar:",
+			name:    "empty parameter",
+			path:    "/foo/bar{}",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
@@ -1152,7 +1196,7 @@ func TestParseRoute(t *testing.T) {
 		},
 		{
 			name:    "missing arguments name after param",
-			path:    "/foo/bar/:",
+			path:    "/foo/bar/{",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
@@ -1164,25 +1208,31 @@ func TestParseRoute(t *testing.T) {
 		},
 		{
 			name:    "catch all with arg in the middle of the route",
-			path:    "/foo/bar/*arg/baz",
+			path:    "/foo/bar/*{bar}/baz",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
 		{
-			name:    "missing name after param colon",
-			path:    "/foo/::bar",
+			name:    "unexpected character in param",
+			path:    "/foo/{{bar}",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "in flight catch-all after param in one route segment",
+			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
 		{
 			name:    "multiple param in one route segment",
-			path:    "/foo/:bar:baz",
+			path:    "/foo/{bar}{baz}",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
 		{
 			name:    "in flight param after catch all",
-			path:    "/foo/*args:param",
+			path:    "/foo/*{args}{param}",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
@@ -1389,6 +1439,31 @@ func TestRedirectFixedPath(t *testing.T) {
 	}
 }
 
+func TestTree_Remove(t *testing.T) {
+	tree := New().Tree()
+
+	routes := make([]route, len(githubAPI))
+	copy(routes, githubAPI)
+
+	for _, rte := range routes {
+		require.NoError(t, tree.Handler(rte.method, rte.path, emptyHandler))
+	}
+
+	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
+
+	for _, rte := range routes {
+		require.NoError(t, tree.Remove(rte.method, rte.path))
+	}
+
+	cnt := 0
+	_ = Walk(tree, func(method, path string, handler Handler) error {
+		cnt++
+		return nil
+	})
+
+	assert.Equal(t, 0, cnt)
+}
+
 func TestRouterWithAllowedMethod(t *testing.T) {
 	r := New(WithHandleMethodNotAllowed(true))
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
@@ -1460,8 +1535,8 @@ func TestPanicHandler(t *testing.T) {
 func TestHas(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
-		"/welcome/:name",
-		"/users/uid_:id",
+		"/welcome/{name}",
+		"/users/uid_{id}",
 	}
 
 	r := New()
@@ -1485,7 +1560,7 @@ func TestHas(t *testing.T) {
 		},
 		{
 			name: "strict match route params",
-			path: "/welcome/:name",
+			path: "/welcome/{name}",
 			want: true,
 		},
 		{
@@ -1494,7 +1569,7 @@ func TestHas(t *testing.T) {
 		},
 		{
 			name: "strict match mid route params",
-			path: "/users/uid_:id",
+			path: "/users/uid_{id}",
 			want: true,
 		},
 		{
@@ -1513,8 +1588,8 @@ func TestHas(t *testing.T) {
 func TestReverse(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
-		"/welcome/:name",
-		"/users/uid_:id",
+		"/welcome/{name}",
+		"/users/uid_{id}",
 	}
 
 	r := New()
@@ -1535,12 +1610,12 @@ func TestReverse(t *testing.T) {
 		{
 			name: "reverse params route",
 			path: "/welcome/fox",
-			want: "/welcome/:name",
+			want: "/welcome/{name}",
 		},
 		{
 			name: "reverse mid params route",
 			path: "/users/uid_123",
-			want: "/users/uid_:id",
+			want: "/users/uid_{id}",
 		},
 		{
 			name: "reverse no match",
@@ -1558,8 +1633,8 @@ func TestReverse(t *testing.T) {
 func TestLookup(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
-		"/welcome/:name",
-		"/users/uid_:id",
+		"/welcome/{name}",
+		"/users/uid_{id}",
 		"/john/doe/",
 	}
 
@@ -1666,18 +1741,19 @@ func TestAbortHandler(t *testing.T) {
 }
 
 func TestFuzzInsertLookupParam(t *testing.T) {
-	// no '*', ':' and '/' and invalid escape char
+	// no '*', '{}' and '/' and invalid escape char
 	unicodeRanges := fuzz.UnicodeRanges{
 		{First: 0x20, Last: 0x29},
 		{First: 0x2B, Last: 0x2E},
-		{First: 0x30, Last: 0x39},
-		{First: 0x3B, Last: 0x04FF},
+		{First: 0x30, Last: 0x7A},
+		{First: 0x7C, Last: 0x7C},
+		{First: 0x7E, Last: 0x04FF},
 	}
 
 	tree := New().Tree()
 	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
-	routeFormat := "/%s/:%s/%s/:%s/:%s"
+	routeFormat := "/%s/{%s}/%s/{%s}/{%s}"
 	reqFormat := "/%s/%s/%s/%s/%s"
 	for i := 0; i < 2000; i++ {
 		var s1, e1, s2, e2, e3 string
@@ -1723,11 +1799,12 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 }
 
 func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
-	// no '*' and ':' and invalid escape char
+	// no '*' and '{}' and invalid escape char
 	unicodeRanges := fuzz.UnicodeRanges{
 		{First: 0x20, Last: 0x29},
-		{First: 0x2B, Last: 0x39},
-		{First: 0x3B, Last: 0x04FF},
+		{First: 0x2B, Last: 0x7A},
+		{First: 0x7C, Last: 0x7C},
+		{First: 0x7E, Last: 0x04FF},
 	}
 
 	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
@@ -1813,30 +1890,30 @@ func TestDataRace(t *testing.T) {
 func TestConcurrentRequestHandling(t *testing.T) {
 	r := New(WithSaveMatchedRoute(true))
 
-	// /repos/:owner/:repo/keys
+	// /repos/{owner}/{repo}/keys
 	h1 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		assert.Equal(t, "john", params.Get("owner"))
 		assert.Equal(t, "fox", params.Get("repo"))
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
-	// /repos/:owner/:repo/contents/*path
+	// /repos/{owner}/{repo}/contents/*{path}
 	h2 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		assert.Equal(t, "alex", params.Get("owner"))
 		assert.Equal(t, "vault", params.Get("repo"))
-		assert.Equal(t, "/file.txt", params.Get("path"))
+		assert.Equal(t, "file.txt", params.Get("path"))
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
-	// /users/:user/received_events/public
+	// /users/{user}/received_events/public
 	h3 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		assert.Equal(t, "go", params.Get("user"))
 		_, _ = fmt.Fprint(w, params.Get(RouteKey))
 	})
 
-	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/keys", h1))
-	require.NoError(t, r.Handler(http.MethodGet, "/repos/:owner/:repo/contents/*path", h2))
-	require.NoError(t, r.Handler(http.MethodGet, "/users/:user/received_events/public", h3))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/{owner}/{repo}/keys", h1))
+	require.NoError(t, r.Handler(http.MethodGet, "/repos/{owner}/{repo}/contents/*{path}", h2))
+	require.NoError(t, r.Handler(http.MethodGet, "/users/{user}/received_events/public", h3))
 
 	r1 := httptest.NewRequest(http.MethodGet, "/repos/john/fox/keys", nil)
 	r2 := httptest.NewRequest(http.MethodGet, "/repos/alex/vault/contents/file.txt", nil)
@@ -1851,7 +1928,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 			wait()
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, r1)
-			assert.Equal(t, "/repos/:owner/:repo/keys", w.Body.String())
+			assert.Equal(t, "/repos/{owner}/{repo}/keys", w.Body.String())
 		}()
 
 		go func() {
@@ -1859,7 +1936,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 			wait()
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, r2)
-			assert.Equal(t, "/repos/:owner/:repo/contents/*path", w.Body.String())
+			assert.Equal(t, "/repos/{owner}/{repo}/contents/*{path}", w.Body.String())
 		}()
 
 		go func() {
@@ -1867,7 +1944,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 			wait()
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, r3)
-			assert.Equal(t, "/users/:user/received_events/public", w.Body.String())
+			assert.Equal(t, "/users/{user}/received_events/public", w.Body.String())
 		}()
 	}
 
@@ -1903,7 +1980,7 @@ func ExampleNew() {
 		})
 	}
 
-	_ = r.Handler(http.MethodGet, "/hello/:name", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
+	_ = r.Handler(http.MethodGet, "/hello/{name}", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
 		_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
 	}))
 }
@@ -1911,7 +1988,7 @@ func ExampleNew() {
 // This example demonstrates some important considerations when using the Lookup function.
 func ExampleLookup() {
 	r := New()
-	_ = r.Handler(http.MethodGet, "/hello/:name", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+	_ = r.Handler(http.MethodGet, "/hello/{name}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
 		_, _ = fmt.Fprintf(w, "Hello, %s\n", params.Get("name"))
 	}))
 

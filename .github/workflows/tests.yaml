@@ -12,9 +12,10 @@ jobs:
         go: [ '>=1.19' ]
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go }}
+          cache: false
 
       - name: Check out code
         uses: actions/checkout@v3
@@ -29,3 +30,21 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           flags: coverage.txt
+  lint:
+    name: Lint Fox
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ '>=1.19' ]
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v3
