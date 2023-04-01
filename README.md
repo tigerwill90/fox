@@ -508,8 +508,8 @@ BenchmarkPat_GithubAll                                       550           21177
 ```
 
 ## Road to v1
-- [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309)
-- [ ] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919)
+- [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
+- [ ] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
 - [ ] Collect feedback and polishing
 
 ## Contributions
