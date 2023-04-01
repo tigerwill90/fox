@@ -3,7 +3,14 @@ linters-settings:
     check-shadowing: true
 
 linters:
+  disable-all: true
   enable:
+    - errcheck
+    - gosimple
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
     - govet
     - gosec
 
@@ -11,4 +18,11 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
+        - errcheck
+        - gosimple
+        - ineffassign
+        - staticcheck
+        - typecheck
+        - unused
         - govet
+        - gosec
