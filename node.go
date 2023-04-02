@@ -206,3 +206,24 @@ func (n *node) string(space int) string {
 	}
 	return sb.String()
 }
+
+type skippedNodes []skippedNode
+
+func (n *skippedNodes) free(t *Tree) {
+	if cap(*n) < int(t.maxDepth.Load()) {
+		return
+	}
+	*n = (*n)[:0]
+	t.np.Put(n)
+}
+
+func (n *skippedNodes) pop() skippedNode {
+	skipped := (*n)[len(*n)-1]
+	*n = (*n)[:len(*n)-1]
+	return skipped
+}
+
+type skippedNode struct {
+	node      *node
+	pathIndex int
+}

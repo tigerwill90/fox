@@ -108,8 +108,8 @@ func (fox *Router) NewTree() *Tree {
 
 	tree.np = sync.Pool{
 		New: func() any {
-			skippedNodes := make([]skippedNode, 0, tree.maxDepth.Load())
-			return &skippedNodes
+			skpNds := make(skippedNodes, 0, tree.maxDepth.Load())
+			return &skpNds
 		},
 	}
 
@@ -232,7 +232,7 @@ NEXT:
 		method := nds[i].key
 		it := newRawIterator(nds[i])
 		for it.hasNext() {
-			err := fn(method, it.fullPath(), it.node().handler)
+			err := fn(method, it.path, it.current.handler)
 			if err != nil {
 				if errors.Is(err, SkipMethod) {
 					continue NEXT
@@ -520,6 +520,15 @@ func parseRoute(path string) (string, string, int, error) {
 
 func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
+
+	if n.isCatchAll() {
+		routes = append(routes, n.path)
+		return routes
+	}
+
+	if n.paramChildIndex >= 0 {
+		n = n.children[n.paramChildIndex].Load()
+	}
 	it := newRawIterator(n)
 	for it.hasNext() {
 		routes = append(routes, it.current.path)

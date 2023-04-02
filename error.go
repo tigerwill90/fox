@@ -22,7 +22,7 @@ type RouteConflictError struct {
 
 func newConflictErr(method, path, catchAllKey string, matched []string) *RouteConflictError {
 	if catchAllKey != "" {
-		path += "*" + catchAllKey
+		path += "*{" + catchAllKey + "}"
 	}
 	return &RouteConflictError{
 		Method:  method,

@@ -965,60 +965,399 @@ func TestRoutParamEmptySegment(t *testing.T) {
 	}
 }
 
-func TestInsertWildcardConflict(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
+func TestOverlappingRoute(t *testing.T) {
+	r := New(WithSaveMatchedRoute(true))
+	cases := []struct {
+		name       string
+		path       string
+		routes     []string
+		wantMatch  string
+		wantParams Params
+	}{
+		{
+			name: "basic test most specific",
+			path: "/products/new",
+			routes: []string{
+				"/products/{id}",
+				"/products/new",
+			},
+			wantMatch:  "/products/new",
+			wantParams: Params{{RouteKey, "/products/new"}},
+		},
+		{
+			name: "basic test less specific",
+			path: "/products/123",
+			routes: []string{
+				"/products/{id}",
+				"/products/new",
+			},
+			wantMatch:  "/products/{id}",
+			wantParams: Params{{Key: "id", Value: "123"}, {RouteKey, "/products/{id}"}},
+		},
+		{
+			name: "ieof+backtrack to {id} wildcard while deleting {a}",
+			path: "/base/val1/123/new/barr",
+			routes: []string{
+				"/{base}/val1/{id}",
+				"/{base}/val1/123/{a}/bar",
+				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id}/new/{name}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "barr",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/{base}/val1/{id}/new/{name}",
+				},
+			},
+		},
+		{
+			name: "kme+backtrack to {id} wildcard while deleting {a}",
+			path: "/base/val1/123/new/ba",
+			routes: []string{
+				"/{base}/val1/{id}",
+				"/{base}/val1/123/{a}/bar",
+				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id}/new/{name}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "ba",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/{base}/val1/{id}/new/{name}",
+				},
+			},
+		},
+		{
+			name: "ime+backtrack to {id} wildcard while deleting {a}",
+			path: "/base/val1/123/new/bx",
+			routes: []string{
+				"/{base}/val1/{id}",
+				"/{base}/val1/123/{a}/bar",
+				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id}/new/{name}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "bx",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/{base}/val1/{id}/new/{name}",
+				},
+			},
+		},
+		{
+			name: "backtrack to catch while deleting {a}, {id} and {name}",
+			path: "/base/val1/123/new/bar/",
+			routes: []string{
+				"/{base}/val1/{id}",
+				"/{base}/val1/123/{a}/bar",
+				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val*{all}",
+			},
+			wantMatch: "/{base}/val*{all}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "all",
+					Value: "1/123/new/bar/",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/{base}/val*{all}",
+				},
+			},
+		},
+		{
+			name: "notleaf+backtrack to catch while deleting {a}, {id}",
+			path: "/base/val1/123/new",
+			routes: []string{
+				"/{base}/val1/123/{a}/baz",
+				"/{base}/val1/123/{a}/bar",
+				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val*{all}",
+			},
+			wantMatch: "/{base}/val*{all}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "all",
+					Value: "1/123/new",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/{base}/val*{all}",
+				},
+			},
+		},
+		{
+			name: "multi node most specific",
+			path: "/foo/1/2/3/bar",
+			routes: []string{
+				"/foo/{ab}",
+				"/foo/{ab}/{bc}",
+				"/foo/{ab}/{bc}/{de}",
+				"/foo/{ab}/{bc}/{de}/bar",
+				"/foo/{ab}/{bc}/{de}/{fg}",
+			},
+			wantMatch: "/foo/{ab}/{bc}/{de}/bar",
+			wantParams: Params{
+				{
+					Key:   "ab",
+					Value: "1",
+				},
+				{
+					Key:   "bc",
+					Value: "2",
+				},
+				{
+					Key:   "de",
+					Value: "3",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/foo/{ab}/{bc}/{de}/bar",
+				},
+			},
+		},
+		{
+			name: "multi node less specific",
+			path: "/foo/1/2/3/john",
+			routes: []string{
+				"/foo/{ab}",
+				"/foo/{ab}/{bc}",
+				"/foo/{ab}/{bc}/{de}",
+				"/foo/{ab}/{bc}/{de}/bar",
+				"/foo/{ab}/{bc}/{de}/{fg}",
+			},
+			wantMatch: "/foo/{ab}/{bc}/{de}/{fg}",
+			wantParams: Params{
+				{
+					Key:   "ab",
+					Value: "1",
+				},
+				{
+					Key:   "bc",
+					Value: "2",
+				},
+				{
+					Key:   "de",
+					Value: "3",
+				},
+				{
+					Key:   "fg",
+					Value: "john",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/foo/{ab}/{bc}/{de}/{fg}",
+				},
+			},
+		},
+		{
+			name: "backtrack on empty mid key parameter",
+			path: "/foo/abc/bar",
+			routes: []string{
+				"/foo/abc{id}/bar",
+				"/foo/{name}/bar",
+			},
+			wantMatch: "/foo/{name}/bar",
+			wantParams: Params{
+				{
+					Key:   "name",
+					Value: "abc",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/foo/{name}/bar",
+				},
+			},
+		},
+		{
+			name: "most specific wildcard between catch all",
+			path: "/foo/123",
+			routes: []string{
+				"/foo/{id}",
+				"/foo/a*{args}",
+				"/foo*{args}",
+			},
+			wantMatch: "/foo/{id}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/foo/{id}",
+				},
+			},
+		},
+		{
+			name: "most specific catch all with param",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/{id}",
+				"/foo/a*{args}",
+				"/foo*{args}",
+			},
+			wantMatch: "/foo/a*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bc",
+				},
+				{
+					Key:   RouteKey,
+					Value: "/foo/a*{args}",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree := r.NewTree()
+			for _, rte := range tc.routes {
+				require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+			}
+
+			nds := tree.load()
+			n, ps, _ := tree.lookup(nds[0], tc.path, false)
+			require.NotNil(t, n)
+			require.NotNil(t, n.handler)
+			if ps != nil {
+				defer ps.Free(tree)
+			}
+
+			assert.Equal(t, tc.wantMatch, n.path)
+			if len(tc.wantParams) == 0 {
+				assert.Nil(t, ps)
+				return
+			}
+
+			assert.Equal(t, tc.wantParams, *ps)
+		})
+	}
+}
+
+func TestRouteConflict(t *testing.T) {
 	cases := []struct {
 		name   string
 		routes []struct {
 			wantErr   error
 			path      string
 			wantMatch []string
-			wildcard  bool
 		}
 	}{
-		{
-			name: "key mid edge conflicts",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-				wildcard  bool
-			}{
-				{path: "/foo/bar", wildcard: false, wantErr: nil, wantMatch: nil},
-				{path: "/foo/baz", wildcard: false, wantErr: nil, wantMatch: nil},
-				{path: "/foo/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar", "/foo/baz"}},
-				{path: "/foo/bar/baz/", wildcard: true, wantErr: nil},
-				{path: "/foo/bar/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/bar/baz/*{args}"}},
-			},
-		},
-		{
-			name: "incomplete match to the end of edge conflict",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-				wildcard  bool
-			}{
-				{path: "/foo/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/foo/bar", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*{args}"}},
-				{path: "/fuzz/baz/bar/", wildcard: true, wantErr: nil, wantMatch: nil},
-				{path: "/fuzz/baz/bar/foo", wildcard: false, wantErr: ErrRouteConflict, wantMatch: []string{"/fuzz/baz/bar/*{args}"}},
-			},
-		},
 		{
 			name: "exact match conflict",
 			routes: []struct {
 				wantErr   error
 				path      string
 				wantMatch []string
-				wildcard  bool
 			}{
-				{path: "/foo/1", wildcard: false, wantErr: nil, wantMatch: nil},
-				{path: "/foo/2", wildcard: false, wantErr: nil, wantMatch: nil},
-				{path: "/foo/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/1", "/foo/2"}},
-				{path: "/foo/1/baz/1", wildcard: false, wantErr: nil, wantMatch: nil},
-				{path: "/foo/1/baz/2", wildcard: false, wantErr: nil, wantMatch: nil},
-				{path: "/foo/1/baz/", wildcard: true, wantErr: ErrRouteConflict, wantMatch: []string{"/foo/1/baz/1", "/foo/1/baz/2"}},
+				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
+				{path: "/john/*{y}", wantErr: ErrRouteConflict, wantMatch: []string{"/john/*{x}"}},
+				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
+				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
+				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
+				{path: "/foo/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/avengers/ironman/{power}", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+			},
+		},
+		{
+			name: "incomplete match to end of edge conflicts",
+			routes: []struct {
+				wantErr   error
+				path      string
+				wantMatch []string
+			}{
+				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
+				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
+				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
+				{path: "/foo/{id}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*{args}"}},
+			},
+		},
+		{
+			name: "key match mid-edge conflict",
+			routes: []struct {
+				wantErr   error
+				path      string
+				wantMatch []string
+			}{
+				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
+				{path: "/foo/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo/a*{args}", wantErr: nil, wantMatch: nil},
+				{path: "/foo*{args}", wantErr: nil, wantMatch: nil},
+				{path: "/john{doe}", wantErr: nil, wantMatch: nil},
+				{path: "/john*{doe}", wantErr: ErrRouteConflict, wantMatch: []string{"/john{doe}"}},
+				{path: "/john/{doe}", wantErr: nil, wantMatch: nil},
+				{path: "/joh{doe}", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+			},
+		},
+		{
+			name: "incomplete match to middle of edge",
+			routes: []struct {
+				wantErr   error
+				path      string
+				wantMatch []string
+			}{
+				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
+				{path: "/foo/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo{id}", wantErr: nil, wantMatch: nil},
+				{path: "/foo/a{id}", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}/baz", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{id}", wantErr: nil, wantMatch: nil},
+				{path: "/avengers/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
 			},
 		},
 	}
@@ -1027,222 +1366,10 @@ func TestInsertWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, rte := range tc.routes {
-				var catchAllKey string
-				if rte.wildcard {
-					catchAllKey = "args"
-				}
-				err := tree.insert(http.MethodGet, rte.path, catchAllKey, 0, h)
+				err := tree.Handler(http.MethodGet, rte.path, emptyHandler)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*RouteConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.Matched)
-				}
-			}
-		})
-	}
-}
-
-func TestInsertParamsConflict(t *testing.T) {
-	cases := []struct {
-		name   string
-		routes []struct {
-			path         string
-			wildcard     string
-			wantErr      error
-			wantMatching []string
-		}
-	}{
-		{
-			name: "KEY_END_MID_EDGE split right before param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/", wildcard: "", wantErr: nil, wantMatching: nil},
-			},
-		},
-		{
-			name: "KEY_END_MID_EDGE split param at the start of the path segment",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/{f}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
-			},
-		},
-		{
-			name: "KEY_END_MID_EDGE split a char before the param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test", wildcard: "", wantErr: nil, wantMatching: nil},
-			},
-		},
-		{
-			name: "KEY_END_MID_EDGE split right before inflight param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc", wildcard: "", wantErr: nil, wantMatching: nil},
-			},
-		},
-		{
-			name: "KEY_END_MID_EDGE split param in flight",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc{f}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
-			},
-		},
-		{
-			name: "KEY_END_MID_EDGE param with child starting with separator",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}/star", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-			},
-		},
-		{
-			name: "KEY_END_MID_EDGE inflight param with child starting with separator",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/abc{foo}/star", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node right before param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/a", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split new node right before param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test{foo}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node after param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/{fx}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split existing node right before inflight param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abcd", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE split new node right before inflight param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/ab{foo}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new node right after param without slash",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/{foox}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new node right after inflight param without slash",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/abc{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/abc{foox}", wildcard: "", wantErr: ErrRouteConflict, wantMatching: []string{"/test/abc{foo}"}},
-			},
-		},
-		{
-			name: "INCOMPLETE_MATCH_TO_END_OF_EDGE add new static node right after param",
-			routes: []struct {
-				path         string
-				wildcard     string
-				wantErr      error
-				wantMatching []string
-			}{
-				{path: "/test/{foo}", wildcard: "", wantErr: nil, wantMatching: nil},
-				{path: "/test/{foo}/ba", wildcard: "", wantErr: nil, wantMatching: nil},
-			},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			tree := New().Tree()
-			for _, rte := range tc.routes {
-				err := tree.insert(http.MethodGet, rte.path, rte.wildcard, 0, emptyHandler)
-				if rte.wantErr != nil {
-					assert.ErrorIs(t, err, rte.wantErr)
-					if cErr, ok := err.(*RouteConflictError); ok {
-						assert.Equal(t, rte.wantMatching, cErr.Matched)
-					}
 				}
 			}
 		})
@@ -2060,7 +2187,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 	for rte := range routes {
 		var catchAllKey string
 		f.Fuzz(&catchAllKey)
-		if rte == "" && catchAllKey == "" {
+		if rte == "" {
 			continue
 		}
 		require.NotPanicsf(t, func() {
@@ -2134,15 +2261,29 @@ func TestDataRace(t *testing.T) {
 	for _, rte := range githubAPI {
 		go func(method, route string) {
 			wait()
-			assert.NoError(t, r.Handler(method, route, h))
+			defer wg.Done()
+			tree := r.Tree()
+			tree.Lock()
+			defer tree.Unlock()
+			if Has(tree, method, route) {
+				assert.NoError(t, tree.Update(method, route, h))
+				return
+			}
+			assert.NoError(t, tree.Handler(method, route, h))
 			// assert.NoError(t, r.Handler("PING", route, h))
-			wg.Done()
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
 			wait()
-			r.Update(method, route, newH)
-			wg.Done()
+			defer wg.Done()
+			tree := r.Tree()
+			tree.Lock()
+			defer tree.Unlock()
+			if Has(tree, method, route) {
+				assert.NoError(t, tree.Remove(method, route))
+				return
+			}
+			assert.NoError(t, tree.Handler(method, route, newH))
 		}(rte.method, rte.path)
 
 		go func(method, route string) {

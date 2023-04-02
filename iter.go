@@ -181,6 +181,11 @@ func (it *Iterator) Handler() Handler {
 	return nil
 }
 
+type stack struct {
+	method string
+	edges  []*node
+}
+
 func newRawIterator(n *node) *rawIterator {
 	return &rawIterator{
 		stack: []stack{{edges: []*node{n}}},
@@ -191,19 +196,6 @@ type rawIterator struct {
 	current *node
 	path    string
 	stack   []stack
-}
-
-type stack struct {
-	method string
-	edges  []*node
-}
-
-func (it *rawIterator) fullPath() string {
-	return it.path
-}
-
-func (it *rawIterator) node() *node {
-	return it.current
 }
 
 func (it *rawIterator) hasNext() bool {
