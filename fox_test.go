@@ -1,8 +1,11 @@
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+
 package fox
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +21,9 @@ import (
 	"time"
 )
 
-var emptyHandler = HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+var emptyHandler = HandlerFunc(func(c Context) {})
+var pathHanlder = HandlerFunc(func(c Context) { _, _ = c.Writer().Write([]byte(c.Request().URL.Path)) })
+var routeHandler = HandlerFunc(func(c Context) { _, _ = c.Writer().Write([]byte(c.Path())) })
 
 type mockResponseWriter struct{}
 
@@ -41,210 +46,10 @@ type route struct {
 	path   string
 }
 
-var ginOverlappingRoutes = []route{
-	{"GET", "/foo/abc/id_:id/xyz"},
-	{"GET", "/foo/:name/id_:id/:name"},
-	{"GET", "/foo/:name/id_:id/xyz"},
-}
-
 var overlappingRoutes = []route{
 	{"GET", "/foo/abc/id:{id}/xyz"},
 	{"GET", "/foo/{name}/id:{id}/{name}"},
 	{"GET", "/foo/{name}/id:{id}/xyz"},
-}
-
-var ginGithubRoutes = []route{
-	{"GET", "/repos/:owner/:repo/subscription"},
-	{"PUT", "/repos/:owner/:repo/subscription"},
-	{"DELETE", "/repos/:owner/:repo/subscription"},
-	{"GET", "/user/subscriptions/:owner/:repo"},
-	{"PUT", "/user/subscriptions/:owner/:repo"},
-	{"DELETE", "/user/subscriptions/:owner/:repo"},
-
-	// Gists
-	{"GET", "/users/:user/gists"},
-	{"GET", "/gists"},
-	{"GET", "/gists/:id"},
-	{"POST", "/gists"},
-	{"PUT", "/gists/:id/star"},
-	{"DELETE", "/gists/:id/star"},
-	{"GET", "/gists/:id/star"},
-	{"POST", "/gists/:id/forks"},
-	{"DELETE", "/gists/:id"},
-
-	// Git Data
-	{"GET", "/repos/:owner/:repo/git/blobs/:sha"},
-	{"POST", "/repos/:owner/:repo/git/blobs"},
-	{"GET", "/repos/:owner/:repo/git/commits/:sha"},
-	{"POST", "/repos/:owner/:repo/git/commits"},
-	{"GET", "/repos/:owner/:repo/git/refs/*ref"},
-	{"GET", "/repos/:owner/:repo/git/refs"},
-	{"POST", "/repos/:owner/:repo/git/refs"},
-	{"DELETE", "/repos/:owner/:repo/git/refs/*ref"},
-	{"GET", "/repos/:owner/:repo/git/tags/:sha"},
-	{"POST", "/repos/:owner/:repo/git/tags"},
-	{"GET", "/repos/:owner/:repo/git/trees/:sha"},
-	{"POST", "/repos/:owner/:repo/git/trees"},
-
-	// Issues
-	{"GET", "/issues"},
-	{"GET", "/user/issues"},
-	{"GET", "/orgs/:org/issues"},
-	{"GET", "/repos/:owner/:repo/issues"},
-	{"GET", "/repos/:owner/:repo/issues/:number"},
-	{"POST", "/repos/:owner/:repo/issues"},
-	{"GET", "/repos/:owner/:repo/assignees"},
-	{"GET", "/repos/:owner/:repo/assignees/:assignee"},
-	{"GET", "/repos/:owner/:repo/issues/:number/comments"},
-	{"POST", "/repos/:owner/:repo/issues/:number/comments"},
-	{"GET", "/repos/:owner/:repo/issues/:number/events"},
-	{"GET", "/repos/:owner/:repo/labels"},
-	{"GET", "/repos/:owner/:repo/labels/:name"},
-	{"POST", "/repos/:owner/:repo/labels"},
-	{"DELETE", "/repos/:owner/:repo/labels/:name"},
-	{"GET", "/repos/:owner/:repo/issues/:number/labels"},
-	{"POST", "/repos/:owner/:repo/issues/:number/labels"},
-	{"DELETE", "/repos/:owner/:repo/issues/:number/labels/:name"},
-	{"PUT", "/repos/:owner/:repo/issues/:number/labels"},
-	{"DELETE", "/repos/:owner/:repo/issues/:number/labels"},
-	{"GET", "/repos/:owner/:repo/milestones/:number/labels"},
-	{"GET", "/repos/:owner/:repo/milestones"},
-	{"GET", "/repos/:owner/:repo/milestones/:number"},
-	{"POST", "/repos/:owner/:repo/milestones"},
-	{"DELETE", "/repos/:owner/:repo/milestones/:number"},
-
-	// Miscellaneous
-	{"GET", "/emojis"},
-	{"GET", "/gitignore/templates"},
-	{"GET", "/gitignore/templates/:name"},
-	{"POST", "/markdown"},
-	{"POST", "/markdown/raw"},
-	{"GET", "/meta"},
-	{"GET", "/rate_limit"},
-
-	// Organizations
-	{"GET", "/users/:user/orgs"},
-	{"GET", "/user/orgs"},
-	{"GET", "/orgs/:org"},
-	{"GET", "/orgs/:org/members"},
-	{"GET", "/orgs/:org/members/:user"},
-	{"DELETE", "/orgs/:org/members/:user"},
-	{"GET", "/orgs/:org/public_members"},
-	{"GET", "/orgs/:org/public_members/:user"},
-	{"PUT", "/orgs/:org/public_members/:user"},
-	{"DELETE", "/orgs/:org/public_members/:user"},
-	{"GET", "/orgs/:org/teams"},
-	{"GET", "/teams/:id"},
-	{"POST", "/orgs/:org/teams"},
-	{"DELETE", "/teams/:id"},
-	{"GET", "/teams/:id/members"},
-	{"GET", "/teams/:id/members/:user"},
-	{"PUT", "/teams/:id/members/:user"},
-	{"DELETE", "/teams/:id/members/:user"},
-	{"GET", "/teams/:id/repos"},
-	{"GET", "/teams/:id/repos/:owner/:repo"},
-	{"PUT", "/teams/:id/repos/:owner/:repo"},
-	{"DELETE", "/teams/:id/repos/:owner/:repo"},
-	{"GET", "/user/teams"},
-
-	// Pull Requests
-	{"GET", "/repos/:owner/:repo/pulls"},
-	{"GET", "/repos/:owner/:repo/pulls/:number"},
-	{"POST", "/repos/:owner/:repo/pulls"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/commits"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/files"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/merge"},
-	{"PUT", "/repos/:owner/:repo/pulls/:number/merge"},
-	{"GET", "/repos/:owner/:repo/pulls/:number/comments"},
-	{"PUT", "/repos/:owner/:repo/pulls/:number/comments"},
-
-	// Repositories
-	{"GET", "/user/repos"},
-	{"GET", "/users/:user/repos"},
-	{"GET", "/orgs/:org/repos"},
-	{"GET", "/repositories"},
-	{"POST", "/user/repos"},
-	{"POST", "/orgs/:org/repos"},
-	{"GET", "/repos/:owner/:repo"},
-	{"GET", "/repos/:owner/:repo/contributors"},
-	{"GET", "/repos/:owner/:repo/languages"},
-	{"GET", "/repos/:owner/:repo/teams"},
-	{"GET", "/repos/:owner/:repo/tags"},
-	{"GET", "/repos/:owner/:repo/branches"},
-	{"GET", "/repos/:owner/:repo/branches/:branch"},
-	{"DELETE", "/repos/:owner/:repo"},
-	{"GET", "/repos/:owner/:repo/collaborators"},
-	{"GET", "/repos/:owner/:repo/collaborators/:user"},
-	{"PUT", "/repos/:owner/:repo/collaborators/:user"},
-	{"DELETE", "/repos/:owner/:repo/collaborators/:user"},
-	{"GET", "/repos/:owner/:repo/comments"},
-	{"GET", "/repos/:owner/:repo/commits/:sha/comments"},
-	{"POST", "/repos/:owner/:repo/commits/:sha/comments"},
-	{"GET", "/repos/:owner/:repo/comments/:id"},
-	{"DELETE", "/repos/:owner/:repo/comments/:id"},
-	{"GET", "/repos/:owner/:repo/commits"},
-	{"GET", "/repos/:owner/:repo/commits/:sha"},
-	{"GET", "/repos/:owner/:repo/readme"},
-	{"GET", "/repos/:owner/:repo/contents/*path"},
-	{"DELETE", "/repos/:owner/:repo/contents/*path"},
-	{"GET", "/repos/:owner/:repo/keys"},
-	{"GET", "/repos/:owner/:repo/keys/:id"},
-	{"POST", "/repos/:owner/:repo/keys"},
-	{"DELETE", "/repos/:owner/:repo/keys/:id"},
-	{"GET", "/repos/:owner/:repo/downloads"},
-	{"GET", "/repos/:owner/:repo/downloads/:id"},
-	{"DELETE", "/repos/:owner/:repo/downloads/:id"},
-	{"GET", "/repos/:owner/:repo/forks"},
-	{"POST", "/repos/:owner/:repo/forks"},
-	{"GET", "/repos/:owner/:repo/hooks"},
-	{"GET", "/repos/:owner/:repo/hooks/:id"},
-	{"POST", "/repos/:owner/:repo/hooks"},
-	{"POST", "/repos/:owner/:repo/hooks/:id/tests"},
-	{"DELETE", "/repos/:owner/:repo/hooks/:id"},
-	{"POST", "/repos/:owner/:repo/merges"},
-	{"GET", "/repos/:owner/:repo/releases"},
-	{"GET", "/repos/:owner/:repo/releases/:id"},
-	{"POST", "/repos/:owner/:repo/releases"},
-	{"DELETE", "/repos/:owner/:repo/releases/:id"},
-	{"GET", "/repos/:owner/:repo/releases/:id/assets"},
-	{"GET", "/repos/:owner/:repo/stats/contributors"},
-	{"GET", "/repos/:owner/:repo/stats/commit_activity"},
-	{"GET", "/repos/:owner/:repo/stats/code_frequency"},
-	{"GET", "/repos/:owner/:repo/stats/participation"},
-	{"GET", "/repos/:owner/:repo/stats/punch_card"},
-	{"GET", "/repos/:owner/:repo/statuses/:ref"},
-	{"POST", "/repos/:owner/:repo/statuses/:ref"},
-
-	// Search
-	{"GET", "/search/repositories"},
-	{"GET", "/search/code"},
-	{"GET", "/search/issues"},
-	{"GET", "/search/users"},
-	{"GET", "/legacy/issues/search/:owner/:repository/:state/:keyword"},
-	{"GET", "/legacy/repos/search/:keyword"},
-	{"GET", "/legacy/user/search/:keyword"},
-	{"GET", "/legacy/user/email/:email"},
-
-	// Users
-	{"GET", "/users/:user"},
-	{"GET", "/user"},
-	{"GET", "/users"},
-	{"GET", "/user/emails"},
-	{"POST", "/user/emails"},
-	{"DELETE", "/user/emails"},
-	{"GET", "/users/:user/followers"},
-	{"GET", "/user/followers"},
-	{"GET", "/users/:user/following"},
-	{"GET", "/user/following"},
-	{"GET", "/user/following/:user"},
-	{"GET", "/users/:user/following/:target_user"},
-	{"PUT", "/user/following/:user"},
-	{"DELETE", "/user/following/:user"},
-	{"GET", "/users/:user/keys"},
-	{"GET", "/user/keys"},
-	{"GET", "/user/keys/:id"},
-	{"POST", "/user/keys"},
-	{"DELETE", "/user/keys/:id"},
 }
 
 // From https://github.com/julienschmidt/go-http-routing-benchmark
@@ -677,64 +482,16 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 func BenchmarkStaticAll(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
 	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkGinStaticAll(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	for _, route := range staticRoutes {
-		r.GET(route.path, func(context *gin.Context) {})
-	}
-
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkLookup(b *testing.B) {
-	r := New()
-	for _, route := range staticRoutes {
-		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	tree := r.Tree()
-	for i := 0; i < b.N; i++ {
-		for _, route := range staticRoutes {
-			_, p, _ := Lookup(tree, route.method, route.path, false)
-			if p != nil {
-				p.Free(tree)
-			}
-		}
-	}
 }
 
 func BenchmarkGithubParamsAll(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
-		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
-	}
-
-	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
-	w := new(mockResponseWriter)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkGinGithubParamsAll(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	for _, route := range ginGithubRoutes {
-		r.Handle(route.method, route.path, func(context *gin.Context) {})
+		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
 	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
@@ -751,7 +508,7 @@ func BenchmarkGinGithubParamsAll(b *testing.B) {
 func BenchmarkOverlappingRoute(b *testing.B) {
 	r := New()
 	for _, route := range overlappingRoutes {
-		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(w http.ResponseWriter, r *http.Request, p Params) {})))
+		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
 	req := httptest.NewRequest("GET", "/foo/abc/id:123/xy", nil)
@@ -765,36 +522,17 @@ func BenchmarkOverlappingRoute(b *testing.B) {
 	}
 }
 
-func BenchmarkGinOverlappingRoute(b *testing.B) {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-
-	for _, route := range ginOverlappingRoutes {
-		r.Handle(route.method, route.path, func(context *gin.Context) {})
-	}
-
-	req := httptest.NewRequest("GET", "/foo/abc/id_123/xy", nil)
-	w := new(mockResponseWriter)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
-}
-
 func BenchmarkStaticParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Tree().Handler(route.method, route.path, HandlerFunc(func(_ http.ResponseWriter, _ *http.Request, _ Params) {})))
+		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
 }
 
 func BenchmarkCatchAll(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*{args}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -808,7 +546,7 @@ func BenchmarkCatchAll(b *testing.B) {
 
 func BenchmarkCatchAllParallel(b *testing.B) {
 	r := New()
-	require.NoError(b, r.Tree().Handler(http.MethodGet, "/something/*{args}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})))
+	require.NoError(b, r.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -824,10 +562,9 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 
 func TestStaticRoute(t *testing.T) {
 	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	for _, route := range staticRoutes {
-		require.NoError(t, r.Tree().Handler(route.method, route.path, h))
+		require.NoError(t, r.Tree().Handle(route.method, route.path, pathHanlder))
 	}
 
 	for _, route := range staticRoutes {
@@ -839,11 +576,26 @@ func TestStaticRoute(t *testing.T) {
 	}
 }
 
+func TestStaticRouteMalloc(t *testing.T) {
+	r := New()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, r.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+	}
+}
+
 func TestParamsRoute(t *testing.T) {
-	rx := regexp.MustCompile("({|\\*{)[A-z_]+[}]")
-	r := New(WithSaveMatchedRoute(true))
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		matches := rx.FindAllString(r.URL.Path, -1)
+	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
+	r := New()
+	h := func(c Context) {
+		matches := rx.FindAllString(c.Request().URL.Path, -1)
 		for _, match := range matches {
 			var key string
 			if strings.HasPrefix(match, "*") {
@@ -852,13 +604,13 @@ func TestParamsRoute(t *testing.T) {
 				key = match[1 : len(match)-1]
 			}
 			value := match
-			assert.Equal(t, value, params.Get(key))
+			assert.Equal(t, value, c.Param(key))
 		}
-		assert.Equal(t, r.URL.Path, params.Get(RouteKey))
-		_, _ = w.Write([]byte(r.URL.Path))
-	})
+		assert.Equal(t, c.Request().URL.Path, c.Path())
+		_, _ = c.Writer().Write([]byte(c.Request().URL.Path))
+	}
 	for _, route := range githubAPI {
-		require.NoError(t, r.Tree().Handler(route.method, route.path, h))
+		require.NoError(t, r.Tree().Handle(route.method, route.path, h))
 	}
 	for _, route := range githubAPI {
 		req := httptest.NewRequest(route.method, route.path, nil)
@@ -869,9 +621,34 @@ func TestParamsRoute(t *testing.T) {
 	}
 }
 
+func TestParamsRouteMalloc(t *testing.T) {
+	r := New()
+	for _, route := range githubAPI {
+		require.NoError(t, r.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+	for _, route := range githubAPI {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+	}
+}
+
+func TestOverlappingRouteMalloc(t *testing.T) {
+	r := New()
+	for _, route := range overlappingRoutes {
+		require.NoError(t, r.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+	for _, route := range overlappingRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+	}
+}
+
 func TestRouterWildcard(t *testing.T) {
 	r := New()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) { _, _ = w.Write([]byte(r.URL.Path)) })
 
 	routes := []struct {
 		path string
@@ -884,7 +661,7 @@ func TestRouterWildcard(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		require.NoError(t, r.Tree().Handler(http.MethodGet, route.path, h))
+		require.NoError(t, r.Tree().Handle(http.MethodGet, route.path, pathHanlder))
 	}
 
 	for _, route := range routes {
@@ -915,12 +692,13 @@ func TestRouteWithParams(t *testing.T) {
 		"/info/{user}/project/{project}",
 	}
 	for _, rte := range routes {
-		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
 	}
 
-	nds := tree.load()
+	nds := *tree.nodes.Load()
 	for _, rte := range routes {
-		n, _, _ := tree.lookup(nds[0], rte, false)
+		c := newTestContextTree(tree)
+		n, _ := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
 		require.NotNil(t, n)
 		assert.Equal(t, rte, n.path)
 	}
@@ -951,22 +729,23 @@ func TestRoutParamEmptySegment(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		require.NoError(t, tree.Handler(http.MethodGet, tc.route, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodGet, tc.route, emptyHandler))
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			nds := tree.load()
-			n, ps, tsr := tree.lookup(nds[0], tc.path, false)
+			nds := *tree.nodes.Load()
+			c := newTestContextTree(tree)
+			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
 			assert.Nil(t, n)
-			assert.Nil(t, ps)
+			assert.Empty(t, c.Params())
 			assert.False(t, tsr)
 		})
 	}
 }
 
 func TestOverlappingRoute(t *testing.T) {
-	r := New(WithSaveMatchedRoute(true))
+	r := New()
 	cases := []struct {
 		name       string
 		path       string
@@ -981,8 +760,7 @@ func TestOverlappingRoute(t *testing.T) {
 				"/products/{id}",
 				"/products/new",
 			},
-			wantMatch:  "/products/new",
-			wantParams: Params{{RouteKey, "/products/new"}},
+			wantMatch: "/products/new",
 		},
 		{
 			name: "basic test less specific",
@@ -992,7 +770,7 @@ func TestOverlappingRoute(t *testing.T) {
 				"/products/new",
 			},
 			wantMatch:  "/products/{id}",
-			wantParams: Params{{Key: "id", Value: "123"}, {RouteKey, "/products/{id}"}},
+			wantParams: Params{{Key: "id", Value: "123"}},
 		},
 		{
 			name: "ieof+backtrack to {id} wildcard while deleting {a}",
@@ -1016,10 +794,6 @@ func TestOverlappingRoute(t *testing.T) {
 				{
 					Key:   "name",
 					Value: "barr",
-				},
-				{
-					Key:   RouteKey,
-					Value: "/{base}/val1/{id}/new/{name}",
 				},
 			},
 		},
@@ -1046,10 +820,6 @@ func TestOverlappingRoute(t *testing.T) {
 					Key:   "name",
 					Value: "ba",
 				},
-				{
-					Key:   RouteKey,
-					Value: "/{base}/val1/{id}/new/{name}",
-				},
 			},
 		},
 		{
@@ -1075,10 +845,6 @@ func TestOverlappingRoute(t *testing.T) {
 					Key:   "name",
 					Value: "bx",
 				},
-				{
-					Key:   RouteKey,
-					Value: "/{base}/val1/{id}/new/{name}",
-				},
 			},
 		},
 		{
@@ -1100,10 +866,6 @@ func TestOverlappingRoute(t *testing.T) {
 					Key:   "all",
 					Value: "1/123/new/bar/",
 				},
-				{
-					Key:   RouteKey,
-					Value: "/{base}/val*{all}",
-				},
 			},
 		},
 		{
@@ -1124,10 +886,6 @@ func TestOverlappingRoute(t *testing.T) {
 				{
 					Key:   "all",
 					Value: "1/123/new",
-				},
-				{
-					Key:   RouteKey,
-					Value: "/{base}/val*{all}",
 				},
 			},
 		},
@@ -1154,10 +912,6 @@ func TestOverlappingRoute(t *testing.T) {
 				{
 					Key:   "de",
 					Value: "3",
-				},
-				{
-					Key:   RouteKey,
-					Value: "/foo/{ab}/{bc}/{de}/bar",
 				},
 			},
 		},
@@ -1189,10 +943,6 @@ func TestOverlappingRoute(t *testing.T) {
 					Key:   "fg",
 					Value: "john",
 				},
-				{
-					Key:   RouteKey,
-					Value: "/foo/{ab}/{bc}/{de}/{fg}",
-				},
 			},
 		},
 		{
@@ -1207,10 +957,6 @@ func TestOverlappingRoute(t *testing.T) {
 				{
 					Key:   "name",
 					Value: "abc",
-				},
-				{
-					Key:   RouteKey,
-					Value: "/foo/{name}/bar",
 				},
 			},
 		},
@@ -1228,10 +974,6 @@ func TestOverlappingRoute(t *testing.T) {
 					Key:   "id",
 					Value: "123",
 				},
-				{
-					Key:   RouteKey,
-					Value: "/foo/{id}",
-				},
 			},
 		},
 		{
@@ -1248,10 +990,6 @@ func TestOverlappingRoute(t *testing.T) {
 					Key:   "args",
 					Value: "bc",
 				},
-				{
-					Key:   RouteKey,
-					Value: "/foo/a*{args}",
-				},
 			},
 		},
 	}
@@ -1260,29 +998,34 @@ func TestOverlappingRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := r.NewTree()
 			for _, rte := range tc.routes {
-				require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
+				require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
 			}
+			nds := *tree.nodes.Load()
 
-			nds := tree.load()
-			n, ps, _ := tree.lookup(nds[0], tc.path, false)
+			c := newTestContextTree(tree)
+			n, _ := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
-			if ps != nil {
-				defer ps.Free(tree)
-			}
 
 			assert.Equal(t, tc.wantMatch, n.path)
 			if len(tc.wantParams) == 0 {
-				assert.Nil(t, ps)
-				return
+				assert.Empty(t, c.Params())
+			} else {
+				assert.Equal(t, tc.wantParams, c.Params())
 			}
 
-			assert.Equal(t, tc.wantParams, *ps)
+			// Test with lazy
+			c = newTestContextTree(tree)
+			n, _ = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
+			require.NotNil(t, n)
+			require.NotNil(t, n.handler)
+			assert.Empty(t, c.Params())
+			assert.Equal(t, tc.wantMatch, n.path)
 		})
 	}
 }
 
-func TestRouteConflict(t *testing.T) {
+func TestInsertConflict(t *testing.T) {
 	cases := []struct {
 		name   string
 		routes []struct {
@@ -1300,6 +1043,7 @@ func TestRouteConflict(t *testing.T) {
 			}{
 				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
 				{path: "/john/*{y}", wantErr: ErrRouteConflict, wantMatch: []string{"/john/*{x}"}},
+				{path: "/john/", wantErr: ErrRouteExist, wantMatch: nil},
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
@@ -1308,6 +1052,8 @@ func TestRouteConflict(t *testing.T) {
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+				{path: "/fox/", wantErr: nil, wantMatch: nil},
+				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: nil},
 			},
 		},
 		{
@@ -1366,7 +1112,7 @@ func TestRouteConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, rte := range tc.routes {
-				err := tree.Handler(http.MethodGet, rte.path, emptyHandler)
+				err := tree.Handle(http.MethodGet, rte.path, emptyHandler)
 				assert.ErrorIs(t, err, rte.wantErr)
 				if cErr, ok := err.(*RouteConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.Matched)
@@ -1376,54 +1122,52 @@ func TestRouteConflict(t *testing.T) {
 	}
 }
 
-func TestSwapWildcardConflict(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
+func TestUpdateConflict(t *testing.T) {
 	cases := []struct {
-		wantErr error
-		name    string
-		path    string
-		routes  []struct {
-			path     string
-			wildcard bool
-		}
+		name      string
+		routes    []string
+		update    string
+		wantErr   error
 		wantMatch []string
-		wildcard  string
 	}{
 		{
-			name: "replace existing static node with wildcard",
-			routes: []struct {
-				path     string
-				wildcard bool
-			}{
-				{path: "/foo/bar", wildcard: false},
-				{path: "/foo/baz", wildcard: false},
-				{path: "/foo/", wildcard: false},
-			},
-			path:      "/foo/",
-			wildcard:  "args",
+			name:    "wildcard parameter route not registered",
+			routes:  []string{"/foo/{bar}"},
+			update:  "/foo/{baz}",
+			wantErr: ErrRouteNotFound,
+		},
+		{
+			name:    "wildcard catch all route not registered",
+			routes:  []string{"/foo/{bar}"},
+			update:  "/foo/*{baz}",
+			wantErr: ErrRouteNotFound,
+		},
+		{
+			name:    "route match but not a leaf",
+			routes:  []string{"/foo/bar/baz"},
+			update:  "/foo/bar",
+			wantErr: ErrRouteNotFound,
+		},
+		{
+			name:      "wildcard have different name",
+			routes:    []string{"/foo/bar", "/foo/*{args}"},
+			update:    "/foo/*{all}",
 			wantErr:   ErrRouteConflict,
-			wantMatch: []string{"/foo/bar", "/foo/baz"},
+			wantMatch: []string{"/foo/*{args}"},
 		},
 		{
-			name: "replace existing wildcard node with static",
-			routes: []struct {
-				path     string
-				wildcard bool
-			}{
-				{path: "/foo/", wildcard: true},
-			},
-			path: "/foo/",
+			name:      "replacing non wildcard by wildcard",
+			routes:    []string{"/foo/bar", "/foo/"},
+			update:    "/foo/*{all}",
+			wantErr:   ErrRouteConflict,
+			wantMatch: []string{"/foo/"},
 		},
 		{
-			name: "replace existing wildcard node with another wildcard",
-			routes: []struct {
-				path     string
-				wildcard bool
-			}{
-				{path: "/foo/", wildcard: true},
-			},
-			path:     "/foo/",
-			wildcard: "new",
+			name:      "replacing wildcard by non wildcard",
+			routes:    []string{"/foo/bar", "/foo/*{args}"},
+			update:    "/foo/",
+			wantErr:   ErrRouteConflict,
+			wantMatch: []string{"/foo/*{args}"},
 		},
 	}
 
@@ -1431,13 +1175,9 @@ func TestSwapWildcardConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, rte := range tc.routes {
-				var catchAllKey string
-				if rte.wildcard {
-					catchAllKey = "args"
-				}
-				require.NoError(t, tree.insert(http.MethodGet, rte.path, catchAllKey, 0, h))
+				require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
 			}
-			err := tree.update(http.MethodGet, tc.path, tc.wildcard, h)
+			err := tree.Update(http.MethodGet, tc.update, emptyHandler)
 			assert.ErrorIs(t, err, tc.wantErr)
 			if cErr, ok := err.(*RouteConflictError); ok {
 				assert.Equal(t, tc.wantMatch, cErr.Matched)
@@ -1447,63 +1187,55 @@ func TestSwapWildcardConflict(t *testing.T) {
 }
 
 func TestUpdateRoute(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		w.Write([]byte(r.URL.Path))
-	})
-
 	cases := []struct {
-		newHandler     Handler
-		name           string
-		path           string
-		newPath        string
-		newWildcardKey string
+		name   string
+		routes []string
+		update string
 	}{
 		{
-			name:           "update wildcard with another wildcard",
-			path:           "/foo/bar/*{args}",
-			newPath:        "/foo/bar/",
-			newWildcardKey: "*{new}",
-			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(params.Get(RouteKey)))
-			}),
+			name:   "replacing ending static node",
+			routes: []string{"/foo/", "/foo/bar", "/foo/baz"},
+			update: "/foo/bar",
 		},
 		{
-			name:    "update wildcard with non wildcard",
-			path:    "/foo/bar/*{args}",
-			newPath: "/foo/bar/",
-			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(r.URL.Path))
-			}),
+			name:   "replacing middle static node",
+			routes: []string{"/foo/", "/foo/bar", "/foo/baz"},
+			update: "/foo/",
 		},
 		{
-			name:           "update non wildcard with wildcard",
-			path:           "/foo/bar/",
-			newPath:        "/foo/bar/",
-			newWildcardKey: "*{foo}",
-			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(params.Get(RouteKey)))
-			}),
+			name:   "replacing ending wildcard node",
+			routes: []string{"/foo/", "/foo/bar", "/foo/{baz}"},
+			update: "/foo/{baz}",
 		},
 		{
-			name:    "update non wildcard with non wildcard",
-			path:    "/foo/bar",
-			newPath: "/foo/bar",
-			newHandler: HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-				w.Write([]byte(r.URL.Path))
-			}),
+			name:   "replacing ending inflight wildcard node",
+			routes: []string{"/foo/", "/foo/bar_xyz", "/foo/bar_{baz}"},
+			update: "/foo/bar_{baz}",
+		},
+		{
+			name:   "replacing middle wildcard node",
+			routes: []string{"/foo/{bar}", "/foo/{bar}/baz", "/foo/{bar}/xyz"},
+			update: "/foo/{bar}",
+		},
+		{
+			name:   "replacing middle inflight wildcard node",
+			routes: []string{"/foo/id:{bar}", "/foo/id:{bar}/baz", "/foo/id:{bar}/xyz"},
+			update: "/foo/id:{bar}",
+		},
+		{
+			name:   "replacing catch all node",
+			routes: []string{"/foo/*{bar}", "/foo", "/foo/bar"},
+			update: "/foo/*{bar}",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New(WithSaveMatchedRoute(true))
-			require.NoError(t, r.Tree().Handler(http.MethodGet, tc.path, h))
-			require.NoError(t, r.Tree().Update(http.MethodGet, tc.newPath+tc.newWildcardKey, tc.newHandler))
-			req := httptest.NewRequest(http.MethodGet, tc.newPath, nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			require.Equal(t, http.StatusOK, w.Code)
-			assert.Equal(t, tc.newPath+tc.newWildcardKey, w.Body.String())
+			tree := New().Tree()
+			for _, rte := range tc.routes {
+				require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+			}
+			assert.NoError(t, tree.Update(http.MethodGet, tc.update, emptyHandler))
 		})
 	}
 }
@@ -1648,8 +1380,6 @@ func TestParseRoute(t *testing.T) {
 }
 
 func TestTree_LookupTsr(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
-
 	cases := []struct {
 		name string
 		path string
@@ -1693,16 +1423,16 @@ func TestTree_LookupTsr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
-			require.NoError(t, tree.insert(http.MethodGet, tc.path, "", 0, h))
-			nds := tree.load()
-			_, _, got := tree.lookup(nds[0], tc.key, true)
+			require.NoError(t, tree.insert(http.MethodGet, tc.path, "", 0, emptyHandler))
+			nds := *tree.nodes.Load()
+			c := newTestContextTree(tree)
+			_, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
 			assert.Equal(t, tc.want, got)
 		})
 	}
 }
 
 func TestRedirectTrailingSlash(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	cases := []struct {
 		name   string
@@ -1772,7 +1502,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New(WithRedirectTrailingSlash(true))
-			require.NoError(t, r.Tree().Handler(tc.method, tc.path, h))
+			require.NoError(t, r.Tree().Handle(tc.method, tc.path, emptyHandler))
 
 			req := httptest.NewRequest(tc.method, tc.key, nil)
 			w := httptest.NewRecorder()
@@ -1787,7 +1517,6 @@ func TestRedirectTrailingSlash(t *testing.T) {
 }
 
 func TestRedirectFixedPath(t *testing.T) {
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	cases := []struct {
 		name string
 		path string
@@ -1825,7 +1554,7 @@ func TestRedirectFixedPath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New(WithRedirectFixedPath(true), WithRedirectTrailingSlash(tc.tsr))
-			require.NoError(t, r.Tree().Handler(http.MethodGet, tc.path, h))
+			require.NoError(t, r.Tree().Handle(http.MethodGet, tc.path, emptyHandler))
 			req, _ := http.NewRequest(http.MethodGet, tc.key, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
@@ -1839,12 +1568,11 @@ func TestRedirectFixedPath(t *testing.T) {
 
 func TestTree_Remove(t *testing.T) {
 	tree := New().Tree()
-
 	routes := make([]route, len(githubAPI))
 	copy(routes, githubAPI)
 
 	for _, rte := range routes {
-		require.NoError(t, tree.Handler(rte.method, rte.path, emptyHandler))
+		require.NoError(t, tree.Handle(rte.method, rte.path, emptyHandler))
 	}
 
 	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
@@ -1854,17 +1582,24 @@ func TestTree_Remove(t *testing.T) {
 	}
 
 	cnt := 0
-	_ = Walk(tree, func(method, path string, handler Handler) error {
+	_ = Walk(tree, func(method, path string, handler HandlerFunc) error {
 		cnt++
 		return nil
 	})
 
 	assert.Equal(t, 0, cnt)
+	assert.Equal(t, 4, len(*tree.nodes.Load()))
+}
+
+func TestTree_RemoveRoot(t *testing.T) {
+	tree := New().Tree()
+	require.NoError(t, tree.Handle(http.MethodOptions, "/foo/bar", emptyHandler))
+	require.NoError(t, tree.Remove(http.MethodOptions, "/foo/bar"))
+	assert.Equal(t, 4, len(*tree.nodes.Load()))
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
 	r := New(WithHandleMethodNotAllowed(true))
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	cases := []struct {
 		name    string
@@ -1899,7 +1634,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
-				require.NoError(t, r.Tree().Handler(method, tc.path, h))
+				require.NoError(t, r.Tree().Handle(method, tc.path, emptyHandler))
 			}
 			req := httptest.NewRequest(tc.target, tc.path, nil)
 			w := httptest.NewRecorder()
@@ -1910,19 +1645,21 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	}
 }
 
-func TestPanicHandler(t *testing.T) {
-	r := New(WithPanicHandler(func(w http.ResponseWriter, r *http.Request, i interface{}) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(i.(string)))
-	}))
-
-	const errMsg = "unexpected error"
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {
-		func() { panic(errMsg) }()
-		w.Write([]byte("foo"))
+func TestRecoveryMiddleware(t *testing.T) {
+	m := Recovery(func(c Context, err any) {
+		c.Writer().WriteHeader(http.StatusInternalServerError)
+		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
 
-	require.NoError(t, r.Tree().Handler(http.MethodPost, "/", h))
+	r := New(WithMiddleware(m))
+
+	const errMsg = "unexpected error"
+	h := func(c Context) {
+		func() { panic(errMsg) }()
+		_, _ = c.Writer().Write([]byte("foo"))
+	}
+
+	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -1939,7 +1676,7 @@ func TestHas(t *testing.T) {
 
 	r := New()
 	for _, rte := range routes {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, r.Handle(http.MethodGet, rte, emptyHandler))
 	}
 
 	cases := []struct {
@@ -1992,7 +1729,7 @@ func TestReverse(t *testing.T) {
 
 	r := New()
 	for _, rte := range routes {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, r.Handle(http.MethodGet, rte, emptyHandler))
 	}
 
 	cases := []struct {
@@ -2028,103 +1765,20 @@ func TestReverse(t *testing.T) {
 	}
 }
 
-func TestLookup(t *testing.T) {
-	routes := []string{
-		"/foo/bar",
-		"/welcome/{name}",
-		"/users/uid_{id}",
-		"/john/doe/",
-	}
-
-	r := New()
-	for _, rte := range routes {
-		require.NoError(t, r.Handler(http.MethodGet, rte, emptyHandler))
-	}
-
-	cases := []struct {
-		name           string
-		path           string
-		paramKey       string
-		wantHandler    bool
-		wantParamValue string
-		wantTsr        bool
-	}{
-		{
-			name:        "matching static route",
-			path:        "/foo/bar",
-			wantHandler: true,
-		},
-		{
-			name:    "tsr remove slash for static route",
-			path:    "/foo/bar/",
-			wantTsr: true,
-		},
-		{
-			name:    "tsr add slash for static route",
-			path:    "/john/doe",
-			wantTsr: true,
-		},
-		{
-			name:    "tsr for static route",
-			path:    "/foo/bar/",
-			wantTsr: true,
-		},
-		{
-			name:           "matching params route",
-			path:           "/welcome/fox",
-			wantHandler:    true,
-			paramKey:       "name",
-			wantParamValue: "fox",
-		},
-		{
-			name:    "tsr for params route",
-			path:    "/welcome/fox/",
-			wantTsr: true,
-		},
-		{
-			name:           "matching mid route params",
-			path:           "/users/uid_123",
-			wantHandler:    true,
-			paramKey:       "id",
-			wantParamValue: "123",
-		},
-		{
-			name:    "matching mid route params",
-			path:    "/users/uid_123/",
-			wantTsr: true,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			handler, params, tsr := Lookup(r.Tree(), http.MethodGet, tc.path, false)
-			if params != nil {
-				defer params.Free(r.Tree())
-			}
-			if tc.wantHandler {
-				assert.NotNil(t, handler)
-			}
-			assert.Equal(t, tc.wantTsr, tsr)
-			if tc.paramKey != "" {
-				require.NotNil(t, params)
-				assert.Equal(t, tc.wantParamValue, params.Get(tc.paramKey))
-			}
-		})
-	}
-}
-
 func TestAbortHandler(t *testing.T) {
-	r := New(WithPanicHandler(func(w http.ResponseWriter, r *http.Request, i interface{}) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(i.(error).Error()))
-	}))
-
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {
-		func() { panic(http.ErrAbortHandler) }()
-		w.Write([]byte("foo"))
+	m := Recovery(func(c Context, err any) {
+		c.Writer().WriteHeader(http.StatusInternalServerError)
+		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
 
-	require.NoError(t, r.Tree().Handler(http.MethodPost, "/", h))
+	r := New(WithMiddleware(m))
+
+	h := func(c Context) {
+		func() { panic(http.ErrAbortHandler) }()
+		_, _ = c.Writer().Write([]byte("foo"))
+	}
+
+	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 
@@ -2149,7 +1803,6 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 	}
 
 	tree := New().Tree()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	routeFormat := "/%s/{%s}/%s/{%s}/{%s}"
 	reqFormat := "/%s/%s/%s/%s/%s"
@@ -2163,15 +1816,16 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
 			continue
 		}
-		if err := tree.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", 3, h); err == nil {
-			nds := tree.load()
+		if err := tree.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", 3, emptyHandler); err == nil {
+			nds := *tree.nodes.Load()
 
-			n, params, _ := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), false)
+			c := newTestContextTree(tree)
+			n, _ := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
 			require.NotNil(t, n)
 			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
-			assert.Equal(t, "xxxx", params.Get(e1))
-			assert.Equal(t, "xxxx", params.Get(e2))
-			assert.Equal(t, "xxxx", params.Get(e3))
+			assert.Equal(t, "xxxx", c.Param(e1))
+			assert.Equal(t, "xxxx", c.Param(e2))
+			assert.Equal(t, "xxxx", c.Param(e3))
 		}
 	}
 }
@@ -2179,7 +1833,6 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 func TestFuzzInsertNoPanics(t *testing.T) {
 	f := fuzz.New().NilChance(0).NumElements(5000, 10000)
 	tree := New().Tree()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
@@ -2191,7 +1844,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, h)
+			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, emptyHandler)
 		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
 	}
 }
@@ -2207,30 +1860,30 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 
 	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	tree := New().Tree()
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, _ Params) {})
 
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := tree.insert(http.MethodGet, "/"+rte, "", 0, h)
+		err := tree.insert(http.MethodGet, "/"+rte, "", 0, emptyHandler)
 		require.NoError(t, err)
 	}
 
 	countPath := 0
-	require.NoError(t, Walk(tree, func(method, path string, handler Handler) error {
+	require.NoError(t, Walk(tree, func(method, path string, handler HandlerFunc) error {
 		countPath++
 		return nil
 	}))
 	assert.Equal(t, len(routes), countPath)
 
 	for rte := range routes {
-		nds := tree.load()
-		n, _, _ := tree.lookup(nds[0], "/"+rte, true)
+		nds := *tree.nodes.Load()
+		c := newTestContextTree(tree)
+		n, _ := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.path)
-		require.NoError(t, tree.update(http.MethodGet, "/"+rte, "", h))
+		require.NoError(t, tree.update(http.MethodGet, "/"+rte, "", emptyHandler))
 	}
 
 	for rte := range routes {
@@ -2239,7 +1892,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath = 0
-	require.NoError(t, Walk(tree, func(method, path string, handler Handler) error {
+	require.NoError(t, Walk(tree, func(method, path string, handler HandlerFunc) error {
 		countPath++
 		return nil
 	}))
@@ -2250,8 +1903,8 @@ func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
-	newH := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {})
+	h := HandlerFunc(func(c Context) {})
+	newH := HandlerFunc(func(c Context) {})
 
 	r := New()
 
@@ -2269,8 +1922,8 @@ func TestDataRace(t *testing.T) {
 				assert.NoError(t, tree.Update(method, route, h))
 				return
 			}
-			assert.NoError(t, tree.Handler(method, route, h))
-			// assert.NoError(t, r.Handler("PING", route, h))
+			assert.NoError(t, tree.Handle(method, route, h))
+			// assert.NoError(t, r.Handle("PING", route, h))
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
@@ -2283,7 +1936,7 @@ func TestDataRace(t *testing.T) {
 				assert.NoError(t, tree.Remove(method, route))
 				return
 			}
-			assert.NoError(t, tree.Handler(method, route, newH))
+			assert.NoError(t, tree.Handle(method, route, newH))
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
@@ -2300,32 +1953,32 @@ func TestDataRace(t *testing.T) {
 }
 
 func TestConcurrentRequestHandling(t *testing.T) {
-	r := New(WithSaveMatchedRoute(true))
+	r := New()
 
 	// /repos/{owner}/{repo}/keys
-	h1 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		assert.Equal(t, "john", params.Get("owner"))
-		assert.Equal(t, "fox", params.Get("repo"))
-		_, _ = fmt.Fprint(w, params.Get(RouteKey))
+	h1 := HandlerFunc(func(c Context) {
+		assert.Equal(t, "john", c.Param("owner"))
+		assert.Equal(t, "fox", c.Param("repo"))
+		_, _ = fmt.Fprint(c.Writer(), c.Path())
 	})
 
 	// /repos/{owner}/{repo}/contents/*{path}
-	h2 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		assert.Equal(t, "alex", params.Get("owner"))
-		assert.Equal(t, "vault", params.Get("repo"))
-		assert.Equal(t, "file.txt", params.Get("path"))
-		_, _ = fmt.Fprint(w, params.Get(RouteKey))
+	h2 := HandlerFunc(func(c Context) {
+		assert.Equal(t, "alex", c.Param("owner"))
+		assert.Equal(t, "vault", c.Param("repo"))
+		assert.Equal(t, "file.txt", c.Param("path"))
+		_, _ = fmt.Fprint(c.Writer(), c.Path())
 	})
 
 	// /users/{user}/received_events/public
-	h3 := HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		assert.Equal(t, "go", params.Get("user"))
-		_, _ = fmt.Fprint(w, params.Get(RouteKey))
+	h3 := HandlerFunc(func(c Context) {
+		assert.Equal(t, "go", c.Param("user"))
+		_, _ = fmt.Fprint(c.Writer(), c.Path())
 	})
 
-	require.NoError(t, r.Handler(http.MethodGet, "/repos/{owner}/{repo}/keys", h1))
-	require.NoError(t, r.Handler(http.MethodGet, "/repos/{owner}/{repo}/contents/*{path}", h2))
-	require.NoError(t, r.Handler(http.MethodGet, "/users/{user}/received_events/public", h3))
+	require.NoError(t, r.Handle(http.MethodGet, "/repos/{owner}/{repo}/keys", h1))
+	require.NoError(t, r.Handle(http.MethodGet, "/repos/{owner}/{repo}/contents/*{path}", h2))
+	require.NoError(t, r.Handle(http.MethodGet, "/users/{user}/received_events/public", h3))
 
 	r1 := httptest.NewRequest(http.MethodGet, "/repos/john/fox/keys", nil)
 	r2 := httptest.NewRequest(http.MethodGet, "/repos/alex/vault/contents/file.txt", nil)
@@ -2380,51 +2033,54 @@ func atomicSync() (start func(), wait func()) {
 	return
 }
 
-// When WithSaveMatchedRoute is enabled, the route matching the current request will be available in parameters.
+// This example demonstrates how to create a simple router using the default options,
+// which include the Recovery middleware. A basic route is defined, along with a
+// custom middleware to log the request metrics.
 func ExampleNew() {
-	r := New(WithSaveMatchedRoute(true))
 
-	metrics := func(next HandlerFunc) Handler {
-		return HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
+	// Create a new router with default options, which include the Recovery middleware
+	r := New(DefaultOptions())
+
+	// Define a custom middleware to measure the time taken for request processing and
+	// log the URL, route, time elapsed, and status code
+	metrics := func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
 			start := time.Now()
-			next.ServeHTTP(w, r, params)
-			log.Printf("url=%s; route=%s; time=%d", r.URL, params.Get(RouteKey), time.Since(start))
-		})
+			next(c)
+			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
+		}
 	}
 
-	_ = r.Handler(http.MethodGet, "/hello/{name}", metrics(func(w http.ResponseWriter, r *http.Request, params Params) {
-		_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+	// Define a route with the path "/hello/{name}", apply the custom "metrics" middleware,
+	// and set a simple handler that greets the user by their name
+	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) {
+		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	}))
+
+	// Start the HTTP server using the router as the handler and listen on port 8080
+	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
-// This example demonstrates some important considerations when using the Lookup function.
-func ExampleLookup() {
-	r := New()
-	_ = r.Handler(http.MethodGet, "/hello/{name}", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		_, _ = fmt.Fprintf(w, "Hello, %s\n", params.Get("name"))
-	}))
+// This example demonstrates how to register a global middleware that will be
+// applied to all routes.
 
-	req := httptest.NewRequest(http.MethodGet, "/hello/fox", nil)
+func ExampleWithMiddleware() {
 
-	// Each tree as its own sync.Pool that is used to reuse Params slice. Since the router tree may be swapped at
-	// any given time, it's recommended to copy the pointer locally so when the params is released,
-	// it returns to the correct pool.
-	tree := r.Tree()
-	handler, params, _ := Lookup(tree, http.MethodGet, req.URL.Path, false)
-	// If not nit, Params should be freed to reduce memory allocation.
-	if params != nil {
-		defer params.Free(tree)
+	// Define a custom middleware to measure the time taken for request processing and
+	// log the URL, route, time elapsed, and status code
+	metrics := func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			start := time.Now()
+			next(c)
+			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
+		}
 	}
 
-	// Bad, instead make a local copy of the tree!
-	handler, params, _ = Lookup(r.Tree(), http.MethodGet, req.URL.Path, false)
-	if params != nil {
-		defer params.Free(r.Tree())
-	}
+	r := New(WithMiddleware(metrics))
 
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req, nil)
-	fmt.Print(w.Body.String())
+	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	})
 }
 
 // This example demonstrates some important considerations when using the Tree API.
@@ -2435,26 +2091,29 @@ func ExampleRouter_Tree() {
 	// any given time, you MUST always copy the pointer locally, This ensures that you do not inadvertently cause a
 	// deadlock by locking/unlocking the wrong tree.
 	tree := r.Tree()
-	upsert := func(method, path string, handler Handler) error {
+	upsert := func(method, path string, handler HandlerFunc) error {
 		tree.Lock()
 		defer tree.Unlock()
 		if Has(tree, method, path) {
 			return tree.Update(method, path, handler)
 		}
-		return tree.Handler(method, path, handler)
+		return tree.Handle(method, path, handler)
 	}
 
-	_ = upsert(http.MethodGet, "/foo/bar", HandlerFunc(func(w http.ResponseWriter, r *http.Request, params Params) {
-		_, _ = fmt.Fprintln(w, "foo bar")
-	}))
+	_ = upsert(http.MethodGet, "/foo/bar", func(c Context) {
+		// Note the tree accessible from fox.Context is already a local copy so the golden rule above does not apply.
+		c.Tree().Lock()
+		defer c.Tree().Unlock()
+		_, _ = fmt.Fprintln(c.Writer(), "foo bar")
+	})
 
 	// Bad, instead make a local copy of the tree!
-	upsert = func(method, path string, handler Handler) error {
+	upsert = func(method, path string, handler HandlerFunc) error {
 		r.Tree().Lock()
 		defer r.Tree().Unlock()
 		if Has(r.Tree(), method, path) {
 			return r.Tree().Update(method, path, handler)
 		}
-		return r.Tree().Handler(method, path, handler)
+		return r.Tree().Handle(method, path, handler)
 	}
 }

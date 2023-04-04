@@ -3,13 +3,10 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
 [![codecov](https://codecov.io/gh/tigerwill90/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/fox)
 # Fox
-Fox is a lightweight high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
+Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
 [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that support **lock-free 
-reads** while allowing **concurrent writes**.
-
-The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. Fox has a small memory footprint, and 
-in many case, it does not do a single heap allocation while handling request.
+reads** while allowing **concurrent writes**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
 
 Fox supports various use cases, but it is especially designed for applications that require changes at runtime to their 
 routing structure based on user input, configuration changes, or other runtime events.
@@ -24,13 +21,14 @@ request!
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
 name. Due to Fox design, wildcard route are cheap and scale really well.
 
-**Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling an HTTP request.
+**Detect panic:** Comes with a ready-to-use, efficient Recovery middleware that gracefully handles panics.
 
 **Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
-observability middleware like open telemetry (disable by default).
+observability middleware like open telemetry.
 
-**Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
-exactly one or no route. As a result there are no unintended matches, and it also encourages good RESTful api design.
+**Only explicit matches:**  A request can only match exactly one route or no route at all. Fox strikes a balance between routing flexibility,
+performance and clarity by enforcing clear priority rules, ensuring that there are no unintended matches and maintaining high performance 
+even for complex routing pattern.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
@@ -51,40 +49,38 @@ go get -u github.com/tigerwill90/fox
 package main
 
 import (
-	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
 )
 
-var WelcomeHandler = fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	_, _ = fmt.Fprint(w, "Welcome!\n")
-})
+type Greeting struct {
+	Say string
+}
 
-type HelloHandler struct{}
-
-func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+func (h *Greeting) Greet(c fox.Context) {
+	_ = c.String(http.StatusOK, "%s %s\n", h.Say, c.Param("name"))
 }
 
 func main() {
-	r := fox.New()
+	r := fox.New(fox.DefaultOptions())
 
-	Must(r.Handler(http.MethodGet, "/", WelcomeHandler))
-	Must(r.Handler(http.MethodGet, "/hello/{name}", new(HelloHandler)))
-
-	log.Fatalln(http.ListenAndServe(":8080", r))
-}
-
-func Must(err error) {
+	err := r.Handle(http.MethodGet, "/", func(c fox.Context) {
+		_ = c.String(http.StatusOK, "Welcome\n")
+	})
 	if err != nil {
 		panic(err)
 	}
+
+	h := Greeting{Say: "Hello"}
+	r.MustHandle(http.MethodGet, "/hello/{name}", h.Greet)
+
+	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 ````
 #### Error handling
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another. 
-Instead, it returns the following error values
+Instead, it returns the following error values:
 ```go
 ErrRouteExist    = errors.New("route already registered")
 ErrRouteConflict = errors.New("route conflict")
@@ -102,8 +98,8 @@ if errors.Is(err, fox.ErrRouteConflict) {
 ```
 
 #### Named parameters
-A route can be defined using placeholder (e.g `{name}`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
-The `Get` method is a helper to retrieve the value using the placeholder name.
+A route can be defined using placeholder (e.g `{name}`). The matching segment are recorder into the `fox.Params` slice accessible 
+via `fox.Context`. The `Param` and `Get` methods are helpers to retrieve the value using the placeholder name.
 
 ```
 Pattern /avengers/{name}
@@ -119,7 +115,7 @@ Pattern /users/uuid:{id}
 /users/uuid                 no match
 ```
 
-### Catch all parameter
+#### Catch all parameter
 Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a regular
 named parameter (e.g. `*{name}`).
 ```
@@ -136,19 +132,36 @@ Patter /src/file=*{path}
 /src/file=/dir/config.txt   match
 ```
 
+#### Priority rules
+Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
+A wildcard segment (named parameter or catch all) can only overlap with static segments, for the same HTTP method.
+For instance, `GET /users/{id}` and `GET /users/{name}/profile` cannot coexist, as the `{id}` and `{name}` segments 
+are overlapping. These limitations help to minimize the number of branches that need to be evaluated in order to find 
+the right match, thereby maintaining high-performance routing.
+
+For example, the followings route are allowed:
+````
+GET /*{filepath}
+GET /users/{id}
+GET /users/{id}/emails
+GET /users/{id}/{actions}
+POST /users/{name}/emails
+````
+
 #### Warning about params slice
-`fox.Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
+`fox.Context` is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
 longer, use the `Clone` methods.
-```go
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	p := params.Clone()
-	go func(){
-		time.Sleep(1 * time.Second)
-		log.Println(p.Get("name")) // Safe
-	}()
-	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+````go
+func Hello(c fox.Context) {
+    cc := c.Clone()
+    // cp := c.Params().Clone()
+    go func() {
+        time.Sleep(2 * time.Second)
+        log.Println(cc.Param("name")) // Safe
+    }()
+    _ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
 }
-```
+````
 
 ## Concurrency
 Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
@@ -178,7 +191,7 @@ As such threads that route requests should never encounter latency due to ongoin
 In this example, the handler for `routes/{action}` allow to dynamically register, update and remove handler for the
 given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
-```go
+````go
 package main
 
 import (
@@ -190,14 +203,10 @@ import (
 	"strings"
 )
 
-type ActionHandler struct {
-	fox *fox.Router
-}
-
-func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+func Action(c fox.Context) {
 	var data map[string]string
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := json.NewDecoder(c.Request().Body).Decode(&data); err != nil {
+		http.Error(c.Writer(), err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -206,51 +215,46 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 	text := data["text"]
 
 	if path == "" || method == "" {
-		http.Error(w, "missing method or path", http.StatusBadRequest)
+		http.Error(c.Writer(), "missing method or path", http.StatusBadRequest)
 		return
 	}
 
 	var err error
-	action := params.Get("action")
+	action := c.Param("action")
 	switch action {
 	case "add":
-		err = h.fox.Handler(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-			_, _ = fmt.Fprintln(w, text)
-		}))
+		err = c.Fox().Handle(method, path, func(c fox.Context) {
+			_, _ = fmt.Fprintln(c.Writer(), text)
+		})
 	case "update":
-		err = h.fox.Update(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-			_, _ = fmt.Fprintln(w, text)
-		}))
+		err = c.Fox().Update(method, path, func(c fox.Context) {
+			_, _ = fmt.Fprintln(c.Writer(), text)
+		})
 	case "delete":
-		err = h.fox.Remove(method, path)
+		err = c.Fox().Remove(method, path)
 	default:
-		http.Error(w, fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
+		http.Error(c.Writer(), fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(c.Writer(), err.Error(), http.StatusConflict)
 		return
 	}
 
-	_, _ = fmt.Fprintf(w, "%s route [%s] %s: success\n", action, method, path)
+	_, _ = fmt.Fprintf(c.Writer(), "%s route [%s] %s: success\n", action, method, path)
 }
 
 func main() {
 	r := fox.New()
-	Must(r.Handler(http.MethodPost, "/routes/{action}", &ActionHandler{fox: r}))
+	r.MustHandle(http.MethodPost, "/routes/{action}", Action)
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
-
-func Must(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-```
+````
 
 #### Tree swapping
-Fox also enables you to replace the entire tree in a single atomic operation using the `Use` and `Swap` methods.
+Fox also enables you to replace the entire tree in a single atomic operation using the `Swap` methods.
 Note that router's options apply automatically on the new tree.
+
 ````go
 package main
 
@@ -269,18 +273,20 @@ type HtmlRenderer struct {
 	Template template.HTML
 }
 
-func (h *HtmlRenderer) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	log.Printf("matched route: %s", params.Get(fox.RouteKey))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.Copy(w, strings.NewReader(string(h.Template)))
+func (h *HtmlRenderer) Render(c fox.Context) {
+	log.Printf("matched handler path: %s", c.Path())
+	c.Writer().Header().Set(fox.HeaderContentType, fox.MIMETextHTMLCharsetUTF8)
+	_, _ = io.Copy(c.Writer(), strings.NewReader(string(h.Template)))
 }
 
 func main() {
-	r := fox.New(fox.WithSaveMatchedRoute(true))
+	r := fox.New()
 
 	routes := db.GetRoutes()
+
 	for _, rte := range routes {
-		Must(r.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}))
+		h := HtmlRenderer{Template: rte.Template}
+		r.MustHandle(rte.Method, rte.Path, h.Render)
 	}
 
 	go Reload(r)
@@ -293,20 +299,15 @@ func Reload(r *fox.Router) {
 		routes := db.GetRoutes()
 		tree := r.NewTree()
 		for _, rte := range routes {
-			if err := tree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
+			h := HtmlRenderer{Template: rte.Template}
+			if err := tree.Handle(rte.Method, rte.Path, h.Render); err != nil {
 				log.Printf("error reloading route: %s\n", err)
 				continue
 			}
 		}
-		// Replace the currently in-use routing tree with the new provided.
-		r.Use(tree)
+		// Swap the currently in-use routing tree with the new provided.
+		r.Swap(tree)
 		log.Println("route reloaded")
-	}
-}
-
-func Must(err error) {
-	if err != nil {
-		panic(err)
 	}
 }
 ````
@@ -321,21 +322,20 @@ is already registered for the provided method and path. By locking the `Tree`, t
 atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
 Note that all read operation on the tree remain lock-free.
 ````go
-func Upsert(t *fox.Tree, method, path string, handler fox.Handler) error {
+func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) error {
     t.Lock()
     defer t.Unlock()
     if fox.Has(t, method, path) {
         return t.Update(method, path, handler)
     }
-    return t.Handler(method, path, handler)
+    return t.Handle(method, path, handler)
 }
 ````
 
 #### Concurrent safety and proper usage of Tree APIs
-Some important consideration to keep in mind when using `Tree` API. Each instance as its own `sync.Mutex` and `sync.Pool` 
-that may be used to serialize write and reduce memory allocation. Since the router tree may be swapped at any
-given time, you **MUST always copy the pointer locally** to avoid inadvertently releasing Params to the wrong pool 
-or worst, causing a deadlock by locking/unlocking the wrong `Tree`.
+Some important consideration to keep in mind when using `Tree` API. Each instance as its own `sync.Mutex` that may be
+used to serialize write . Since the router tree may be swapped at any given time, you **MUST always copy the pointer
+locally** to avoid inadvertently causing a deadlock by locking/unlocking the wrong `Tree`.
 
 ````go
 // Good
@@ -343,24 +343,93 @@ t := r.Tree()
 t.Lock()
 defer t.Unlock()
 
-// Dramatically bad, may cause deadlock:
+// Dramatically bad, may cause deadlock
 r.Tree().Lock()
 defer r.Tree().Unlock()
+
+// Dramatically bad, may cause deadlock
+func handle(c fox.Context) {
+    c.Fox().Tree().Lock()
+    defer c.Fox().Tree().Unlock()
+}
 ```` 
 
-This principle also applies to the `fox.Lookup` function, which requires releasing the `fox.Params` slice by calling `params.Free(tree)`.
-Always ensure that the `Tree` pointer passed as a parameter to `params.Free` is the same as the one passed to the `fox.Lookup` function.
+Note that `fox.Context` carries a local copy of the `Tree` that is being used to serve the handler, thereby eliminating 
+the risk of deadlock when using the `Tree` within the context.
+````go
+// Ok
+func handle(c fox.Context)  {
+    c.Tree().Lock()
+    defer c.Tree().Unlock()
+}
+````
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
-provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
-request context
+provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use with `http.Handler`.
+
+Wrapping an http.Handler
 ```go
-_ = r.Handler(http.MethodGet, "/users/{id}", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
-    params := fox.ParamsFromContext(r.Context())
-    _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
-}))
+articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    _, _ = fmt.Fprintln(w, "get articles")
+})
+
+r := fox.New(fox.DefaultOptions())
+r.MustHandle(http.MethodGet, "/articles", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
+
+Wrapping an http.Handler compatible middleware
+````go
+r := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
+r.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
+    _ = c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
+})
+````
+
+## Middleware
+Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 
+to create and apply automatically a simple logging middleware to all route.
+
+````go
+package main
+
+import (
+	"github.com/tigerwill90/fox"
+	"log"
+	"net/http"
+	"time"
+)
+
+var logger = fox.MiddlewareFunc(func(next fox.HandlerFunc) fox.HandlerFunc {
+	return func(c fox.Context) {
+		start := time.Now()
+		next(c)
+		log.Printf(
+			"route: %s, latency: %s, status: %d, size: %d",
+			c.Path(),
+			time.Since(start),
+			c.Writer().Status(),
+			c.Writer().Size(),
+		)
+	}
+})
+
+func main() {
+	r := fox.New(fox.WithMiddleware(logger))
+
+	r.MustHandle(http.MethodGet, "/", func(c fox.Context) {
+		resp, err := http.Get("https://api.coindesk.com/v1/bpi/currentprice.json")
+		if err != nil {
+			http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+		_ = c.Stream(http.StatusOK, fox.MIMEApplicationJSON, resp.Body)
+	})
+
+	log.Fatalln(http.ListenAndServe(":8080", r))
+}
+````
 
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification while in operation. 
@@ -509,15 +578,14 @@ BenchmarkPat_GithubAll                                       550           21177
 
 ## Road to v1
 - [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
-- [ ] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
-- [ ] Collect feedback and polishing
+- [x] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
+- [ ] Improving performance and polishing
 
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
-The intention behind these choices is that it can serve as a building block for more "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
+The intention behind these choices is that it can serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
-- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are inspired from Julien Schmidt's router.
-
-## RFC route overlapping enhancement
+- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
+this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.

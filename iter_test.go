@@ -1,3 +1,7 @@
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+
 package fox
 
 import (
@@ -13,9 +17,9 @@ var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{nam
 func TestIterator_Rewind(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
 	}
 
 	results := make(map[string][]string)
@@ -34,9 +38,9 @@ func TestIterator_Rewind(t *testing.T) {
 func TestIterator_SeekMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
 	}
 
 	results := make(map[string][]string)
@@ -54,9 +58,9 @@ func TestIterator_SeekMethod(t *testing.T) {
 func TestIterator_SeekPrefix(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
 	}
 
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
@@ -76,9 +80,9 @@ func TestIterator_SeekPrefix(t *testing.T) {
 func TestIterator_SeekMethodPrefix(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handler(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handler(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
 	}
 
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}

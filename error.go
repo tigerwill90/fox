@@ -1,3 +1,7 @@
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+
 package fox
 
 import (
@@ -7,17 +11,20 @@ import (
 )
 
 var (
-	ErrRouteNotFound = errors.New("route not found")
-	ErrRouteExist    = errors.New("route already registered")
-	ErrRouteConflict = errors.New("route conflict")
-	ErrInvalidRoute  = errors.New("invalid route")
+	ErrRouteNotFound           = errors.New("route not found")
+	ErrRouteExist              = errors.New("route already registered")
+	ErrRouteConflict           = errors.New("route conflict")
+	ErrInvalidRoute            = errors.New("invalid route")
+	ErrDiscardedResponseWriter = errors.New("discarded response writer")
+	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 )
 
 type RouteConflictError struct {
-	err     error
-	Method  string
-	Path    string
-	Matched []string
+	err      error
+	Method   string
+	Path     string
+	Matched  []string
+	isUpdate bool
 }
 
 func newConflictErr(method, path, catchAllKey string, matched []string) *RouteConflictError {
@@ -33,8 +40,19 @@ func newConflictErr(method, path, catchAllKey string, matched []string) *RouteCo
 }
 
 func (e *RouteConflictError) Error() string {
-	path := e.Path
-	return fmt.Sprintf("new route [%s] %s conflicts with %s", e.Method, path, strings.Join(e.Matched, ", "))
+	if !e.isUpdate {
+		return e.insertError()
+	}
+	return e.updateError()
+}
+
+func (e *RouteConflictError) insertError() string {
+	return fmt.Sprintf("%s: new route [%s] %s conflicts with %s", e.err, e.Method, e.Path, strings.Join(e.Matched, ", "))
+}
+
+func (e *RouteConflictError) updateError() string {
+	return fmt.Sprintf("wildcard conflict: updated route [%s] %s conflicts with %s", e.Method, e.Path, strings.Join(e.Matched, ", "))
+
 }
 
 func (e *RouteConflictError) Unwrap() error {

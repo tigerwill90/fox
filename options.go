@@ -1,6 +1,8 @@
-package fox
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
 
-import "net/http"
+package fox
 
 type Option interface {
 	apply(*Router)
@@ -12,34 +14,33 @@ func (o optionFunc) apply(r *Router) {
 	o(r)
 }
 
-// WithNotFoundHandler register a http.Handler which is called when no matching route is found.
+// WithNoRouteHandler register a http.Handler which is called when no matching route is found.
 // By default, http.NotFound is used.
-func WithNotFoundHandler(handler http.Handler) Option {
+func WithNoRouteHandler(handler HandlerFunc) Option {
 	return optionFunc(func(r *Router) {
 		if handler != nil {
-			r.notFound = handler
+			r.noRoute = handler
 		}
 	})
 }
 
-// WithNotAllowedHandler register a http.Handler which is called when the request cannot be routed,
+// WithNoMethodHandler register a http.Handler which is called when the request cannot be routed,
 // but the same route exist for other methods. The "Allow" header it automatically set
-// before calling the handler. Mount WithHandleMethodNotAllowed to enable this option. By default,
+// before calling the handler. Set WithHandleMethodNotAllowed to enable this option. By default,
 // http.Error with http.StatusMethodNotAllowed is used.
-func WithNotAllowedHandler(handler http.Handler) Option {
+func WithNoMethodHandler(handler HandlerFunc) Option {
 	return optionFunc(func(r *Router) {
 		if handler != nil {
-			r.methodNotAllowed = handler
+			r.noMethod = handler
 		}
 	})
 }
 
-// WithPanicHandler register a function to handle panics recovered from http handlers.
-func WithPanicHandler(fn func(http.ResponseWriter, *http.Request, interface{})) Option {
+// WithMiddleware attaches a global middleware to the router. Middlewares provided will be chained
+// in the order they were added. Note that it does NOT apply the middlewares to the NotFound and MethodNotAllowed handlers.
+func WithMiddleware(middlewares ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
-		if fn != nil {
-			r.panicHandler = fn
-		}
+		r.mws = append(r.mws, middlewares...)
 	})
 }
 
@@ -71,10 +72,9 @@ func WithRedirectTrailingSlash(enable bool) Option {
 	})
 }
 
-// WithSaveMatchedRoute configure the router to make the matched route accessible as a Handler parameter.
-// Usage: p.Get(fox.RouteKey)
-func WithSaveMatchedRoute(enable bool) Option {
+// DefaultOptions configure the router to use the Recovery middleware.
+func DefaultOptions() Option {
 	return optionFunc(func(r *Router) {
-		r.saveMatchedRoute = enable
+		r.mws = append(r.mws, Recovery(defaultHandleRecovery))
 	})
 }
