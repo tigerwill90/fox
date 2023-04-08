@@ -507,3 +507,11 @@ func isRemovable(method string) bool {
 	}
 	return true
 }
+
+func applyMiddleware(mws []MiddlewareFunc, h HandlerFunc) HandlerFunc {
+	m := h
+	for i := len(mws) - 1; i >= 0; i-- {
+		m = mws[i](m)
+	}
+	return m
+}

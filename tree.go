@@ -46,7 +46,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.insert(method, p, catchAllKey, uint32(n), t.apply(handler))
+	return t.insert(method, p, catchAllKey, uint32(n), applyMiddleware(t.mws, handler))
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
@@ -59,7 +59,7 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.update(method, p, catchAllKey, t.apply(handler))
+	return t.update(method, p, catchAllKey, applyMiddleware(t.mws, handler))
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
@@ -653,7 +653,8 @@ func (t *Tree) allocateContext() *context {
 	}
 }
 
-// addRoot is not safe for concurrent use.
+// addRoot append a new root node to the tree.
+// Note: This function should be guarded by mutex.
 func (t *Tree) addRoot(n *node) {
 	nds := *t.nodes.Load()
 	newNds := make([]*node, 0, len(nds)+1)
@@ -662,9 +663,15 @@ func (t *Tree) addRoot(n *node) {
 	t.nodes.Store(&newNds)
 }
 
-// updateRoot is not safe for concurrent use.
+// updateRoot replaces a root node in the tree.
+// Due to performance optimization, the tree uses atomic.Pointer[[]*node] instead of
+// atomic.Pointer[atomic.Pointer[*node]]. As a result, the root node cannot be replaced
+// directly by swapping the pointer. Instead, a new list of nodes is created with the
+// updated root node, and the entire list is swapped afterwards.
+// Note: This function should be guarded by mutex.
 func (t *Tree) updateRoot(n *node) bool {
 	nds := *t.nodes.Load()
+	// for root node, the key contains the HTTP verb.
 	index := findRootNode(n.key, nds)
 	if index < 0 {
 		return false
@@ -677,7 +684,8 @@ func (t *Tree) updateRoot(n *node) bool {
 	return true
 }
 
-// removeRoot is not safe for concurrent use.
+// removeRoot remove a root nod from the tree.
+// Note: This function should be guarded by mutex.
 func (t *Tree) removeRoot(method string) bool {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -705,12 +713,4 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	if max > t.maxDepth.Load() {
 		t.maxDepth.Store(max)
 	}
-}
-
-func (t *Tree) apply(h HandlerFunc) HandlerFunc {
-	m := h
-	for i := len(t.mws) - 1; i >= 0; i-- {
-		m = t.mws[i](m)
-	}
-	return m
 }

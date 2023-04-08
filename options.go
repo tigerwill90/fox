@@ -14,33 +14,33 @@ func (o optionFunc) apply(r *Router) {
 	o(r)
 }
 
-// WithNoRouteHandler register a http.Handler which is called when no matching route is found.
+// WithRouteNotFound register a http.Handler which is called when no matching route is found.
 // By default, http.NotFound is used.
-func WithNoRouteHandler(handler HandlerFunc) Option {
+func WithRouteNotFound(handler HandlerFunc, m ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
 		if handler != nil {
-			r.noRoute = handler
+			r.noRoute = applyMiddleware(m, handler)
 		}
 	})
 }
 
-// WithNoMethodHandler register a http.Handler which is called when the request cannot be routed,
+// WithMethodNotAllowed register a http.Handler which is called when the request cannot be routed,
 // but the same route exist for other methods. The "Allow" header it automatically set
 // before calling the handler. Set WithHandleMethodNotAllowed to enable this option. By default,
 // http.Error with http.StatusMethodNotAllowed is used.
-func WithNoMethodHandler(handler HandlerFunc) Option {
+func WithMethodNotAllowed(handler HandlerFunc, m ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
 		if handler != nil {
-			r.noMethod = handler
+			r.noMethod = applyMiddleware(m, handler)
 		}
 	})
 }
 
 // WithMiddleware attaches a global middleware to the router. Middlewares provided will be chained
 // in the order they were added. Note that it does NOT apply the middlewares to the NotFound and MethodNotAllowed handlers.
-func WithMiddleware(middlewares ...MiddlewareFunc) Option {
+func WithMiddleware(m ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
-		r.mws = append(r.mws, middlewares...)
+		r.mws = append(r.mws, m...)
 	})
 }
 
