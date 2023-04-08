@@ -82,10 +82,12 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 	return
 }
 
+//nolint:unused
 type hijackWriter struct {
 	*recorder
 }
 
+//nolint:unused
 func (w *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
@@ -93,10 +95,12 @@ func (w *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
 }
 
+//nolint:unused
 type flushHijackWriter struct {
 	*recorder
 }
 
+//nolint:unused
 func (w *flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
@@ -104,6 +108,7 @@ func (w *flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
 }
 
+//nolint:unused
 func (w *flushHijackWriter) Flush() {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
@@ -170,8 +175,8 @@ func (n noopWriter) Header() http.Header {
 	return make(http.Header)
 }
 
-func (n noopWriter) Write(bytes []byte) (int, error) {
+func (n noopWriter) Write([]byte) (int, error) {
 	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
 }
 
-func (n noopWriter) WriteHeader(statusCode int) {}
+func (n noopWriter) WriteHeader(int) {}
