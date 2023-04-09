@@ -82,13 +82,23 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 	return
 }
 
+func (r *recorder) WriteString(s string) (n int, err error) {
+	if !r.Written() {
+		r.size = 0
+		r.ResponseWriter.WriteHeader(r.status)
+	}
+	n, err = io.WriteString(r.ResponseWriter, s)
+	r.size += n
+	return
+}
+
 //nolint:unused
 type hijackWriter struct {
 	*recorder
 }
 
 //nolint:unused
-func (w *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (w hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
@@ -101,7 +111,7 @@ type flushHijackWriter struct {
 }
 
 //nolint:unused
-func (w *flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (w flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
@@ -109,7 +119,7 @@ func (w *flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 //nolint:unused
-func (w *flushHijackWriter) Flush() {
+func (w flushHijackWriter) Flush() {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
@@ -120,7 +130,7 @@ type flushWriter struct {
 	*recorder
 }
 
-func (w *flushWriter) Flush() {
+func (w flushWriter) Flush() {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
@@ -131,7 +141,7 @@ type h1Writer struct {
 	*recorder
 }
 
-func (w *h1Writer) ReadFrom(r io.Reader) (n int64, err error) {
+func (w h1Writer) ReadFrom(r io.Reader) (n int64, err error) {
 	rf := w.recorder.ResponseWriter.(io.ReaderFrom)
 	// If not written, status is OK
 	w.recorder.WriteHeader(w.recorder.status)
@@ -140,14 +150,14 @@ func (w *h1Writer) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
-func (w *h1Writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (w h1Writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
 	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
 }
 
-func (w *h1Writer) Flush() {
+func (w h1Writer) Flush() {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
@@ -158,11 +168,11 @@ type h2Writer struct {
 	*recorder
 }
 
-func (w *h2Writer) Push(target string, opts *http.PushOptions) error {
+func (w h2Writer) Push(target string, opts *http.PushOptions) error {
 	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
 }
 
-func (w *h2Writer) Flush() {
+func (w h2Writer) Flush() {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}

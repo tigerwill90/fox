@@ -5,6 +5,7 @@
 package fox
 
 import (
+	"errors"
 	"fmt"
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
@@ -21,9 +22,9 @@ import (
 	"time"
 )
 
-var emptyHandler = HandlerFunc(func(c Context) {})
-var pathHanlder = HandlerFunc(func(c Context) { _, _ = c.Writer().Write([]byte(c.Request().URL.Path)) })
-var routeHandler = HandlerFunc(func(c Context) { _, _ = c.Writer().Write([]byte(c.Path())) })
+var emptyHandler = HandlerFunc(func(c Context) error { return nil })
+var pathHandler = HandlerFunc(func(c Context) error { return c.String(200, c.Request().URL.Path) })
+var routeHandler = HandlerFunc(func(c Context) error { return c.String(200, c.Path()) })
 
 type mockResponseWriter struct{}
 
@@ -564,7 +565,7 @@ func TestStaticRoute(t *testing.T) {
 	r := New()
 
 	for _, route := range staticRoutes {
-		require.NoError(t, r.Tree().Handle(route.method, route.path, pathHanlder))
+		require.NoError(t, r.Tree().Handle(route.method, route.path, pathHandler))
 	}
 
 	for _, route := range staticRoutes {
@@ -594,7 +595,7 @@ func TestStaticRouteMalloc(t *testing.T) {
 func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r := New()
-	h := func(c Context) {
+	h := func(c Context) error {
 		matches := rx.FindAllString(c.Request().URL.Path, -1)
 		for _, match := range matches {
 			var key string
@@ -607,7 +608,7 @@ func TestParamsRoute(t *testing.T) {
 			assert.Equal(t, value, c.Param(key))
 		}
 		assert.Equal(t, c.Request().URL.Path, c.Path())
-		_, _ = c.Writer().Write([]byte(c.Request().URL.Path))
+		return c.String(200, c.Request().URL.Path)
 	}
 	for _, route := range githubAPI {
 		require.NoError(t, r.Tree().Handle(route.method, route.path, h))
@@ -661,7 +662,7 @@ func TestRouterWildcard(t *testing.T) {
 	}
 
 	for _, route := range routes {
-		require.NoError(t, r.Tree().Handle(http.MethodGet, route.path, pathHanlder))
+		require.NoError(t, r.Tree().Handle(http.MethodGet, route.path, pathHandler))
 	}
 
 	for _, route := range routes {
@@ -1654,9 +1655,9 @@ func TestRecoveryMiddleware(t *testing.T) {
 	r := New(WithMiddleware(m))
 
 	const errMsg = "unexpected error"
-	h := func(c Context) {
+	h := func(c Context) error {
 		func() { panic(errMsg) }()
-		_, _ = c.Writer().Write([]byte("foo"))
+		return c.String(200, "foo")
 	}
 
 	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
@@ -1720,6 +1721,38 @@ func TestHas(t *testing.T) {
 	}
 }
 
+func TestErrorHandling(t *testing.T) {
+	r := New()
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+
+	r.MustHandle(http.MethodGet, "/foo/bar", func(c Context) error {
+		return NewHTTPError(http.StatusBadRequest, errors.New("oups"))
+	})
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "oups\n", w.Body.String())
+}
+
+func TestCustomErrorHandling(t *testing.T) {
+	r := New(WithRouteError(func(c Context, err error) {
+		http.Error(c.Writer(), err.Error(), http.StatusInternalServerError)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+
+	r.MustHandle(http.MethodGet, "/foo/bar", func(c Context) error {
+		return errors.New("something went wrong")
+	})
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "something went wrong\n", w.Body.String())
+}
+
 func TestReverse(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
@@ -1773,9 +1806,9 @@ func TestAbortHandler(t *testing.T) {
 
 	r := New(WithMiddleware(m))
 
-	h := func(c Context) {
+	h := func(c Context) error {
 		func() { panic(http.ErrAbortHandler) }()
-		_, _ = c.Writer().Write([]byte("foo"))
+		return c.String(200, "foo")
 	}
 
 	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
@@ -1903,8 +1936,8 @@ func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(c Context) {})
-	newH := HandlerFunc(func(c Context) {})
+	h := HandlerFunc(func(c Context) error { return nil })
+	newH := HandlerFunc(func(c Context) error { return nil })
 
 	r := New()
 
@@ -1956,24 +1989,24 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	r := New()
 
 	// /repos/{owner}/{repo}/keys
-	h1 := HandlerFunc(func(c Context) {
+	h1 := HandlerFunc(func(c Context) error {
 		assert.Equal(t, "john", c.Param("owner"))
 		assert.Equal(t, "fox", c.Param("repo"))
-		_, _ = fmt.Fprint(c.Writer(), c.Path())
+		return c.String(200, c.Path())
 	})
 
 	// /repos/{owner}/{repo}/contents/*{path}
-	h2 := HandlerFunc(func(c Context) {
+	h2 := HandlerFunc(func(c Context) error {
 		assert.Equal(t, "alex", c.Param("owner"))
 		assert.Equal(t, "vault", c.Param("repo"))
 		assert.Equal(t, "file.txt", c.Param("path"))
-		_, _ = fmt.Fprint(c.Writer(), c.Path())
+		return c.String(200, c.Path())
 	})
 
 	// /users/{user}/received_events/public
-	h3 := HandlerFunc(func(c Context) {
+	h3 := HandlerFunc(func(c Context) error {
 		assert.Equal(t, "go", c.Param("user"))
-		_, _ = fmt.Fprint(c.Writer(), c.Path())
+		return c.String(200, c.Path())
 	})
 
 	require.NoError(t, r.Handle(http.MethodGet, "/repos/{owner}/{repo}/keys", h1))
@@ -2044,17 +2077,18 @@ func ExampleNew() {
 	// Define a custom middleware to measure the time taken for request processing and
 	// log the URL, route, time elapsed, and status code
 	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c Context) error {
 			start := time.Now()
-			next(c)
+			err := next(c)
 			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
+			return err
 		}
 	}
 
 	// Define a route with the path "/hello/{name}", apply the custom "metrics" middleware,
 	// and set a simple handler that greets the user by their name
-	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) error {
+		return c.String(200, "Hello %s\n", c.Param("name"))
 	}))
 
 	// Start the HTTP server using the router as the handler and listen on port 8080
@@ -2069,17 +2103,18 @@ func ExampleWithMiddleware() {
 	// Define a custom middleware to measure the time taken for request processing and
 	// log the URL, route, time elapsed, and status code
 	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c Context) error {
 			start := time.Now()
-			next(c)
+			err := next(c)
 			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
+			return err
 		}
 	}
 
 	r := New(WithMiddleware(metrics))
 
-	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) error {
+		return c.String(200, "Hello %s\n", c.Param("name"))
 	})
 }
 
@@ -2100,11 +2135,11 @@ func ExampleRouter_Tree() {
 		return tree.Handle(method, path, handler)
 	}
 
-	_ = upsert(http.MethodGet, "/foo/bar", func(c Context) {
+	_ = upsert(http.MethodGet, "/foo/bar", func(c Context) error {
 		// Note the tree accessible from fox.Context is already a local copy so the golden rule above does not apply.
 		c.Tree().Lock()
 		defer c.Tree().Unlock()
-		_, _ = fmt.Fprintln(c.Writer(), "foo bar")
+		return c.String(200, "foo bar")
 	})
 
 	// Bad, instead make a local copy of the tree!

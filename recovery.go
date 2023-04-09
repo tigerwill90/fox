@@ -26,9 +26,9 @@ type RecoveryFunc func(c Context, err any)
 // allowing the http server to handle it as an abort.
 func Recovery(handle RecoveryFunc) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c Context) error {
 			defer recovery(c, handle)
-			next(c)
+			return next(c)
 		}
 	}
 }

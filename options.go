@@ -14,7 +14,7 @@ func (o optionFunc) apply(r *Router) {
 	o(r)
 }
 
-// WithRouteNotFound register a http.Handler which is called when no matching route is found.
+// WithRouteNotFound register an HandlerFunc which is called when no matching route is found.
 // By default, the NotFoundHandler is used.
 func WithRouteNotFound(handler HandlerFunc, m ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
@@ -24,7 +24,7 @@ func WithRouteNotFound(handler HandlerFunc, m ...MiddlewareFunc) Option {
 	})
 }
 
-// WithMethodNotAllowed register a http.Handler which is called when the request cannot be routed,
+// WithMethodNotAllowed register an HandlerFunc which is called when the request cannot be routed,
 // but the same route exist for other methods. The "Allow" header it automatically set
 // before calling the handler. Set WithHandleMethodNotAllowed to enable this option. By default,
 // the MethodNotAllowedHandler is used.
@@ -32,6 +32,16 @@ func WithMethodNotAllowed(handler HandlerFunc, m ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
 		if handler != nil {
 			r.noMethod = applyMiddleware(m, handler)
+		}
+	})
+}
+
+// WithRouteError register an ErrorHandlerFunc which is called when an HandlerFunc returns an error.
+// By default, the RouteErrorHandler is used.
+func WithRouteError(handler ErrorHandlerFunc) Option {
+	return optionFunc(func(r *Router) {
+		if handler != nil {
+			r.errRoute = handler
 		}
 	})
 }

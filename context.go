@@ -162,7 +162,9 @@ func (c *context) Path() string {
 
 // String sends a formatted string with the specified status code.
 func (c *context) String(code int, format string, values ...any) (err error) {
-	c.w.Header().Set(HeaderContentType, MIMETextPlainCharsetUTF8)
+	if c.w.Header().Get(HeaderContentType) == "" {
+		c.w.Header().Set(HeaderContentType, MIMETextPlainCharsetUTF8)
+	}
 	c.w.WriteHeader(code)
 	_, err = fmt.Fprintf(c.w, format, values...)
 	return
@@ -243,15 +245,17 @@ func (c *context) getQueries() url.Values {
 
 // WrapF is an adapter for wrapping http.HandlerFunc and returns a HandlerFunc function.
 func WrapF(f http.HandlerFunc) HandlerFunc {
-	return func(c Context) {
+	return func(c Context) error {
 		f.ServeHTTP(c.Writer(), c.Request())
+		return nil
 	}
 }
 
 // WrapH is an adapter for wrapping http.Handler and returns a HandlerFunc function.
 func WrapH(h http.Handler) HandlerFunc {
-	return func(c Context) {
+	return func(c Context) error {
 		h.ServeHTTP(c.Writer(), c.Request())
+		return nil
 	}
 }
 
@@ -259,11 +263,13 @@ func WrapH(h http.Handler) HandlerFunc {
 // MiddlewareFunc function.
 func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c Context) error {
+			var err error
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next(c)
+				err = next(c)
 			}))
 			adapter.ServeHTTP(c.Writer(), c.Request())
+			return err
 		}
 	}
 }
