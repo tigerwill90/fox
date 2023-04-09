@@ -53,11 +53,8 @@ var _ http.Handler = (*Router)(nil)
 func New(opts ...Option) *Router {
 	r := new(Router)
 
-	r.noRoute = func(c Context) { http.Error(c.Writer(), "404 page not found", http.StatusNotFound) }
-	r.noMethod = func(c Context) {
-		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-	}
-
+	r.noRoute = NotFoundHandler()
+	r.noMethod = MethodNotAllowedHandler()
 	for _, opt := range opts {
 		opt.apply(r)
 	}
@@ -214,6 +211,21 @@ Next:
 
 	}
 	return nil
+}
+
+// NotFoundHandler returns a simple HandlerFunc that replies to each request
+// with a “404 page not found” reply.
+func NotFoundHandler() HandlerFunc {
+	http.NotFoundHandler()
+	return func(c Context) { http.Error(c.Writer(), "404 page not found", http.StatusNotFound) }
+}
+
+// MethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
+// with a “405 Method Not Allowed” reply.
+func MethodNotAllowedHandler() HandlerFunc {
+	return func(c Context) {
+		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
 }
 
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
