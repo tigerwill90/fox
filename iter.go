@@ -1,3 +1,7 @@
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+
 package fox
 
 import (
@@ -24,7 +28,7 @@ func NewIterator(t *Tree) *Iterator {
 }
 
 func (it *Iterator) methods() map[string]*node {
-	nds := it.tree.load()
+	nds := *it.tree.nodes.Load()
 	m := make(map[string]*node, len(nds))
 	for i := range nds {
 		if len(nds[i].children) > 0 {
@@ -174,11 +178,16 @@ func (it *Iterator) Method() string {
 }
 
 // Handler return the registered handler for the current route.
-func (it *Iterator) Handler() Handler {
+func (it *Iterator) Handler() HandlerFunc {
 	if it.current != nil {
 		return it.current.handler
 	}
 	return nil
+}
+
+type stack struct {
+	method string
+	edges  []*node
 }
 
 func newRawIterator(n *node) *rawIterator {
@@ -191,19 +200,6 @@ type rawIterator struct {
 	current *node
 	path    string
 	stack   []stack
-}
-
-type stack struct {
-	method string
-	edges  []*node
-}
-
-func (it *rawIterator) fullPath() string {
-	return it.path
-}
-
-func (it *rawIterator) node() *node {
-	return it.current
 }
 
 func (it *rawIterator) hasNext() bool {

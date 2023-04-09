@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/google/gofuzz v1.2.0
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.2
 )
 
 require (

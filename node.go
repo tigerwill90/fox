@@ -1,7 +1,12 @@
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+
 package fox
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -9,7 +14,7 @@ import (
 type node struct {
 	// The registered handler matching the full path. Nil if the node is not a leaf.
 	// Once assigned, handler is immutable.
-	handler Handler
+	handler HandlerFunc
 
 	// key represent a segment of a route which share a common prefix with it parent.
 	key string
@@ -31,43 +36,40 @@ type node struct {
 	// each pointer reference to a new child node starting with the same character.
 	children []atomic.Pointer[node]
 
-	// Indicate whether its child node is a param node type. If true, len(children) == 1.
-	// Once assigned, paramChild is immutable.
-	paramChild bool
+	// The index of a paramChild if any, -1 if none (per rules, only one paramChildren is allowed).
+	paramChildIndex int
 }
 
-func newNode(key string, handler Handler, children []*node, catchAllKey string, paramChild bool, path string) *node {
+func newNode(key string, handler HandlerFunc, children []*node, catchAllKey string, path string) *node {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].key < children[j].key
 	})
 	nds := make([]atomic.Pointer[node], len(children))
 	childKeys := make([]byte, len(children))
+	childIndex := -1
 	for i := range children {
 		assertNotNil(children[i])
 		childKeys[i] = children[i].key[0]
 		nds[i].Store(children[i])
-	}
-
-	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, paramChild, path)
-}
-
-func newNodeFromRef(key string, handler Handler, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, paramChild bool, path string) *node {
-	n := &node{
-		key:         key,
-		childKeys:   childKeys,
-		children:    children,
-		handler:     handler,
-		catchAllKey: catchAllKey,
-		path:        path,
-		paramChild:  paramChild,
-	}
-	// TODO find a better way
-	if catchAllKey != "" {
-		suffix := "*{" + catchAllKey + "}"
-		if !strings.HasSuffix(path, suffix) {
-			n.path += suffix
+		if strings.HasPrefix(children[i].key, "{") {
+			childIndex = i
 		}
 	}
+
+	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, childIndex, path)
+}
+
+func newNodeFromRef(key string, handler HandlerFunc, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, childIndex int, path string) *node {
+	n := &node{
+		key:             key,
+		childKeys:       childKeys,
+		children:        children,
+		handler:         handler,
+		catchAllKey:     catchAllKey,
+		path:            appendCatchAll(path, catchAllKey),
+		paramChildIndex: childIndex,
+	}
+
 	return n
 }
 
@@ -178,8 +180,11 @@ func (n *node) string(space int) string {
 	sb.WriteString(strings.Repeat(" ", space))
 	sb.WriteString("path: ")
 	sb.WriteString(n.key)
-	if n.paramChild {
-		sb.WriteString(" [paramChild]")
+
+	if n.paramChildIndex >= 0 {
+		sb.WriteString(" [paramIdx=")
+		sb.WriteString(strconv.Itoa(n.paramChildIndex))
+		sb.WriteString("]")
 	}
 
 	if n.isCatchAll() {
@@ -195,7 +200,30 @@ func (n *node) string(space int) string {
 	children := n.getEdgesShallowCopy()
 	for _, child := range children {
 		sb.WriteString("  ")
-		sb.WriteString(child.string(space + 2))
+		sb.WriteString(child.string(space + 4))
 	}
 	return sb.String()
+}
+
+type skippedNodes []skippedNode
+
+func (n *skippedNodes) pop() skippedNode {
+	skipped := (*n)[len(*n)-1]
+	*n = (*n)[:len(*n)-1]
+	return skipped
+}
+
+type skippedNode struct {
+	node      *node
+	pathIndex int
+}
+
+func appendCatchAll(path, catchAllKey string) string {
+	if catchAllKey != "" {
+		suffix := "*{" + catchAllKey + "}"
+		if !strings.HasSuffix(path, suffix) {
+			return path + suffix
+		}
+	}
+	return path
 }

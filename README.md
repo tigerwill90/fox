@@ -3,13 +3,10 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
 [![codecov](https://codecov.io/gh/tigerwill90/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/fox)
 # Fox
-Fox is a lightweight high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
+Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
 [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that support **lock-free 
-reads** while allowing **concurrent writes**.
-
-The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. Fox has a small memory footprint, and 
-in many case, it does not do a single heap allocation while handling request.
+reads** while allowing **concurrent writes**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
 
 Fox supports various use cases, but it is especially designed for applications that require changes at runtime to their 
 routing structure based on user input, configuration changes, or other runtime events.
@@ -24,13 +21,14 @@ request!
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
 name. Due to Fox design, wildcard route are cheap and scale really well.
 
-**Detect panic:** You can register a fallback handler that is fire in case of panics occurring during handling an HTTP request.
+**Detect panic:** Comes with a ready-to-use, efficient Recovery middleware that gracefully handles panics.
 
 **Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
-observability middleware like open telemetry (disable by default).
+observability middleware like open telemetry.
 
-**Only explicit matches:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), a request can only match
-exactly one or no route. As a result there are no unintended matches, and it also encourages good RESTful api design.
+**Only explicit matches:**  A request can only match exactly one route or no route at all. Fox strikes a balance between routing flexibility,
+performance and clarity by enforcing clear priority rules, ensuring that there are no unintended matches and maintaining high performance 
+even for complex routing pattern.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
@@ -51,40 +49,38 @@ go get -u github.com/tigerwill90/fox
 package main
 
 import (
-	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
 )
 
-var WelcomeHandler = fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	_, _ = fmt.Fprint(w, "Welcome!\n")
-})
+type Greeting struct {
+	Say string
+}
 
-type HelloHandler struct{}
-
-func (h *HelloHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+func (h *Greeting) Greet(c fox.Context) error {
+	return c.String(http.StatusOK, "%s %s\n", h.Say, c.Param("name"))
 }
 
 func main() {
-	r := fox.New()
+	r := fox.New(fox.DefaultOptions())
 
-	Must(r.Handler(http.MethodGet, "/", WelcomeHandler))
-	Must(r.Handler(http.MethodGet, "/hello/{name}", new(HelloHandler)))
-
-	log.Fatalln(http.ListenAndServe(":8080", r))
-}
-
-func Must(err error) {
+	err := r.Handle(http.MethodGet, "/", func(c fox.Context) error {
+		return c.String(http.StatusOK, "Welcome\n")
+	})
 	if err != nil {
 		panic(err)
 	}
+
+	h := Greeting{Say: "Hello"}
+	r.MustHandle(http.MethodGet, "/hello/{name}", h.Greet)
+
+	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 ````
 #### Error handling
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another. 
-Instead, it returns the following error values
+Instead, it returns the following error values:
 ```go
 ErrRouteExist    = errors.New("route already registered")
 ErrRouteConflict = errors.New("route conflict")
@@ -101,11 +97,34 @@ if errors.Is(err, fox.ErrRouteConflict) {
 }
 ```
 
-#### Named parameters
-A route can be defined using placeholder (e.g `{name}`). The values are accessible via `fox.Params`, which is just a slice of `fox.Param`.
-The `Get` method is a helper to retrieve the value using the placeholder name.
+In addition, Fox also provides a centralized way to handle errors that may occur during the execution of a HandlerFunc.
 
-```
+````go
+var MyCustomError = errors.New("my custom error")
+
+r := fox.New(
+    fox.WithRouteError(func(c fox.Context, err error) {
+        if !c.Writer().Written() {
+            if errors.Is(err, MyCustomError) {
+                http.Error(c.Writer(), err.Error(), http.StatusInternalServerError)
+                return
+            }
+            http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+            return
+        }
+    }),
+)
+
+r.MustHandle(http.MethodGet, "/hello/{name}", func(c fox.Context) error {
+    return MyCustomError
+})
+````
+
+#### Named parameters
+A route can be defined using placeholder (e.g `{name}`). The matching segment are recorder into the `fox.Params` slice accessible 
+via `fox.Context`. The `Param` and `Get` methods are helpers to retrieve the value using the placeholder name.
+
+````
 Pattern /avengers/{name}
 
 /avengers/ironman       match
@@ -117,12 +136,12 @@ Pattern /users/uuid:{id}
 
 /users/uuid:123             match
 /users/uuid                 no match
-```
+````
 
-### Catch all parameter
+#### Catch all parameter
 Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a regular
 named parameter (e.g. `*{name}`).
-```
+````
 Pattern /src/*{filepath}
 
 /src/                       match
@@ -134,21 +153,38 @@ Patter /src/file=*{path}
 /src/file=                  match
 /src/file=config.txt        match
 /src/file=/dir/config.txt   match
-```
+````
 
-#### Warning about params slice
-`fox.Params` slice is freed once ServeHTTP returns and may be reused later to save resource. Therefore, if you need to hold `fox.Params`
-longer, use the `Clone` methods.
-```go
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	p := params.Clone()
-	go func(){
-		time.Sleep(1 * time.Second)
-		log.Println(p.Get("name")) // Safe
-	}()
-	_, _ = fmt.Fprintf(w, "Hello %s\n", params.Get("name"))
+#### Priority rules
+Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
+A wildcard segment (named parameter or catch all) can only overlap with static segments, for the same HTTP method.
+For instance, `GET /users/{id}` and `GET /users/{name}/profile` cannot coexist, as the `{id}` and `{name}` segments 
+are overlapping. These limitations help to minimize the number of branches that need to be evaluated in order to find 
+the right match, thereby maintaining high-performance routing.
+
+For example, the followings route are allowed:
+````
+GET /*{filepath}
+GET /users/{id}
+GET /users/{id}/emails
+GET /users/{id}/{actions}
+POST /users/{name}/emails
+````
+
+#### Warning about context
+The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
+If you need to retain `fox.Context` or `fox.Params` beyond the scope of the handler, use the `Clone` methods.
+````go
+func Hello(c fox.Context) error {
+    cc := c.Clone()
+    // cp := c.Params().Clone()
+    go func() {
+        time.Sleep(2 * time.Second)
+        log.Println(cc.Param("name")) // Safe
+    }()
+    return c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
 }
-```
+````
 
 ## Concurrency
 Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
@@ -158,7 +194,7 @@ into a **patch**, which is then applied to the tree in a **single atomic operati
 For example, here we are inserting the new key `toast` into to the tree which require an existing node to be split:
 
 <p align="center" width="100%">
-    <img width="100%" src="assets/tree-apply-patch.png">
+    <img width="100%" src="https://raw.githubusercontent.com/tigerwill90/concurrent-trees/master/documentation/images/tree-apply-patch.png">
 </p>
 
 When traversing the tree during a patch, reading threads will either see the **old version** or the **new version** of the (sub-)tree, but both version are 
@@ -178,11 +214,12 @@ As such threads that route requests should never encounter latency due to ongoin
 In this example, the handler for `routes/{action}` allow to dynamically register, update and remove handler for the
 given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
-```go
+````go
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
@@ -190,15 +227,10 @@ import (
 	"strings"
 )
 
-type ActionHandler struct {
-	fox *fox.Router
-}
-
-func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
+func Action(c fox.Context) error {
 	var data map[string]string
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if err := json.NewDecoder(c.Request().Body).Decode(&data); err != nil {
+		return fox.NewHTTPError(http.StatusBadRequest, err)
 	}
 
 	method := strings.ToUpper(data["method"])
@@ -206,51 +238,43 @@ func (h *ActionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, params
 	text := data["text"]
 
 	if path == "" || method == "" {
-		http.Error(w, "missing method or path", http.StatusBadRequest)
-		return
+		return fox.NewHTTPError(http.StatusBadRequest, errors.New("missing method or path"))
 	}
 
 	var err error
-	action := params.Get("action")
+	action := c.Param("action")
 	switch action {
 	case "add":
-		err = h.fox.Handler(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-			_, _ = fmt.Fprintln(w, text)
-		}))
+		err = c.Fox().Handle(method, path, func(c fox.Context) error {
+			return c.String(http.StatusOK, text)
+		})
 	case "update":
-		err = h.fox.Update(method, path, fox.HandlerFunc(func(w http.ResponseWriter, r *http.Request, params fox.Params) {
-			_, _ = fmt.Fprintln(w, text)
-		}))
+		err = c.Fox().Update(method, path, func(c fox.Context) error {
+			return c.String(http.StatusOK, text)
+		})
 	case "delete":
-		err = h.fox.Remove(method, path)
+		err = c.Fox().Remove(method, path)
 	default:
-		http.Error(w, fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
-		return
+		return fox.NewHTTPError(http.StatusBadRequest, fmt.Errorf("action %q is not allowed", action))
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+		return fox.NewHTTPError(http.StatusConflict, err)
 	}
 
-	_, _ = fmt.Fprintf(w, "%s route [%s] %s: success\n", action, method, path)
+	return c.String(http.StatusOK, "%s route [%s] %s: success\n", action, method, path)
 }
 
 func main() {
 	r := fox.New()
-	Must(r.Handler(http.MethodPost, "/routes/{action}", &ActionHandler{fox: r}))
+	r.MustHandle(http.MethodPost, "/routes/{action}", Action)
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
-
-func Must(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-```
+````
 
 #### Tree swapping
-Fox also enables you to replace the entire tree in a single atomic operation using the `Use` and `Swap` methods.
+Fox also enables you to replace the entire tree in a single atomic operation using the `Swap` methods.
 Note that router's options apply automatically on the new tree.
+
 ````go
 package main
 
@@ -258,7 +282,6 @@ import (
 	"fox-by-example/db"
 	"github.com/tigerwill90/fox"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -269,18 +292,23 @@ type HtmlRenderer struct {
 	Template template.HTML
 }
 
-func (h *HtmlRenderer) ServeHTTP(w http.ResponseWriter, r *http.Request, params fox.Params) {
-	log.Printf("matched route: %s", params.Get(fox.RouteKey))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.Copy(w, strings.NewReader(string(h.Template)))
+func (h *HtmlRenderer) Render(c fox.Context) error {
+	log.Printf("matched handler path: %s", c.Path())
+	return c.Stream(
+		http.StatusInternalServerError,
+		fox.MIMETextHTMLCharsetUTF8,
+		strings.NewReader(string(h.Template)),
+	)
 }
 
 func main() {
-	r := fox.New(fox.WithSaveMatchedRoute(true))
+	r := fox.New()
 
 	routes := db.GetRoutes()
+
 	for _, rte := range routes {
-		Must(r.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}))
+		h := HtmlRenderer{Template: rte.Template}
+		r.MustHandle(rte.Method, rte.Path, h.Render)
 	}
 
 	go Reload(r)
@@ -293,20 +321,15 @@ func Reload(r *fox.Router) {
 		routes := db.GetRoutes()
 		tree := r.NewTree()
 		for _, rte := range routes {
-			if err := tree.Handler(rte.Method, rte.Path, &HtmlRenderer{Template: rte.Template}); err != nil {
+			h := HtmlRenderer{Template: rte.Template}
+			if err := tree.Handle(rte.Method, rte.Path, h.Render); err != nil {
 				log.Printf("error reloading route: %s\n", err)
 				continue
 			}
 		}
-		// Replace the currently in-use routing tree with the new provided.
-		r.Use(tree)
+		// Swap the currently in-use routing tree with the new provided.
+		r.Swap(tree)
 		log.Println("route reloaded")
-	}
-}
-
-func Must(err error) {
-	if err != nil {
-		panic(err)
 	}
 }
 ````
@@ -321,21 +344,24 @@ is already registered for the provided method and path. By locking the `Tree`, t
 atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
 Note that all read operation on the tree remain lock-free.
 ````go
-func Upsert(t *fox.Tree, method, path string, handler fox.Handler) error {
+func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) error {
     t.Lock()
     defer t.Unlock()
     if fox.Has(t, method, path) {
         return t.Update(method, path, handler)
     }
-    return t.Handler(method, path, handler)
+    return t.Handle(method, path, handler)
 }
 ````
 
 #### Concurrent safety and proper usage of Tree APIs
-Some important consideration to keep in mind when using `Tree` API. Each instance as its own `sync.Mutex` and `sync.Pool` 
-that may be used to serialize write and reduce memory allocation. Since the router tree may be swapped at any
-given time, you **MUST always copy the pointer locally** to avoid inadvertently releasing Params to the wrong pool 
-or worst, causing a deadlock by locking/unlocking the wrong `Tree`.
+When working with the `Tree` API, it's important to keep some considerations in mind. Each instance has its 
+own `sync.Mutex` that can be used to serialize writes. However, unlike the router API, the lower-level `Tree` API 
+does not automatically lock the tree when writing to it. Therefore, it is the user's responsibility to ensure 
+all writes are executed serially.
+
+Moreover, since the router tree may be swapped at any given time, you MUST always copy the pointer locally to 
+avoid inadvertently causing a deadlock by locking/unlocking the wrong `Tree`.
 
 ````go
 // Good
@@ -343,75 +369,148 @@ t := r.Tree()
 t.Lock()
 defer t.Unlock()
 
-// Dramatically bad, may cause deadlock:
+// Dramatically bad, may cause deadlock
 r.Tree().Lock()
 defer r.Tree().Unlock()
+
+// Dramatically bad, may cause deadlock
+func handle(c fox.Context) error {
+    c.Fox().Tree().Lock()
+    defer c.Fox().Tree().Unlock()
+    return nil
+}
 ```` 
 
-This principle also applies to the `fox.Lookup` function, which requires releasing the `fox.Params` slice by calling `params.Free(tree)`.
-Always ensure that the `Tree` pointer passed as a parameter to `params.Free` is the same as the one passed to the `fox.Lookup` function.
+Note that `fox.Context` carries a local copy of the `Tree` that is being used to serve the handler, thereby eliminating 
+the risk of deadlock when using the `Tree` within the context.
+````go
+// Ok
+func handle(c fox.Context) error {
+    c.Tree().Lock()
+    defer c.Tree().Unlock()
+    return nil
+}
+````
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
-provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`. Named and catch all parameters are forwarded via the
-request context
+provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use with `http.Handler`.
+
+Wrapping an `http.Handler`
 ```go
-_ = r.Handler(http.MethodGet, "/users/{id}", fox.WrapF(func(w http.ResponseWriter, r *http.Request) {
-    params := fox.ParamsFromContext(r.Context())
-    _, _ = fmt.Fprintf(w, "user id: %s\n", params.Get("id"))
-}))
+articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    _, _ = fmt.Fprintln(w, "get articles")
+})
+
+r := fox.New(fox.DefaultOptions())
+r.MustHandle(http.MethodGet, "/articles", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
+Wrapping an `http.Handler` compatible middleware
+````go
+r := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
+r.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) error {
+    return c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
+})
+````
+
+## Middleware
+Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 
+to create and apply automatically a simple logging middleware to all route.
+
+````go
+package main
+
+import (
+	"fmt"
+	"github.com/tigerwill90/fox"
+	"log"
+	"net/http"
+	"time"
+)
+
+var logger = fox.MiddlewareFunc(func(next fox.HandlerFunc) fox.HandlerFunc {
+	return func(c fox.Context) error {
+		start := time.Now()
+		err := next(c)
+		msg := fmt.Sprintf("route: %s, latency: %s, status: %d, size: %d",
+			c.Path(),
+			time.Since(start),
+			c.Writer().Status(),
+			c.Writer().Size(),
+		)
+		if err != nil {
+			msg += fmt.Sprintf(", error: %s", err)
+		}
+		log.Println(msg)
+		return err
+	}
+})
+
+func main() {
+	r := fox.New(fox.WithMiddleware(logger))
+
+	r.MustHandle(http.MethodGet, "/", func(c fox.Context) error {
+		resp, err := http.Get("https://api.coindesk.com/v1/bpi/currentprice.json")
+		if err != nil {
+			return fox.NewHTTPError(http.StatusInternalServerError)
+		}
+		defer resp.Body.Close()
+		return c.Stream(http.StatusOK, fox.MIMEApplicationJSON, resp.Body)
+	})
+
+	log.Fatalln(http.ListenAndServe(":8080", r))
+}
+````
+
 ## Benchmark
-The primary goal of Fox is to be a lightweight, high performance router which allow routes modification while in operation. 
-The following benchmarks attempt to compare Fox to various popular alternatives. Some are fully featured web framework, and other
-are lightweight request router. This is based on [julienschmidt/go-http-routing-benchmark](https://github.com/julienschmidt/go-http-routing-benchmark) 
+The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.
+The following benchmarks attempt to compare Fox to various popular alternatives, including both fully-featured web frameworks
+and lightweight request routers. These benchmarks are based on the [julienschmidt/go-http-routing-benchmark](https://github.com/julienschmidt/go-http-routing-benchmark) 
 repository.
+
+Please note that these benchmarks should not be taken too seriously, as the comparison may not be entirely fair due to 
+the differences in feature sets offered by each framework. Performance should be evaluated in the context of your specific 
+use case and requirements. While Fox aims to excel in performance, it's important to consider the trade-offs and 
+functionality provided by different web frameworks and routers when making your selection.
 
 ### Config
 ```
 GOOS:   Linux
 GOARCH: amd64
-GO:     1.19
+GO:     1.20
 CPU:    Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
 ```
 ### Static Routes
 It is just a collection of random static paths inspired by the structure of the Go directory. It might not be a realistic URL-structure.
 
-**GOMAXPROCS: 0**
+**GOMAXPROCS: 1**
 ```
-BenchmarkDenco_StaticAll                                  352584              3350 ns/op               0 B/op          0 allocs/op
-BenchmarkHttpRouter_StaticAll                             159259              7400 ns/op               0 B/op          0 allocs/op
-BenchmarkKocha_StaticAll                                  154405              7793 ns/op               0 B/op          0 allocs/op
-BenchmarkFox_StaticAll                                    130474              8899 ns/op               0 B/op          0 allocs/op
-BenchmarkHttpTreeMux_StaticAll                            127754              9065 ns/op               0 B/op          0 allocs/op
-BenchmarkGin_StaticAll                                     96139             12393 ns/op               0 B/op          0 allocs/op
-BenchmarkBeego_StaticAll                                   10000            103464 ns/op           55264 B/op        471 allocs/op
-BenchmarkGorillaMux_StaticAll                               2307            501554 ns/op          113041 B/op       1099 allocs/op
-BenchmarkMartini_StaticAll                                  1357            886524 ns/op          129210 B/op       2031 allocs/op
-BenchmarkTraffic_StaticAll                                   990           1183413 ns/op          753608 B/op      14601 allocs/op
-BenchmarkPat_StaticAll                                       972           1193521 ns/op          602832 B/op      12559 allocs/op
+BenchmarkHttpRouter_StaticAll     161659              7570 ns/op               0 B/op          0 allocs/op
+BenchmarkHttpTreeMux_StaticAll    132446              8836 ns/op               0 B/op          0 allocs/op
+BenchmarkFox_StaticAll            102577             11348 ns/op               0 B/op          0 allocs/op
+BenchmarkStdMux_StaticAll          91304             13382 ns/op               0 B/op          0 allocs/op
+BenchmarkGin_StaticAll             78224             15433 ns/op               0 B/op          0 allocs/op
+BenchmarkEcho_StaticAll            77923             15739 ns/op               0 B/op          0 allocs/op
+BenchmarkBeego_StaticAll           10000            101094 ns/op           55264 B/op        471 allocs/op
+BenchmarkGorillaMux_StaticAll       2283            525683 ns/op          113041 B/op       1099 allocs/op
+BenchmarkMartini_StaticAll          1330            936928 ns/op          129210 B/op       2031 allocs/op
+BenchmarkTraffic_StaticAll          1064           1140959 ns/op          753611 B/op      14601 allocs/op
+BenchmarkPat_StaticAll               967           1230424 ns/op          602832 B/op      12559 allocs/op
 ```
-In this benchmark, Fox performs as well as `Gin`, `HttpTreeMux` and `HttpRouter` which are all Radix Tree based routers. An interesting fact is
+In this benchmark, Fox performs as well as `Gin` and `Echo` which are both Radix Tree based routers. An interesting fact is
 that [HttpTreeMux](https://github.com/dimfeld/httptreemux) also support [adding route while serving request concurrently](https://github.com/dimfeld/httptreemux#concurrency).
 However, it takes a slightly different approach, by using an optional `RWMutex` that may not scale as well as Fox under heavy load. The next
-test compare `HttpTreeMux`, `HttpTreeMux_SafeAddRouteFlag` (concurrent reads and writes), `HttpRouter` and `Fox` in parallel benchmark.
+test compare `HttpTreeMux` with and without the `*SafeAddRouteFlag` (concurrent reads and writes) and `Fox` in parallel benchmark.
 
 **GOMAXPROCS: 16**
 ```
-Route: /progs/image_package4.out
-
-BenchmarkHttpRouter_StaticSingleParallel-16                      211819790                5.640 ns/op           0 B/op          0 allocs/op
-BenchmarkFox_StaticSingleParallel-16                             157547185                7.418 ns/op           0 B/op          0 allocs/op
-BenchmarkHttpTreeMux_StaticSingleParallel-16                     154222639                7.774 ns/op           0 B/op          0 allocs/op
-BenchmarkHttpTreeMux_SafeAddRouteFlag_StaticSingleParallel-16     29904204                38.52 ns/op           0 B/op          0 allocs/op
-
 Route: all
 
-BenchmarkHttpRouter_StaticAllParallel-16                           1446759                832.1 ns/op           0 B/op          0 allocs/op
-BenchmarkHttpTreeMux_StaticAllParallel-16                           997074                 1100 ns/op           0 B/op          0 allocs/op
-BenchmarkFox_StaticAllParallel-16                                  1000000                 1105 ns/op           0 B/op          0 allocs/op
-BenchmarkHttpTreeMux_SafeAddRouteFlag_StaticAllParallel-16          197578                 6017 ns/op           0 B/op          0 allocs/op
+BenchmarkFox_StaticAll-16                          99322             11369 ns/op               0 B/op          0 allocs/op
+BenchmarkFox_StaticAllParallel-16                 831354              1422 ns/op               0 B/op          0 allocs/op
+BenchmarkHttpTreeMux_StaticAll-16                 135560              8861 ns/op               0 B/op          0 allocs/op
+BenchmarkHttpTreeMux_StaticAllParallel-16*        172714              6916 ns/op               0 B/op          0 allocs/op
 ```
 As you can see, this benchmark highlight the cost of using higher synchronisation primitive like `RWMutex` to be able to register new route while handling requests.
 
@@ -421,47 +520,45 @@ The following benchmarks measure the cost of some very basic operations.
 In the first benchmark, only a single route, containing a parameter, is loaded into the routers. Then a request for a URL 
 matching this pattern is made and the router has to call the respective registered handler function. End.
 
-**GOMAXPROCS: 0**
+**GOMAXPROCS: 1**
 ```
-BenchmarkFox_Param                                      29995566                39.04 ns/op            0 B/op          0 allocs/op
-BenchmarkGin_Param                                      30710918                39.08 ns/op            0 B/op          0 allocs/op
-BenchmarkHttpRouter_Param                               20026911                55.88 ns/op           32 B/op          1 allocs/op
-BenchmarkDenco_Param                                    15964747                70.04 ns/op           32 B/op          1 allocs/op
-BenchmarkKocha_Param                                     8392696                138.5 ns/op           56 B/op          3 allocs/op
-BenchmarkHttpTreeMux_Param                               4469318                265.6 ns/op           352 B/op         3 allocs/op
-BenchmarkBeego_Param                                     2241368                530.9 ns/op           352 B/op         3 allocs/op
-BenchmarkPat_Param                                       1788819                666.8 ns/op           512 B/op        10 allocs/op
-BenchmarkGorillaMux_Param                                1208638                995.1 ns/op          1024 B/op         8 allocs/op
-BenchmarkTraffic_Param                                    606530                 1700 ns/op          1848 B/op        21 allocs/op
-BenchmarkMartini_Param                                    455662                 2419 ns/op          1096 B/op        12 allocs/op
+BenchmarkFox_Param              33024534                36.61 ns/op            0 B/op          0 allocs/op
+BenchmarkEcho_Param             31472508                38.71 ns/op            0 B/op          0 allocs/op
+BenchmarkGin_Param              25826832                52.88 ns/op            0 B/op          0 allocs/op
+BenchmarkHttpRouter_Param       21230490                60.83 ns/op           32 B/op          1 allocs/op
+BenchmarkHttpTreeMux_Param       3960292                280.4 ns/op          352 B/op          3 allocs/op
+BenchmarkBeego_Param             2247776                518.9 ns/op          352 B/op          3 allocs/op
+BenchmarkPat_Param               1603902                676.6 ns/op          512 B/op         10 allocs/op
+BenchmarkGorillaMux_Param        1000000                 1011 ns/op         1024 B/op          8 allocs/op
+BenchmarkTraffic_Param            648986                 1686 ns/op         1848 B/op         21 allocs/op
+BenchmarkMartini_Param            485839                 2446 ns/op         1096 B/op         12 allocs/op
 ```
 Same as before, but now with multiple parameters, all in the same single route. The intention is to see how the routers scale with the number of parameters.
 
 **GOMAXPROCS: 0**
 ```
-BenchmarkGin_Param5                                     16470636               73.09 ns/op            0 B/op          0 allocs/op
-BenchmarkFox_Param5                                     14716213               82.05 ns/op            0 B/op          0 allocs/op
-BenchmarkHttpRouter_Param5                               7614333               154.7 ns/op          160 B/op          1 allocs/op
-BenchmarkDenco_Param5                                    6513253               179.5 ns/op          160 B/op          1 allocs/op
-BenchmarkKocha_Param5                                    2073741               604.3 ns/op          440 B/op         10 allocs/op
-BenchmarkHttpTreeMux_Param5                              1801978               659.2 ns/op          576 B/op          6 allocs/op
-BenchmarkBeego_Param5                                    1764513               669.1 ns/op          352 B/op          3 allocs/op
-BenchmarkGorillaMux_Param5                                657648                1578 ns/op         1088 B/op          8 allocs/op
-BenchmarkPat_Param5                                       633555                1700 ns/op          800 B/op         24 allocs/op
-BenchmarkTraffic_Param5                                   374895                2744 ns/op         2200 B/op         27 allocs/op
-BenchmarkMartini_Param5                                   403650                2835 ns/op         1256 B/op         13 allocs/op
+BenchmarkFox_Param5             16608495                72.84 ns/op            0 B/op          0 allocs/op
+BenchmarkGin_Param5             13098740                92.22 ns/op            0 B/op          0 allocs/op
+BenchmarkEcho_Param5            12025460                96.33 ns/op            0 B/op          0 allocs/op
+BenchmarkHttpRouter_Param5       8233530                148.1 ns/op          160 B/op          1 allocs/op
+BenchmarkHttpTreeMux_Param5      1986019                616.9 ns/op          576 B/op          6 allocs/op
+BenchmarkBeego_Param5            1836229                655.3 ns/op          352 B/op          3 allocs/op
+BenchmarkGorillaMux_Param5        757936                 1572 ns/op         1088 B/op          8 allocs/op
+BenchmarkPat_Param5               645847                 1724 ns/op          800 B/op         24 allocs/op
+BenchmarkTraffic_Param5           424431                 2729 ns/op         2200 B/op         27 allocs/op
+BenchmarkMartini_Param5           424806                 2772 ns/op         1256 B/op         13 allocs/op
 
-BenchmarkGin_Param20                                     6136497               189.9 ns/op            0 B/op          0 allocs/op
-BenchmarkFox_Param20                                     4187372               283.2 ns/op            0 B/op          0 allocs/op
-BenchmarkHttpRouter_Param20                              2536359               483.4 ns/op          640 B/op          1 allocs/op
-BenchmarkDenco_Param20                                   2110105               567.7 ns/op          640 B/op          1 allocs/op
-BenchmarkKocha_Param20                                    593958                1744 ns/op         1808 B/op         27 allocs/op
-BenchmarkBeego_Param20                                    741110                1747 ns/op          352 B/op          3 allocs/op
-BenchmarkHttpTreeMux_Param20                              341913                3079 ns/op         3195 B/op         10 allocs/op
-BenchmarkGorillaMux_Param20                               282345                3671 ns/op         3196 B/op         10 allocs/op
-BenchmarkMartini_Param20                                  210543                5222 ns/op         3619 B/op         15 allocs/op
-BenchmarkPat_Param20                                      151778                7343 ns/op         4096 B/op         73 allocs/op
-BenchmarkTraffic_Param20                                  113230                9989 ns/op         7847 B/op         47 allocs/op
+
+BenchmarkGin_Param20             4636416               244.6 ns/op             0 B/op          0 allocs/op
+BenchmarkFox_Param20             4667533               250.7 ns/op             0 B/op          0 allocs/op
+BenchmarkEcho_Param20            4352486               277.1 ns/op             0 B/op          0 allocs/op
+BenchmarkHttpRouter_Param20      2618958               455.2 ns/op           640 B/op          1 allocs/op
+BenchmarkBeego_Param20            847029                1688 ns/op           352 B/op          3 allocs/op
+BenchmarkHttpTreeMux_Param20      369500                2972 ns/op          3195 B/op         10 allocs/op
+BenchmarkGorillaMux_Param20       318134                3561 ns/op          3195 B/op         10 allocs/op
+BenchmarkMartini_Param20          223070                5117 ns/op          3619 B/op         15 allocs/op
+BenchmarkPat_Param20              157380                7442 ns/op          4094 B/op         73 allocs/op
+BenchmarkTraffic_Param20          119677                9864 ns/op          7847 B/op         47 allocs/op
 ```
 
 Now let's see how expensive it is to access a parameter. The handler function reads the value (by the name of the parameter, e.g. with a map 
@@ -469,53 +566,48 @@ lookup; depends on the router) and writes it to `/dev/null`
 
 **GOMAXPROCS: 0**
 ```
-BenchmarkFox_ParamWrite                                 21061758               56.96 ns/op             0 B/op          0 allocs/op
-BenchmarkGin_ParamWrite                                 17973256               66.54 ns/op             0 B/op          0 allocs/op
-BenchmarkHttpRouter_ParamWrite                          15953065               74.64 ns/op            32 B/op          1 allocs/op
-BenchmarkDenco_ParamWrite                               12553562               89.93 ns/op            32 B/op          1 allocs/op
-BenchmarkKocha_ParamWrite                                7356948               156.7 ns/op            56 B/op          3 allocs/op
-BenchmarkHttpTreeMux_ParamWrite                          4075486               286.4 ns/op           352 B/op          3 allocs/op
-BenchmarkBeego_ParamWrite                                2126341               567.4 ns/op           360 B/op          4 allocs/op
-BenchmarkPat_ParamWrite                                  1197910               996.5 ns/op           936 B/op         14 allocs/op
-BenchmarkGorillaMux_ParamWrite                           1139376                1048 ns/op          1024 B/op          8 allocs/op
-BenchmarkTraffic_ParamWrite                               496440                2057 ns/op          2272 B/op         25 allocs/op
-BenchmarkMartini_ParamWrite                               398594                2799 ns/op          1168 B/op         16 allocs/op
+BenchmarkFox_ParamWrite                 16707409                72.53 ns/op            0 B/op          0 allocs/op
+BenchmarkHttpRouter_ParamWrite          16478174                73.30 ns/op           32 B/op          1 allocs/op
+BenchmarkGin_ParamWrite                 15828385                75.73 ns/op            0 B/op          0 allocs/op
+BenchmarkEcho_ParamWrite                13187766                95.18 ns/op            8 B/op          1 allocs/op
+BenchmarkHttpTreeMux_ParamWrite          4132832               279.9 ns/op           352 B/op          3 allocs/op
+BenchmarkBeego_ParamWrite                2172572               554.3 ns/op           360 B/op          4 allocs/op
+BenchmarkPat_ParamWrite                  1200334               996.8 ns/op           936 B/op         14 allocs/op
+BenchmarkGorillaMux_ParamWrite           1000000              1005 ns/op            1024 B/op          8 allocs/op
+BenchmarkMartini_ParamWrite               454255              2667 ns/op            1168 B/op         16 allocs/op
+BenchmarkTraffic_ParamWrite               511766              2021 ns/op            2272 B/op         25 allocs/op
 ```
 
 In those micro benchmarks, we can see that `Fox` scale really well, even with long wildcard routes. Like `Gin`, this router reuse the
-data structure (e.g. `fox.Params` slice) containing the matching parameters in order to remove completely heap allocation. We can also
-notice that there is a very small overhead comparing to `Gin` when the number of parameters scale. This is due to the fact that every tree's node
-in Fox are `atomic.Pointer` and that traversing the tree require to load the underlying node pointer atomically. Despite that, even
-with 20 parameters, the performance of Fox is still better than most other contender.
+data structure (e.g. `fox.Context` slice) containing the matching parameters in order to remove completely heap allocation. 
 
 ### Github
 Finally, this benchmark execute a request for each GitHub API route (203 routes).
 
 **GOMAXPROCS: 0**
 ```
-BenchmarkGin_GithubAll                                     68384             17425 ns/op               0 B/op          0 allocs/op
-BenchmarkFox_GithubAll                                     67162             17631 ns/op               0 B/op          0 allocs/op
-BenchmarkHttpRouter_GithubAll                              44085             27449 ns/op           13792 B/op        167 allocs/op
-BenchmarkDenco_GithubAll                                   35019             33651 ns/op           20224 B/op        167 allocs/op
-BenchmarkKocha_GithubAll                                   19186             62243 ns/op           23304 B/op        843 allocs/op
-BenchmarkHttpTreeMuxSafeAddRoute_GithubAll                 14907             79919 ns/op           65856 B/op        671 allocs/op
-BenchmarkHttpTreeMux_GithubAll                             14952             80280 ns/op           65856 B/op        671 allocs/op
-BenchmarkBeego_GithubAll                                    9712            136414 ns/op           71456 B/op        609 allocs/op
-BenchmarkTraffic_GithubAll                                   637           1824477 ns/op          819052 B/op      14114 allocs/op
-BenchmarkMartini_GithubAll                                   572           2042852 ns/op          231419 B/op       2731 allocs/op
-BenchmarkGorillaMux_GithubAll                                562           2110880 ns/op          199683 B/op       1588 allocs/op
-BenchmarkPat_GithubAll                                       550           2117715 ns/op         1410624 B/op      22515 allocs/op
+BenchmarkFox_GithubAll             63984             18555 ns/op               0 B/op          0 allocs/op
+BenchmarkEcho_GithubAll            49312             23353 ns/op               0 B/op          0 allocs/op
+BenchmarkGin_GithubAll             48422             24926 ns/op               0 B/op          0 allocs/op
+BenchmarkHttpRouter_GithubAll      45706             26818 ns/op           14240 B/op        171 allocs/op
+BenchmarkHttpTreeMux_GithubAll     14731             80133 ns/op           67648 B/op        691 allocs/op
+BenchmarkBeego_GithubAll            7692            137926 ns/op           72929 B/op        625 allocs/op
+BenchmarkTraffic_GithubAll           636           1916586 ns/op          845114 B/op      14634 allocs/op
+BenchmarkMartini_GithubAll           530           2205947 ns/op          238546 B/op       2813 allocs/op
+BenchmarkGorillaMux_GithubAll        529           2246380 ns/op          203844 B/op       1620 allocs/op
+BenchmarkPat_GithubAll               424           2899405 ns/op         1843501 B/op      29064 allocs/op
 ```
 
 ## Road to v1
 - [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
-- [ ] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
-- [ ] Collect feedback and polishing
+- [x] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
+- [ ] Improving performance and polishing
 
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
-The intention behind these choices is that it can serve as a building block for more "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
+The intention behind these choices is that it can serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
-- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): a lot of feature that implements Fox are inspired from Julien Schmidt's router.
+- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
+this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
