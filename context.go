@@ -209,7 +209,7 @@ func (c *context) Fox() *Router {
 func (c *context) Clone() Context {
 	cp := context{
 		rec:  c.rec,
-		req:  c.req.Clone(c.req.Context()),
+		req:  c.req,
 		fox:  c.fox,
 		tree: c.tree,
 	}
