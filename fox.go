@@ -23,6 +23,10 @@ var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, 
 // the HandlerFunc returns and may be reused later to save resources. If you need
 // to hold the context longer, you have to copy it (see Clone method).
 //
+// The function may return an error that can be propagated through the middleware
+// chain and handled by the registered ErrorHandlerFunc, which is set using the
+// WithRouteError option.
+//
 // Similar to http.Handler, to abort a HandlerFunc so the client sees an interrupted
 // response, panic with the value http.ErrAbortHandler.
 //
@@ -35,6 +39,9 @@ type HandlerFunc func(c Context) error
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
+// ErrorHandlerFunc is a function type that handles errors returned by a HandlerFunc.
+// It receives the Context and the error returned by the HandlerFunc, allowing
+// centralized error management and custom error handling.
 type ErrorHandlerFunc func(c Context, err error)
 
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
