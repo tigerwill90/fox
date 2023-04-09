@@ -221,7 +221,6 @@ Next:
 // NotFoundHandler returns a simple HandlerFunc that replies to each request
 // with a “404 page not found” reply.
 func NotFoundHandler() HandlerFunc {
-	http.NotFoundHandler()
 	return func(c Context) error {
 		http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 		return nil
