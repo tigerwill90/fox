@@ -143,8 +143,9 @@ type h1Writer struct {
 
 func (w h1Writer) ReadFrom(r io.Reader) (n int64, err error) {
 	rf := w.recorder.ResponseWriter.(io.ReaderFrom)
-	// If not written, status is OK
-	w.recorder.WriteHeader(w.recorder.status)
+	if !w.recorder.Written() {
+		w.recorder.size = 0
+	}
 	n, err = rf.ReadFrom(r)
 	w.recorder.size += int(n)
 	return
