@@ -498,10 +498,10 @@ BenchmarkMartini_StaticAll          1330            936928 ns/op          129210
 BenchmarkTraffic_StaticAll          1064           1140959 ns/op          753611 B/op      14601 allocs/op
 BenchmarkPat_StaticAll               967           1230424 ns/op          602832 B/op      12559 allocs/op
 ```
-In this benchmark, Fox performs as well as `Gin`, `Echo` which are both Radix Tree based routers. An interesting fact is
+In this benchmark, Fox performs as well as `Gin` and `Echo` which are both Radix Tree based routers. An interesting fact is
 that [HttpTreeMux](https://github.com/dimfeld/httptreemux) also support [adding route while serving request concurrently](https://github.com/dimfeld/httptreemux#concurrency).
 However, it takes a slightly different approach, by using an optional `RWMutex` that may not scale as well as Fox under heavy load. The next
-test compare `HttpTreeMux`, `HttpTreeMux_SafeAddRouteFlag` (concurrent reads and writes), `HttpRouter` and `Fox` in parallel benchmark.
+test compare `HttpTreeMux` with and without the `*SafeAddRouteFlag` (concurrent reads and writes) and `Fox` in parallel benchmark.
 
 **GOMAXPROCS: 16**
 ```
@@ -510,7 +510,7 @@ Route: all
 BenchmarkFox_StaticAll-16                          99322             11369 ns/op               0 B/op          0 allocs/op
 BenchmarkFox_StaticAllParallel-16                 831354              1422 ns/op               0 B/op          0 allocs/op
 BenchmarkHttpTreeMux_StaticAll-16                 135560              8861 ns/op               0 B/op          0 allocs/op
-BenchmarkHttpTreeMux_StaticAllParallel-16         172714              6916 ns/op               0 B/op          0 allocs/op
+BenchmarkHttpTreeMux_StaticAllParallel-16*        172714              6916 ns/op               0 B/op          0 allocs/op
 ```
 As you can see, this benchmark highlight the cost of using higher synchronisation primitive like `RWMutex` to be able to register new route while handling requests.
 
