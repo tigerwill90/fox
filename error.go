@@ -64,8 +64,8 @@ func (e *RouteConflictError) Unwrap() error {
 // and an optional error message. If no error message is provided,
 // the default error message for the status code will be used.
 type HTTPError struct {
-	Code int
 	Err  error
+	Code int
 }
 
 // Error returns the error message associated with the HTTPError,
