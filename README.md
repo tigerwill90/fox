@@ -579,10 +579,7 @@ BenchmarkTraffic_ParamWrite               511766              2021 ns/op        
 ```
 
 In those micro benchmarks, we can see that `Fox` scale really well, even with long wildcard routes. Like `Gin`, this router reuse the
-data structure (e.g. `fox.Params` slice) containing the matching parameters in order to remove completely heap allocation. We can also
-notice that there is a very small overhead comparing to `Gin` when the number of parameters scale. This is due to the fact that every tree's node
-in Fox are `atomic.Pointer` and that traversing the tree require to load the underlying node pointer atomically. Despite that, even
-with 20 parameters, the performance of Fox is still better than most other contender.
+data structure (e.g. `fox.Context` slice) containing the matching parameters in order to remove completely heap allocation. 
 
 ### Github
 Finally, this benchmark execute a request for each GitHub API route (203 routes).
