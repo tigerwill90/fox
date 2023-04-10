@@ -175,7 +175,7 @@ func TestWrapF(t *testing.T) {
 	assert.Equal(t, "fox", w.Body.String())
 }
 
-func TestWrapFH(t *testing.T) {
+func TestWrapH(t *testing.T) {
 	wrapped := WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("fox"))
 	}))
