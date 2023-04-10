@@ -150,7 +150,7 @@ func TestContext_Header(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	fox, c := NewTestContext(w, r)
-	c.Header(HeaderServer, "go")
+	c.SetHeader(HeaderServer, "go")
 	fox.ServeHTTP(w, r)
 	assert.Equal(t, "go", w.Header().Get(HeaderServer))
 }
@@ -160,7 +160,7 @@ func TestContext_GetHeader(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
 	_, c := NewTestContext(w, r)
-	assert.Equal(t, MIMEApplicationJSON, c.GetHeader(HeaderAccept))
+	assert.Equal(t, MIMEApplicationJSON, c.Header(HeaderAccept))
 }
 
 func TestWrapF(t *testing.T) {

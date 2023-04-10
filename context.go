@@ -43,10 +43,10 @@ type Context interface {
 	QueryParams() url.Values
 	// QueryParam returns the first query value associated with the given key.
 	QueryParam(name string) string
-	// Header sets the response header for the given key to the specified value.
-	Header(key, value string)
-	// GetHeader retrieves the value of the request header for the given key.
-	GetHeader(key string) string
+	// SetHeader sets the response header for the given key to the specified value.
+	SetHeader(key, value string)
+	// Header retrieves the value of the request header for the given key.
+	Header(key string) string
 	// String sends a formatted string with the specified status code.
 	String(code int, format string, values ...any) error
 	// Blob sends a byte slice with the specified status code and content type.
@@ -157,13 +157,13 @@ func (c *context) QueryParam(name string) string {
 	return c.getQueries().Get(name)
 }
 
-// Header sets the response header for the given key to the specified value.
-func (c *context) Header(key, value string) {
+// SetHeader sets the response header for the given key to the specified value.
+func (c *context) SetHeader(key, value string) {
 	c.w.Header().Set(key, value)
 }
 
-// GetHeader retrieves the value of the request header for the given key.
-func (c *context) GetHeader(key string) string {
+// Header retrieves the value of the request header for the given key.
+func (c *context) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
