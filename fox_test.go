@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -1644,6 +1645,16 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			assert.Equal(t, tc.want, w.Header().Get("Allow"))
 		})
 	}
+}
+
+func TestDefaultOptions(t *testing.T) {
+	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) error {
+			return next(c)
+		}
+	})
+	r := New(WithMiddleware(m), DefaultOptions())
+	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1]).Pointer())
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
