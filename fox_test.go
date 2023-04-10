@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -1646,6 +1647,16 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	}
 }
 
+func TestDefaultOptions(t *testing.T) {
+	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) error {
+			return next(c)
+		}
+	})
+	r := New(WithMiddleware(m), DefaultOptions())
+	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1]).Pointer())
+}
+
 func TestRecoveryMiddleware(t *testing.T) {
 	m := Recovery(func(c Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
@@ -2106,7 +2117,13 @@ func ExampleWithMiddleware() {
 		return func(c Context) error {
 			start := time.Now()
 			err := next(c)
-			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
+			log.Printf(
+				"url=%s; route=%s; time=%d; status=%d",
+				c.Request().URL,
+				c.Path(),
+				time.Since(start),
+				c.Writer().Status(),
+			)
 			return err
 		}
 	}
@@ -2143,7 +2160,7 @@ func ExampleRouter_Tree() {
 	})
 
 	// Bad, instead make a local copy of the tree!
-	upsert = func(method, path string, handler HandlerFunc) error {
+	_ = func(method, path string, handler HandlerFunc) error {
 		r.Tree().Lock()
 		defer r.Tree().Unlock()
 		if Has(r.Tree(), method, path) {

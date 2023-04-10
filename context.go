@@ -5,6 +5,7 @@
 package fox
 
 import (
+	ctx "context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,9 +22,8 @@ type ContextCloser interface {
 // Context represents the context of the current HTTP request.
 // It provides methods to access request data and to write a response.
 type Context interface {
-	// Done returns a channel that closes when the request's context is
-	// cancelled or times out.
-	Done() <-chan struct{}
+	// Ctx returns the context associated with the current request.
+	Ctx() ctx.Context
 	// Request returns the current *http.Request.
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
@@ -43,6 +43,10 @@ type Context interface {
 	QueryParams() url.Values
 	// QueryParam returns the first query value associated with the given key.
 	QueryParam(name string) string
+	// Header sets the response header for the given key to the specified value.
+	Header(key, value string)
+	// GetHeader retrieves the value of the request header for the given key.
+	GetHeader(key string) string
 	// String sends a formatted string with the specified status code.
 	String(code int, format string, values ...any) error
 	// Blob sends a byte slice with the specified status code and content type.
@@ -118,10 +122,9 @@ func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
-// Done returns a channel that closes when the request's context is
-// cancelled or times out.
-func (c *context) Done() <-chan struct{} {
-	return c.req.Context().Done()
+// Ctx returns the context associated with the current request.
+func (c *context) Ctx() ctx.Context {
+	return c.req.Context()
 }
 
 // Params returns a Params slice containing the matched
@@ -145,7 +148,6 @@ func (c *context) Param(name string) string {
 // It's a helper for c.Request.URL.Query(). Note that the parsed
 // result is cached.
 func (c *context) QueryParams() url.Values {
-	c.req.URL.Query()
 	return c.getQueries()
 }
 
@@ -153,6 +155,16 @@ func (c *context) QueryParams() url.Values {
 // It's a helper for c.QueryParams().Get(name).
 func (c *context) QueryParam(name string) string {
 	return c.getQueries().Get(name)
+}
+
+// Header sets the response header for the given key to the specified value.
+func (c *context) Header(key, value string) {
+	c.w.Header().Set(key, value)
+}
+
+// GetHeader retrieves the value of the request header for the given key.
+func (c *context) GetHeader(key string) string {
+	return c.req.Header.Get(key)
 }
 
 // Path returns the registered path for the handler.

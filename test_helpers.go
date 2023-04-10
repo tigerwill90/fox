@@ -11,6 +11,7 @@ func NewTestContext(w http.ResponseWriter, r *http.Request) (*Router, Context) {
 	return fox, c
 }
 
+// NewTestContextOnly returns a new Context associated with the provided Router, designed only for testing purpose.
 func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Context {
 	return newTextContextOnly(fox, w, r)
 }

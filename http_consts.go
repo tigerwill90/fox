@@ -63,6 +63,7 @@ const (
 	HeaderOrigin              = "Origin"
 	HeaderCacheControl        = "Cache-Control"
 	HeaderConnection          = "Connection"
+	HeaderETag                = "ETag"
 
 	// Access control
 	HeaderAccessControlRequestMethod    = "Access-Control-Request-Method"

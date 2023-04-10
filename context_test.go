@@ -64,14 +64,14 @@ func TestContext_Clone(t *testing.T) {
 	assert.ErrorIs(t, err, ErrDiscardedResponseWriter)
 }
 
-func TestContext_Done(t *testing.T) {
+func TestContext_Ctx(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	ctx, cancel := netcontext.WithCancel(netcontext.Background())
 	cancel()
 	req = req.WithContext(ctx)
 	_, c := NewTestContext(httptest.NewRecorder(), req)
 	select {
-	case <-c.Done():
+	case <-c.Ctx().Done():
 		require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
 	case <-time.After(1):
 		t.FailNow()
@@ -144,4 +144,68 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
 	assert.True(t, c.Writer().Written())
+}
+
+func TestContext_Header(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	fox, c := NewTestContext(w, r)
+	c.Header(HeaderServer, "go")
+	fox.ServeHTTP(w, r)
+	assert.Equal(t, "go", w.Header().Get(HeaderServer))
+}
+
+func TestContext_GetHeader(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
+	_, c := NewTestContext(w, r)
+	assert.Equal(t, MIMEApplicationJSON, c.GetHeader(HeaderAccept))
+}
+
+func TestWrapF(t *testing.T) {
+	wrapped := WrapF(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("fox"))
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	_, c := NewTestContext(w, r)
+	require.NoError(t, wrapped(c))
+	assert.Equal(t, "fox", w.Body.String())
+}
+
+func TestWrapH(t *testing.T) {
+	wrapped := WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("fox"))
+	}))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	_, c := NewTestContext(w, r)
+	require.NoError(t, wrapped(c))
+	assert.Equal(t, "fox", w.Body.String())
+}
+
+func TestWrapM(t *testing.T) {
+	wrapped := WrapM(func(handler http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler.ServeHTTP(w, r)
+			_, _ = w.Write([]byte("fox"))
+		})
+	})
+	invoked := false
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+
+	fox := New(WithMiddleware(wrapped))
+	fox.MustHandle(http.MethodGet, "/foo", func(c Context) error {
+		invoked = true
+		return nil
+	})
+
+	fox.ServeHTTP(w, r)
+	assert.Equal(t, "fox", w.Body.String())
+	assert.True(t, invoked)
 }
