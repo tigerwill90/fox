@@ -276,8 +276,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n, tsr = tree.lookup(nds[index], r.URL.Path, c.params, c.skipNds, false)
 	if n != nil {
 		c.path = n.path
-		err := n.handler(c)
-		if err != nil {
+		if err := n.handler(c); err != nil {
 			fox.errRoute(c, err)
 		}
 		// Put back the context, if not extended more than max params or max depth, allowing
@@ -341,8 +340,7 @@ NoMethodFallback:
 		allowed := sb.String()
 		if allowed != "" {
 			w.Header().Set("Allow", allowed)
-			err := fox.noMethod(c)
-			if err != nil {
+			if err := fox.noMethod(c); err != nil {
 				fox.errRoute(c, err)
 			}
 			c.Close()
@@ -350,8 +348,7 @@ NoMethodFallback:
 		}
 	}
 
-	err := fox.noRoute(c)
-	if err != nil {
+	if err := fox.noRoute(c); err != nil {
 		fox.errRoute(c, err)
 	}
 	c.Close()
