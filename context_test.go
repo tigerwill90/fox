@@ -64,14 +64,14 @@ func TestContext_Clone(t *testing.T) {
 	assert.ErrorIs(t, err, ErrDiscardedResponseWriter)
 }
 
-func TestContext_Done(t *testing.T) {
+func TestContext_Ctx(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	ctx, cancel := netcontext.WithCancel(netcontext.Background())
 	cancel()
 	req = req.WithContext(ctx)
 	_, c := NewTestContext(httptest.NewRecorder(), req)
 	select {
-	case <-c.Done():
+	case <-c.Ctx().Done():
 		require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
 	case <-time.After(1):
 		t.FailNow()
@@ -144,4 +144,21 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
 	assert.True(t, c.Writer().Written())
+}
+
+func TestContext_Header(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	fox, c := NewTestContext(w, r)
+	c.Header(HeaderServer, "go")
+	fox.ServeHTTP(w, r)
+	assert.Equal(t, "go", w.Header().Get(HeaderServer))
+}
+
+func TestContext_GetHeader(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
+	_, c := NewTestContext(w, r)
+	assert.Equal(t, MIMEApplicationJSON, c.GetHeader(HeaderAccept))
 }

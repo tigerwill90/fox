@@ -32,6 +32,10 @@ type ResponseWriter interface {
 	Size() int
 	// Unwrap returns the underlying http.ResponseWriter.
 	Unwrap() http.ResponseWriter
+	// WriteString writes the provided string to the underlying connection
+	// as part of an HTTP reply. The method returns the number of bytes written
+	// and an error, if any.
+	WriteString(s string) (int, error)
 }
 
 const notWritten = -1

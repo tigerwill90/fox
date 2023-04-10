@@ -20,6 +20,9 @@ var (
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 )
 
+// RouteConflictError is a custom error type used to represent conflicts when
+// registering or updating routes in the router. It holds information about the
+// conflicting method, path, and the matched routes that caused the conflict.
 type RouteConflictError struct {
 	err      error
 	Method   string
@@ -40,6 +43,7 @@ func newConflictErr(method, path, catchAllKey string, matched []string) *RouteCo
 	}
 }
 
+// Error returns a formatted error message for the RouteConflictError.
 func (e *RouteConflictError) Error() string {
 	if !e.isUpdate {
 		return e.insertError()
@@ -56,13 +60,14 @@ func (e *RouteConflictError) updateError() string {
 
 }
 
+// Unwrap returns the sentinel value ErrRouteConflict.
 func (e *RouteConflictError) Unwrap() error {
 	return e.err
 }
 
-// HTTPError represents an HTTP error with a status code (HTTPErrorCode)
-// and an optional error message. If no error message is provided,
-// the default error message for the status code will be used.
+// HTTPError represents an HTTP error with a status code and an optional
+// error message. If no error message is provided, the default error message
+// for the status code will be used.
 type HTTPError struct {
 	Err  error
 	Code int
