@@ -263,6 +263,12 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tsr bool
 	)
 
+	// Prefer the escaped path if set.
+	target := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		target = r.URL.RawPath
+	}
+
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
 	c.reset(fox, w, r)
@@ -273,7 +279,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], r.URL.Path, c.params, c.skipNds, false)
+	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
 	if n != nil {
 		c.path = n.path
 		if err := n.handler(c); err != nil {

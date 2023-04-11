@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1600,6 +1601,16 @@ func TestTree_RemoveRoot(t *testing.T) {
 	assert.Equal(t, 4, len(*tree.nodes.Load()))
 }
 
+func TestTree_Methods(t *testing.T) {
+	tree := New().Tree()
+	methods := []string{"GET", "POST", "PATCH"}
+	for _, m := range methods {
+		require.NoError(t, tree.Handle(m, "/foo/bar", emptyHandler))
+	}
+	sort.Strings(methods)
+	assert.Equal(t, methods, tree.Methods())
+}
+
 func TestRouterWithAllowedMethod(t *testing.T) {
 	r := New(WithHandleMethodNotAllowed(true))
 
@@ -1834,6 +1845,20 @@ func TestAbortHandler(t *testing.T) {
 		assert.ErrorIs(t, err, http.ErrAbortHandler)
 	}()
 	r.ServeHTTP(w, req)
+}
+
+func TestEncodedPath(t *testing.T) {
+	encodedPath := "run/cmd/S123L%2FA"
+	req := httptest.NewRequest(http.MethodGet, "/"+encodedPath, nil)
+	w := httptest.NewRecorder()
+
+	r := New()
+	r.MustHandle(http.MethodGet, "/*{request}", func(c Context) error {
+		return c.String(http.StatusOK, "%s", c.Param("request"))
+	})
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, encodedPath, w.Body.String())
 }
 
 func TestFuzzInsertLookupParam(t *testing.T) {

@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -76,6 +77,19 @@ func (t *Tree) Remove(method, path string) error {
 	}
 
 	return nil
+}
+
+// Methods returns a sorted slice of HTTP methods that are currently in use to route requests.
+func (t *Tree) Methods() []string {
+	methods := make([]string, 0)
+	nds := *t.nodes.Load()
+	for i := range nds {
+		if len(nds[i].children) > 0 {
+			methods = append(methods, nds[i].key)
+		}
+	}
+	sort.Strings(methods)
+	return methods
 }
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
