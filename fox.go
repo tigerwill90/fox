@@ -306,22 +306,37 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if tsr && fox.redirectTrailingSlash {
 			r.URL.Path = fixTrailingSlash(r.URL.Path)
+			if len(r.URL.RawPath) > 0 {
+				r.URL.RawPath = fixTrailingSlash(r.URL.RawPath)
+			}
 			http.Redirect(w, r, r.URL.String(), code)
 			c.Close()
 			return
 		}
 
 		if fox.redirectFixedPath {
-			cleanedPath := CleanPath(r.URL.Path)
+			cleanedPath := CleanPath(target)
 			n, tsr := tree.lookup(nds[index], cleanedPath, c.params, c.skipNds, true)
 			if n != nil {
-				r.URL.Path = cleanedPath
+				if len(r.URL.RawPath) > 0 {
+					r.URL.RawPath = cleanedPath
+					r.URL.Path = CleanPath(r.URL.Path)
+				} else {
+					r.URL.Path = cleanedPath
+				}
 				http.Redirect(w, r, r.URL.String(), code)
 				c.Close()
 				return
 			}
+
 			if tsr && fox.redirectTrailingSlash {
-				r.URL.Path = fixTrailingSlash(cleanedPath)
+				redirected := fixTrailingSlash(cleanedPath)
+				if len(r.URL.RawPath) > 0 {
+					r.URL.RawPath = redirected
+					r.URL.Path = fixTrailingSlash(CleanPath(r.URL.Path))
+				} else {
+					r.URL.Path = redirected
+				}
 				http.Redirect(w, r, r.URL.String(), code)
 				c.Close()
 				return
@@ -335,7 +350,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, _ := tree.lookup(nds[i], r.URL.Path, c.params, c.skipNds, true); n != nil {
+				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}

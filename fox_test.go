@@ -1516,7 +1516,18 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestEncodedRedirectTrailingSlash(t *testing.T) {
+	r := New(WithRedirectTrailingSlash(true))
+	require.NoError(t, r.Handle(http.MethodGet, "/foo/{bar}/", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar%2Fbaz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/foo/bar%2Fbaz/", w.Header().Get(HeaderLocation))
 }
 
 func TestRedirectFixedPath(t *testing.T) {
@@ -1567,6 +1578,30 @@ func TestRedirectFixedPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEncodedRedirectFixedPath(t *testing.T) {
+	r := New(WithRedirectFixedPath(true))
+	require.NoError(t, r.Handle(http.MethodGet, "/hello/{bar}", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/../hello/bar%2Fbaz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/hello/bar%2Fbaz", w.Header().Get(HeaderLocation))
+}
+
+func TestEncodedRedirectFixedPathThenTrailingSlash(t *testing.T) {
+	r := New(WithRedirectFixedPath(true), WithRedirectTrailingSlash(true))
+	require.NoError(t, r.Handle(http.MethodGet, "/hello/{bar}/", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/../hello/bar%2Fbaz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/hello/bar%2Fbaz/", w.Header().Get(HeaderLocation))
 }
 
 func TestTree_Remove(t *testing.T) {
