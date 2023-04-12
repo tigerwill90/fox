@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -305,11 +306,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if tsr && fox.redirectTrailingSlash {
-			r.URL.Path = fixTrailingSlash(r.URL.Path)
-			if len(r.URL.RawPath) > 0 {
-				r.URL.RawPath = fixTrailingSlash(r.URL.RawPath)
-			}
-			http.Redirect(w, r, r.URL.String(), code)
+			redirectTrailingSlash(w, r, target, code)
 			c.Close()
 			return
 		}
@@ -319,6 +316,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			n, tsr := tree.lookup(nds[index], cleanedPath, c.params, c.skipNds, true)
 			if n != nil {
 				if len(r.URL.RawPath) > 0 {
+					// RawPath needs to be equal to escape(r.URL.Path)
+					// or the URL.String will use the r.URL.Path.
 					r.URL.RawPath = cleanedPath
 					r.URL.Path = CleanPath(r.URL.Path)
 				} else {
@@ -332,6 +331,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if tsr && fox.redirectTrailingSlash {
 				redirected := fixTrailingSlash(cleanedPath)
 				if len(r.URL.RawPath) > 0 {
+					// RawPath needs to be equal to escape(r.URL.Path)
+					// or the URL.String will use the r.URL.Path.
 					r.URL.RawPath = redirected
 					r.URL.Path = fixTrailingSlash(CleanPath(r.URL.Path))
 				} else {
@@ -580,4 +581,24 @@ func applyMiddleware(mws []MiddlewareFunc, h HandlerFunc) HandlerFunc {
 		m = mws[i](m)
 	}
 	return m
+}
+
+// localRedirect redirect the client to the new path.
+// It does not convert relative paths to absolute paths like Redirect does.
+func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code int) {
+	if q := r.URL.RawQuery; q != "" {
+		newPath += "?" + q
+	}
+	w.Header().Set("Location", newPath)
+	w.WriteHeader(code)
+}
+
+// redirectTrailingSlash redirect the client to the target path with or without an extra trailing slash.
+func redirectTrailingSlash(w http.ResponseWriter, r *http.Request, target string, code int) {
+	url := fixTrailingSlash(target)
+	if url[len(url)-1] == '/' {
+		localRedirect(w, r, path.Base(url)+"/", code)
+		return
+	}
+	localRedirect(w, r, "../"+path.Base(url), code)
 }
