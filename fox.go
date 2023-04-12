@@ -588,7 +588,7 @@ func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code 
 	if q := r.URL.RawQuery; q != "" {
 		newPath += "?" + q
 	}
-	w.Header().Set("Location", newPath)
+	w.Header().Set(HeaderLocation, newPath)
 	w.WriteHeader(code)
 }
 
