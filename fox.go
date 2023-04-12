@@ -305,14 +305,14 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusPermanentRedirect
 		}
 
-		if tsr && fox.redirectTrailingSlash {
-			redirectTrailingSlash(w, r, target, code)
+		cleanedPath := CleanPath(target)
+		if tsr && fox.redirectTrailingSlash && target == cleanedPath {
+			redirectTrailingSlash(w, r, cleanedPath, code)
 			c.Close()
 			return
 		}
 
 		if fox.redirectFixedPath {
-			cleanedPath := CleanPath(target)
 			n, tsr := tree.lookup(nds[index], cleanedPath, c.params, c.skipNds, true)
 			if n != nil {
 				if len(r.URL.RawPath) > 0 {
