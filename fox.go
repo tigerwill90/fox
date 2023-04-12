@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -263,6 +264,11 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tsr bool
 	)
 
+	target := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		target = r.URL.RawPath
+	}
+
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
 	c.reset(fox, w, r)
@@ -273,7 +279,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], r.URL.Path, c.params, c.skipNds, false)
+	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
 	if n != nil {
 		c.path = n.path
 		if err := n.handler(c); err != nil {
@@ -298,24 +304,39 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusPermanentRedirect
 		}
 
-		if tsr && fox.redirectTrailingSlash {
-			r.URL.Path = fixTrailingSlash(r.URL.Path)
-			http.Redirect(w, r, r.URL.String(), code)
+		cleanedPath := CleanPath(target)
+		if tsr && fox.redirectTrailingSlash && target == cleanedPath {
+			redirectTrailingSlash(w, r, cleanedPath, code)
 			c.Close()
 			return
 		}
 
 		if fox.redirectFixedPath {
-			cleanedPath := CleanPath(r.URL.Path)
 			n, tsr := tree.lookup(nds[index], cleanedPath, c.params, c.skipNds, true)
 			if n != nil {
-				r.URL.Path = cleanedPath
+				if len(r.URL.RawPath) > 0 {
+					// RawPath needs to be equal to escape(r.URL.Path)
+					// or the URL.String will use the r.URL.Path.
+					r.URL.RawPath = cleanedPath
+					r.URL.Path = CleanPath(r.URL.Path)
+				} else {
+					r.URL.Path = cleanedPath
+				}
 				http.Redirect(w, r, r.URL.String(), code)
 				c.Close()
 				return
 			}
+
 			if tsr && fox.redirectTrailingSlash {
-				r.URL.Path = fixTrailingSlash(cleanedPath)
+				redirected := fixTrailingSlash(cleanedPath)
+				if len(r.URL.RawPath) > 0 {
+					// RawPath needs to be equal to escape(r.URL.Path)
+					// or the URL.String will use the r.URL.Path.
+					r.URL.RawPath = redirected
+					r.URL.Path = fixTrailingSlash(CleanPath(r.URL.Path))
+				} else {
+					r.URL.Path = redirected
+				}
 				http.Redirect(w, r, r.URL.String(), code)
 				c.Close()
 				return
@@ -329,7 +350,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, _ := tree.lookup(nds[i], r.URL.Path, c.params, c.skipNds, true); n != nil {
+				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -559,4 +580,24 @@ func applyMiddleware(mws []MiddlewareFunc, h HandlerFunc) HandlerFunc {
 		m = mws[i](m)
 	}
 	return m
+}
+
+// localRedirect redirect the client to the new path.
+// It does not convert relative paths to absolute paths like Redirect does.
+func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code int) {
+	if q := r.URL.RawQuery; q != "" {
+		newPath += "?" + q
+	}
+	w.Header().Set(HeaderLocation, newPath)
+	w.WriteHeader(code)
+}
+
+// redirectTrailingSlash redirect the client to the target path with or without an extra trailing slash.
+func redirectTrailingSlash(w http.ResponseWriter, r *http.Request, target string, code int) {
+	url := fixTrailingSlash(target)
+	if url[len(url)-1] == '/' {
+		localRedirect(w, r, path.Base(url)+"/", code)
+		return
+	}
+	localRedirect(w, r, "../"+path.Base(url), code)
 }

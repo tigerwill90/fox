@@ -42,7 +42,7 @@ func recovery(c Context, handle RecoveryFunc) {
 	}
 }
 
-func DefaultHandleRecovery(c Context, err any) {
+func HandleRecovery(c Context, err any) {
 	stdErr.Printf("[PANIC] %q panic recovered\n%s", err, debug.Stack())
 	if !c.Writer().Written() && !connIsBroken(err) {
 		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

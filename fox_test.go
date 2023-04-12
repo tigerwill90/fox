@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1437,67 +1438,72 @@ func TestTree_LookupTsr(t *testing.T) {
 func TestRedirectTrailingSlash(t *testing.T) {
 
 	cases := []struct {
-		name   string
-		path   string
-		key    string
-		method string
-		want   int
+		name         string
+		path         string
+		req          string
+		method       string
+		wantCode     int
+		wantLocation string
 	}{
 		{
-			name:   "mid edge key with get method and status moved permanently",
-			path:   "/foo/bar/",
-			key:    "/foo/bar",
-			method: http.MethodGet,
-			want:   http.StatusMovedPermanently,
+			name:         "mid edge key with get method and status moved permanently",
+			path:         "/foo/bar/",
+			req:          "/foo/bar",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "bar/",
 		},
 		{
-			name:   "mid edge key with post method and status permanent redirect",
-			path:   "/foo/bar/",
-			key:    "/foo/bar",
-			method: http.MethodPost,
-			want:   http.StatusPermanentRedirect,
+			name:         "mid edge key with post method and status permanent redirect",
+			path:         "/foo/bar/",
+			req:          "/foo/bar",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "bar/",
 		},
 		{
-			name:   "incomplete match end of edge",
-			path:   "/foo/bar",
-			key:    "/foo/bar/",
-			method: http.MethodGet,
-			want:   http.StatusMovedPermanently,
+			name:         "incomplete match end of edge",
+			path:         "/foo/bar",
+			req:          "/foo/bar/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "../bar",
 		},
 		{
-			name:   "incomplete match end of edge",
-			path:   "/foo/bar",
-			key:    "/foo/bar/",
-			method: http.MethodPost,
-			want:   http.StatusPermanentRedirect,
+			name:         "incomplete match end of edge",
+			path:         "/foo/bar",
+			req:          "/foo/bar/",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "../bar",
 		},
 		{
-			name:   "match mid edge with ts and more char after",
-			path:   "/foo/bar/buzz",
-			key:    "/foo/bar",
-			method: http.MethodGet,
-			want:   http.StatusNotFound,
+			name:     "match mid edge with ts and more char after",
+			path:     "/foo/bar/buzz",
+			req:      "/foo/bar",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name:   "match mid edge with ts and more char before",
-			path:   "/foo/barr/",
-			key:    "/foo/bar",
-			method: http.MethodGet,
-			want:   http.StatusNotFound,
+			name:     "match mid edge with ts and more char before",
+			path:     "/foo/barr/",
+			req:      "/foo/bar",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name:   "incomplete match end of edge with ts and more char after",
-			path:   "/foo/bar",
-			key:    "/foo/bar/buzz",
-			method: http.MethodGet,
-			want:   http.StatusNotFound,
+			name:     "incomplete match end of edge with ts and more char after",
+			path:     "/foo/bar",
+			req:      "/foo/bar/buzz",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name:   "incomplete match end of edge with ts and more char before",
-			path:   "/foo/bar",
-			key:    "/foo/barr/",
-			method: http.MethodGet,
-			want:   http.StatusNotFound,
+			name:     "incomplete match end of edge with ts and more char before",
+			path:     "/foo/bar",
+			req:      "/foo/barr/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
 		},
 	}
 
@@ -1506,16 +1512,27 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			r := New(WithRedirectTrailingSlash(true))
 			require.NoError(t, r.Tree().Handle(tc.method, tc.path, emptyHandler))
 
-			req := httptest.NewRequest(tc.method, tc.key, nil)
+			req := httptest.NewRequest(tc.method, tc.req, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
-			assert.Equal(t, tc.want, w.Code)
+			assert.Equal(t, tc.wantCode, w.Code)
 			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
-				assert.Equal(t, tc.path, w.Header().Get("Location"))
+				assert.Equal(t, tc.wantLocation, w.Header().Get("Location"))
 			}
 		})
 	}
+}
 
+func TestEncodedRedirectTrailingSlash(t *testing.T) {
+	r := New(WithRedirectTrailingSlash(true))
+	require.NoError(t, r.Handle(http.MethodGet, "/foo/{bar}/", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar%2Fbaz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
 }
 
 func TestRedirectFixedPath(t *testing.T) {
@@ -1568,6 +1585,30 @@ func TestRedirectFixedPath(t *testing.T) {
 	}
 }
 
+func TestEncodedRedirectFixedPath(t *testing.T) {
+	r := New(WithRedirectFixedPath(true))
+	require.NoError(t, r.Handle(http.MethodGet, "/hello/{bar}", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/../hello/bar%2Fbaz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/hello/bar%2Fbaz", w.Header().Get(HeaderLocation))
+}
+
+func TestEncodedRedirectFixedPathThenTrailingSlash(t *testing.T) {
+	r := New(WithRedirectFixedPath(true), WithRedirectTrailingSlash(true))
+	require.NoError(t, r.Handle(http.MethodGet, "/hello/{bar}/", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/../hello/bar%2Fbaz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/hello/bar%2Fbaz/", w.Header().Get(HeaderLocation))
+}
+
 func TestTree_Remove(t *testing.T) {
 	tree := New().Tree()
 	routes := make([]route, len(githubAPI))
@@ -1598,6 +1639,16 @@ func TestTree_RemoveRoot(t *testing.T) {
 	require.NoError(t, tree.Handle(http.MethodOptions, "/foo/bar", emptyHandler))
 	require.NoError(t, tree.Remove(http.MethodOptions, "/foo/bar"))
 	assert.Equal(t, 4, len(*tree.nodes.Load()))
+}
+
+func TestTree_Methods(t *testing.T) {
+	tree := New().Tree()
+	methods := []string{"GET", "POST", "PATCH"}
+	for _, m := range methods {
+		require.NoError(t, tree.Handle(m, "/foo/bar", emptyHandler))
+	}
+	sort.Strings(methods)
+	assert.Equal(t, methods, tree.Methods())
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
@@ -1834,6 +1885,20 @@ func TestAbortHandler(t *testing.T) {
 		assert.ErrorIs(t, err, http.ErrAbortHandler)
 	}()
 	r.ServeHTTP(w, req)
+}
+
+func TestEncodedPath(t *testing.T) {
+	encodedPath := "run/cmd/S123L%2FA"
+	req := httptest.NewRequest(http.MethodGet, "/"+encodedPath, nil)
+	w := httptest.NewRecorder()
+
+	r := New()
+	r.MustHandle(http.MethodGet, "/*{request}", func(c Context) error {
+		return c.String(http.StatusOK, "%s", c.Param("request"))
+	})
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, encodedPath, w.Body.String())
 }
 
 func TestFuzzInsertLookupParam(t *testing.T) {
