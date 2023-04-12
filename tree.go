@@ -80,11 +80,16 @@ func (t *Tree) Remove(method, path string) error {
 }
 
 // Methods returns a sorted slice of HTTP methods that are currently in use to route requests.
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This api is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Methods() []string {
-	methods := make([]string, 0)
+	var methods []string
 	nds := *t.nodes.Load()
 	for i := range nds {
 		if len(nds[i].children) > 0 {
+			if methods == nil {
+				methods = make([]string, 0)
+			}
 			methods = append(methods, nds[i].key)
 		}
 	}
