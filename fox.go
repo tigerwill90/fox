@@ -264,7 +264,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tsr bool
 	)
 
-	// Prefer the escaped path if set.
 	target := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
 		target = r.URL.RawPath
