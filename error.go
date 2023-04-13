@@ -7,7 +7,6 @@ package fox
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 )
 
@@ -63,34 +62,4 @@ func (e *RouteConflictError) updateError() string {
 // Unwrap returns the sentinel value ErrRouteConflict.
 func (e *RouteConflictError) Unwrap() error {
 	return e.err
-}
-
-// HTTPError represents an HTTP error with a status code and an optional
-// error message. If no error message is provided, the default error message
-// for the status code will be used.
-type HTTPError struct {
-	Err  error
-	Code int
-}
-
-// Error returns the error message associated with the HTTPError,
-// or the default error message for the status code if none is provided.
-func (e HTTPError) Error() string {
-	if e.Err == nil {
-		return http.StatusText(e.Code)
-	}
-	return e.Err.Error()
-}
-
-// NewHTTPError creates a new HTTPError with the given status code
-// and an optional error message.
-func NewHTTPError(code int, err ...error) HTTPError {
-	var e error
-	if len(err) > 0 {
-		e = err[0]
-	}
-	return HTTPError{
-		Code: code,
-		Err:  e,
-	}
 }

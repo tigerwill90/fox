@@ -36,16 +36,6 @@ func WithMethodNotAllowed(handler HandlerFunc, m ...MiddlewareFunc) Option {
 	})
 }
 
-// WithRouteError register an ErrorHandlerFunc which is called when an HandlerFunc returns an error.
-// By default, the RouteErrorHandler is used.
-func WithRouteError(handler ErrorHandlerFunc) Option {
-	return optionFunc(func(r *Router) {
-		if handler != nil {
-			r.errRoute = handler
-		}
-	})
-}
-
 // WithMiddleware attaches a global middleware to the router. Middlewares provided will be chained
 // in the order they were added. Note that it does NOT apply the middlewares to the NotFound and MethodNotAllowed handlers.
 func WithMiddleware(m ...MiddlewareFunc) Option {
