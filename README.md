@@ -393,7 +393,6 @@ to create and apply automatically a simple logging middleware to all route.
 package main
 
 import (
-	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
@@ -404,13 +403,12 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 	return func(c fox.Context) {
 		start := time.Now()
 		next(c)
-		msg := fmt.Sprintf("route: %s, latency: %s, status: %d, size: %d",
+		log.Printf("route: %s, latency: %s, status: %d, size: %d",
 			c.Path(),
 			time.Since(start),
 			c.Writer().Status(),
 			c.Writer().Size(),
 		)
-		log.Println(msg)
 	}
 }
 
