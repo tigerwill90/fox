@@ -171,7 +171,7 @@ func TestWrapF(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
-	require.NoError(t, wrapped(c))
+	wrapped(c)
 	assert.Equal(t, "fox", w.Body.String())
 }
 
@@ -183,7 +183,7 @@ func TestWrapH(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
-	require.NoError(t, wrapped(c))
+	wrapped(c)
 	assert.Equal(t, "fox", w.Body.String())
 }
 
@@ -200,9 +200,8 @@ func TestWrapM(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 
 	fox := New(WithMiddleware(wrapped))
-	fox.MustHandle(http.MethodGet, "/foo", func(c Context) error {
+	fox.MustHandle(http.MethodGet, "/foo", func(c Context) {
 		invoked = true
-		return nil
 	})
 
 	fox.ServeHTTP(w, r)

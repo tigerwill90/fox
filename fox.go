@@ -24,15 +24,11 @@ var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, 
 // the HandlerFunc returns and may be reused later to save resources. If you need
 // to hold the context longer, you have to copy it (see Clone method).
 //
-// The function may return an error that can be propagated through the middleware
-// chain and handled by the registered ErrorHandlerFunc, which is set using the
-// WithRouteError option.
-//
 // Similar to http.Handler, to abort a HandlerFunc so the client sees an interrupted
 // response, panic with the value http.ErrAbortHandler.
 //
 // HandlerFunc functions should be thread-safe, as they will be called concurrently.
-type HandlerFunc func(c Context) error
+type HandlerFunc func(c Context)
 
 // MiddlewareFunc is a function type for implementing HandlerFunc middleware.
 // The returned HandlerFunc usually wraps the input HandlerFunc, allowing you to perform operations
@@ -40,17 +36,11 @@ type HandlerFunc func(c Context) error
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
-// ErrorHandlerFunc is a function type that handles errors returned by a HandlerFunc.
-// It receives the Context and the error returned by the HandlerFunc, allowing
-// centralized error management and custom error handling.
-type ErrorHandlerFunc func(c Context, err error)
-
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
-	errRoute               ErrorHandlerFunc
 	tree                   atomic.Pointer[Tree]
 	mws                    []MiddlewareFunc
 	handleMethodNotAllowed bool
@@ -66,7 +56,6 @@ func New(opts ...Option) *Router {
 
 	r.noRoute = NotFoundHandler()
 	r.noMethod = MethodNotAllowedHandler()
-	r.errRoute = RouteErrorHandler()
 
 	for _, opt := range opts {
 		opt.apply(r)
@@ -229,31 +218,16 @@ Next:
 // NotFoundHandler returns a simple HandlerFunc that replies to each request
 // with a “404 page not found” reply.
 func NotFoundHandler() HandlerFunc {
-	return func(c Context) error {
+	return func(c Context) {
 		http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
-		return nil
 	}
 }
 
 // MethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
 // with a “405 Method Not Allowed” reply.
 func MethodNotAllowedHandler() HandlerFunc {
-	return func(c Context) error {
+	return func(c Context) {
 		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return nil
-	}
-}
-
-// RouteErrorHandler returns an ErrorHandlerFunc that handle HandlerFunc error.
-func RouteErrorHandler() ErrorHandlerFunc {
-	return func(c Context, err error) {
-		if !c.Writer().Written() {
-			if e, ok := err.(HTTPError); ok {
-				http.Error(c.Writer(), e.Error(), e.Code)
-				return
-			}
-			http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		}
 	}
 }
 
@@ -282,9 +256,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
 	if n != nil {
 		c.path = n.path
-		if err := n.handler(c); err != nil {
-			fox.errRoute(c, err)
-		}
+		n.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
 		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
@@ -361,17 +333,13 @@ NoMethodFallback:
 		allowed := sb.String()
 		if allowed != "" {
 			w.Header().Set("Allow", allowed)
-			if err := fox.noMethod(c); err != nil {
-				fox.errRoute(c, err)
-			}
+			fox.noMethod(c)
 			c.Close()
 			return
 		}
 	}
 
-	if err := fox.noRoute(c); err != nil {
-		fox.errRoute(c, err)
-	}
+	fox.noRoute(c)
 	c.Close()
 }
 

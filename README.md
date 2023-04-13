@@ -58,15 +58,15 @@ type Greeting struct {
 	Say string
 }
 
-func (h *Greeting) Greet(c fox.Context) error {
-	return c.String(http.StatusOK, "%s %s\n", h.Say, c.Param("name"))
+func (h *Greeting) Greet(c fox.Context) {
+	_ = c.String(http.StatusOK, "%s %s\n", h.Say, c.Param("name"))
 }
 
 func main() {
 	r := fox.New(fox.DefaultOptions())
 
-	err := r.Handle(http.MethodGet, "/", func(c fox.Context) error {
-		return c.String(http.StatusOK, "Welcome\n")
+	err := r.Handle(http.MethodGet, "/", func(c fox.Context) {
+		_ = c.String(http.StatusOK, "Welcome\n")
 	})
 	if err != nil {
 		panic(err)
@@ -96,29 +96,6 @@ if errors.Is(err, fox.ErrRouteConflict) {
     }
 }
 ```
-
-In addition, Fox also provides a centralized way to handle errors that may occur during the execution of a HandlerFunc.
-
-````go
-var MyCustomError = errors.New("my custom error")
-
-r := fox.New(
-    fox.WithRouteError(func(c fox.Context, err error) {
-        if !c.Writer().Written() {
-            if errors.Is(err, MyCustomError) {
-                http.Error(c.Writer(), err.Error(), http.StatusInternalServerError)
-                return
-            }
-            http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-            return
-        }
-    }),
-)
-
-r.MustHandle(http.MethodGet, "/hello/{name}", func(c fox.Context) error {
-    return MyCustomError
-})
-````
 
 #### Named parameters
 A route can be defined using placeholder (e.g `{name}`). The matching segment are recorder into the `fox.Params` slice accessible 
@@ -175,14 +152,14 @@ POST /users/{name}/emails
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
 If you need to retain `fox.Context` or `fox.Params` beyond the scope of the handler, use the `Clone` methods.
 ````go
-func Hello(c fox.Context) error {
+func Hello(c fox.Context) {
     cc := c.Clone()
     // cp := c.Params().Clone()
     go func() {
         time.Sleep(2 * time.Second)
         log.Println(cc.Param("name")) // Safe
     }()
-    return c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
+    _ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
 }
 ````
 
@@ -219,7 +196,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
@@ -227,10 +203,11 @@ import (
 	"strings"
 )
 
-func Action(c fox.Context) error {
+func Action(c fox.Context) {
 	var data map[string]string
 	if err := json.NewDecoder(c.Request().Body).Decode(&data); err != nil {
-		return fox.NewHTTPError(http.StatusBadRequest, err)
+		http.Error(c.Writer(), err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	method := strings.ToUpper(data["method"])
@@ -238,30 +215,33 @@ func Action(c fox.Context) error {
 	text := data["text"]
 
 	if path == "" || method == "" {
-		return fox.NewHTTPError(http.StatusBadRequest, errors.New("missing method or path"))
+		http.Error(c.Writer(), "missing method or path", http.StatusBadRequest)
+		return
 	}
 
 	var err error
 	action := c.Param("action")
 	switch action {
 	case "add":
-		err = c.Fox().Handle(method, path, func(c fox.Context) error {
-			return c.String(http.StatusOK, text)
+		err = c.Fox().Handle(method, path, func(c fox.Context) {
+			_ = c.String(http.StatusOK, text)
 		})
 	case "update":
-		err = c.Fox().Update(method, path, func(c fox.Context) error {
-			return c.String(http.StatusOK, text)
+		err = c.Fox().Update(method, path, func(c fox.Context) {
+			_ = c.String(http.StatusOK, text)
 		})
 	case "delete":
 		err = c.Fox().Remove(method, path)
 	default:
-		return fox.NewHTTPError(http.StatusBadRequest, fmt.Errorf("action %q is not allowed", action))
+		http.Error(c.Writer(), fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
+		return
 	}
 	if err != nil {
-		return fox.NewHTTPError(http.StatusConflict, err)
+		http.Error(c.Writer(), err.Error(), http.StatusConflict)
+		return
 	}
 
-	return c.String(http.StatusOK, "%s route [%s] %s: success\n", action, method, path)
+	_ = c.String(http.StatusOK, "%s route [%s] %s: success\n", action, method, path)
 }
 
 func main() {
@@ -292,9 +272,9 @@ type HtmlRenderer struct {
 	Template template.HTML
 }
 
-func (h *HtmlRenderer) Render(c fox.Context) error {
+func (h *HtmlRenderer) Render(c fox.Context) {
 	log.Printf("matched handler path: %s", c.Path())
-	return c.Stream(
+	_ = c.Stream(
 		http.StatusInternalServerError,
 		fox.MIMETextHTMLCharsetUTF8,
 		strings.NewReader(string(h.Template)),
@@ -304,20 +284,13 @@ func (h *HtmlRenderer) Render(c fox.Context) error {
 func main() {
 	r := fox.New()
 
-	routes := db.GetRoutes()
-
-	for _, rte := range routes {
-		h := HtmlRenderer{Template: rte.Template}
-		r.MustHandle(rte.Method, rte.Path, h.Render)
-	}
-
 	go Reload(r)
 
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 
 func Reload(r *fox.Router) {
-	for range time.Tick(10 * time.Second) {
+	for ; true; <-time.Tick(10 * time.Second) {
 		routes := db.GetRoutes()
 		tree := r.NewTree()
 		for _, rte := range routes {
@@ -374,10 +347,9 @@ r.Tree().Lock()
 defer r.Tree().Unlock()
 
 // Dramatically bad, may cause deadlock
-func handle(c fox.Context) error {
+func handle(c fox.Context) {
     c.Fox().Tree().Lock()
     defer c.Fox().Tree().Unlock()
-    return nil
 }
 ```` 
 
@@ -385,10 +357,9 @@ Note that `fox.Context` carries a local copy of the `Tree` that is being used to
 the risk of deadlock when using the `Tree` within the context.
 ````go
 // Ok
-func handle(c fox.Context) error {
+func handle(c fox.Context) {
     c.Tree().Lock()
     defer c.Tree().Unlock()
-    return nil
 }
 ````
 
@@ -409,8 +380,8 @@ r.MustHandle(http.MethodGet, "/articles", fox.WrapH(httpRateLimiter.RateLimit(ar
 Wrapping an `http.Handler` compatible middleware
 ````go
 r := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
-r.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) error {
-    return c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
+r.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
+    _ = c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
 })
 ````
 
@@ -422,41 +393,36 @@ to create and apply automatically a simple logging middleware to all route.
 package main
 
 import (
-	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
 	"time"
 )
 
-var logger = fox.MiddlewareFunc(func(next fox.HandlerFunc) fox.HandlerFunc {
-	return func(c fox.Context) error {
+func Logger(next fox.HandlerFunc) fox.HandlerFunc {
+	return func(c fox.Context) {
 		start := time.Now()
-		err := next(c)
-		msg := fmt.Sprintf("route: %s, latency: %s, status: %d, size: %d",
+		next(c)
+		log.Printf("route: %s, latency: %s, status: %d, size: %d",
 			c.Path(),
 			time.Since(start),
 			c.Writer().Status(),
 			c.Writer().Size(),
 		)
-		if err != nil {
-			msg += fmt.Sprintf(", error: %s", err)
-		}
-		log.Println(msg)
-		return err
 	}
-})
+}
 
 func main() {
-	r := fox.New(fox.WithMiddleware(logger))
+	r := fox.New(fox.WithMiddleware(Logger))
 
-	r.MustHandle(http.MethodGet, "/", func(c fox.Context) error {
+	r.MustHandle(http.MethodGet, "/", func(c fox.Context) {
 		resp, err := http.Get("https://api.coindesk.com/v1/bpi/currentprice.json")
 		if err != nil {
-			return fox.NewHTTPError(http.StatusInternalServerError)
+			http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 		defer resp.Body.Close()
-		return c.Stream(http.StatusOK, fox.MIMEApplicationJSON, resp.Body)
+		_ = c.Stream(http.StatusOK, fox.MIMEApplicationJSON, resp.Body)
 	})
 
 	log.Fatalln(http.ListenAndServe(":8080", r))

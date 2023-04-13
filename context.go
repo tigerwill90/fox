@@ -257,17 +257,15 @@ func (c *context) getQueries() url.Values {
 
 // WrapF is an adapter for wrapping http.HandlerFunc and returns a HandlerFunc function.
 func WrapF(f http.HandlerFunc) HandlerFunc {
-	return func(c Context) error {
+	return func(c Context) {
 		f.ServeHTTP(c.Writer(), c.Request())
-		return nil
 	}
 }
 
 // WrapH is an adapter for wrapping http.Handler and returns a HandlerFunc function.
 func WrapH(h http.Handler) HandlerFunc {
-	return func(c Context) error {
+	return func(c Context) {
 		h.ServeHTTP(c.Writer(), c.Request())
-		return nil
 	}
 }
 
@@ -275,13 +273,11 @@ func WrapH(h http.Handler) HandlerFunc {
 // MiddlewareFunc function.
 func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) error {
-			var err error
+		return func(c Context) {
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				err = next(c)
+				next(c)
 			}))
 			adapter.ServeHTTP(c.Writer(), c.Request())
-			return err
 		}
 	}
 }
