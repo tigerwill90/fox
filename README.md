@@ -15,7 +15,7 @@ routing structure based on user input, configuration changes, or other runtime e
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
-**Runtime update:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
+**Runtime updates:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
 request!
 
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
@@ -425,11 +425,13 @@ func main() {
 ````
 
 Additionally, `fox.WithScopedMiddleware` option provide a more fine-grained control over where a middleware is applied, such as
-only for 404 or 405 handler. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NotFoundHandler`, `fox.MethodNotAllowedHandler`, 
+only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NotFoundHandler`, `fox.MethodNotAllowedHandler`, 
 `RedirectHandler`, and any combination of these.
+
 ````go
 f := fox.New(
-    fox.WithMiddleware(Logger),
+    fox.WithMethodNotAllowed(true),
+    fox.WithScopedMiddleware(fox.RouteHandlers, fox.Recovery(fox.DefaultHandleRecovery), Logger),
     fox.WithScopedMiddleware(fox.NotFoundHandler|fox.MethodNotAllowedHandler, SpecialLogger),
 )
 ````

@@ -33,19 +33,23 @@ func Recovery(handle RecoveryFunc) MiddlewareFunc {
 	}
 }
 
+// DefaultHandleRecovery is a default implementation of the RecoveryFunc.
+// It logs the recovered panic error to stderr, including the stack trace.
+// If the response has not been written yet and the error is not caused by a broken connection,
+// it sets the status code to http.StatusInternalServerError and writes a generic error message.
+func DefaultHandleRecovery(c Context, err any) {
+	stdErr.Printf("[PANIC] %q panic recovered\n%s", err, debug.Stack())
+	if !c.Writer().Written() && !connIsBroken(err) {
+		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
 func recovery(c Context, handle RecoveryFunc) {
 	if err := recover(); err != nil {
 		if abortErr, ok := err.(error); ok && errors.Is(abortErr, http.ErrAbortHandler) {
 			panic(abortErr)
 		}
 		handle(c, err)
-	}
-}
-
-func HandleRecovery(c Context, err any) {
-	stdErr.Printf("[PANIC] %q panic recovered\n%s", err, debug.Stack())
-	if !c.Writer().Written() && !connIsBroken(err) {
-		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 

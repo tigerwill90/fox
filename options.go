@@ -96,6 +96,6 @@ func WithRedirectTrailingSlash(enable bool) Option {
 // Note that DefaultOptions push the Recovery middleware to the first position of the middleware chains.
 func DefaultOptions() Option {
 	return optionFunc(func(r *Router) {
-		r.mws = append([]middleware{{Recovery(HandleRecovery), RouteHandlers}}, r.mws...)
+		r.mws = append([]middleware{{Recovery(DefaultHandleRecovery), RouteHandlers}}, r.mws...)
 	})
 }
