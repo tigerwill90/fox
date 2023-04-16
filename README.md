@@ -424,15 +424,15 @@ func main() {
 }
 ````
 
-Additionally, `fox.WithScopedMiddleware` option provide a more fine-grained control over where a middleware is applied, such as
+Additionally, `fox.WithMiddlewareFor` option provide a more fine-grained control over where a middleware is applied, such as
 only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NotFoundHandler`, `fox.MethodNotAllowedHandler`, 
 `RedirectHandler`, and any combination of these.
 
 ````go
 f := fox.New(
     fox.WithMethodNotAllowed(true),
-    fox.WithScopedMiddleware(fox.RouteHandlers, fox.Recovery(fox.DefaultHandleRecovery), Logger),
-    fox.WithScopedMiddleware(fox.NotFoundHandler|fox.MethodNotAllowedHandler, SpecialLogger),
+    fox.WithMiddlewareFor(fox.RouteHandlers, fox.Recovery(fox.DefaultHandleRecovery), Logger),
+    fox.WithMiddlewareFor(fox.NotFoundHandler|fox.MethodNotAllowedHandler, SpecialLogger),
 )
 ````
 

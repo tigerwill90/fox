@@ -10,11 +10,11 @@ type MiddlewareScope uint8
 const (
 	// RouteHandlers scope applies middleware only to regular routes registered in the router.
 	RouteHandlers MiddlewareScope = 1 << (8 - 1 - iota)
-	// NotFoundHandler scope applies middleware to the NotFound handler (when a route is not found).
+	// NotFoundHandler scope applies middleware to the NotFound handler.
 	NotFoundHandler
-	// MethodNotAllowedHandler scope applies middleware to the MethodNotAllowed handler (when the method is not allowed for the requested route).
+	// MethodNotAllowedHandler scope applies middleware to the MethodNotAllowed handler.
 	MethodNotAllowedHandler
-	// RedirectHandler scope applies middleware to the internal redirect handler (for trailing slash and fixed path redirection).
+	// RedirectHandler scope applies middleware to the internal redirect trailing slash handler.
 	RedirectHandler
 	// AllHandlers is a combination of all the above scopes, which means the middleware will be applied to all types of handlers.
 	AllHandlers = RouteHandlers | NotFoundHandler | MethodNotAllowedHandler | RedirectHandler
@@ -57,15 +57,15 @@ func WithMethodNotAllowedHandler(handler HandlerFunc) Option {
 // in the order they were added. Note that this option apply middleware to all handler, including NotFound,
 // MethodNotAllowed and the internal redirect handler.
 func WithMiddleware(m ...MiddlewareFunc) Option {
-	return WithScopedMiddleware(AllHandlers, m...)
+	return WithMiddlewareFor(AllHandlers, m...)
 }
 
-// WithScopedMiddleware attaches middleware to the router with a specified scope. Middlewares provided will be chained
+// WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
-// Possible scopes include RouteHandlers (regular routes), NotFoundHandler, MethodNotAllowedHandler, RedirectHandler, and any combination of these.
-// Use this option when you need fine-grained control over where the middleware is applied.
+// Possible scopes include RouteHandlers (regular routes), NotFoundHandler, MethodNotAllowedHandler, RedirectHandler,
+// and any combination of these. Use this option when you need fine-grained control over where the middleware is applied.
 // This api is EXPERIMENTAL and is likely to change in future release.
-func WithScopedMiddleware(scope MiddlewareScope, m ...MiddlewareFunc) Option {
+func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {
 	return optionFunc(func(r *Router) {
 		for i := range m {
 			r.mws = append(r.mws, middleware{m[i], scope})
@@ -92,7 +92,7 @@ func WithRedirectTrailingSlash(enable bool) Option {
 	})
 }
 
-// DefaultOptions configure the router to use the Recovery middleware.
+// DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope.
 // Note that DefaultOptions push the Recovery middleware to the first position of the middleware chains.
 func DefaultOptions() Option {
 	return optionFunc(func(r *Router) {

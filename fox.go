@@ -49,8 +49,8 @@ type Router struct {
 }
 
 type middleware struct {
-	m    MiddlewareFunc
-	mode MiddlewareScope
+	m     MiddlewareFunc
+	scope MiddlewareScope
 }
 
 var _ http.Handler = (*Router)(nil)
@@ -533,10 +533,10 @@ func isRemovable(method string) bool {
 	return true
 }
 
-func applyMiddleware(mode MiddlewareScope, mws []middleware, h HandlerFunc) HandlerFunc {
+func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) HandlerFunc {
 	m := h
 	for i := len(mws) - 1; i >= 0; i-- {
-		if mws[i].mode&mode != 0 {
+		if mws[i].scope&scope != 0 {
 			m = mws[i].m(m)
 		}
 	}

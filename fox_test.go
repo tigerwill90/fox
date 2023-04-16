@@ -1663,7 +1663,7 @@ func TestWithScopedMiddleware(t *testing.T) {
 		}
 	})
 
-	r := New(WithScopedMiddleware(NotFoundHandler, m))
+	r := New(WithMiddlewareFor(NotFoundHandler, m))
 	require.NoError(t, r.Handle(http.MethodGet, "/foo/bar", emptyHandler))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
