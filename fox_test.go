@@ -25,7 +25,6 @@ import (
 
 var emptyHandler = HandlerFunc(func(c Context) {})
 var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Request().URL.Path) })
-var routeHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Path()) })
 
 type mockResponseWriter struct{}
 
@@ -1534,80 +1533,6 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
 }
 
-func TestRedirectFixedPath(t *testing.T) {
-	cases := []struct {
-		name string
-		path string
-		key  string
-		tsr  bool
-		want int
-	}{
-		{
-			name: "clean invalid path traversal",
-			path: "/foo/bar/baz",
-			key:  "/../foo/bar/baz",
-			want: http.StatusMovedPermanently,
-		},
-		{
-			name: "clean invalid path traversal without tsr",
-			path: "/foo/bar",
-			key:  "/foo/bar/baz/../",
-			want: http.StatusNotFound,
-		},
-		{
-			name: "clean invalid path traversal with tsr",
-			path: "/foo/bar",
-			key:  "/foo/bar/baz/../",
-			tsr:  true,
-			want: http.StatusMovedPermanently,
-		},
-		{
-			name: "clean invalid root path",
-			path: "/",
-			key:  ".//",
-			want: http.StatusMovedPermanently,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := New(WithRedirectFixedPath(true), WithRedirectTrailingSlash(tc.tsr))
-			require.NoError(t, r.Tree().Handle(http.MethodGet, tc.path, emptyHandler))
-			req, _ := http.NewRequest(http.MethodGet, tc.key, nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			assert.Equal(t, tc.want, w.Code)
-			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
-				assert.Equal(t, tc.path, w.Header().Get("Location"))
-			}
-		})
-	}
-}
-
-func TestEncodedRedirectFixedPath(t *testing.T) {
-	r := New(WithRedirectFixedPath(true))
-	require.NoError(t, r.Handle(http.MethodGet, "/hello/{bar}", emptyHandler))
-
-	req := httptest.NewRequest(http.MethodGet, "/../hello/bar%2Fbaz", nil)
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusMovedPermanently, w.Code)
-	assert.Equal(t, "/hello/bar%2Fbaz", w.Header().Get(HeaderLocation))
-}
-
-func TestEncodedRedirectFixedPathThenTrailingSlash(t *testing.T) {
-	r := New(WithRedirectFixedPath(true), WithRedirectTrailingSlash(true))
-	require.NoError(t, r.Handle(http.MethodGet, "/hello/{bar}/", emptyHandler))
-
-	req := httptest.NewRequest(http.MethodGet, "/../hello/bar%2Fbaz", nil)
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusMovedPermanently, w.Code)
-	assert.Equal(t, "/hello/bar%2Fbaz/", w.Header().Get(HeaderLocation))
-}
-
 func TestTree_Remove(t *testing.T) {
 	tree := New().Tree()
 	routes := make([]route, len(githubAPI))
@@ -1651,7 +1576,7 @@ func TestTree_Methods(t *testing.T) {
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
-	r := New(WithHandleMethodNotAllowed(true))
+	r := New(WithMethodNotAllowed(true))
 
 	cases := []struct {
 		name    string
@@ -1704,7 +1629,7 @@ func TestDefaultOptions(t *testing.T) {
 		}
 	})
 	r := New(WithMiddleware(m), DefaultOptions())
-	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1]).Pointer())
+	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1].m).Pointer())
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
@@ -1727,6 +1652,28 @@ func TestRecoveryMiddleware(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, errMsg, w.Body.String())
+}
+
+func TestWithScopedMiddleware(t *testing.T) {
+	called := false
+	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			called = true
+			next(c)
+		}
+	})
+
+	r := New(WithScopedMiddleware(NotFoundHandler, m))
+	require.NoError(t, r.Handle(http.MethodGet, "/foo/bar", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.False(t, called)
+	req.URL.Path = "/foo"
+	r.ServeHTTP(w, req)
+	assert.True(t, called)
 }
 
 func TestHas(t *testing.T) {

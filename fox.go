@@ -41,11 +41,16 @@ type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 type Router struct {
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
+	tsrRedirect            HandlerFunc
 	tree                   atomic.Pointer[Tree]
-	mws                    []MiddlewareFunc
+	mws                    []middleware
 	handleMethodNotAllowed bool
-	redirectFixedPath      bool
 	redirectTrailingSlash  bool
+}
+
+type middleware struct {
+	m    MiddlewareFunc
+	mode MiddlewareScope
 }
 
 var _ http.Handler = (*Router)(nil)
@@ -54,12 +59,16 @@ var _ http.Handler = (*Router)(nil)
 func New(opts ...Option) *Router {
 	r := new(Router)
 
-	r.noRoute = NotFoundHandler()
-	r.noMethod = MethodNotAllowedHandler()
+	r.noRoute = DefaultNotFoundHandler()
+	r.noMethod = DefaultMethodNotAllowedHandler()
 
 	for _, opt := range opts {
 		opt.apply(r)
 	}
+
+	r.noRoute = applyMiddleware(NotFoundHandler, r.mws, r.noRoute)
+	r.noMethod = applyMiddleware(MethodNotAllowedHandler, r.mws, r.noMethod)
+	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlash())
 
 	r.tree.Store(r.NewTree())
 	return r
@@ -215,19 +224,44 @@ Next:
 	return nil
 }
 
-// NotFoundHandler returns a simple HandlerFunc that replies to each request
+// DefaultNotFoundHandler returns a simple HandlerFunc that replies to each request
 // with a “404 page not found” reply.
-func NotFoundHandler() HandlerFunc {
+func DefaultNotFoundHandler() HandlerFunc {
 	return func(c Context) {
 		http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 	}
 }
 
-// MethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
+// DefaultMethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
 // with a “405 Method Not Allowed” reply.
-func MethodNotAllowedHandler() HandlerFunc {
+func DefaultMethodNotAllowedHandler() HandlerFunc {
 	return func(c Context) {
 		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+func defaultRedirectTrailingSlash() HandlerFunc {
+	return func(c Context) {
+		req := c.Request()
+
+		code := http.StatusMovedPermanently
+		if req.Method != http.MethodGet {
+			// Will be redirected only with the same method (SEO friendly)
+			code = http.StatusPermanentRedirect
+		}
+
+		var url string
+		if len(req.URL.RawPath) > 0 {
+			url = fixTrailingSlash(req.URL.RawPath)
+		} else {
+			url = fixTrailingSlash(req.URL.Path)
+		}
+
+		if url[len(url)-1] == '/' {
+			localRedirect(c.Writer(), req, path.Base(url)+"/", code)
+			return
+		}
+		localRedirect(c.Writer(), req, "../"+path.Base(url), code)
 	}
 }
 
@@ -268,53 +302,10 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Reset params as it may have recorded wildcard segment
 	*c.params = (*c.params)[:0]
 
-	if r.Method != http.MethodConnect && r.URL.Path != "/" {
-
-		code := http.StatusMovedPermanently
-		if r.Method != http.MethodGet {
-			// Will be redirected only with the same method (SEO friendly)
-			code = http.StatusPermanentRedirect
-		}
-
-		cleanedPath := CleanPath(target)
-		if tsr && fox.redirectTrailingSlash && target == cleanedPath {
-			redirectTrailingSlash(w, r, cleanedPath, code)
-			c.Close()
-			return
-		}
-
-		if fox.redirectFixedPath {
-			n, tsr := tree.lookup(nds[index], cleanedPath, c.params, c.skipNds, true)
-			if n != nil {
-				if len(r.URL.RawPath) > 0 {
-					// RawPath needs to be equal to escape(r.URL.Path)
-					// or the URL.String will use the r.URL.Path.
-					r.URL.RawPath = cleanedPath
-					r.URL.Path = CleanPath(r.URL.Path)
-				} else {
-					r.URL.Path = cleanedPath
-				}
-				http.Redirect(w, r, r.URL.String(), code)
-				c.Close()
-				return
-			}
-
-			if tsr && fox.redirectTrailingSlash {
-				redirected := fixTrailingSlash(cleanedPath)
-				if len(r.URL.RawPath) > 0 {
-					// RawPath needs to be equal to escape(r.URL.Path)
-					// or the URL.String will use the r.URL.Path.
-					r.URL.RawPath = redirected
-					r.URL.Path = fixTrailingSlash(CleanPath(r.URL.Path))
-				} else {
-					r.URL.Path = redirected
-				}
-				http.Redirect(w, r, r.URL.String(), code)
-				c.Close()
-				return
-			}
-		}
-
+	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr && fox.redirectTrailingSlash && target == CleanPath(target) {
+		fox.tsrRedirect(c)
+		c.Close()
+		return
 	}
 
 NoMethodFallback:
@@ -542,10 +533,12 @@ func isRemovable(method string) bool {
 	return true
 }
 
-func applyMiddleware(mws []MiddlewareFunc, h HandlerFunc) HandlerFunc {
+func applyMiddleware(mode MiddlewareScope, mws []middleware, h HandlerFunc) HandlerFunc {
 	m := h
 	for i := len(mws) - 1; i >= 0; i-- {
-		m = mws[i](m)
+		if mws[i].mode&mode != 0 {
+			m = mws[i].m(m)
+		}
 	}
 	return m
 }
@@ -558,14 +551,4 @@ func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code 
 	}
 	w.Header().Set(HeaderLocation, newPath)
 	w.WriteHeader(code)
-}
-
-// redirectTrailingSlash redirect the client to the target path with or without an extra trailing slash.
-func redirectTrailingSlash(w http.ResponseWriter, r *http.Request, target string, code int) {
-	url := fixTrailingSlash(target)
-	if url[len(url)-1] == '/' {
-		localRedirect(w, r, path.Base(url)+"/", code)
-		return
-	}
-	localRedirect(w, r, "../"+path.Base(url), code)
 }
