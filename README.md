@@ -382,7 +382,7 @@ f.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
 
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 
-to create and apply automatically a simple logging middleware to all route (including 404, 405, etc...).
+to create and apply automatically a simple logging middleware to all routes (including 404, 405, etc...).
 
 ````go
 package main
