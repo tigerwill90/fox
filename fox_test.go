@@ -1700,6 +1700,22 @@ func TestWithScopedMiddleware(t *testing.T) {
 	assert.True(t, called)
 }
 
+func TestWithNotFoundHandler(t *testing.T) {
+	notFound := func(c Context) {
+		_ = c.String(http.StatusNotFound, "NOT FOUND\n")
+	}
+
+	f := New(WithNotFoundHandler(notFound))
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "NOT FOUND\n", w.Body.String())
+}
+
 func TestHas(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
