@@ -31,7 +31,7 @@ import (
 type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
-	mws   []MiddlewareFunc
+	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
@@ -47,7 +47,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.insert(method, p, catchAllKey, uint32(n), applyMiddleware(t.mws, handler))
+	return t.insert(method, p, catchAllKey, uint32(n), applyMiddleware(RouteHandlers, t.mws, handler))
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
@@ -60,7 +60,7 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.update(method, p, catchAllKey, applyMiddleware(t.mws, handler))
+	return t.update(method, p, catchAllKey, applyMiddleware(RouteHandlers, t.mws, handler))
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
@@ -545,10 +545,16 @@ Walk:
 		}
 		if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
-			// Tsr recommendation: add an extra trailing slash (got an exact match)
 			if !tsr {
-				remainingSuffix := current.key[charsMatchedInNodeFound:]
-				tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
+				if strings.HasSuffix(path, "/") {
+					// Tsr recommendation: remove the extra trailing slash (got an exact match)
+					remainingPrefix := current.key[:charsMatchedInNodeFound]
+					tsr = len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim
+				} else {
+					// Tsr recommendation: add an extra trailing slash (got an exact match)
+					remainingSuffix := current.key[charsMatchedInNodeFound:]
+					tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
+				}
 			}
 
 			if hasSkpNds {
@@ -583,7 +589,7 @@ Walk:
 		return nil, tsr
 	}
 
-	// Finally incomplete match to middle of ege
+	// Finally incomplete match to middle of edge
 Backtrack:
 	if hasSkpNds {
 		skipped := skipNds.pop()

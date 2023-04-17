@@ -15,7 +15,7 @@ routing structure based on user input, configuration changes, or other runtime e
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
-**Routing mutation:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
+**Runtime updates:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
 request!
 
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
@@ -32,9 +32,6 @@ even for complex routing pattern.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
-
-**Path auto-correction:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router can remove superfluous path
-elements like `../` or `//` and automatically redirect the client if the cleaned path match a handler (disable by default).
 
 Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
 
@@ -63,9 +60,9 @@ func (h *Greeting) Greet(c fox.Context) {
 }
 
 func main() {
-	r := fox.New(fox.DefaultOptions())
+	f := fox.New(fox.DefaultOptions())
 
-	err := r.Handle(http.MethodGet, "/", func(c fox.Context) {
+	err := f.Handle(http.MethodGet, "/", func(c fox.Context) {
 		_ = c.String(http.StatusOK, "Welcome\n")
 	})
 	if err != nil {
@@ -73,9 +70,9 @@ func main() {
 	}
 
 	h := Greeting{Say: "Hello"}
-	r.MustHandle(http.MethodGet, "/hello/{name}", h.Greet)
+	f.MustHandle(http.MethodGet, "/hello/{name}", h.Greet)
 
-	log.Fatalln(http.ListenAndServe(":8080", r))
+	log.Fatalln(http.ListenAndServe(":8080", f))
 }
 ````
 #### Error handling
@@ -245,9 +242,9 @@ func Action(c fox.Context) {
 }
 
 func main() {
-	r := fox.New()
-	r.MustHandle(http.MethodPost, "/routes/{action}", Action)
-	log.Fatalln(http.ListenAndServe(":8080", r))
+	f := fox.New()
+	f.MustHandle(http.MethodPost, "/routes/{action}", Action)
+	log.Fatalln(http.ListenAndServe(":8080", f))
 }
 ````
 
@@ -282,11 +279,9 @@ func (h *HtmlRenderer) Render(c fox.Context) {
 }
 
 func main() {
-	r := fox.New()
-
-	go Reload(r)
-
-	log.Fatalln(http.ListenAndServe(":8080", r))
+	f := fox.New()
+	go Reload(f)
+	log.Fatalln(http.ListenAndServe(":8080", f))
 }
 
 func Reload(r *fox.Router) {
@@ -373,21 +368,21 @@ articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     _, _ = fmt.Fprintln(w, "get articles")
 })
 
-r := fox.New(fox.DefaultOptions())
-r.MustHandle(http.MethodGet, "/articles", fox.WrapH(httpRateLimiter.RateLimit(articles)))
+f := fox.New(fox.DefaultOptions())
+f.MustHandle(http.MethodGet, "/articles", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
 Wrapping an `http.Handler` compatible middleware
 ````go
-r := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
-r.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
+f := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
+f.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
     _ = c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
 })
 ````
 
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 
-to create and apply automatically a simple logging middleware to all route.
+to create and apply automatically a simple logging middleware to all routes (including 404, 405, etc...).
 
 ````go
 package main
@@ -413,9 +408,9 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 }
 
 func main() {
-	r := fox.New(fox.WithMiddleware(Logger))
+	f := fox.New(fox.WithMiddleware(Logger))
 
-	r.MustHandle(http.MethodGet, "/", func(c fox.Context) {
+	f.MustHandle(http.MethodGet, "/", func(c fox.Context) {
 		resp, err := http.Get("https://api.coindesk.com/v1/bpi/currentprice.json")
 		if err != nil {
 			http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -425,8 +420,20 @@ func main() {
 		_ = c.Stream(http.StatusOK, fox.MIMEApplicationJSON, resp.Body)
 	})
 
-	log.Fatalln(http.ListenAndServe(":8080", r))
+	log.Fatalln(http.ListenAndServe(":8080", f))
 }
+````
+
+Additionally, `fox.WithMiddlewareFor` option provide a more fine-grained control over where a middleware is applied, such as
+only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NotFoundHandler`, `fox.MethodNotAllowedHandler`, 
+`RedirectHandler`, and any combination of these.
+
+````go
+f := fox.New(
+    fox.WithMethodNotAllowed(true),
+    fox.WithMiddlewareFor(fox.RouteHandlers, fox.Recovery(fox.DefaultHandleRecovery), Logger),
+    fox.WithMiddlewareFor(fox.NotFoundHandler|fox.MethodNotAllowedHandler, SpecialLogger),
+)
 ````
 
 ## Benchmark
@@ -577,3 +584,4 @@ The intention behind these choices is that it can serve as a building block for 
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
 this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
+- The router API is influenced by popular routers such as [gin](https://github.com/gin-gonic/gin) and [https://github.com/labstack/echo](echo).
