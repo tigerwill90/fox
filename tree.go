@@ -545,10 +545,16 @@ Walk:
 		}
 		if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
-			// Tsr recommendation: add an extra trailing slash (got an exact match)
 			if !tsr {
-				remainingSuffix := current.key[charsMatchedInNodeFound:]
-				tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
+				if strings.HasSuffix(path, "/") {
+					// Tsr recommendation: remove the extra trailing slash (got an exact match)
+					remainingPrefix := current.key[:charsMatchedInNodeFound]
+					tsr = len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim
+				} else {
+					// Tsr recommendation: add an extra trailing slash (got an exact match)
+					remainingSuffix := current.key[charsMatchedInNodeFound:]
+					tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
+				}
 			}
 
 			if hasSkpNds {
@@ -583,7 +589,7 @@ Walk:
 		return nil, tsr
 	}
 
-	// Finally incomplete match to middle of ege
+	// Finally incomplete match to middle of edge
 Backtrack:
 	if hasSkpNds {
 		skipped := skipNds.pop()

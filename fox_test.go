@@ -1382,49 +1382,73 @@ func TestParseRoute(t *testing.T) {
 
 func TestTree_LookupTsr(t *testing.T) {
 	cases := []struct {
-		name string
-		path string
-		key  string
-		want bool
+		name  string
+		paths []string
+		key   string
+		want  bool
 	}{
 		{
-			name: "match mid edge",
-			path: "/foo/bar/",
-			key:  "/foo/bar",
-			want: true,
+			name:  "match mid edge",
+			paths: []string{"/foo/bar/"},
+			key:   "/foo/bar",
+			want:  true,
 		},
 		{
-			name: "incomplete match end of edge",
-			path: "/foo/bar",
-			key:  "/foo/bar/",
-			want: true,
+			name:  "incomplete match end of edge",
+			paths: []string{"/foo/bar"},
+			key:   "/foo/bar/",
+			want:  true,
 		},
 		{
-			name: "match mid edge with ts and more char after",
-			path: "/foo/bar/buzz",
-			key:  "/foo/bar",
+			name:  "match mid edge with child node",
+			paths: []string{"/users/", "/users/{id}"},
+			key:   "/users",
+			want:  true,
 		},
 		{
-			name: "match mid edge with ts and more char before",
-			path: "/foo/barr/",
-			key:  "/foo/bar",
+			name:  "match mid edge in child node",
+			paths: []string{"/users", "/users/{id}"},
+			key:   "/users/",
+			want:  true,
 		},
 		{
-			name: "incomplete match end of edge with ts and more char after",
-			path: "/foo/bar",
-			key:  "/foo/bar/buzz",
+			name:  "match mid edge in child node with invalid remaining prefix",
+			paths: []string{"/users/{id}"},
+			key:   "/users/",
 		},
 		{
-			name: "incomplete match end of edge with ts and more char before",
-			path: "/foo/bar",
-			key:  "/foo/barr/",
+			name:  "match mid edge with child node with invalid remaining suffix",
+			paths: []string{"/users/{id}"},
+			key:   "/users",
+		},
+		{
+			name:  "match mid edge with ts and more char after",
+			paths: []string{"/foo/bar/buzz"},
+			key:   "/foo/bar",
+		},
+		{
+			name:  "match mid edge with ts and more char before",
+			paths: []string{"/foo/barr/"},
+			key:   "/foo/bar",
+		},
+		{
+			name:  "incomplete match end of edge with ts and more char after",
+			paths: []string{"/foo/bar"},
+			key:   "/foo/bar/buzz",
+		},
+		{
+			name:  "incomplete match end of edge with ts and more char before",
+			paths: []string{"/foo/bar"},
+			key:   "/foo/barr/",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
-			require.NoError(t, tree.insert(http.MethodGet, tc.path, "", 0, emptyHandler))
+			for _, path := range tc.paths {
+				require.NoError(t, tree.insert(http.MethodGet, path, "", 0, emptyHandler))
+			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
 			_, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
