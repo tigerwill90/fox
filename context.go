@@ -19,8 +19,10 @@ type ContextCloser interface {
 	Close()
 }
 
-// Context represents the context of the current HTTP request.
-// It provides methods to access request data and to write a response.
+// Context represents the context of the current HTTP request. It provides methods to access request data and
+// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
+// duration of the HandlerFunc execution, as the underlying implementation may be reused a soon as the handler return.
+// (see Clone method).
 type Context interface {
 	// Ctx returns the context associated with the current request.
 	Ctx() ctx.Context
@@ -61,6 +63,11 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router in use to serve the request.
 	Fox() *Router
+	// SetFox attaches the provided Router instance to the Context.
+	SetFox(fox *Router)
+	// Reset resets the Context to its initial state, attaching the provided Router,
+	// http.ResponseWriter, and *http.Request.
+	Reset(fox *Router, w http.ResponseWriter, r *http.Request)
 }
 
 // context holds request-related information and allows interaction with the ResponseWriter.
@@ -79,7 +86,9 @@ type context struct {
 	rec         recorder
 }
 
-func (c *context) reset(fox *Router, w http.ResponseWriter, r *http.Request) {
+// Reset resets the Context to its initial state, attaching the provided Router,
+// http.ResponseWriter, and *http.Request.
+func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	if r.ProtoMajor == 2 {
@@ -215,6 +224,11 @@ func (c *context) Tree() *Tree {
 // Fox returns the Router in use to serve the request.
 func (c *context) Fox() *Router {
 	return c.fox
+}
+
+// SetFox attaches the provided Router instance to the Context.
+func (c *context) SetFox(fox *Router) {
+	c.fox = fox
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.

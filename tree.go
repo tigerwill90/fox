@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -39,8 +40,8 @@ type Tree struct {
 
 // Handle registers a new handler for the given method and path. This function return an error if the route
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
-// for serving requests. However, this function is NOT thread safe and should be run serially, along with
-// all other Tree's APIs. To override an existing route, use Update.
+// for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
+// Tree APIs that perform write operations. To override an existing route, use Update.
 func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 	p, catchAllKey, n, err := parseRoute(path)
 	if err != nil {
@@ -52,8 +53,8 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
-// serving requests. However, this function is NOT thread safe and should be run serially, along with
-// all other Tree's APIs. To add new handler, use Handle method.
+// serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
+// Tree APIs that perform write operations. To add new handler, use Handle method.
 func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
@@ -65,7 +66,8 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
-// However, this function is NOT thread safe and should be run serially, along with all other Tree's APIs.
+// However, this function is NOT thread-safe and should be run serially, along with all other Tree APIs that perform
+// write operations.
 func (t *Tree) Remove(method, path string) error {
 	path, _, _, err := parseRoute(path)
 	if err != nil {
@@ -81,7 +83,7 @@ func (t *Tree) Remove(method, path string) error {
 
 // Methods returns a sorted slice of HTTP methods that are currently in use to route requests.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Methods() []string {
 	var methods []string
 	nds := *t.nodes.Load()
@@ -95,6 +97,56 @@ func (t *Tree) Methods() []string {
 	}
 	sort.Strings(methods)
 	return methods
+}
+
+// Lookup allow to do manual lookup of a route for the given request and return the matched HandlerFunc along with a
+// ContextCloser and trailing slash redirect recommendation. You should always close the ContextCloser if NOT nil by
+// calling cc.Close(). Note that the returned ContextCloser does not have a router attached (use the SetFox method).
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+	nds := *t.nodes.Load()
+	index := findRootNode(r.Method, nds)
+	if index < 0 {
+		return
+	}
+
+	path := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		path = r.URL.RawPath
+	}
+
+	c := t.ctx.Get().(*context)
+	c.Reset(nil, w, r)
+	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, false)
+	if n != nil {
+		c.path = n.path
+		return n.handler, c, tsr
+	}
+	return nil, c, tsr
+}
+
+// LookupPath allow to do manual lookup of a route for the given method and path and return the matched HandlerFunc
+// along with a ContextCloser and trailing slash redirect recommendation. If lazy is set to true, wildcard parameter are
+// not parsed. You should always close the ContextCloser if NOT nil by calling cc.Close(). Note that the returned
+// ContextCloser does not have a router, request and response writer attached (use the Reset method).
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) LookupPath(method, path string, lazy bool) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+	nds := *t.nodes.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return
+	}
+
+	c := t.ctx.Get().(*context)
+	c.resetNil()
+	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, lazy)
+	if n != nil {
+		c.path = n.path
+		return n.handler, c, tsr
+	}
+	return nil, c, tsr
 }
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
