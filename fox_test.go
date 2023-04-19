@@ -1716,6 +1716,66 @@ func TestWithNotFoundHandler(t *testing.T) {
 	assert.Equal(t, "NOT FOUND\n", w.Body.String())
 }
 
+func TestTree_Lookup(t *testing.T) {
+	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
+	f := New()
+	for _, rte := range githubAPI {
+		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
+	}
+
+	tree := f.Tree()
+	for _, rte := range githubAPI {
+		req := httptest.NewRequest(rte.method, rte.path, nil)
+		w := httptest.NewRecorder()
+		handler, cc, _ := tree.Lookup(w, req)
+		require.NotNil(t, cc)
+		assert.NotNil(t, handler)
+
+		matches := rx.FindAllString(rte.path, -1)
+		for _, match := range matches {
+			var key string
+			if strings.HasPrefix(match, "*") {
+				key = match[2 : len(match)-1]
+			} else {
+				key = match[1 : len(match)-1]
+			}
+			value := match
+			assert.Equal(t, value, cc.Param(key))
+		}
+
+		cc.Close()
+	}
+}
+
+func TestTree_LookupPath(t *testing.T) {
+	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
+	f := New()
+	for _, rte := range githubAPI {
+		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
+	}
+
+	tree := f.Tree()
+	for _, rte := range githubAPI {
+		handler, cc, _ := tree.LookupPath(rte.method, rte.path, false)
+		require.NotNil(t, cc)
+		assert.NotNil(t, handler)
+
+		matches := rx.FindAllString(rte.path, -1)
+		for _, match := range matches {
+			var key string
+			if strings.HasPrefix(match, "*") {
+				key = match[2 : len(match)-1]
+			} else {
+				key = match[1 : len(match)-1]
+			}
+			value := match
+			assert.Equal(t, value, cc.Param(key))
+		}
+
+		cc.Close()
+	}
+}
+
 func TestHas(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
@@ -1762,9 +1822,10 @@ func TestHas(t *testing.T) {
 		},
 	}
 
+	tree := r.Tree()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, Has(r.Tree(), http.MethodGet, tc.path))
+			assert.Equal(t, tc.want, tree.Has(http.MethodGet, tc.path))
 		})
 	}
 }
@@ -1981,7 +2042,7 @@ func TestDataRace(t *testing.T) {
 			tree := r.Tree()
 			tree.Lock()
 			defer tree.Unlock()
-			if Has(tree, method, route) {
+			if tree.Has(method, route) {
 				assert.NoError(t, tree.Update(method, route, h))
 				return
 			}
@@ -1995,7 +2056,7 @@ func TestDataRace(t *testing.T) {
 			tree := r.Tree()
 			tree.Lock()
 			defer tree.Unlock()
-			if Has(tree, method, route) {
+			if tree.Has(method, route) {
 				assert.NoError(t, tree.Remove(method, route))
 				return
 			}
@@ -2163,7 +2224,7 @@ func ExampleRouter_Tree() {
 	upsert := func(method, path string, handler HandlerFunc) error {
 		tree.Lock()
 		defer tree.Unlock()
-		if Has(tree, method, path) {
+		if tree.Has(method, path) {
 			return tree.Update(method, path, handler)
 		}
 		return tree.Handle(method, path, handler)
@@ -2180,9 +2241,45 @@ func ExampleRouter_Tree() {
 	_ = func(method, path string, handler HandlerFunc) error {
 		r.Tree().Lock()
 		defer r.Tree().Unlock()
-		if Has(r.Tree(), method, path) {
+		if r.Tree().Has(method, path) {
 			return r.Tree().Update(method, path, handler)
 		}
 		return r.Tree().Handle(method, path, handler)
 	}
+}
+
+// This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
+// lookup on the tree. If the cleaned path matches a registered route, the client is redirected with a 301 status
+// code (Moved Permanently).
+func ExampleTree_LookupPath() {
+	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			req := c.Request()
+
+			cleanedPath := CleanPath(req.URL.Path)
+			handler, cc, _ := c.Tree().LookupPath(req.Method, cleanedPath, true)
+			// You should always close a non-nil Context.
+			if cc != nil {
+				defer cc.Close()
+			}
+
+			// 301 redirect and returns.
+			if handler != nil {
+				req.URL.Path = cleanedPath
+				http.Redirect(c.Writer(), req, req.URL.String(), http.StatusMovedPermanently)
+				return
+			}
+
+			next(c)
+		}
+	})
+
+	f := New(
+		// Register the middleware for the NotFoundHandler scope.
+		WithMiddlewareFor(NotFoundHandler, redirectFixedPath),
+	)
+
+	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
+		_ = c.String(http.StatusOK, "foo bar")
+	})
 }

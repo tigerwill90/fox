@@ -155,23 +155,6 @@ func (fox *Router) Remove(method, path string) error {
 	return t.Remove(method, path)
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for
-// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func Has(t *Tree, method, path string) bool {
-	nds := *t.nodes.Load()
-	index := findRootNode(method, nds)
-	if index < 0 {
-		return false
-	}
-
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
-	c.Close()
-	return n != nil && n.path == path
-}
-
 // Reverse perform a lookup on the tree for the given method and path and return the matching registered route if any.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.

@@ -149,6 +149,23 @@ func (t *Tree) LookupPath(method, path string, lazy bool) (handler HandlerFunc, 
 	return nil, c, tsr
 }
 
+// Has allows to check if the given method and path exactly match a registered route. This function is safe for
+// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Has(method, path string) bool {
+	nds := *t.nodes.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return false
+	}
+
+	c := t.ctx.Get().(*context)
+	c.resetNil()
+	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	c.Close()
+	return n != nil && n.path == path
+}
+
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
 func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc) error {
