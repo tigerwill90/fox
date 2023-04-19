@@ -2,6 +2,8 @@
 [![tests](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/tigerwill90/fox/actions?query=workflow%3Atests)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
 [![codecov](https://codecov.io/gh/tigerwill90/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/fox)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tigerwill90/fox)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/fox)
 # Fox
 Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
