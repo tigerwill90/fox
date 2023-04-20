@@ -317,7 +317,7 @@ Note that all read operation on the tree remain lock-free.
 func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) error {
     t.Lock()
     defer t.Unlock()
-    if fox.Has(t, method, path) {
+    if t.Has(method, path) {
         return t.Update(method, path, handler)
     }
     return t.Handle(method, path, handler)
