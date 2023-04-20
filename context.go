@@ -63,8 +63,6 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router in use to serve the request.
 	Fox() *Router
-	// SetFox attaches the provided Router instance to the Context.
-	SetFox(fox *Router)
 	// Reset resets the Context to its initial state, attaching the provided Router,
 	// http.ResponseWriter, and *http.Request.
 	Reset(fox *Router, w http.ResponseWriter, r *http.Request)
@@ -224,11 +222,6 @@ func (c *context) Tree() *Tree {
 // Fox returns the Router in use to serve the request.
 func (c *context) Fox() *Router {
 	return c.fox
-}
-
-// SetFox attaches the provided Router instance to the Context.
-func (c *context) SetFox(fox *Router) {
-	c.fox = fox
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.

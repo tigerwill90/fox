@@ -6,7 +6,6 @@ package fox
 
 import (
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -99,40 +98,13 @@ func (t *Tree) Methods() []string {
 	return methods
 }
 
-// Lookup allow to do manual lookup of a route for the given request and return the matched HandlerFunc along with a
-// ContextCloser and trailing slash redirect recommendation. You should always close the ContextCloser if NOT nil by
-// calling cc.Close(). Note that the returned ContextCloser does not have a router attached (use the SetFox method).
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
-	nds := *t.nodes.Load()
-	index := findRootNode(r.Method, nds)
-	if index < 0 {
-		return
-	}
-
-	path := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		path = r.URL.RawPath
-	}
-
-	c := t.ctx.Get().(*context)
-	c.Reset(nil, w, r)
-	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, false)
-	if n != nil {
-		c.path = n.path
-		return n.handler, c, tsr
-	}
-	return nil, c, tsr
-}
-
-// LookupPath allow to do manual lookup of a route for the given method and path and return the matched HandlerFunc
+// Lookup allow to do manual lookup of a route for the given method and path and return the matched HandlerFunc
 // along with a ContextCloser and trailing slash redirect recommendation. If lazy is set to true, wildcard parameter are
 // not parsed. You should always close the ContextCloser if NOT nil by calling cc.Close(). Note that the returned
 // ContextCloser does not have a router, request and response writer attached (use the Reset method).
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) LookupPath(method, path string, lazy bool) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (t *Tree) Lookup(method, path string, lazy bool) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {

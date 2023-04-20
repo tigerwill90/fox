@@ -1725,38 +1725,7 @@ func TestTree_Lookup(t *testing.T) {
 
 	tree := f.Tree()
 	for _, rte := range githubAPI {
-		req := httptest.NewRequest(rte.method, rte.path, nil)
-		w := httptest.NewRecorder()
-		handler, cc, _ := tree.Lookup(w, req)
-		require.NotNil(t, cc)
-		assert.NotNil(t, handler)
-
-		matches := rx.FindAllString(rte.path, -1)
-		for _, match := range matches {
-			var key string
-			if strings.HasPrefix(match, "*") {
-				key = match[2 : len(match)-1]
-			} else {
-				key = match[1 : len(match)-1]
-			}
-			value := match
-			assert.Equal(t, value, cc.Param(key))
-		}
-
-		cc.Close()
-	}
-}
-
-func TestTree_LookupPath(t *testing.T) {
-	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
-	f := New()
-	for _, rte := range githubAPI {
-		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
-	}
-
-	tree := f.Tree()
-	for _, rte := range githubAPI {
-		handler, cc, _ := tree.LookupPath(rte.method, rte.path, false)
+		handler, cc, _ := tree.Lookup(rte.method, rte.path, false)
 		require.NotNil(t, cc)
 		assert.NotNil(t, handler)
 
@@ -2251,13 +2220,13 @@ func ExampleRouter_Tree() {
 // This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
 // lookup on the tree. If the cleaned path matches a registered route, the client is redirected with a 301 status
 // code (Moved Permanently).
-func ExampleTree_LookupPath() {
+func ExampleTree_Lookup() {
 	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			req := c.Request()
 
 			cleanedPath := CleanPath(req.URL.Path)
-			handler, cc, _ := c.Tree().LookupPath(req.Method, cleanedPath, true)
+			handler, cc, _ := c.Tree().Lookup(req.Method, cleanedPath, true)
 			// You should always close a non-nil Context.
 			if cc != nil {
 				defer cc.Close()

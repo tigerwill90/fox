@@ -438,6 +438,9 @@ f := fox.New(
 )
 ````
 
+### Official middlewares
+* [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
+
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.
 The following benchmarks attempt to compare Fox to various popular alternatives, including both fully-featured web frameworks
