@@ -74,11 +74,10 @@ func New(opts ...Option) *Router {
 	return r
 }
 
-// NewTree returns a fresh routing Tree which allow to register, update and delete route.
-// It's safe to create multiple Tree concurrently. However, a Tree itself is not thread safe
-// and all its APIs should be run serially. Note that a Tree give direct access to the
-// underlying sync.Mutex.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// NewTree returns a fresh routing Tree. It's safe to create multiple Tree concurrently. However, a Tree itself
+// is not thread-safe and all its APIs that perform write operations should be run serially. Note that a Tree give
+// direct access to the underlying sync.Mutex.
+// This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.mws = fox.mws
@@ -156,26 +155,9 @@ func (fox *Router) Remove(method, path string) error {
 	return t.Remove(method, path)
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for
-// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func Has(t *Tree, method, path string) bool {
-	nds := *t.nodes.Load()
-	index := findRootNode(method, nds)
-	if index < 0 {
-		return false
-	}
-
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
-	c.Close()
-	return n != nil && n.path == path
-}
-
 // Reverse perform a lookup on the tree for the given method and path and return the matching registered route if any.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// This API is EXPERIMENTAL and is likely to change in future release.
 func Reverse(t *Tree, method, path string) string {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -203,7 +185,7 @@ type WalkFunc func(method, path string, handler HandlerFunc) error
 // Walk allow to walk over all registered route in lexicographical order. If the function
 // return the special value SkipMethod, Walk skips the current method. This function is
 // safe for concurrent use by multiple goroutine and while mutation are ongoing.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// This API is EXPERIMENTAL and is likely to change in future release.
 func Walk(tree *Tree, fn WalkFunc) error {
 	nds := *tree.nodes.Load()
 Next:
@@ -279,7 +261,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
-	c.reset(fox, w, r)
+	c.Reset(fox, w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)

@@ -2,6 +2,8 @@
 [![tests](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/tigerwill90/fox/actions?query=workflow%3Atests)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
 [![codecov](https://codecov.io/gh/tigerwill90/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/fox)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tigerwill90/fox)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/fox)
 # Fox
 Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
@@ -315,7 +317,7 @@ Note that all read operation on the tree remain lock-free.
 func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) error {
     t.Lock()
     defer t.Unlock()
-    if fox.Has(t, method, path) {
+    if t.Has(method, path) {
         return t.Update(method, path, handler)
     }
     return t.Handle(method, path, handler)
@@ -435,6 +437,9 @@ f := fox.New(
     fox.WithMiddlewareFor(fox.NotFoundHandler|fox.MethodNotAllowedHandler, SpecialLogger),
 )
 ````
+
+### Official middlewares
+* [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
 
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.
