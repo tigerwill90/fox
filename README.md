@@ -589,4 +589,4 @@ The intention behind these choices is that it can serve as a building block for 
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
 this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
-- The router API is influenced by popular routers such as [gin](https://github.com/gin-gonic/gin) and [https://github.com/labstack/echo](echo).
+- The router API is influenced by popular routers such as [gin](https://github.com/gin-gonic/gin) and [echo](https://github.com/labstack/echo).
