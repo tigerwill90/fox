@@ -190,7 +190,9 @@ func TestWrapH(t *testing.T) {
 func TestWrapM(t *testing.T) {
 	wrapped := WrapM(func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handler.ServeHTTP(w, r)
+			req := r.Clone(r.Context())
+			req.Header.Set("foo", "bar")
+			handler.ServeHTTP(w, req)
 			_, _ = w.Write([]byte("fox"))
 		})
 	})
@@ -201,6 +203,7 @@ func TestWrapM(t *testing.T) {
 
 	fox := New(WithMiddleware(wrapped))
 	fox.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		assert.Equal(t, "bar", c.Header("foo"))
 		invoked = true
 	})
 
