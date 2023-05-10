@@ -282,6 +282,7 @@ func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c.SetRequest(r)
 				next(c)
 			}))
 			adapter.ServeHTTP(c.Writer(), c.Request())
