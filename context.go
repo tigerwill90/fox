@@ -34,6 +34,8 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
+	// TeeResponseTo sets up an additional writer to which the response body will be written.
+	TeeResponseTo(w io.Writer)
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -127,6 +129,13 @@ func (c *context) Writer() ResponseWriter {
 // SetWriter sets the ResponseWriter.
 func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
+}
+
+// TeeResponseTo sets up an additional writer to which the response body will be written.
+func (c *context) TeeResponseTo(w io.Writer) {
+	if w != nil {
+		c.rec.tee = io.MultiWriter(c.rec.ResponseWriter, w)
+	}
 }
 
 // Ctx returns the context associated with the current request.

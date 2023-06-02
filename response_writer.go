@@ -42,6 +42,7 @@ const notWritten = -1
 
 type recorder struct {
 	http.ResponseWriter
+	tee    io.Writer
 	size   int
 	status int
 }
@@ -50,6 +51,7 @@ func (r *recorder) reset(w http.ResponseWriter) {
 	r.ResponseWriter = w
 	r.size = notWritten
 	r.status = http.StatusOK
+	r.tee = nil
 }
 
 func (r *recorder) Status() int {
@@ -81,6 +83,13 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 		r.size = 0
 		r.ResponseWriter.WriteHeader(r.status)
 	}
+
+	if r.tee != nil {
+		n, err = r.tee.Write(buf)
+		r.size += n
+		return
+	}
+
 	n, err = r.ResponseWriter.Write(buf)
 	r.size += n
 	return
@@ -91,6 +100,13 @@ func (r *recorder) WriteString(s string) (n int, err error) {
 		r.size = 0
 		r.ResponseWriter.WriteHeader(r.status)
 	}
+
+	if r.tee != nil {
+		n, err = io.WriteString(r.tee, s)
+		r.size += n
+		return
+	}
+
 	n, err = io.WriteString(r.ResponseWriter, s)
 	r.size += n
 	return
