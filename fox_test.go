@@ -1600,7 +1600,7 @@ func TestTree_Methods(t *testing.T) {
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
-	r := New(WithMethodNotAllowed(true))
+	r := New(WithNoMethod(true))
 
 	cases := []struct {
 		name    string

@@ -45,7 +45,7 @@ func WithNoRouteHandler(handler HandlerFunc) Option {
 // WithNoMethodHandler register an HandlerFunc which is called when the request cannot be routed,
 // but the same route exist for other methods. The "Allow" header it automatically set before calling the
 // handler. By default, the DefaultMethodNotAllowedHandler is used. Note that this option automatically
-// enable WithMethodNotAllowed.
+// enable WithNoMethod.
 func WithNoMethodHandler(handler HandlerFunc) Option {
 	return optionFunc(func(r *Router) {
 		if handler != nil {
@@ -88,11 +88,11 @@ func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {
 	})
 }
 
-// WithMethodNotAllowed enable to returns 405 Method Not Allowed instead of 404 Not Found
+// WithNoMethod enable to returns 405 Method Not Allowed instead of 404 Not Found
 // when the route exist for another http verb. The "Allow" header it automatically set before calling the
 // handler. Note that this option is automatically enabled when providing a custom handler with the
 // option WithNoMethodHandler.
-func WithMethodNotAllowed(enable bool) Option {
+func WithNoMethod(enable bool) Option {
 	return optionFunc(func(r *Router) {
 		r.handleMethodNotAllowed = enable
 	})
