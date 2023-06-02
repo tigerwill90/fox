@@ -33,7 +33,10 @@ performance and clarity by enforcing clear priority rules, ensuring that there a
 even for complex routing pattern.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
-redirects the client, at no extra cost, if another route match with or without a trailing slash (disable by default). 
+redirects the client, at no extra cost, if another route match with or without a trailing slash.
+
+**Automatic OPTIONS responses:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
+support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 
 Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
 
@@ -427,19 +430,46 @@ func main() {
 ````
 
 Additionally, `fox.WithMiddlewareFor` option provide a more fine-grained control over where a middleware is applied, such as
-only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NotFoundHandler`, `fox.MethodNotAllowedHandler`, 
-`RedirectHandler`, and any combination of these.
+only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NoRouteHandler`, `fox.NoMethodHandler`, 
+`RedirectHandler`, `fox.OptionsHandler` and any combination of these.
 
 ````go
 f := fox.New(
     fox.WithMethodNotAllowed(true),
     fox.WithMiddlewareFor(fox.RouteHandlers, fox.Recovery(fox.DefaultHandleRecovery), Logger),
-    fox.WithMiddlewareFor(fox.NotFoundHandler|fox.MethodNotAllowedHandler, SpecialLogger),
+    fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
 )
 ````
 
 ### Official middlewares
 * [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
+
+## Handling OPTIONS Requests and CORS Automatically
+The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 
+This feature can be particularly useful in the context of Cross-Origin Resource Sharing (CORS).
+
+An OPTIONS request is a type of HTTP request that is used to determine the communication options available for a given resource 
+or API endpoint. These requests are commonly used as "preflight" requests in CORS to check if the CORS protocol is understood 
+and to get permission to access data based on origin.
+
+When automatic OPTIONS responses is enabled, the router will automatically respond to preflight OPTIONS requests and set the `Allow`
+header with the appropriate value. To customize how OPTIONS requests are handled (e.g. adding CORS headers), you may register a middleware for the
+`fox.OptionsHandler` scope or override the default handler.
+
+````go
+f := fox.New(
+    fox.WithOptionsHandler(func(c fox.Context) {
+        if c.Header("Access-Control-Request-Method") != "" {
+            // Setting CORS headers.
+            c.SetHeader("Access-Control-Allow-Methods", c.Writer().Header().Get("Allow"))
+            c.SetHeader("Access-Control-Allow-Origin", "*")
+        }
+
+        // Respond with a 204 status code.
+        c.Writer().WriteHeader(http.StatusNoContent)
+    }),
+)
+````
 
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.

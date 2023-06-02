@@ -121,6 +121,26 @@ func (t *Tree) Lookup(method, path string, lazy bool) (handler HandlerFunc, cc C
 	return nil, c, tsr
 }
 
+// LookupMethods lookup and returns all HTTP methods associated with a route that match the given path. This function
+// is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) LookupMethods(path string) (methods []string) {
+	nds := *t.nodes.Load()
+
+	c := t.ctx.Get().(*context)
+	c.resetNil()
+
+	methods = make([]string, 0)
+	for i := 0; i < len(nds); i++ {
+		n, _ := t.lookup(nds[i], path, c.params, c.skipNds, true)
+		if n != nil {
+			methods = append(methods, nds[i].key)
+		}
+	}
+	c.Close()
+	return methods
+}
+
 // Has allows to check if the given method and path exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
