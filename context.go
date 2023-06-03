@@ -34,8 +34,9 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
-	// TeeResponseTo sets up an additional writer to which the response body will be written.
-	TeeResponseTo(w io.Writer)
+	// TeeWriter set up one or more additional writers (sink) to which the response body will be written.
+	// This API is EXPERIMENTAL and is likely to change in future release.
+	TeeWriter(sink io.Writer, sinks ...io.Writer)
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -76,6 +77,7 @@ type context struct {
 	req     *http.Request
 	params  *Params
 	skipNds *skippedNodes
+	mw      *[]io.Writer
 
 	// tree at allocation (read-only, no reset)
 	tree *Tree
@@ -100,6 +102,7 @@ func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
+	*c.mw = (*c.mw)[:0]
 }
 
 func (c *context) resetNil() {
@@ -109,6 +112,7 @@ func (c *context) resetNil() {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
+	*c.mw = (*c.mw)[:0]
 }
 
 // Request returns the *http.Request.
@@ -131,10 +135,16 @@ func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
-// TeeResponseTo sets up an additional writer to which the response body will be written.
-func (c *context) TeeResponseTo(w io.Writer) {
-	if w != nil {
-		c.rec.tee = io.MultiWriter(c.rec.ResponseWriter, w)
+// TeeWriter set up one or more additional writers (sink) to which the response body will be written.
+func (c *context) TeeWriter(sink io.Writer, sinks ...io.Writer) {
+	if sink != nil {
+		*c.mw = append(*c.mw, sink)
+		*c.mw = append(*c.mw, sinks...)
+		if c.req.ProtoMajor == 2 {
+			c.w = h2MultiWriter{&c.rec, c.mw}
+		} else {
+			c.w = h1MultiWriter{&c.rec, c.mw}
+		}
 	}
 }
 

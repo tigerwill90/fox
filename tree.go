@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"sync"
@@ -710,9 +711,11 @@ STOP:
 func (t *Tree) allocateContext() *context {
 	params := make(Params, 0, t.maxParams.Load())
 	skipNds := make(skippedNodes, 0, t.maxDepth.Load())
+	mw := make([]io.Writer, 0, 1)
 	return &context{
 		params:  &params,
 		skipNds: &skipNds,
+		mw:      &mw,
 		// This is a read only value, no reset, it's always the
 		// owner of the pool.
 		tree: t,

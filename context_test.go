@@ -3,11 +3,15 @@ package fox
 import (
 	"bytes"
 	netcontext "context"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -210,4 +214,33 @@ func TestWrapM(t *testing.T) {
 	fox.ServeHTTP(w, r)
 	assert.Equal(t, "fox", w.Body.String())
 	assert.True(t, invoked)
+}
+
+func TestX(t *testing.T) {
+
+	buf1 := bytes.NewBuffer(nil)
+
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		c.TeeWriter(buf1)
+		rf, _ := c.Writer().(io.ReaderFrom)
+		n, err := rf.ReadFrom(strings.NewReader("foo bar baz\n"))
+		require.NoError(t, err)
+		fmt.Println(n)
+
+	})
+
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_, err = io.Copy(os.Stdout, resp.Body)
+	require.NoError(t, err)
+
+	fmt.Println("dump")
+	_, err = io.Copy(os.Stdout, buf1)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
 }

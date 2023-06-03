@@ -12,13 +12,42 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 )
 
-var _ http.Flusher = (*h1Writer)(nil)
-var _ http.Hijacker = (*h1Writer)(nil)
-var _ io.ReaderFrom = (*h1Writer)(nil)
-var _ http.Pusher = (*h2Writer)(nil)
-var _ http.Flusher = (*h2Writer)(nil)
+var (
+	_ http.Flusher  = (*h1Writer)(nil)
+	_ http.Hijacker = (*h1Writer)(nil)
+	_ io.ReaderFrom = (*h1Writer)(nil)
+)
+
+var (
+	_ io.Writer       = (*h1MultiWriter)(nil)
+	_ io.StringWriter = (*h1MultiWriter)(nil)
+	_ http.Flusher    = (*h1MultiWriter)(nil)
+	_ http.Hijacker   = (*h1MultiWriter)(nil)
+	_ io.ReaderFrom   = (*h1MultiWriter)(nil)
+)
+
+var (
+	_ http.Pusher  = (*h2Writer)(nil)
+	_ http.Flusher = (*h2Writer)(nil)
+)
+
+var (
+	_ io.Writer       = (*h2MultiWriter)(nil)
+	_ io.StringWriter = (*h2MultiWriter)(nil)
+	_ http.Flusher    = (*h2MultiWriter)(nil)
+	_ http.Pusher     = (*h2MultiWriter)(nil)
+	_ http.Flusher    = (*h2MultiWriter)(nil)
+)
+
+var copyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 32*1024)
+		return &b
+	},
+}
 
 // ResponseWriter extends http.ResponseWriter and provides
 // methods to retrieve the recorded status code, written state, and response size.
@@ -42,7 +71,6 @@ const notWritten = -1
 
 type recorder struct {
 	http.ResponseWriter
-	tee    io.Writer
 	size   int
 	status int
 }
@@ -51,7 +79,6 @@ func (r *recorder) reset(w http.ResponseWriter) {
 	r.ResponseWriter = w
 	r.size = notWritten
 	r.status = http.StatusOK
-	r.tee = nil
 }
 
 func (r *recorder) Status() int {
@@ -84,12 +111,6 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 		r.ResponseWriter.WriteHeader(r.status)
 	}
 
-	if r.tee != nil {
-		n, err = r.tee.Write(buf)
-		r.size += n
-		return
-	}
-
 	n, err = r.ResponseWriter.Write(buf)
 	r.size += n
 	return
@@ -99,12 +120,6 @@ func (r *recorder) WriteString(s string) (n int, err error) {
 	if !r.Written() {
 		r.size = 0
 		r.ResponseWriter.WriteHeader(r.status)
-	}
-
-	if r.tee != nil {
-		n, err = io.WriteString(r.tee, s)
-		r.size += n
-		return
 	}
 
 	n, err = io.WriteString(r.ResponseWriter, s)
@@ -161,12 +176,13 @@ type h1Writer struct {
 	*recorder
 }
 
-func (w h1Writer) ReadFrom(r io.Reader) (n int64, err error) {
-	rf := w.recorder.ResponseWriter.(io.ReaderFrom)
+func (w h1Writer) ReadFrom(src io.Reader) (n int64, err error) {
 	if !w.recorder.Written() {
 		w.recorder.size = 0
 	}
-	n, err = rf.ReadFrom(r)
+
+	rf := w.recorder.ResponseWriter.(io.ReaderFrom)
+	n, err = rf.ReadFrom(src)
 	w.recorder.size += int(n)
 	return
 }
@@ -211,3 +227,165 @@ func (n noopWriter) Write([]byte) (int, error) {
 }
 
 func (n noopWriter) WriteHeader(int) {}
+
+type h1MultiWriter struct {
+	*recorder
+	writers *[]io.Writer
+}
+
+func (w h1MultiWriter) Write(p []byte) (n int, err error) {
+	n, err = w.recorder.Write(p)
+	if err != nil {
+		return
+	}
+	if n != len(p) {
+		err = io.ErrShortWrite
+		return
+	}
+
+	for _, writer := range *w.writers {
+		n, err = writer.Write(p)
+		if err != nil {
+			return
+		}
+		if n != len(p) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(p), nil
+}
+func (w h1MultiWriter) WriteString(s string) (n int, err error) {
+	var p []byte // lazily initialized if/when needed
+	n, err = w.recorder.WriteString(s)
+	if err != nil {
+		return
+	}
+	if n != len(s) {
+		err = io.ErrShortWrite
+		return
+	}
+
+	for _, writer := range *w.writers {
+		if sw, ok := writer.(io.StringWriter); ok {
+			n, err = sw.WriteString(s)
+		} else {
+			if p == nil {
+				p = []byte(s)
+			}
+			n, err = writer.Write(p)
+		}
+		if err != nil {
+			return
+		}
+		if n != len(s) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(s), nil
+}
+
+func (w h1MultiWriter) Flush() {
+	if !w.recorder.Written() {
+		w.recorder.size = 0
+	}
+	w.recorder.ResponseWriter.(http.Flusher).Flush()
+
+	for _, writer := range *w.writers {
+		if f, ok := writer.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+}
+
+func (w h1MultiWriter) ReadFrom(src io.Reader) (n int64, err error) {
+	bufp := copyBufPool.Get().(*[]byte)
+	buf := *bufp
+	n, err = io.CopyBuffer(w, src, buf)
+	copyBufPool.Put(bufp)
+	return
+}
+
+func (w h1MultiWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if !w.recorder.Written() {
+		w.recorder.size = 0
+	}
+
+	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
+}
+
+type h2MultiWriter struct {
+	*recorder
+	writers *[]io.Writer
+}
+
+func (w h2MultiWriter) Write(p []byte) (n int, err error) {
+	n, err = w.recorder.Write(p)
+	if err != nil {
+		return
+	}
+	if n != len(p) {
+		err = io.ErrShortWrite
+		return
+	}
+
+	for _, writer := range *w.writers {
+		n, err = writer.Write(p)
+		if err != nil {
+			return
+		}
+		if n != len(p) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(p), nil
+}
+func (w h2MultiWriter) WriteString(s string) (n int, err error) {
+	var p []byte // lazily initialized if/when needed
+	n, err = w.recorder.WriteString(s)
+	if err != nil {
+		return
+	}
+	if n != len(s) {
+		err = io.ErrShortWrite
+		return
+	}
+
+	for _, writer := range *w.writers {
+		if sw, ok := writer.(io.StringWriter); ok {
+			n, err = sw.WriteString(s)
+		} else {
+			if p == nil {
+				p = []byte(s)
+			}
+			n, err = writer.Write(p)
+		}
+		if err != nil {
+			return
+		}
+		if n != len(s) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(s), nil
+}
+
+func (w h2MultiWriter) Flush() {
+	if !w.recorder.Written() {
+		w.recorder.size = 0
+	}
+	w.recorder.ResponseWriter.(http.Flusher).Flush()
+
+	for _, writer := range *w.writers {
+		if f, ok := writer.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+}
+
+func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
+	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
+}
