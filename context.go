@@ -34,7 +34,7 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
-	// TeeWriter set up one or more additional writers (sink) to which the response body will be written.
+	// TeeWriter append one or more additional writers (sink) to which the response body will be written.
 	// This API is EXPERIMENTAL and is likely to change in future release.
 	TeeWriter(sink io.Writer, sinks ...io.Writer)
 	// Path returns the registered path for the handler.
@@ -135,7 +135,7 @@ func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
-// TeeWriter set up one or more additional writers (sink) to which the response body will be written.
+// TeeWriter append one or more additional writers (sink) to which the response body will be written.
 func (c *context) TeeWriter(sink io.Writer, sinks ...io.Writer) {
 	if sink != nil {
 		*c.mw = append(*c.mw, sink)
