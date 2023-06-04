@@ -39,7 +39,6 @@ var (
 	_ io.StringWriter = (*h2MultiWriter)(nil)
 	_ http.Flusher    = (*h2MultiWriter)(nil)
 	_ http.Pusher     = (*h2MultiWriter)(nil)
-	_ http.Flusher    = (*h2MultiWriter)(nil)
 )
 
 var copyBufPool = sync.Pool{
