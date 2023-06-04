@@ -138,11 +138,14 @@ func (c *context) SetWriter(w ResponseWriter) {
 // TeeWriter append an additional writer (sink) to which the response body will be written.
 func (c *context) TeeWriter(w io.Writer) {
 	if w != nil {
+		if len(*c.mw) == 0 {
+			*c.mw = append(*c.mw, c.w)
+		}
 		*c.mw = append(*c.mw, w)
 		if c.req.ProtoMajor == 2 {
-			c.w = h2MultiWriter{&c.rec, c.mw}
+			c.w = h2MultiWriter{c.mw}
 		} else {
-			c.w = h1MultiWriter{&c.rec, c.mw}
+			c.w = h1MultiWriter{c.mw}
 		}
 	}
 }

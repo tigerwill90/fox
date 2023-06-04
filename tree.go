@@ -711,7 +711,7 @@ STOP:
 func (t *Tree) allocateContext() *context {
 	params := make(Params, 0, t.maxParams.Load())
 	skipNds := make(skippedNodes, 0, t.maxDepth.Load())
-	mw := make([]io.Writer, 0, 1)
+	mw := make([]io.Writer, 0, 2)
 	return &context{
 		params:  &params,
 		skipNds: &skipNds,
