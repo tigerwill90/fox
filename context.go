@@ -34,9 +34,9 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
-	// TeeWriter append one or more additional writers (sink) to which the response body will be written.
+	// TeeWriter append an additional writer (sink) to which the response body will be written.
 	// This API is EXPERIMENTAL and is likely to change in future release.
-	TeeWriter(sink io.Writer, sinks ...io.Writer)
+	TeeWriter(w io.Writer)
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -135,11 +135,10 @@ func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
-// TeeWriter append one or more additional writers (sink) to which the response body will be written.
-func (c *context) TeeWriter(sink io.Writer, sinks ...io.Writer) {
-	if sink != nil {
-		*c.mw = append(*c.mw, sink)
-		*c.mw = append(*c.mw, sinks...)
+// TeeWriter append an additional writer (sink) to which the response body will be written.
+func (c *context) TeeWriter(w io.Writer) {
+	if w != nil {
+		*c.mw = append(*c.mw, w)
 		if c.req.ProtoMajor == 2 {
 			c.w = h2MultiWriter{&c.rec, c.mw}
 		} else {
