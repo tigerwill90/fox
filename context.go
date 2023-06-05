@@ -40,7 +40,7 @@ type Context interface {
 	// Therefore, while asserting interfaces like http.Hijacker will not fail, invoking Hijack method will panic if the
 	// underlying ResponseWriter does not implement this interface.
 	//
-	// To facilitate testing with e.g. httptest.Recorder, use the WrapFlushWriter helper function which only exposes the
+	// To facilitate testing with e.g. httptest.Recorder, use the WrapTestContext helper function which only exposes the
 	// http.Flusher interface for the ResponseWriter.
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
@@ -147,16 +147,39 @@ func (c *context) SetWriter(w ResponseWriter) {
 }
 
 // TeeWriter append an additional writer (sink) to which the response body will be written.
+// Internally, TeeWriter make reasonable effort to reflect which interface the underlying ResponseWriter implement.
 func (c *context) TeeWriter(w io.Writer) {
 	if w != nil {
 		if len(*c.mw) == 0 {
 			*c.mw = append(*c.mw, c.w)
 		}
 		*c.mw = append(*c.mw, w)
-		if c.req.ProtoMajor == 2 {
-			c.w = h2MultiWriter{c.mw}
-		} else {
+		switch c.w.(type) {
+		case h1Writer:
 			c.w = h1MultiWriter{c.mw}
+		case h2Writer:
+			c.w = h2MultiWriter{c.mw}
+		default:
+			_, rfOk := c.w.(io.ReaderFrom)
+			_, flOk := c.w.(http.Flusher)
+			_, flHi := c.w.(http.Hijacker)
+			if rfOk && flOk && flHi {
+				c.w = h1MultiWriter{c.mw}
+				break
+			}
+
+			_, puOk := c.w.(http.Pusher)
+			if flOk && puOk {
+				c.w = h2MultiWriter{c.mw}
+				break
+			}
+
+			if flOk {
+				c.w = flushMultiWriter{c.mw}
+				break
+			}
+
+			c.w = multiWriter{c.mw}
 		}
 	}
 }

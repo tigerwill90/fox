@@ -46,6 +46,8 @@ var (
 	_ http.Flusher   = (*flushMultiWriter)(nil)
 )
 
+var _ ResponseWriter = (*multiWriter)(nil)
+
 var copyBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 32*1024)
@@ -228,47 +230,15 @@ func (w h1MultiWriter) Unwrap() http.ResponseWriter {
 }
 
 func (w h1MultiWriter) Write(p []byte) (n int, err error) {
-	for _, writer := range *w.writers {
-		n, err = writer.Write(p)
-		if err != nil {
-			return
-		}
-		if n != len(p) {
-			err = io.ErrShortWrite
-			return
-		}
-	}
-	return len(p), nil
+	return multiWrite(w.writers, p)
 }
 
 func (w h1MultiWriter) WriteString(s string) (n int, err error) {
-	var p []byte // lazily initialized if/when needed
-	for _, writer := range *w.writers {
-		if sw, ok := writer.(io.StringWriter); ok {
-			n, err = sw.WriteString(s)
-		} else {
-			if p == nil {
-				p = []byte(s)
-			}
-			n, err = writer.Write(p)
-		}
-		if err != nil {
-			return
-		}
-		if n != len(s) {
-			err = io.ErrShortWrite
-			return
-		}
-	}
-	return len(s), nil
+	return multiWriteString(w.writers, s)
 }
 
 func (w h1MultiWriter) Flush() {
-	for _, writer := range *w.writers {
-		if f, ok := writer.(http.Flusher); ok {
-			f.Flush()
-		}
-	}
+	multiFlush(w.writers)
 }
 
 func (w h1MultiWriter) ReadFrom(src io.Reader) (n int64, err error) {
@@ -312,47 +282,15 @@ func (w h2MultiWriter) Unwrap() http.ResponseWriter {
 }
 
 func (w h2MultiWriter) Write(p []byte) (n int, err error) {
-	for _, writer := range *w.writers {
-		n, err = writer.Write(p)
-		if err != nil {
-			return
-		}
-		if n != len(p) {
-			err = io.ErrShortWrite
-			return
-		}
-	}
-	return len(p), nil
+	return multiWrite(w.writers, p)
 }
 
 func (w h2MultiWriter) WriteString(s string) (n int, err error) {
-	var p []byte // lazily initialized if/when needed
-	for _, writer := range *w.writers {
-		if sw, ok := writer.(io.StringWriter); ok {
-			n, err = sw.WriteString(s)
-		} else {
-			if p == nil {
-				p = []byte(s)
-			}
-			n, err = writer.Write(p)
-		}
-		if err != nil {
-			return
-		}
-		if n != len(s) {
-			err = io.ErrShortWrite
-			return
-		}
-	}
-	return len(s), nil
+	return multiWriteString(w.writers, s)
 }
 
 func (w h2MultiWriter) Flush() {
-	for _, writer := range *w.writers {
-		if f, ok := writer.(http.Flusher); ok {
-			f.Flush()
-		}
-	}
+	multiFlush(w.writers)
 }
 
 func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
@@ -388,7 +326,55 @@ func (w flushMultiWriter) Unwrap() http.ResponseWriter {
 }
 
 func (w flushMultiWriter) Write(p []byte) (n int, err error) {
-	for _, writer := range *w.writers {
+	return multiWrite(w.writers, p)
+}
+
+func (w flushMultiWriter) WriteString(s string) (n int, err error) {
+	return multiWriteString(w.writers, s)
+}
+
+func (w flushMultiWriter) Flush() {
+	multiFlush(w.writers)
+}
+
+type multiWriter struct {
+	writers *[]io.Writer
+}
+
+func (w multiWriter) Header() http.Header {
+	return (*w.writers)[0].(ResponseWriter).Header()
+}
+
+func (w multiWriter) WriteHeader(statusCode int) {
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
+}
+
+func (w multiWriter) Status() int {
+	return (*w.writers)[0].(ResponseWriter).Status()
+}
+
+func (w multiWriter) Written() bool {
+	return (*w.writers)[0].(ResponseWriter).Written()
+}
+
+func (w multiWriter) Size() int {
+	return (*w.writers)[0].(ResponseWriter).Size()
+}
+
+func (w multiWriter) Unwrap() http.ResponseWriter {
+	return (*w.writers)[0].(ResponseWriter).Unwrap()
+}
+
+func (w multiWriter) Write(p []byte) (n int, err error) {
+	return multiWrite(w.writers, p)
+}
+
+func (w multiWriter) WriteString(s string) (n int, err error) {
+	return multiWriteString(w.writers, s)
+}
+
+func multiWrite(writers *[]io.Writer, p []byte) (n int, err error) {
+	for _, writer := range *writers {
 		n, err = writer.Write(p)
 		if err != nil {
 			return
@@ -401,9 +387,9 @@ func (w flushMultiWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (w flushMultiWriter) WriteString(s string) (n int, err error) {
+func multiWriteString(writers *[]io.Writer, s string) (n int, err error) {
 	var p []byte // lazily initialized if/when needed
-	for _, writer := range *w.writers {
+	for _, writer := range *writers {
 		if sw, ok := writer.(io.StringWriter); ok {
 			n, err = sw.WriteString(s)
 		} else {
@@ -422,8 +408,9 @@ func (w flushMultiWriter) WriteString(s string) (n int, err error) {
 	}
 	return len(s), nil
 }
-func (w flushMultiWriter) Flush() {
-	for _, writer := range *w.writers {
+
+func multiFlush(writers *[]io.Writer) {
+	for _, writer := range *writers {
 		if f, ok := writer.(http.Flusher); ok {
 			f.Flush()
 		}

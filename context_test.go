@@ -63,6 +63,7 @@ func TestContext_Clone(t *testing.T) {
 	assert.Equal(t, http.StatusOK, cc.Writer().Status())
 	assert.Equal(t, len(buf), cc.Writer().Size())
 	assert.Equal(t, wantValues, c.QueryParams())
+	assert.Empty(t, *c.mw)
 	_, err = cc.Writer().Write([]byte("invalid"))
 	assert.ErrorIs(t, err, ErrDiscardedResponseWriter)
 }
