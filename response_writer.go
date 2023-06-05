@@ -232,27 +232,27 @@ type h1MultiWriter struct {
 }
 
 func (w h1MultiWriter) Header() http.Header {
-	return (*w.writers)[0].(h1Writer).Header()
+	return (*w.writers)[0].(ResponseWriter).Header()
 }
 
 func (w h1MultiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(h1Writer).WriteHeader(statusCode)
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
 }
 
 func (w h1MultiWriter) Status() int {
-	return (*w.writers)[0].(h1Writer).Status()
+	return (*w.writers)[0].(ResponseWriter).Status()
 }
 
 func (w h1MultiWriter) Written() bool {
-	return (*w.writers)[0].(h1Writer).Written()
+	return (*w.writers)[0].(ResponseWriter).Written()
 }
 
 func (w h1MultiWriter) Size() int {
-	return (*w.writers)[0].(h1Writer).Size()
+	return (*w.writers)[0].(ResponseWriter).Size()
 }
 
 func (w h1MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(h1Writer).Unwrap()
+	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
 func (w h1MultiWriter) Write(p []byte) (n int, err error) {
@@ -316,27 +316,27 @@ type h2MultiWriter struct {
 }
 
 func (w h2MultiWriter) Header() http.Header {
-	return (*w.writers)[0].(h2Writer).Header()
+	return (*w.writers)[0].(ResponseWriter).Header()
 }
 
 func (w h2MultiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(h2Writer).WriteHeader(statusCode)
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
 }
 
 func (w h2MultiWriter) Status() int {
-	return (*w.writers)[0].(h2Writer).Status()
+	return (*w.writers)[0].(ResponseWriter).Status()
 }
 
 func (w h2MultiWriter) Written() bool {
-	return (*w.writers)[0].(h2Writer).Written()
+	return (*w.writers)[0].(ResponseWriter).Written()
 }
 
 func (w h2MultiWriter) Size() int {
-	return (*w.writers)[0].(h2Writer).Size()
+	return (*w.writers)[0].(ResponseWriter).Size()
 }
 
 func (w h2MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(h2Writer).Unwrap()
+	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
 func (w h2MultiWriter) Write(p []byte) (n int, err error) {
@@ -385,4 +385,75 @@ func (w h2MultiWriter) Flush() {
 
 func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
 	return (*w.writers)[0].(http.Pusher).Push(target, opts)
+}
+
+type flushMultiWriter struct {
+	writers *[]io.Writer
+}
+
+func (w flushMultiWriter) Header() http.Header {
+	return (*w.writers)[0].(ResponseWriter).Header()
+}
+
+func (w flushMultiWriter) WriteHeader(statusCode int) {
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
+}
+
+func (w flushMultiWriter) Status() int {
+	return (*w.writers)[0].(ResponseWriter).Status()
+}
+
+func (w flushMultiWriter) Written() bool {
+	return (*w.writers)[0].(ResponseWriter).Written()
+}
+
+func (w flushMultiWriter) Size() int {
+	return (*w.writers)[0].(ResponseWriter).Size()
+}
+
+func (w flushMultiWriter) Unwrap() http.ResponseWriter {
+	return (*w.writers)[0].(ResponseWriter).Unwrap()
+}
+
+func (w flushMultiWriter) Write(p []byte) (n int, err error) {
+	for _, writer := range *w.writers {
+		n, err = writer.Write(p)
+		if err != nil {
+			return
+		}
+		if n != len(p) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(p), nil
+}
+
+func (w flushMultiWriter) WriteString(s string) (n int, err error) {
+	var p []byte // lazily initialized if/when needed
+	for _, writer := range *w.writers {
+		if sw, ok := writer.(io.StringWriter); ok {
+			n, err = sw.WriteString(s)
+		} else {
+			if p == nil {
+				p = []byte(s)
+			}
+			n, err = writer.Write(p)
+		}
+		if err != nil {
+			return
+		}
+		if n != len(s) {
+			err = io.ErrShortWrite
+			return
+		}
+	}
+	return len(s), nil
+}
+func (w flushMultiWriter) Flush() {
+	for _, writer := range *w.writers {
+		if f, ok := writer.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
 }

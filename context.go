@@ -259,6 +259,8 @@ func (c *context) Clone() Context {
 	copy(params, *c.params)
 	cp.params = &params
 	cp.cachedQuery = nil
+	mw := make([]io.Writer, 0, 2)
+	cp.mw = &mw
 	return &cp
 }
 

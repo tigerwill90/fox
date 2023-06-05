@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"io"
 	"net/http"
 )
 
@@ -16,18 +17,32 @@ func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Con
 	return newTextContextOnly(fox, w, r)
 }
 
-func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *context {
+type testContext struct {
+	*context
+}
+
+func (c testContext) TeeWriter(w io.Writer) {
+	if w != nil {
+		if len(*c.mw) == 0 {
+			*c.mw = append(*c.mw, c.w)
+		}
+		*c.mw = append(*c.mw, w)
+		c.w = flushMultiWriter{c.mw}
+	}
+}
+
+func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) testContext {
 	c := fox.Tree().allocateContext()
 	c.resetNil()
 	c.rec.reset(w)
 	c.w = flushWriter{&c.rec}
 	c.fox = fox
 	c.req = r
-	return c
+	return testContext{c}
 }
 
-func newTestContextTree(t *Tree) *context {
+func newTestContextTree(t *Tree) testContext {
 	c := t.allocateContext()
 	c.resetNil()
-	return c
+	return testContext{c}
 }
