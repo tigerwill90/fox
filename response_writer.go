@@ -41,6 +41,11 @@ var (
 	_ http.Pusher     = (*h2MultiWriter)(nil)
 )
 
+var (
+	_ ResponseWriter = (*flushMultiWriter)(nil)
+	_ http.Flusher   = (*flushMultiWriter)(nil)
+)
+
 var copyBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 32*1024)
@@ -48,8 +53,9 @@ var copyBufPool = sync.Pool{
 	},
 }
 
-// ResponseWriter extends http.ResponseWriter and provides
-// methods to retrieve the recorded status code, written state, and response size.
+// ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
+// written state, and response size. ResponseWriter object implements additional http.Flusher, http.Hijacker,
+// io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces for HTTP/2 requests.
 type ResponseWriter interface {
 	http.ResponseWriter
 	// Status recorded after Write and WriteHeader.

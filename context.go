@@ -30,7 +30,18 @@ type Context interface {
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
 	SetRequest(r *http.Request)
-	// Writer returns the ResponseWriter.
+	// Writer method returns a custom ResponseWriter implementation. The returned ResponseWriter object implements additional
+	// http.Flusher, http.Hijacker, io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces
+	// for HTTP/2 requests. These additional interfaces provide extra functionality and are used by underlying HTTP protocols
+	// for specific tasks.
+	//
+	// In actual workload scenarios, the custom ResponseWriter satisfies interfaces for HTTP/1.x and HTTP/2 protocols,
+	// however, if testing with e.g. httptest.Recorder, only the http.Flusher is available to the underlying ResponseWriter.
+	// Therefore, while asserting interfaces like http.Hijacker will not fail, invoking Hijack method will panic if the
+	// underlying ResponseWriter does not implement this interface.
+	//
+	// To facilitate testing with e.g. httptest.Recorder, use the WrapFlushWriter helper function which only exposes the
+	// http.Flusher interface for the ResponseWriter.
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)

@@ -17,6 +17,42 @@ func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Con
 	return newTextContextOnly(fox, w, r)
 }
 
+// WrapFlushWriter method is a helper function provided for testing purposes. It wraps the provided HandlerFunc,
+// returning a new HandlerFunc that only exposes the http.Flusher interface of the ResponseWriter. This is useful when
+// testing implementations that rely on interface assertions with e.g. httptest.Recorder, since its only
+// supports the http.Flusher interface. This modification is only effective within the scope of the returned HandlerFunc.
+func WrapFlushWriter(next HandlerFunc) HandlerFunc {
+	return func(c Context) {
+		c.SetWriter(onlyFlushWriter{c.Writer()})
+		next(TestContext{Context: c})
+	}
+}
+
+type onlyFlushWriter struct {
+	ResponseWriter
+}
+
+func (w onlyFlushWriter) Flush() {
+	w.ResponseWriter.(http.Flusher).Flush()
+}
+
+type TestContext struct {
+	Context
+	mw *[]io.Writer
+}
+
+func (c TestContext) TeeWriter(w io.Writer) {
+	if *c.mw == nil {
+		mw := make([]io.Writer, 0, 2)
+		c.mw = &mw
+	}
+	if len(*c.mw) == 0 {
+		*c.mw = append(*c.mw)
+	}
+	*c.mw = append(*c.mw)
+	c.SetWriter(flushMultiWriter{writers: c.mw})
+}
+
 type testContext struct {
 	*context
 }
