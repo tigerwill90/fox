@@ -126,40 +126,6 @@ func (r *recorder) WriteString(s string) (n int, err error) {
 	return
 }
 
-//nolint:unused
-type hijackWriter struct {
-	*recorder
-}
-
-//nolint:unused
-func (w hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
-	}
-	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
-}
-
-//nolint:unused
-type flushHijackWriter struct {
-	*recorder
-}
-
-//nolint:unused
-func (w flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
-	}
-	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
-}
-
-//nolint:unused
-func (w flushHijackWriter) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
-	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
-}
-
 type flushWriter struct {
 	*recorder
 }
