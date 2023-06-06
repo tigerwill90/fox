@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -499,4 +500,26 @@ func TestWrapM(t *testing.T) {
 	fox.ServeHTTP(w, r)
 	assert.Equal(t, "fox", w.Body.String())
 	assert.True(t, invoked)
+}
+
+// This example demonstrates how to capture the HTTP response body by using the TeeWriter method.
+// The TeeWriter method attaches the provided io.Writer (in this case a bytes.Buffer) to the existing ResponseWriter.
+// Unlike a typical io.MultiWriter, this implementation is designed to ensure that the ResponseWriter remains compatible
+// with http interfaces, like io.ReaderFrom or http.Flusher, which might not be the case with a standard MultiWriter.
+// Every time data is written to the ResponseWriter, it will also be written to the provided io.Writer.
+// It's also worth noting that the TeeWriter method can be called multiple times to add more writers, if needed.
+func ExampleContext_TeeWriter() {
+	bodyLogger := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			buf := bytes.NewBuffer(nil)
+			c.TeeWriter(buf)
+			next(c)
+			log.Printf("response body: %s", buf.String())
+		}
+	})
+
+	f := New(WithMiddleware(bodyLogger))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		_ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
+	})
 }
