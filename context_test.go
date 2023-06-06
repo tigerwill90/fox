@@ -271,6 +271,7 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 	}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := New()
@@ -344,6 +345,7 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 	}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := New()
@@ -417,6 +419,7 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 	}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := New()
