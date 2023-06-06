@@ -30,10 +30,24 @@ type Context interface {
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
 	SetRequest(r *http.Request)
-	// Writer returns the ResponseWriter.
+	// Writer method returns a custom ResponseWriter implementation. The returned ResponseWriter object implements additional
+	// http.Flusher, http.Hijacker, io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces
+	// for HTTP/2 requests. These additional interfaces provide extra functionality and are used by underlying HTTP protocols
+	// for specific tasks.
+	//
+	// In actual workload scenarios, the custom ResponseWriter satisfies interfaces for HTTP/1.x and HTTP/2 protocols,
+	// however, if testing with e.g. httptest.Recorder, only the http.Flusher is available to the underlying ResponseWriter.
+	// Therefore, while asserting interfaces like http.Hijacker will not fail, invoking Hijack method will panic if the
+	// underlying ResponseWriter does not implement this interface.
+	//
+	// To facilitate testing with e.g. httptest.Recorder, use the WrapTestContext helper function which only exposes the
+	// http.Flusher interface for the ResponseWriter.
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
+	// TeeWriter append an additional writer (sink) to which the response body will be written.
+	// This API is EXPERIMENTAL and is likely to change in future release.
+	TeeWriter(w io.Writer)
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -74,6 +88,7 @@ type context struct {
 	req     *http.Request
 	params  *Params
 	skipNds *skippedNodes
+	mw      *[]io.Writer
 
 	// tree at allocation (read-only, no reset)
 	tree *Tree
@@ -98,6 +113,7 @@ func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
+	*c.mw = (*c.mw)[:0]
 }
 
 func (c *context) resetNil() {
@@ -107,6 +123,7 @@ func (c *context) resetNil() {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
+	*c.mw = (*c.mw)[:0]
 }
 
 // Request returns the *http.Request.
@@ -127,6 +144,44 @@ func (c *context) Writer() ResponseWriter {
 // SetWriter sets the ResponseWriter.
 func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
+}
+
+// TeeWriter append an additional writer (sink) to which the response body will be written.
+// Internally, TeeWriter make reasonable effort to reflect which interface the underlying ResponseWriter implement.
+func (c *context) TeeWriter(w io.Writer) {
+	if w != nil {
+		if len(*c.mw) == 0 {
+			*c.mw = append(*c.mw, c.w)
+		}
+		*c.mw = append(*c.mw, w)
+		switch c.w.(type) {
+		case h1Writer:
+			c.w = h1MultiWriter{c.mw}
+		case h2Writer:
+			c.w = h2MultiWriter{c.mw}
+		default:
+			_, rfOk := c.w.(io.ReaderFrom)
+			_, flOk := c.w.(http.Flusher)
+			_, hiOk := c.w.(http.Hijacker)
+			if rfOk && flOk && hiOk {
+				c.w = h1MultiWriter{c.mw}
+				break
+			}
+
+			_, puOk := c.w.(http.Pusher)
+			if flOk && puOk {
+				c.w = h2MultiWriter{c.mw}
+				break
+			}
+
+			if flOk {
+				c.w = flushMultiWriter{c.mw}
+				break
+			}
+
+			c.w = multiWriter{c.mw}
+		}
+	}
 }
 
 // Ctx returns the context associated with the current request.
@@ -238,6 +293,8 @@ func (c *context) Clone() Context {
 	copy(params, *c.params)
 	cp.params = &params
 	cp.cachedQuery = nil
+	mw := make([]io.Writer, 0, 2)
+	cp.mw = &mw
 	return &cp
 }
 

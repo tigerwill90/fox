@@ -3,8 +3,11 @@ package fox
 import (
 	"bytes"
 	netcontext "context"
+	"crypto/rand"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +16,7 @@ import (
 )
 
 func TestContext_QueryParams(t *testing.T) {
+	t.Parallel()
 	wantValues := url.Values{
 		"a": []string{"b"},
 		"c": []string{"d", "e"},
@@ -28,6 +32,7 @@ func TestContext_QueryParams(t *testing.T) {
 }
 
 func TestContext_QueryParam(t *testing.T) {
+	t.Parallel()
 	wantValues := url.Values{
 		"a": []string{"b"},
 		"c": []string{"d", "e"},
@@ -43,6 +48,7 @@ func TestContext_QueryParam(t *testing.T) {
 }
 
 func TestContext_Clone(t *testing.T) {
+	t.Parallel()
 	wantValues := url.Values{
 		"a": []string{"b"},
 		"c": []string{"d", "e"},
@@ -60,11 +66,13 @@ func TestContext_Clone(t *testing.T) {
 	assert.Equal(t, http.StatusOK, cc.Writer().Status())
 	assert.Equal(t, len(buf), cc.Writer().Size())
 	assert.Equal(t, wantValues, c.QueryParams())
+	assert.Empty(t, *c.mw)
 	_, err = cc.Writer().Write([]byte("invalid"))
 	assert.ErrorIs(t, err, ErrDiscardedResponseWriter)
 }
 
 func TestContext_Ctx(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	ctx, cancel := netcontext.WithCancel(netcontext.Background())
 	cancel()
@@ -79,6 +87,7 @@ func TestContext_Ctx(t *testing.T) {
 }
 
 func TestContext_Redirect(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -88,6 +97,7 @@ func TestContext_Redirect(t *testing.T) {
 }
 
 func TestContext_Blob(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -102,6 +112,7 @@ func TestContext_Blob(t *testing.T) {
 }
 
 func TestContext_Stream(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -116,6 +127,7 @@ func TestContext_Stream(t *testing.T) {
 }
 
 func TestContext_String(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -130,6 +142,7 @@ func TestContext_String(t *testing.T) {
 }
 
 func TestContext_Writer(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -143,10 +156,12 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Writer().Status())
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
+	assert.Equal(t, w, c.Writer().Unwrap())
 	assert.True(t, c.Writer().Written())
 }
 
 func TestContext_Header(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	fox, c := NewTestContext(w, r)
@@ -156,11 +171,285 @@ func TestContext_Header(t *testing.T) {
 }
 
 func TestContext_GetHeader(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
 	_, c := NewTestContext(w, r)
 	assert.Equal(t, MIMEApplicationJSON, c.Header(HeaderAccept))
+}
+
+func TestContext_Fox(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+
+	f := New()
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+		assert.NotNil(t, c.Fox())
+	}))
+
+	f.ServeHTTP(w, req)
+}
+
+func TestContext_Tree(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+
+	f := New()
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+		assert.NotNil(t, c.Tree())
+	}))
+
+	f.ServeHTTP(w, req)
+}
+
+func TestContext_TeeWriter_h1(t *testing.T) {
+	t.Parallel()
+	const length = 1 * 1024 * 1024
+	buf := make([]byte, length)
+	_, _ = rand.Read(buf)
+
+	cases := []struct {
+		name    string
+		handler func(dumper *bytes.Buffer) HandlerFunc
+	}{
+		{
+			name: "h1 writer",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := c.Writer().Write(buf)
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
+			},
+		},
+		{
+			name: "h1 string writer",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := io.WriteString(c.Writer(), string(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
+			},
+		},
+		{
+			name: "h1 reader from",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					rf, ok := c.Writer().(io.ReaderFrom)
+					require.True(t, ok)
+
+					n, err := rf.ReadFrom(bytes.NewReader(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, int(n))
+				}
+			},
+		},
+		{
+			name: "h1 flusher",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					flusher, ok := c.Writer().(http.Flusher)
+					require.True(t, ok)
+
+					_, err := c.Writer().Write(buf[:1024])
+					require.NoError(t, err)
+					flusher.Flush()
+					_, err = c.Writer().Write(buf[1024:])
+					require.NoError(t, err)
+					flusher.Flush()
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := New()
+			dumper := bytes.NewBuffer(nil)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler(dumper)))
+
+			srv := httptest.NewServer(f)
+			defer srv.Close()
+
+			req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			out, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, buf, out)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, buf, dumper.Bytes())
+		})
+	}
+}
+
+func TestContext_TeeWriter_flusher(t *testing.T) {
+	t.Parallel()
+	const length = 1 * 1024 * 1024
+	buf := make([]byte, length)
+	_, _ = rand.Read(buf)
+
+	cases := []struct {
+		name    string
+		handler func(dumper *bytes.Buffer) HandlerFunc
+	}{
+		{
+			name: "writer",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := c.Writer().Write(buf)
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
+			},
+		},
+		{
+			name: "string writer",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := io.WriteString(c.Writer(), string(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
+			},
+		},
+		{
+			name: "flusher",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					flusher, ok := c.Writer().(http.Flusher)
+					require.True(t, ok)
+
+					_, err := c.Writer().Write(buf[:1024])
+					require.NoError(t, err)
+					flusher.Flush()
+					_, err = c.Writer().Write(buf[1024:])
+					require.NoError(t, err)
+					flusher.Flush()
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := New()
+			dumper := bytes.NewBuffer(nil)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", WrapTestContext(tc.handler(dumper))))
+
+			srv := httptest.NewServer(f)
+			defer srv.Close()
+
+			req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			out, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, buf, out)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, buf, dumper.Bytes())
+		})
+	}
+}
+
+func TestContext_TeeWriter_h2(t *testing.T) {
+	t.Parallel()
+	const length = 1 * 1024 * 1024
+	buf := make([]byte, length)
+	_, _ = rand.Read(buf)
+
+	cases := []struct {
+		name    string
+		handler func(dumper *bytes.Buffer) HandlerFunc
+	}{
+		{
+			name: "h2 writer",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := c.Writer().Write(buf)
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
+			},
+		},
+		{
+			name: "h2 string writer",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := io.WriteString(c.Writer(), string(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
+			},
+		},
+		{
+			name: "h2 flusher",
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					flusher, ok := c.Writer().(http.Flusher)
+					require.True(t, ok)
+
+					_, err := c.Writer().Write(buf[:1024])
+					require.NoError(t, err)
+					flusher.Flush()
+					_, err = c.Writer().Write(buf[1024:])
+					require.NoError(t, err)
+					flusher.Flush()
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := New()
+			dumper := bytes.NewBuffer(nil)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler(dumper)))
+
+			srv := httptest.NewUnstartedServer(f)
+
+			err := http2.ConfigureServer(srv.Config, new(http2.Server))
+			require.NoError(t, err)
+
+			srv.TLS = srv.Config.TLSConfig
+			srv.StartTLS()
+			defer srv.Close()
+
+			tr := &http.Transport{TLSClientConfig: srv.Config.TLSConfig}
+			require.NoError(t, http2.ConfigureTransport(tr))
+			tr.TLSClientConfig.InsecureSkipVerify = true
+			client := &http.Client{Transport: tr}
+
+			req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			out, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, buf, out)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, buf, dumper.Bytes())
+		})
+	}
 }
 
 func TestWrapF(t *testing.T) {

@@ -274,7 +274,7 @@ type HtmlRenderer struct {
 func (h *HtmlRenderer) Render(c fox.Context) {
 	log.Printf("matched handler path: %s", c.Path())
 	_ = c.Stream(
-		http.StatusInternalServerError,
+		http.StatusOK,
 		fox.MIMETextHTMLCharsetUTF8,
 		strings.NewReader(string(h.Template)),
 	)
