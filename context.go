@@ -162,8 +162,8 @@ func (c *context) TeeWriter(w io.Writer) {
 		default:
 			_, rfOk := c.w.(io.ReaderFrom)
 			_, flOk := c.w.(http.Flusher)
-			_, flHi := c.w.(http.Hijacker)
-			if rfOk && flOk && flHi {
+			_, hiOk := c.w.(http.Hijacker)
+			if rfOk && flOk && hiOk {
 				c.w = h1MultiWriter{c.mw}
 				break
 			}

@@ -48,9 +48,11 @@ var (
 
 var _ ResponseWriter = (*multiWriter)(nil)
 
+const kib = 1024
+
 var copyBufPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 32*1024)
+		b := make([]byte, 32*kib)
 		return &b
 	},
 }

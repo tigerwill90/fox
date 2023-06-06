@@ -16,6 +16,7 @@ import (
 )
 
 func TestContext_QueryParams(t *testing.T) {
+	t.Parallel()
 	wantValues := url.Values{
 		"a": []string{"b"},
 		"c": []string{"d", "e"},
@@ -31,6 +32,7 @@ func TestContext_QueryParams(t *testing.T) {
 }
 
 func TestContext_QueryParam(t *testing.T) {
+	t.Parallel()
 	wantValues := url.Values{
 		"a": []string{"b"},
 		"c": []string{"d", "e"},
@@ -46,6 +48,7 @@ func TestContext_QueryParam(t *testing.T) {
 }
 
 func TestContext_Clone(t *testing.T) {
+	t.Parallel()
 	wantValues := url.Values{
 		"a": []string{"b"},
 		"c": []string{"d", "e"},
@@ -69,6 +72,7 @@ func TestContext_Clone(t *testing.T) {
 }
 
 func TestContext_Ctx(t *testing.T) {
+	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	ctx, cancel := netcontext.WithCancel(netcontext.Background())
 	cancel()
@@ -83,6 +87,7 @@ func TestContext_Ctx(t *testing.T) {
 }
 
 func TestContext_Redirect(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -92,6 +97,7 @@ func TestContext_Redirect(t *testing.T) {
 }
 
 func TestContext_Blob(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -106,6 +112,7 @@ func TestContext_Blob(t *testing.T) {
 }
 
 func TestContext_Stream(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -120,6 +127,7 @@ func TestContext_Stream(t *testing.T) {
 }
 
 func TestContext_String(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -134,6 +142,7 @@ func TestContext_String(t *testing.T) {
 }
 
 func TestContext_Writer(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
@@ -147,10 +156,12 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Writer().Status())
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
+	assert.Equal(t, w, c.Writer().Unwrap())
 	assert.True(t, c.Writer().Written())
 }
 
 func TestContext_Header(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	fox, c := NewTestContext(w, r)
@@ -160,6 +171,7 @@ func TestContext_Header(t *testing.T) {
 }
 
 func TestContext_GetHeader(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
@@ -167,8 +179,34 @@ func TestContext_GetHeader(t *testing.T) {
 	assert.Equal(t, MIMEApplicationJSON, c.Header(HeaderAccept))
 }
 
-func TestContext_TeeWriter_h1(t *testing.T) {
+func TestContext_Fox(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
+	f := New()
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+		assert.NotNil(t, c.Fox())
+	}))
+
+	f.ServeHTTP(w, req)
+}
+
+func TestContext_Tree(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+
+	f := New()
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+		assert.NotNil(t, c.Tree())
+	}))
+
+	f.ServeHTTP(w, req)
+}
+
+func TestContext_TeeWriter_h1(t *testing.T) {
+	t.Parallel()
 	dumper := bytes.NewBuffer(nil)
 	const length = 1 * 1024 * 1024
 	buf := make([]byte, length)
@@ -230,9 +268,9 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(n *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			f := New()
-			f.MustHandle(http.MethodGet, "/foo", tc.handler)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler))
 
 			srv := httptest.NewServer(f)
 			defer srv.Close()
@@ -241,16 +279,85 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			out, err := io.ReadAll(resp.Body)
-			require.NoError(n, err)
-			assert.Equal(n, buf, out)
-			require.NoError(n, resp.Body.Close())
-			assert.Equal(n, buf, dumper.Bytes())
+			require.NoError(t, err)
+			assert.Equal(t, buf, out)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, buf, dumper.Bytes())
+		})
+	}
+}
+
+func TestContext_TeeWriter_flusher(t *testing.T) {
+	t.Parallel()
+	dumper := bytes.NewBuffer(nil)
+	const length = 1 * 1024 * 1024
+	buf := make([]byte, length)
+	_, _ = rand.Read(buf)
+
+	cases := []struct {
+		name    string
+		handler HandlerFunc
+	}{
+		{
+			name: "writer",
+			handler: func(c Context) {
+				dumper.Reset()
+				c.TeeWriter(dumper)
+				n, err := c.Writer().Write(buf)
+				require.NoError(t, err)
+				assert.Equal(t, length, n)
+			},
+		},
+		{
+			name: "string writer",
+			handler: func(c Context) {
+				dumper.Reset()
+				c.TeeWriter(dumper)
+				n, err := io.WriteString(c.Writer(), string(buf))
+				require.NoError(t, err)
+				assert.Equal(t, length, n)
+			},
+		},
+		{
+			name: "flusher",
+			handler: func(c Context) {
+				dumper.Reset()
+				c.TeeWriter(dumper)
+				flusher, ok := c.Writer().(http.Flusher)
+				require.True(t, ok)
+
+				_, err := c.Writer().Write(buf[:1024])
+				require.NoError(t, err)
+				flusher.Flush()
+				_, err = c.Writer().Write(buf[1024:])
+				require.NoError(t, err)
+				flusher.Flush()
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", WrapTestContext(tc.handler)))
+
+			srv := httptest.NewServer(f)
+			defer srv.Close()
+
+			req, _ := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			out, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, buf, out)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, buf, dumper.Bytes())
 		})
 	}
 }
 
 func TestContext_TeeWriter_h2(t *testing.T) {
-
+	t.Parallel()
 	dumper := bytes.NewBuffer(nil)
 	const length = 1 * 1024 * 1024
 	buf := make([]byte, length)
@@ -299,21 +406,21 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(n *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			f := New()
-			f.MustHandle(http.MethodGet, "/foo", tc.handler)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler))
 
 			srv := httptest.NewUnstartedServer(f)
 
 			err := http2.ConfigureServer(srv.Config, new(http2.Server))
-			require.NoError(n, err)
+			require.NoError(t, err)
 
 			srv.TLS = srv.Config.TLSConfig
 			srv.StartTLS()
 			defer srv.Close()
 
 			tr := &http.Transport{TLSClientConfig: srv.Config.TLSConfig}
-			require.NoError(n, http2.ConfigureTransport(tr))
+			require.NoError(t, http2.ConfigureTransport(tr))
 			tr.TLSClientConfig.InsecureSkipVerify = true
 			client := &http.Client{Transport: tr}
 
@@ -321,10 +428,10 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 			resp, err := client.Do(req)
 			require.NoError(t, err)
 			out, err := io.ReadAll(resp.Body)
-			require.NoError(n, err)
-			assert.Equal(n, buf, out)
-			require.NoError(n, resp.Body.Close())
-			assert.Equal(n, buf, dumper.Bytes())
+			require.NoError(t, err)
+			assert.Equal(t, buf, out)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, buf, dumper.Bytes())
 		})
 	}
 }
