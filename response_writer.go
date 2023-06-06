@@ -70,6 +70,10 @@ type ResponseWriter interface {
 	Size() int
 	// Unwrap returns the underlying http.ResponseWriter.
 	Unwrap() http.ResponseWriter
+	// Wrap replaces the underlying http.ResponseWriter for the current ResponseWriter. It does not reset the status,
+	// written state, or response size of the current ResponseWriter. Caution: You should pass the original
+	// http.ResponseWriter to this method, not the ResponseWriter itself, to avoid wrapping the ResponseWriter within itself.
+	Wrap(w http.ResponseWriter)
 	// WriteString writes the provided string to the underlying connection
 	// as part of an HTTP reply. The method returns the number of bytes written
 	// and an error, if any.
@@ -104,6 +108,10 @@ func (r *recorder) Size() int {
 
 func (r *recorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
+}
+
+func (r *recorder) Wrap(w http.ResponseWriter) {
+	r.ResponseWriter = w
 }
 
 func (r *recorder) WriteHeader(code int) {
@@ -231,6 +239,10 @@ func (w h1MultiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
+func (w h1MultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
 func (w h1MultiWriter) Write(p []byte) (n int, err error) {
 	return multiWrite(w.writers, p)
 }
@@ -283,6 +295,10 @@ func (w h2MultiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
+func (w h2MultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
 func (w h2MultiWriter) Write(p []byte) (n int, err error) {
 	return multiWrite(w.writers, p)
 }
@@ -327,6 +343,10 @@ func (w flushMultiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
+func (w flushMultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
 func (w flushMultiWriter) Write(p []byte) (n int, err error) {
 	return multiWrite(w.writers, p)
 }
@@ -365,6 +385,10 @@ func (w multiWriter) Size() int {
 
 func (w multiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
+}
+
+func (w multiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
 }
 
 func (w multiWriter) Write(p []byte) (n int, err error) {

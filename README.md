@@ -543,7 +543,7 @@ BenchmarkMartini_Param            485839                 2446 ns/op         1096
 ```
 Same as before, but now with multiple parameters, all in the same single route. The intention is to see how the routers scale with the number of parameters.
 
-**GOMAXPROCS: 0**
+**GOMAXPROCS: 1**
 ```
 BenchmarkFox_Param5             16608495                72.84 ns/op            0 B/op          0 allocs/op
 BenchmarkGin_Param5             13098740                92.22 ns/op            0 B/op          0 allocs/op
@@ -572,7 +572,7 @@ BenchmarkTraffic_Param20          119677                9864 ns/op          7847
 Now let's see how expensive it is to access a parameter. The handler function reads the value (by the name of the parameter, e.g. with a map 
 lookup; depends on the router) and writes it to `/dev/null`
 
-**GOMAXPROCS: 0**
+**GOMAXPROCS: 1**
 ```
 BenchmarkFox_ParamWrite                 16707409                72.53 ns/op            0 B/op          0 allocs/op
 BenchmarkHttpRouter_ParamWrite          16478174                73.30 ns/op           32 B/op          1 allocs/op
@@ -592,7 +592,7 @@ data structure (e.g. `fox.Context` slice) containing the matching parameters in 
 ### Github
 Finally, this benchmark execute a request for each GitHub API route (203 routes).
 
-**GOMAXPROCS: 0**
+**GOMAXPROCS: 1**
 ```
 BenchmarkFox_GithubAll             63984             18555 ns/op               0 B/op          0 allocs/op
 BenchmarkEcho_GithubAll            49312             23353 ns/op               0 B/op          0 allocs/op

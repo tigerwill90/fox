@@ -99,8 +99,9 @@ type context struct {
 	rec         recorder
 }
 
-// Reset resets the Context to its initial state, attaching the provided Router,
-// http.ResponseWriter, and *http.Request.
+// Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
+// Caution: You should pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to avoid
+// wrapping the ResponseWriter within itself.
 func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
@@ -339,10 +340,11 @@ func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c.Writer().Wrap(w)
 				c.SetRequest(r)
 				next(c)
 			}))
-			adapter.ServeHTTP(c.Writer(), c.Request())
+			adapter.ServeHTTP(c.Writer().Unwrap(), c.Request())
 		}
 	}
 }
