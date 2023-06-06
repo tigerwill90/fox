@@ -42,9 +42,11 @@ type Router struct {
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
+	autoOptions            HandlerFunc
 	tree                   atomic.Pointer[Tree]
 	mws                    []middleware
 	handleMethodNotAllowed bool
+	handleOptions          bool
 	redirectTrailingSlash  bool
 }
 
@@ -61,14 +63,16 @@ func New(opts ...Option) *Router {
 
 	r.noRoute = DefaultNotFoundHandler()
 	r.noMethod = DefaultMethodNotAllowedHandler()
+	r.autoOptions = defaultOptionsHandler
 
 	for _, opt := range opts {
 		opt.apply(r)
 	}
 
-	r.noRoute = applyMiddleware(NotFoundHandler, r.mws, r.noRoute)
-	r.noMethod = applyMiddleware(MethodNotAllowedHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlash())
+	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
+	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
+	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlash)
+	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.NewTree())
 	return r
@@ -222,29 +226,31 @@ func DefaultMethodNotAllowedHandler() HandlerFunc {
 	}
 }
 
-func defaultRedirectTrailingSlash() HandlerFunc {
-	return func(c Context) {
-		req := c.Request()
+func defaultRedirectTrailingSlash(c Context) {
+	req := c.Request()
 
-		code := http.StatusMovedPermanently
-		if req.Method != http.MethodGet {
-			// Will be redirected only with the same method (SEO friendly)
-			code = http.StatusPermanentRedirect
-		}
-
-		var url string
-		if len(req.URL.RawPath) > 0 {
-			url = fixTrailingSlash(req.URL.RawPath)
-		} else {
-			url = fixTrailingSlash(req.URL.Path)
-		}
-
-		if url[len(url)-1] == '/' {
-			localRedirect(c.Writer(), req, path.Base(url)+"/", code)
-			return
-		}
-		localRedirect(c.Writer(), req, "../"+path.Base(url), code)
+	code := http.StatusMovedPermanently
+	if req.Method != http.MethodGet {
+		// Will be redirected only with the same method (SEO friendly)
+		code = http.StatusPermanentRedirect
 	}
+
+	var url string
+	if len(req.URL.RawPath) > 0 {
+		url = fixTrailingSlash(req.URL.RawPath)
+	} else {
+		url = fixTrailingSlash(req.URL.Path)
+	}
+
+	if url[len(url)-1] == '/' {
+		localRedirect(c.Writer(), req, path.Base(url)+"/", code)
+		return
+	}
+	localRedirect(c.Writer(), req, "../"+path.Base(url), code)
+}
+
+func defaultOptionsHandler(c Context) {
+	c.Writer().WriteHeader(http.StatusOK)
 }
 
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +297,39 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 NoMethodFallback:
-	if fox.handleMethodNotAllowed {
+	if r.Method == http.MethodOptions && fox.handleOptions {
+		var sb strings.Builder
+		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
+		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
+		if target == "*" {
+			for i := 0; i < len(nds); i++ {
+				if nds[i].key != http.MethodOptions && len(nds[i].children) > 0 {
+					if sb.Len() > 0 {
+						sb.WriteString(", ")
+					}
+					sb.WriteString(nds[i].key)
+				}
+			}
+		} else {
+			for i := 0; i < len(nds); i++ {
+				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+					if sb.Len() > 0 {
+						sb.WriteString(", ")
+					}
+					sb.WriteString(nds[i].key)
+				}
+			}
+		}
+
+		if sb.Len() > 0 {
+			sb.WriteString(", ")
+			sb.WriteString(http.MethodOptions)
+			w.Header().Set("Allow", sb.String())
+			fox.autoOptions(c)
+			c.Close()
+			return
+		}
+	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
@@ -303,9 +341,8 @@ NoMethodFallback:
 				}
 			}
 		}
-		allowed := sb.String()
-		if allowed != "" {
-			w.Header().Set("Allow", allowed)
+		if sb.Len() > 0 {
+			w.Header().Set("Allow", sb.String())
 			fox.noMethod(c)
 			c.Close()
 			return

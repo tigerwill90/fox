@@ -1619,7 +1619,7 @@ func TestTree_Methods(t *testing.T) {
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
-	r := New(WithMethodNotAllowed(true))
+	r := New(WithNoMethod(true))
 
 	cases := []struct {
 		name    string
@@ -1665,6 +1665,113 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	}
 }
 
+func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
+	f := New(WithNoMethodHandler(func(c Context) {
+		c.SetHeader("FOO", "BAR")
+		c.Writer().WriteHeader(http.StatusMethodNotAllowed)
+	}))
+
+	require.NoError(t, f.Handle(http.MethodPost, "/foo/bar", emptyHandler))
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	assert.Equal(t, "POST", w.Header().Get("Allow"))
+	assert.Equal(t, "BAR", w.Header().Get("FOO"))
+}
+
+func TestRouterWithAutomaticOptions(t *testing.T) {
+	f := New(WithAutoOptions(true))
+
+	cases := []struct {
+		name     string
+		target   string
+		path     string
+		want     string
+		wantCode int
+		methods  []string
+	}{
+		{
+			name:     "system-wide requests",
+			target:   "*",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "system-wide with custom options registered",
+			target:   "*",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "system-wide requests with empty router",
+			target:   "*",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "regular option request",
+			target:   "/foo",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "regular option request with handler priority",
+			target:   "/foo",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name:     "regular option request with no matching route",
+			target:   "/bar",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range tc.methods {
+				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
+					c.SetHeader("Allow", strings.Join(c.Tree().LookupMethods(c.Request().URL.Path), ", "))
+					c.Writer().WriteHeader(http.StatusNoContent)
+				}))
+			}
+			req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+
+			// Reset
+			f.Swap(f.NewTree())
+		})
+	}
+}
+
+func TestRouterWithOptionsHandler(t *testing.T) {
+	f := New(WithOptionsHandler(func(c Context) {
+		c.Writer().WriteHeader(http.StatusNoContent)
+	}))
+
+	require.NoError(t, f.Handle(http.MethodGet, "/foo/bar", emptyHandler))
+	require.NoError(t, f.Handle(http.MethodPost, "/foo/bar", emptyHandler))
+
+	req := httptest.NewRequest(http.MethodOptions, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Equal(t, "GET, POST, OPTIONS", w.Header().Get("Allow"))
+}
+
 func TestDefaultOptions(t *testing.T) {
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
@@ -1673,6 +1780,7 @@ func TestDefaultOptions(t *testing.T) {
 	})
 	r := New(WithMiddleware(m), DefaultOptions())
 	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1].m).Pointer())
+	assert.True(t, r.handleOptions)
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
@@ -1706,7 +1814,7 @@ func TestWithScopedMiddleware(t *testing.T) {
 		}
 	})
 
-	r := New(WithMiddlewareFor(NotFoundHandler, m))
+	r := New(WithMiddlewareFor(NoRouteHandler, m))
 	require.NoError(t, r.Handle(http.MethodGet, "/foo/bar", emptyHandler))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
@@ -1724,7 +1832,7 @@ func TestWithNotFoundHandler(t *testing.T) {
 		_ = c.String(http.StatusNotFound, "NOT FOUND\n")
 	}
 
-	f := New(WithNotFoundHandler(notFound))
+	f := New(WithNoRouteHandler(notFound))
 	require.NoError(t, f.Handle(http.MethodGet, "/foo", emptyHandler))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
@@ -1762,6 +1870,16 @@ func TestTree_Lookup(t *testing.T) {
 
 		cc.Close()
 	}
+}
+
+func TestTree_LookupMethods(t *testing.T) {
+	f := New()
+	for _, rte := range githubAPI {
+		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
+	}
+
+	methods := f.Tree().LookupMethods("/gists/123/star")
+	assert.Equal(t, []string{"GET", "PUT", "DELETE"}, methods)
 }
 
 func TestHas(t *testing.T) {
@@ -2263,8 +2381,8 @@ func ExampleTree_Lookup() {
 	})
 
 	f := New(
-		// Register the middleware for the NotFoundHandler scope.
-		WithMiddlewareFor(NotFoundHandler, redirectFixedPath),
+		// Register the middleware for the NoRouteHandler scope.
+		WithMiddlewareFor(NoRouteHandler, redirectFixedPath),
 	)
 
 	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
