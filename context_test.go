@@ -207,70 +207,75 @@ func TestContext_Tree(t *testing.T) {
 
 func TestContext_TeeWriter_h1(t *testing.T) {
 	t.Parallel()
-	dumper := bytes.NewBuffer(nil)
 	const length = 1 * 1024 * 1024
 	buf := make([]byte, length)
 	_, _ = rand.Read(buf)
 
 	cases := []struct {
 		name    string
-		handler HandlerFunc
+		handler func(dumper *bytes.Buffer) HandlerFunc
 	}{
 		{
 			name: "h1 writer",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				n, err := c.Writer().Write(buf)
-				require.NoError(t, err)
-				assert.Equal(t, length, n)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := c.Writer().Write(buf)
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
 			},
 		},
 		{
 			name: "h1 string writer",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				n, err := io.WriteString(c.Writer(), string(buf))
-				require.NoError(t, err)
-				assert.Equal(t, length, n)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := io.WriteString(c.Writer(), string(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
 			},
 		},
 		{
 			name: "h1 reader from",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				rf, ok := c.Writer().(io.ReaderFrom)
-				require.True(t, ok)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					rf, ok := c.Writer().(io.ReaderFrom)
+					require.True(t, ok)
 
-				n, err := rf.ReadFrom(bytes.NewReader(buf))
-				require.NoError(t, err)
-				assert.Equal(t, length, int(n))
+					n, err := rf.ReadFrom(bytes.NewReader(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, int(n))
+				}
 			},
 		},
 		{
 			name: "h1 flusher",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				flusher, ok := c.Writer().(http.Flusher)
-				require.True(t, ok)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					flusher, ok := c.Writer().(http.Flusher)
+					require.True(t, ok)
 
-				_, err := c.Writer().Write(buf[:1024])
-				require.NoError(t, err)
-				flusher.Flush()
-				_, err = c.Writer().Write(buf[1024:])
-				require.NoError(t, err)
-				flusher.Flush()
+					_, err := c.Writer().Write(buf[:1024])
+					require.NoError(t, err)
+					flusher.Flush()
+					_, err = c.Writer().Write(buf[1024:])
+					require.NoError(t, err)
+					flusher.Flush()
+				}
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := New()
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler))
+			dumper := bytes.NewBuffer(nil)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler(dumper)))
 
 			srv := httptest.NewServer(f)
 			defer srv.Close()
@@ -289,57 +294,61 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 
 func TestContext_TeeWriter_flusher(t *testing.T) {
 	t.Parallel()
-	dumper := bytes.NewBuffer(nil)
 	const length = 1 * 1024 * 1024
 	buf := make([]byte, length)
 	_, _ = rand.Read(buf)
 
 	cases := []struct {
 		name    string
-		handler HandlerFunc
+		handler func(dumper *bytes.Buffer) HandlerFunc
 	}{
 		{
 			name: "writer",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				n, err := c.Writer().Write(buf)
-				require.NoError(t, err)
-				assert.Equal(t, length, n)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := c.Writer().Write(buf)
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
 			},
 		},
 		{
 			name: "string writer",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				n, err := io.WriteString(c.Writer(), string(buf))
-				require.NoError(t, err)
-				assert.Equal(t, length, n)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := io.WriteString(c.Writer(), string(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
 			},
 		},
 		{
 			name: "flusher",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				flusher, ok := c.Writer().(http.Flusher)
-				require.True(t, ok)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					flusher, ok := c.Writer().(http.Flusher)
+					require.True(t, ok)
 
-				_, err := c.Writer().Write(buf[:1024])
-				require.NoError(t, err)
-				flusher.Flush()
-				_, err = c.Writer().Write(buf[1024:])
-				require.NoError(t, err)
-				flusher.Flush()
+					_, err := c.Writer().Write(buf[:1024])
+					require.NoError(t, err)
+					flusher.Flush()
+					_, err = c.Writer().Write(buf[1024:])
+					require.NoError(t, err)
+					flusher.Flush()
+				}
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := New()
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", WrapTestContext(tc.handler)))
+			dumper := bytes.NewBuffer(nil)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", WrapTestContext(tc.handler(dumper))))
 
 			srv := httptest.NewServer(f)
 			defer srv.Close()
@@ -358,57 +367,61 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 
 func TestContext_TeeWriter_h2(t *testing.T) {
 	t.Parallel()
-	dumper := bytes.NewBuffer(nil)
 	const length = 1 * 1024 * 1024
 	buf := make([]byte, length)
 	_, _ = rand.Read(buf)
 
 	cases := []struct {
 		name    string
-		handler HandlerFunc
+		handler func(dumper *bytes.Buffer) HandlerFunc
 	}{
 		{
 			name: "h2 writer",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				n, err := c.Writer().Write(buf)
-				require.NoError(t, err)
-				assert.Equal(t, length, n)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := c.Writer().Write(buf)
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
 			},
 		},
 		{
 			name: "h2 string writer",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				n, err := io.WriteString(c.Writer(), string(buf))
-				require.NoError(t, err)
-				assert.Equal(t, length, n)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					n, err := io.WriteString(c.Writer(), string(buf))
+					require.NoError(t, err)
+					assert.Equal(t, length, n)
+				}
 			},
 		},
 		{
 			name: "h2 flusher",
-			handler: func(c Context) {
-				dumper.Reset()
-				c.TeeWriter(dumper)
-				flusher, ok := c.Writer().(http.Flusher)
-				require.True(t, ok)
+			handler: func(dumper *bytes.Buffer) HandlerFunc {
+				return func(c Context) {
+					c.TeeWriter(dumper)
+					flusher, ok := c.Writer().(http.Flusher)
+					require.True(t, ok)
 
-				_, err := c.Writer().Write(buf[:1024])
-				require.NoError(t, err)
-				flusher.Flush()
-				_, err = c.Writer().Write(buf[1024:])
-				require.NoError(t, err)
-				flusher.Flush()
+					_, err := c.Writer().Write(buf[:1024])
+					require.NoError(t, err)
+					flusher.Flush()
+					_, err = c.Writer().Write(buf[1024:])
+					require.NoError(t, err)
+					flusher.Flush()
+				}
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := New()
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler))
+			dumper := bytes.NewBuffer(nil)
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler(dumper)))
 
 			srv := httptest.NewUnstartedServer(f)
 
