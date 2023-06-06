@@ -431,7 +431,7 @@ func main() {
 
 Additionally, `fox.WithMiddlewareFor` option provide a more fine-grained control over where a middleware is applied, such as
 only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NoRouteHandler`, `fox.NoMethodHandler`, 
-`RedirectHandler`, `fox.OptionsHandler` and any combination of these.
+`fox.RedirectHandler`, `fox.OptionsHandler` and any combination of these.
 
 ````go
 f := fox.New(
