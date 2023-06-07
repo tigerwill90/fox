@@ -1,4 +1,8 @@
-// ResponseRecorder is influenced by the work done by goji and chi libraries,
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+//
+// This implementation is influenced by the work done by goji and chi libraries,
 // with additional optimizations to avoid unnecessary memory allocations.
 // See their respective licenses for more information:
 // https://github.com/zenazn/goji/blob/master/LICENSE
@@ -22,11 +26,10 @@ var (
 )
 
 var (
-	_ ResponseWriter  = (*h1MultiWriter)(nil)
-	_ io.StringWriter = (*h1MultiWriter)(nil)
-	_ http.Flusher    = (*h1MultiWriter)(nil)
-	_ http.Hijacker   = (*h1MultiWriter)(nil)
-	_ io.ReaderFrom   = (*h1MultiWriter)(nil)
+	_ ResponseWriter = (*h1MultiWriter)(nil)
+	_ http.Flusher   = (*h1MultiWriter)(nil)
+	_ http.Hijacker  = (*h1MultiWriter)(nil)
+	_ io.ReaderFrom  = (*h1MultiWriter)(nil)
 )
 
 var (
@@ -35,10 +38,9 @@ var (
 )
 
 var (
-	_ ResponseWriter  = (*h2MultiWriter)(nil)
-	_ io.StringWriter = (*h2MultiWriter)(nil)
-	_ http.Flusher    = (*h2MultiWriter)(nil)
-	_ http.Pusher     = (*h2MultiWriter)(nil)
+	_ ResponseWriter = (*h2MultiWriter)(nil)
+	_ http.Flusher   = (*h2MultiWriter)(nil)
+	_ http.Pusher    = (*h2MultiWriter)(nil)
 )
 
 var (
@@ -70,6 +72,10 @@ type ResponseWriter interface {
 	Size() int
 	// Unwrap returns the underlying http.ResponseWriter.
 	Unwrap() http.ResponseWriter
+	// Wrap replaces the underlying http.ResponseWriter for the current ResponseWriter. It does not reset the status,
+	// written state, or response size of the current ResponseWriter. Caution: You should pass the original
+	// http.ResponseWriter to this method, not the ResponseWriter itself, to avoid wrapping the ResponseWriter within itself.
+	Wrap(w http.ResponseWriter)
 	// WriteString writes the provided string to the underlying connection
 	// as part of an HTTP reply. The method returns the number of bytes written
 	// and an error, if any.
@@ -104,6 +110,10 @@ func (r *recorder) Size() int {
 
 func (r *recorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
+}
+
+func (r *recorder) Wrap(w http.ResponseWriter) {
+	r.ResponseWriter = w
 }
 
 func (r *recorder) WriteHeader(code int) {
@@ -231,6 +241,10 @@ func (w h1MultiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
+func (w h1MultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
 func (w h1MultiWriter) Write(p []byte) (n int, err error) {
 	return multiWrite(w.writers, p)
 }
@@ -283,6 +297,10 @@ func (w h2MultiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
+func (w h2MultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
 func (w h2MultiWriter) Write(p []byte) (n int, err error) {
 	return multiWrite(w.writers, p)
 }
@@ -327,6 +345,10 @@ func (w flushMultiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
 }
 
+func (w flushMultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
 func (w flushMultiWriter) Write(p []byte) (n int, err error) {
 	return multiWrite(w.writers, p)
 }
@@ -365,6 +387,10 @@ func (w multiWriter) Size() int {
 
 func (w multiWriter) Unwrap() http.ResponseWriter {
 	return (*w.writers)[0].(ResponseWriter).Unwrap()
+}
+
+func (w multiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
 }
 
 func (w multiWriter) Write(p []byte) (n int, err error) {

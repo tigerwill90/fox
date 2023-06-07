@@ -1,13 +1,19 @@
+// Copyright 2022 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a Apache-2.0 license that can be found
+// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+
 package fox
 
 import (
 	"bytes"
+	"compress/gzip"
 	netcontext "context"
 	"crypto/rand"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -223,6 +229,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					n, err := c.Writer().Write(buf)
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -234,6 +242,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					n, err := io.WriteString(c.Writer(), string(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -248,6 +258,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					n, err := rf.ReadFrom(bytes.NewReader(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, int(n))
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -265,6 +277,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					_, err = c.Writer().Write(buf[1024:])
 					require.NoError(t, err)
 					flusher.Flush()
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -311,6 +325,8 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 					n, err := c.Writer().Write(buf)
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -322,6 +338,8 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 					n, err := io.WriteString(c.Writer(), string(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -339,6 +357,8 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 					_, err = c.Writer().Write(buf[1024:])
 					require.NoError(t, err)
 					flusher.Flush()
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -385,6 +405,8 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 					n, err := c.Writer().Write(buf)
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -396,6 +418,8 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 					n, err := io.WriteString(c.Writer(), string(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -413,6 +437,8 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 					_, err = c.Writer().Write(buf[1024:])
 					require.NoError(t, err)
 					flusher.Flush()
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -453,6 +479,7 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 }
 
 func TestWrapF(t *testing.T) {
+	t.Parallel()
 	wrapped := WrapF(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("fox"))
 	})
@@ -465,6 +492,7 @@ func TestWrapF(t *testing.T) {
 }
 
 func TestWrapH(t *testing.T) {
+	t.Parallel()
 	wrapped := WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("fox"))
 	}))
@@ -477,26 +505,155 @@ func TestWrapH(t *testing.T) {
 }
 
 func TestWrapM(t *testing.T) {
-	wrapped := WrapM(func(handler http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			req := r.Clone(r.Context())
-			req.Header.Set("foo", "bar")
-			handler.ServeHTTP(w, req)
-			_, _ = w.Write([]byte("fox"))
+	t.Parallel()
+
+	type mockWriter struct {
+		http.ResponseWriter
+	}
+
+	wantSize := func(size int) func(next HandlerFunc) HandlerFunc {
+		return func(next HandlerFunc) HandlerFunc {
+			return func(c Context) {
+				next(c)
+				assert.Equal(t, size, c.Writer().Size())
+			}
+		}
+	}
+
+	cases := []struct {
+		name       string
+		m          MiddlewareFunc
+		wantStatus int
+		wantBody   string
+		wantSize   int
+	}{
+		{
+			name: "using original writer",
+			m: WrapM(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					req := r.Clone(r.Context())
+					req.Header.Set("foo", "bar")
+					next.ServeHTTP(mockWriter{w}, req)
+				})
+			}, true),
+			wantStatus: http.StatusCreated,
+			wantBody:   "foo bar",
+			wantSize:   7,
+		},
+		{
+			name: "using fox writer",
+			m: WrapM(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					req := r.Clone(r.Context())
+					req.Header.Set("foo", "bar")
+					next.ServeHTTP(w, req)
+				})
+			}, false),
+			wantStatus: http.StatusCreated,
+			wantBody:   "foo bar",
+			wantSize:   7,
+		},
+		{
+			name: "using fox writer without calling next",
+			m: WrapM(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					req := r.Clone(r.Context())
+					req.Header.Set("foo", "bar")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
+				})
+			}, false),
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   http.StatusText(http.StatusUnauthorized),
+			wantSize:   12,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := New(WithMiddleware(wantSize(tc.wantSize), tc.m))
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+				assert.Equal(t, "bar", c.Header("foo"))
+				_ = c.String(http.StatusCreated, "foo bar")
+			}))
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/foo", nil)
+			f.ServeHTTP(w, r)
+			assert.Equal(t, tc.wantStatus, w.Code)
+			assert.Equal(t, tc.wantBody, w.Body.String())
 		})
+	}
+}
+
+// This example demonstrates how to capture the HTTP response body by using the TeeWriter method.
+// The TeeWriter method attaches the provided io.Writer (in this case a bytes.Buffer) to the existing ResponseWriter.
+// Unlike a typical io.MultiWriter, this implementation is designed to ensure that the ResponseWriter remains compatible
+// with http interfaces, like io.ReaderFrom or http.Flusher, which might not be the case with a standard MultiWriter.
+// Every time data is written to the ResponseWriter, it will also be written to the provided io.Writer.
+// It's also worth noting that the TeeWriter method can be called multiple times to add more writers, if needed.
+func ExampleContext_TeeWriter() {
+	bodyLogger := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			buf := bytes.NewBuffer(nil)
+			c.TeeWriter(buf)
+			next(c)
+			log.Printf("response body: %s", buf.String())
+		}
 	})
-	invoked := false
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-
-	fox := New(WithMiddleware(wrapped))
-	fox.MustHandle(http.MethodGet, "/foo", func(c Context) {
-		assert.Equal(t, "bar", c.Header("foo"))
-		invoked = true
+	f := New(WithMiddleware(bodyLogger))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		_ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
 	})
+}
 
-	fox.ServeHTTP(w, r)
-	assert.Equal(t, "fox", w.Body.String())
-	assert.True(t, invoked)
+type gzipResponseWriter struct {
+	Writer io.Writer
+	http.ResponseWriter
+}
+
+// This example demonstrates the usage of the WrapM function which is used to wrap an http.Handler middleware
+// and returns a MiddlewareFunc function compatible with Fox.
+func ExampleWrapM() {
+	// Case 1: Middleware that may write a response and stop execution.
+	// This is commonly seen in middleware that implements authorization checks. If the check does not pass,
+	// the middleware can stop the execution of the subsequent handlers and write an error response.
+	// The "authorizationMiddleware" in this example checks for a specific token in the request's Authorization header.
+	// If the token is not the expected value, it sends an HTTP 401 Unauthorized error and stops the execution.
+	// In this case, the WrapM function is used with the "useOriginalWriter" set to false, as we want to use
+	// the custom ResponseWriter provided by the Fox framework to capture the status code and response size.
+	authorizationMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := r.Header.Get("Authorization")
+			if token != "valid-token" {
+				http.Error(w, "Invalid token", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	_ = New(WithMiddleware(WrapM(authorizationMiddleware, false)))
+
+	// Case 2: Middleware that wraps the ResponseWriter with its own implementation.
+	// This is typically used in middleware that transforms the response in some way, for instance by applying gzip compression.
+	// The "gzipMiddleware" in this example wraps the original ResponseWriter with a gzip writer, which compresses the response data.
+	// In this case, the WrapM function is used with the "useOriginalWriter" set to true, as the middleware needs to wrap the original
+	// http.ResponseWriter with its own implementation. After wrapping, the Fox framework's ResponseWriter is updated to the new ResponseWriter.
+	gzipMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gz := gzip.NewWriter(w)
+			defer gz.Close()
+
+			// Create a new ResponseWriter that writes to the gzip writer
+			gzw := gzipResponseWriter{Writer: gz, ResponseWriter: w}
+			r.Header.Set("Content-Encoding", "gzip")
+			next.ServeHTTP(gzw, r)
+		})
+	}
+
+	_ = New(WithMiddleware(WrapM(gzipMiddleware, true)))
 }
