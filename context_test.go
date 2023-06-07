@@ -229,6 +229,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					n, err := c.Writer().Write(buf)
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -240,6 +242,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					n, err := io.WriteString(c.Writer(), string(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -254,6 +258,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					n, err := rf.ReadFrom(bytes.NewReader(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, int(n))
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -271,6 +277,8 @@ func TestContext_TeeWriter_h1(t *testing.T) {
 					_, err = c.Writer().Write(buf[1024:])
 					require.NoError(t, err)
 					flusher.Flush()
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -317,6 +325,8 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 					n, err := c.Writer().Write(buf)
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -328,6 +338,8 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 					n, err := io.WriteString(c.Writer(), string(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -345,6 +357,8 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 					_, err = c.Writer().Write(buf[1024:])
 					require.NoError(t, err)
 					flusher.Flush()
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -391,6 +405,8 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 					n, err := c.Writer().Write(buf)
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -402,6 +418,8 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 					n, err := io.WriteString(c.Writer(), string(buf))
 					require.NoError(t, err)
 					assert.Equal(t, length, n)
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},
@@ -419,6 +437,8 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 					_, err = c.Writer().Write(buf[1024:])
 					require.NoError(t, err)
 					flusher.Flush()
+					assert.Equal(t, length, c.Writer().Size())
+					assert.True(t, c.Writer().Written())
 				}
 			},
 		},

@@ -26,11 +26,10 @@ var (
 )
 
 var (
-	_ ResponseWriter  = (*h1MultiWriter)(nil)
-	_ io.StringWriter = (*h1MultiWriter)(nil)
-	_ http.Flusher    = (*h1MultiWriter)(nil)
-	_ http.Hijacker   = (*h1MultiWriter)(nil)
-	_ io.ReaderFrom   = (*h1MultiWriter)(nil)
+	_ ResponseWriter = (*h1MultiWriter)(nil)
+	_ http.Flusher   = (*h1MultiWriter)(nil)
+	_ http.Hijacker  = (*h1MultiWriter)(nil)
+	_ io.ReaderFrom  = (*h1MultiWriter)(nil)
 )
 
 var (
@@ -39,10 +38,9 @@ var (
 )
 
 var (
-	_ ResponseWriter  = (*h2MultiWriter)(nil)
-	_ io.StringWriter = (*h2MultiWriter)(nil)
-	_ http.Flusher    = (*h2MultiWriter)(nil)
-	_ http.Pusher     = (*h2MultiWriter)(nil)
+	_ ResponseWriter = (*h2MultiWriter)(nil)
+	_ http.Flusher   = (*h2MultiWriter)(nil)
+	_ http.Pusher    = (*h2MultiWriter)(nil)
 )
 
 var (
