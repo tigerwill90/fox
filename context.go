@@ -342,6 +342,8 @@ func WrapH(h http.Handler) HandlerFunc {
 //   - If useOriginalWriter is true, the middleware is provided with the original http.ResponseWriter from Go's net/http package.
 //     This is required for middlewares that need to wrap the ResponseWriter with their own implementation (like a gzip middleware).
 //     The Wrap function is used to ensure that the Fox's ResponseWriter wraps the middleware's ResponseWriter implementation.
+//
+// This API is EXPERIMENTAL and is likely to change in future release.
 func WrapM(m func(handler http.Handler) http.Handler, useOriginalWriter bool) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
