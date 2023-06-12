@@ -7,9 +7,6 @@ package fox
 import (
 	"bytes"
 	"fmt"
-	fuzz "github.com/google/gofuzz"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
 	"log"
 	"math/rand"
@@ -23,6 +20,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	fuzz "github.com/google/gofuzz"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var emptyHandler = HandlerFunc(func(c Context) {})
