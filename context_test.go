@@ -9,9 +9,6 @@ import (
 	"compress/gzip"
 	netcontext "context"
 	"crypto/rand"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 	"io"
 	"log"
 	"net/http"
@@ -19,6 +16,10 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 )
 
 func TestContext_QueryParams(t *testing.T) {
@@ -480,28 +481,121 @@ func TestContext_TeeWriter_h2(t *testing.T) {
 
 func TestWrapF(t *testing.T) {
 	t.Parallel()
-	wrapped := WrapF(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("fox"))
-	})
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
-	wrapped(c)
-	assert.Equal(t, "fox", w.Body.String())
+	cases := []struct {
+		name    string
+		handler func(p Params) http.HandlerFunc
+		params  *Params
+	}{
+		{
+			name: "wrap handlerFunc without context params",
+			handler: func(expectedParams Params) http.HandlerFunc {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("fox"))
+				})
+			},
+		},
+		{
+			name: "wrap handlerFunc with context params",
+			handler: func(expectedParams Params) http.HandlerFunc {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("fox"))
+
+					p := ParamsFromContext(r.Context())
+
+					assert.Equal(t, expectedParams, p)
+				})
+			},
+			params: &Params{
+				{
+					Key:   "foo",
+					Value: "bar",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+			_, c := NewTestContext(w, r)
+
+			params := make(Params, 0)
+			if tc.params != nil {
+				params = tc.params.Clone()
+				c.(*context).params = &params
+			}
+
+			WrapF(tc.handler(params))(c)
+
+			assert.Equal(t, "fox", w.Body.String())
+		})
+	}
+
 }
 
 func TestWrapH(t *testing.T) {
 	t.Parallel()
-	wrapped := WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("fox"))
-	}))
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
-	wrapped(c)
-	assert.Equal(t, "fox", w.Body.String())
+	cases := []struct {
+		name    string
+		handler func(p Params) http.Handler
+		params  *Params
+	}{
+		{
+			name: "wrap handler without context params",
+			handler: func(expectedParams Params) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("fox"))
+				})
+			},
+		},
+		{
+			name: "wrap handler with context params",
+			handler: func(expectedParams Params) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("fox"))
+
+					p := ParamsFromContext(r.Context())
+
+					assert.Equal(t, expectedParams, p)
+				})
+			},
+			params: &Params{
+				{
+					Key:   "foo",
+					Value: "bar",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+			_, c := NewTestContext(w, r)
+
+			params := make(Params, 0)
+			if tc.params != nil {
+				params = tc.params.Clone()
+				c.(*context).params = &params
+			}
+
+			WrapH(tc.handler(params))(c)
+
+			assert.Equal(t, "fox", w.Body.String())
+		})
+	}
 }
 
 func TestWrapM(t *testing.T) {

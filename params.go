@@ -4,6 +4,11 @@
 
 package fox
 
+import netcontext "context"
+
+// paramsKey is the key that holds the Params in a context.Context.
+var paramsKey = struct{}{}
+
 type Param struct {
 	Key   string
 	Value string
@@ -21,9 +26,27 @@ func (p Params) Get(name string) string {
 	return ""
 }
 
+// Has checks whether the parameter exists by name.
+func (p Params) Has(name string) bool {
+	for i := range p {
+		if p[i].Key == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Clone make a copy of Params.
 func (p Params) Clone() Params {
 	cloned := make(Params, len(p))
 	copy(cloned, p)
 	return cloned
+}
+
+// ParamsFromContext allows extracting params from the given context.
+func ParamsFromContext(ctx netcontext.Context) Params {
+	p, _ := ctx.Value(paramsKey).(Params)
+
+	return p
 }

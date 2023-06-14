@@ -367,6 +367,8 @@ func handle(c fox.Context) {
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
 provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use with `http.Handler`.
 
+The route parameters are being accessed by the wrapped handler through the `fox.Context` when the adapter `fox.WrapF` and `fox.WrapH` are used.
+
 Wrapping an `http.Handler`
 ```go
 articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,7 @@
 package fox
 
 import (
-	ctx "context"
+	netcontext "context"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,7 +25,7 @@ type ContextCloser interface {
 // (see Clone method).
 type Context interface {
 	// Ctx returns the context associated with the current request.
-	Ctx() ctx.Context
+	Ctx() netcontext.Context
 	// Request returns the current *http.Request.
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
@@ -186,7 +186,7 @@ func (c *context) TeeWriter(w io.Writer) {
 }
 
 // Ctx returns the context associated with the current request.
-func (c *context) Ctx() ctx.Context {
+func (c *context) Ctx() netcontext.Context {
 	return c.req.Context()
 }
 
@@ -321,15 +321,29 @@ func (c *context) getQueries() url.Values {
 }
 
 // WrapF is an adapter for wrapping http.HandlerFunc and returns a HandlerFunc function.
+// The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {
+		if len(c.Params()) > 0 {
+			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
+			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
+			return
+		}
+
 		f.ServeHTTP(c.Writer(), c.Request())
 	}
 }
 
 // WrapH is an adapter for wrapping http.Handler and returns a HandlerFunc function.
+// The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
 	return func(c Context) {
+		if len(c.Params()) > 0 {
+			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
+			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
+			return
+		}
+
 		h.ServeHTTP(c.Writer(), c.Request())
 	}
 }
