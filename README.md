@@ -35,7 +35,7 @@ even for complex routing pattern.
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash.
 
-**Automatic OPTIONS responses:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
+**Automatic OPTIONS replies:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
 support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 
 Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
@@ -445,6 +445,7 @@ f := fox.New(
 
 ### Official middlewares
 * [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
+* [tigerwill90/foxdump](https://github.com/tigerwill90/foxdump): Body dump middleware for capturing requests and responses payload.
 
 ## Handling OPTIONS Requests and CORS Automatically
 The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 

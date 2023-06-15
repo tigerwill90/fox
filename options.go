@@ -16,7 +16,7 @@ const (
 	NoMethodHandler
 	// RedirectHandler scope applies middleware to the internal redirect trailing slash handler.
 	RedirectHandler
-	// OptionsHandler scope applies middleware to the internal automatic OPTIONS handler.
+	// OptionsHandler scope applies middleware to the automatic OPTIONS handler.
 	OptionsHandler
 	// AllHandlers is a combination of all the above scopes, which means the middleware will be applied to all types of handlers.
 	AllHandlers = RouteHandlers | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
@@ -77,7 +77,7 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
-// Possible scopes include RouteHandlers (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler,
+// Possible scopes include RouteHandlers (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler, OptionsHandler,
 // and any combination of these. Use this option when you need fine-grained control over where the middleware is applied.
 // This api is EXPERIMENTAL and is likely to change in future release.
 func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {

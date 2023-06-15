@@ -78,9 +78,9 @@ func New(opts ...Option) *Router {
 	return r
 }
 
-// NewTree returns a fresh routing Tree. It's safe to create multiple Tree concurrently. However, a Tree itself
-// is not thread-safe and all its APIs that perform write operations should be run serially. Note that a Tree give
-// direct access to the underlying sync.Mutex.
+// NewTree returns a fresh routing Tree that inherits all registered router options. It's safe to create multiple Tree
+// concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
+// serially. Note that a Tree give direct access to the underlying sync.Mutex.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
