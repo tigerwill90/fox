@@ -367,7 +367,7 @@ func handle(c fox.Context) {
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
 provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use with `http.Handler`.
 
-The route parameters are being accessed by the wrapped handler through the `context.Context` when the adapter `fox.WrapF` and `fox.WrapH` are used.
+The route parameters can be accessed by the wrapped handler through the `context.Context` when the adapters `fox.WrapF` and `fox.WrapH` are used.
 
 Wrapping an `http.Handler`
 ```go
@@ -387,6 +387,13 @@ f.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
     _ = c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
 })
 ````
+
+### Custom http.ResponseWriter Implementations
+When using custom `http.ResponseWriter` implementations, it's important to ensure that these implementations expose the 
+required http interfaces. For HTTP/1.x requests, Fox expects the `http.ResponseWriter` to implement the `http.Flusher`, 
+`http.Hijacker`, and `io.ReaderFrom` interfaces. For HTTP/2 requests, the `http.ResponseWriter` should implement the 
+`http.Flusher` and `http.Pusher` interfaces. Fox will invoke these methods **without any prior assertion**.
+
 
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 

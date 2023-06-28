@@ -6,8 +6,10 @@ package fox
 
 import netcontext "context"
 
+type ctxKey struct{}
+
 // paramsKey is the key that holds the Params in a context.Context.
-var paramsKey = struct{}{}
+var paramsKey = ctxKey{}
 
 type Param struct {
 	Key   string
@@ -44,9 +46,9 @@ func (p Params) Clone() Params {
 	return cloned
 }
 
-// ParamsFromContext allows extracting params from the given context.
+// ParamsFromContext is a helper to retrieve params from context when a http.Handler
+// is registered using WrapF or WrapH.
 func ParamsFromContext(ctx netcontext.Context) Params {
 	p, _ := ctx.Value(paramsKey).(Params)
-
 	return p
 }
