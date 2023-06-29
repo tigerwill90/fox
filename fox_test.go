@@ -1760,6 +1760,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 
 func TestRouterWithOptionsHandler(t *testing.T) {
 	f := New(WithOptionsHandler(func(c Context) {
+		assert.Equal(t, "/foo/bar", c.Path())
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
 

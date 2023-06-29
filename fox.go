@@ -323,6 +323,8 @@ NoMethodFallback:
 				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
+					} else {
+						c.path = n.path
 					}
 					sb.WriteString(nds[i].key)
 				}
