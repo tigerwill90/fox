@@ -17,7 +17,6 @@ var (
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
-	ErrInvalidCtxParams        = errors.New("unable to get params from context")
 )
 
 // RouteConflictError is a custom error type used to represent conflicts when

@@ -2391,3 +2391,25 @@ func ExampleTree_Lookup() {
 		_ = c.String(http.StatusOK, "foo bar")
 	})
 }
+
+/*func TestX(t *testing.T) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo/baz", func(c Context) {
+		fmt.Println(c.Path(), c.Params())
+	})
+	f.MustHandle(http.MethodGet, "/foo/*{any}", func(c Context) {
+		fmt.Println(c.Path(), c.Params())
+	})
+	f.MustHandle(http.MethodGet, "/foo/", func(c Context) {
+		fmt.Println(c.Path(), c.Params())
+	})
+
+	nds := *f.tree.Load().nodes.Load()
+	fmt.Println(nds[0])
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/d/c", nil)
+	w := httptest.NewRecorder()
+
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}*/
