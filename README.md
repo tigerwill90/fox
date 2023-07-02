@@ -28,9 +28,8 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 **Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
 observability middleware like open telemetry.
 
-**Only explicit matches:**  A request can only match exactly one route or no route at all. Fox strikes a balance between routing flexibility,
-performance and clarity by enforcing clear priority rules, ensuring that there are no unintended matches and maintaining high performance 
-even for complex routing pattern.
+**Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear 
+priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash.

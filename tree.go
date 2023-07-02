@@ -489,7 +489,6 @@ func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skip
 		charsMatched            int
 		charsMatchedInNodeFound int
 		paramCnt                uint32
-		seen                    bool
 	)
 
 	current := rootNode.children[0].Load()
@@ -560,9 +559,8 @@ Walk:
 					break
 				}
 
-				if current.isCatchAll() {
-					seen = true
-					*skipNds = append(*skipNds, skippedNode{current, charsMatched})
+				if current.catchAllKey != "" {
+					*skipNds = append(*skipNds, skippedNode{current, charsMatched, true})
 				}
 
 				// child param: go deeper and since the child param is evaluated
@@ -572,9 +570,8 @@ Walk:
 				continue
 			}
 
-			if current.paramChildIndex >= 0 || current.isCatchAll() {
-				seen = false
-				*skipNds = append(*skipNds, skippedNode{current, charsMatched})
+			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
+				*skipNds = append(*skipNds, skippedNode{current, charsMatched, false})
 				paramCnt = 0
 			}
 			current = current.children[idx].Load()
@@ -594,7 +591,7 @@ Walk:
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a catch-all node
-			if !lazy && current.isCatchAll() {
+			if !lazy && current.catchAllKey != "" {
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				return current, false
 			}
@@ -625,7 +622,7 @@ Walk:
 
 	// Incomplete match to end of edge
 	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
-		if current.isCatchAll() {
+		if current.catchAllKey != "" {
 			if !lazy {
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				return current, false
@@ -651,7 +648,7 @@ Walk:
 Backtrack:
 	if hasSkpNds {
 		skipped := skipNds.pop()
-		if skipped.node.paramChildIndex < 0 || seen {
+		if skipped.node.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
 			current = skipped.node
 			*params = (*params)[:len(*params)-int(paramCnt)]
@@ -669,9 +666,8 @@ Backtrack:
 		// /foo/*{any}
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
-		if skipped.node.isCatchAll() {
-			seen = true
-			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex})
+		if skipped.node.catchAllKey != "" {
+			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, true})
 		}
 
 		current = skipped.node.children[skipped.node.paramChildIndex].Load()

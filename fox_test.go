@@ -1068,17 +1068,17 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/ironman/{power}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/fox/", wantErr: nil, wantMatch: nil},
 				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: nil},
 			},
 		},
 		{
-			name: "incomplete match to end of edge conflicts",
+			name: "no conflict for incomplete match to end of edge",
 			routes: []struct {
 				wantErr   error
 				path      string
@@ -1087,27 +1087,27 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{id}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*{args}"}},
+				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
-			name: "key match mid-edge conflict",
+			name: "no conflict for key match mid-edge",
 			routes: []struct {
 				wantErr   error
 				path      string
 				wantMatch []string
 			}{
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/a*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/foo*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/john{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/john*{doe}", wantErr: ErrRouteConflict, wantMatch: []string{"/john{doe}"}},
+				{path: "/john*{doe}", wantErr: nil, wantMatch: nil},
 				{path: "/john/{doe}", wantErr: nil, wantMatch: nil},
 				{path: "/joh{doe}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
@@ -2392,24 +2392,30 @@ func ExampleTree_Lookup() {
 	})
 }
 
-/*func TestX(t *testing.T) {
+// path: GET
+//
+//	path: /users/ [paramIdx=0] [catchAll] [leaf=/users/*{any}]
+//	    path: {id}/ [paramIdx=1]
+//	        path: email [leaf=/users/{id}/email]
+//	        path: {action} [leaf=/users/{id}/{action}]
+func TestX(t *testing.T) {
 	f := New()
-	f.MustHandle(http.MethodGet, "/foo/baz", func(c Context) {
+	f.MustHandle(http.MethodGet, "/users/{id}/email", func(c Context) {
 		fmt.Println(c.Path(), c.Params())
 	})
-	f.MustHandle(http.MethodGet, "/foo/*{any}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/users/{id}/{action}", func(c Context) {
 		fmt.Println(c.Path(), c.Params())
 	})
-	f.MustHandle(http.MethodGet, "/foo/", func(c Context) {
+	f.MustHandle(http.MethodGet, "/users/*{any}", func(c Context) {
 		fmt.Println(c.Path(), c.Params())
 	})
 
 	nds := *f.tree.Load().nodes.Load()
 	fmt.Println(nds[0])
 
-	req := httptest.NewRequest(http.MethodGet, "/foo/d/c", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/123/orders/5", nil)
 	w := httptest.NewRecorder()
 
 	f.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-}*/
+}
