@@ -135,7 +135,14 @@ Patter /src/file=*{path}
 
 #### Priority rules
 Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
-A wildcard segment (named parameter or catch all) can only overlap with static segments, for the same HTTP method.
+
+The following rules apply:
+
+- Static segments are always evaluated first.
+- A named parameter can only overlap with a catch-all parameter or static segments.
+- A catch-all parameter can only overlap with a named parameter or static segments.
+- When a named parameter overlaps with a catch-all parameter, the named parameter is evaluated first.
+
 For instance, `GET /users/{id}` and `GET /users/{name}/profile` cannot coexist, as the `{id}` and `{name}` segments 
 are overlapping. These limitations help to minimize the number of branches that need to be evaluated in order to find 
 the right match, thereby maintaining high-performance routing.
@@ -147,6 +154,13 @@ GET /users/{id}
 GET /users/{id}/emails
 GET /users/{id}/{actions}
 POST /users/{name}/emails
+````
+
+Additionally, let's consider an example to illustrate the prioritization:
+````
+GET /fs/avengers.txt    #1 => match /fs/avengers.txt
+GET /fs/{filename}      #2 => match /fs/ironman.txt
+GET /fs/*{filepath}     #3 => match /fs/avengers/ironman.txt
 ````
 
 #### Warning about context

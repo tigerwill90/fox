@@ -554,30 +554,31 @@ Walk:
 				}
 			}
 
+			// Only one node which is a child param, load it directly and go deeper
 			if idx < 0 {
 				if current.paramChildIndex < 0 {
 					break
 				}
 
+				// The node is also a catch-all, save it as the last fallback.
 				if current.catchAllKey != "" {
-					*skipNds = append(*skipNds, skippedNode{current, charsMatched, true})
+					*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, true})
 				}
 
-				// child param: go deeper and since the child param is evaluated
-				// now, no need to backtrack later.
 				idx = current.paramChildIndex
 				current = current.children[idx].Load()
 				continue
 			}
 
+			// Save the node if we need to evaluate the child param or catch-all later
 			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
-				*skipNds = append(*skipNds, skippedNode{current, charsMatched, false})
-				paramCnt = 0
+				*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, false})
 			}
 			current = current.children[idx].Load()
 		}
 	}
 
+	paramCnt = 0
 	hasSkpNds := len(*skipNds) > 0
 
 	if !current.isLeaf() {
@@ -651,7 +652,7 @@ Backtrack:
 		if skipped.node.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
 			current = skipped.node
-			*params = (*params)[:len(*params)-int(paramCnt)]
+			*params = (*params)[:skipped.paramCnt]
 
 			if !lazy {
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
@@ -667,14 +668,13 @@ Backtrack:
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
 		if skipped.node.catchAllKey != "" {
-			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, true})
+			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, skipped.paramCnt, true})
 		}
 
 		current = skipped.node.children[skipped.node.paramChildIndex].Load()
 
-		*params = (*params)[:len(*params)-int(paramCnt)]
+		*params = (*params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
-		paramCnt = 0
 		goto Walk
 	}
 

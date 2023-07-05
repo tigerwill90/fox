@@ -216,6 +216,7 @@ func (n *skippedNodes) pop() skippedNode {
 type skippedNode struct {
 	node      *node
 	pathIndex int
+	paramCnt  uint32
 	seen      bool
 }
 

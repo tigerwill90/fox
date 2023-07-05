@@ -725,7 +725,7 @@ func TestRouteWithParams(t *testing.T) {
 	}
 }
 
-func TestRoutParamEmptySegment(t *testing.T) {
+func TestRouteParamEmptySegment(t *testing.T) {
 	tree := New().Tree()
 	cases := []struct {
 		name  string
@@ -1010,6 +1010,146 @@ func TestOverlappingRoute(t *testing.T) {
 				{
 					Key:   "args",
 					Value: "bc",
+				},
+			},
+		},
+		{
+			name: "named parameter priority over catch-all",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "static priority over named parameter and catch-all",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/abc",
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch:  "/foo/abc",
+			wantParams: Params{},
+		},
+		{
+			name: "no match static with named parameter fallback",
+			path: "/foo/abd",
+			routes: []string{
+				"/foo/abc",
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "abd",
+				},
+			},
+		},
+		{
+			name: "no match static with catch all fallback",
+			path: "/foo/abc/foo",
+			routes: []string{
+				"/foo/abc",
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "abc/foo",
+				},
+			},
+		},
+		{
+			name: "most specific catch all with static",
+			path: "/foo/bar/abd",
+			routes: []string{
+				"/foo/{id}/abc",
+				"/foo/{id}/*{args}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id}/*{args}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "bar",
+				},
+				{
+					Key:   "args",
+					Value: "abd",
+				},
+			},
+		},
+		{
+			name: "most specific catch all with static and named parameter",
+			path: "/foo/bar/abc/def",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/{id_2}",
+				"/foo/{id_1}/*{args}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id_1}/*{args}",
+			wantParams: Params{
+				{
+					Key:   "id_1",
+					Value: "bar",
+				},
+				{
+					Key:   "args",
+					Value: "abc/def",
+				},
+			},
+		},
+		{
+			name: "backtrack to most specific named parameter with 2 skipped catch all",
+			path: "/foo/bar/def",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/*{args}",
+				"/foo/{id_1}/{id_2}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id_1}/{id_2}",
+			wantParams: Params{
+				{
+					Key:   "id_1",
+					Value: "bar",
+				},
+				{
+					Key:   "id_2",
+					Value: "def",
+				},
+			},
+		},
+		{
+			name: "backtrack to most specific catch-all with an exact match",
+			path: "/foo/bar/",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/*{args}",
+				"/foo/{id_1}/{id_2}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id_1}/*{args}",
+			wantParams: Params{
+				{
+					Key:   "id_1",
+					Value: "bar",
+				},
+				{
+					Key: "args",
 				},
 			},
 		},
@@ -2341,32 +2481,4 @@ func ExampleTree_Lookup() {
 	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
 		_ = c.String(http.StatusOK, "foo bar")
 	})
-}
-
-// path: GET
-//
-//	path: /users/ [paramIdx=0] [catchAll] [leaf=/users/*{any}]
-//	    path: {id}/ [paramIdx=1]
-//	        path: email [leaf=/users/{id}/email]
-//	        path: {action} [leaf=/users/{id}/{action}]
-func TestX(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/users/{id}/email", func(c Context) {
-		fmt.Println(c.Path(), c.Params())
-	})
-	f.MustHandle(http.MethodGet, "/users/{id}/{action}", func(c Context) {
-		fmt.Println(c.Path(), c.Params())
-	})
-	f.MustHandle(http.MethodGet, "/users/*{any}", func(c Context) {
-		fmt.Println(c.Path(), c.Params())
-	})
-
-	nds := *f.tree.Load().nodes.Load()
-	fmt.Println(nds[0])
-
-	req := httptest.NewRequest(http.MethodGet, "/users/123/orders/5", nil)
-	w := httptest.NewRecorder()
-
-	f.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
 }
