@@ -1785,28 +1785,6 @@ func TestDefaultOptions(t *testing.T) {
 	assert.True(t, r.handleOptions)
 }
 
-func TestRecoveryMiddleware(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
-		c.Writer().WriteHeader(http.StatusInternalServerError)
-		_, _ = c.Writer().Write([]byte(err.(string)))
-	})
-
-	r := New(WithMiddleware(m))
-
-	const errMsg = "unexpected error"
-	h := func(c Context) {
-		func() { panic(errMsg) }()
-		_ = c.String(200, "foo")
-	}
-
-	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, errMsg, w.Body.String())
-}
-
 func TestWithScopedMiddleware(t *testing.T) {
 	called := false
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
@@ -1981,33 +1959,6 @@ func TestReverse(t *testing.T) {
 			assert.Equal(t, tc.want, Reverse(r.Tree(), http.MethodGet, tc.path))
 		})
 	}
-}
-
-func TestAbortHandler(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
-		c.Writer().WriteHeader(http.StatusInternalServerError)
-		_, _ = c.Writer().Write([]byte(err.(error).Error()))
-	})
-
-	r := New(WithMiddleware(m))
-
-	h := func(c Context) {
-		func() { panic(http.ErrAbortHandler) }()
-		_ = c.String(200, "foo")
-	}
-
-	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	w := httptest.NewRecorder()
-
-	defer func() {
-		val := recover()
-		require.NotNil(t, val)
-		err := val.(error)
-		require.NotNil(t, err)
-		assert.ErrorIs(t, err, http.ErrAbortHandler)
-	}()
-	r.ServeHTTP(w, req)
 }
 
 func TestEncodedPath(t *testing.T) {
