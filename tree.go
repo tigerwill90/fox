@@ -194,10 +194,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			return fmt.Errorf("%w: new route [%s] %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
 		}
 
-		// The matched node can only be the result of a previous split and therefore has children.
-		if isCatchAll && result.matched.paramChildIndex >= 0 {
-			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-		}
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
 		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex, path)
@@ -224,10 +220,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-
-		if strings.HasPrefix(suffixFromExistingEdge, "{") && isCatchAll {
-			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-		}
 
 		child := newNodeFromRef(
 			suffixFromExistingEdge,
@@ -266,10 +258,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		// 3. Update the "te" (parent) node to the new "st" node.
 
 		keySuffix := path[result.charsMatched:]
-
-		if strings.HasPrefix(keySuffix, "{") && result.matched.isCatchAll() {
-			return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-		}
 
 		// No children, so no paramChild
 		child := newNode(keySuffix, handler, nil, catchAllKey, path)
@@ -566,25 +554,31 @@ Walk:
 				}
 			}
 
+			// Only one node which is a child param, load it directly and go deeper
 			if idx < 0 {
 				if current.paramChildIndex < 0 {
 					break
 				}
-				// child param: go deeper and since the child param is evaluated
-				// now, no need to backtrack later.
+
+				// The node is also a catch-all, save it as the last fallback.
+				if current.catchAllKey != "" {
+					*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, true})
+				}
+
 				idx = current.paramChildIndex
 				current = current.children[idx].Load()
 				continue
 			}
 
-			if current.paramChildIndex >= 0 || current.isCatchAll() {
-				*skipNds = append(*skipNds, skippedNode{current, charsMatched})
-				paramCnt = 0
+			// Save the node if we need to evaluate the child param or catch-all later
+			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
+				*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, false})
 			}
 			current = current.children[idx].Load()
 		}
 	}
 
+	paramCnt = 0
 	hasSkpNds := len(*skipNds) > 0
 
 	if !current.isLeaf() {
@@ -597,8 +591,8 @@ Walk:
 
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
-			// Exact match, note that if we match a catch all node
-			if !lazy && current.isCatchAll() {
+			// Exact match, note that if we match a catch-all node
+			if !lazy && current.catchAllKey != "" {
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				return current, false
 			}
@@ -629,7 +623,7 @@ Walk:
 
 	// Incomplete match to end of edge
 	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
-		if current.isCatchAll() {
+		if current.catchAllKey != "" {
 			if !lazy {
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				return current, false
@@ -655,10 +649,10 @@ Walk:
 Backtrack:
 	if hasSkpNds {
 		skipped := skipNds.pop()
-		if skipped.node.paramChildIndex < 0 {
+		if skipped.node.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
 			current = skipped.node
-			*params = (*params)[:len(*params)-int(paramCnt)]
+			*params = (*params)[:skipped.paramCnt]
 
 			if !lazy {
 				*params = append(*params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
@@ -669,11 +663,18 @@ Backtrack:
 			return current, false
 		}
 
+		// Could be a catch-all node with child param
+		// /foo/*{any}
+		// /foo/{bar}
+		// In this case we evaluate first the child param node and fall back to the catch-all.
+		if skipped.node.catchAllKey != "" {
+			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, skipped.paramCnt, true})
+		}
+
 		current = skipped.node.children[skipped.node.paramChildIndex].Load()
 
-		*params = (*params)[:len(*params)-int(paramCnt)]
+		*params = (*params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
-		paramCnt = 0
 		goto Walk
 	}
 

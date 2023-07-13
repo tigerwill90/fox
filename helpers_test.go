@@ -19,12 +19,12 @@ func TestWrapFlushWriter(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
 
 	f := New()
-	f.MustHandle(http.MethodGet, "/foo", WrapTestContext(func(c Context) {
-		flusher, ok := c.Writer().(http.Flusher)
+	f.MustHandle(http.MethodGet, "/foo", WrapTestContextFlusher(func(c Context) {
+		_, ok := c.Writer().(http.Flusher)
 		require.True(t, ok)
 
 		c.TeeWriter(buf)
-		flusher, ok = c.Writer().(http.Flusher)
+		flusher, ok := c.Writer().(http.Flusher)
 		require.True(t, ok)
 
 		n, err := c.Writer().Write([]byte("foo"))
@@ -62,11 +62,11 @@ func TestNewTestContext(t *testing.T) {
 
 	buf := bytes.NewBuffer(nil)
 
-	flusher, ok := c.Writer().(http.Flusher)
+	_, ok := c.Writer().(http.Flusher)
 	require.True(t, ok)
 
 	c.TeeWriter(buf)
-	flusher, ok = c.Writer().(http.Flusher)
+	flusher, ok := c.Writer().(http.Flusher)
 	require.True(t, ok)
 
 	n, err := c.Writer().Write([]byte("foo"))

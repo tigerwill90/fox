@@ -40,7 +40,7 @@ type Context interface {
 	// Therefore, while asserting interfaces like http.Hijacker will not fail, invoking Hijack method will panic if the
 	// underlying ResponseWriter does not implement this interface.
 	//
-	// To facilitate testing with e.g. httptest.Recorder, use the WrapTestContext helper function which only exposes the
+	// To facilitate testing with e.g. httptest.Recorder, use the WrapTestContextFlusher helper function which only exposes the
 	// http.Flusher interface for the ResponseWriter.
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.

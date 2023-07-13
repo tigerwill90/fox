@@ -20,11 +20,12 @@ func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Con
 	return newTextContextOnly(fox, w, r)
 }
 
-// WrapTestContext method is a helper function provided for testing purposes. It wraps the provided HandlerFunc,
-// returning a new HandlerFunc that only exposes the http.Flusher interface of the ResponseWriter. This is useful when
+// WrapTestContextFlusher method is a helper function provided for testing purposes. It wraps the provided HandlerFunc,
+// returning a new HandlerFunc that only exposes the http.Flusher interface of the ResponseWriter. This is useful for
 // testing implementations that rely on interface assertions with e.g. httptest.Recorder, since its only
 // supports the http.Flusher interface.
-func WrapTestContext(next HandlerFunc) HandlerFunc {
+// This API is EXPERIMENTAL and is likely to change in future release.
+func WrapTestContextFlusher(next HandlerFunc) HandlerFunc {
 	return func(c Context) {
 		c.SetWriter(onlyFlushWriter{c.Writer()})
 		next(c)

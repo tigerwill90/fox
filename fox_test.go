@@ -725,7 +725,7 @@ func TestRouteWithParams(t *testing.T) {
 	}
 }
 
-func TestRoutParamEmptySegment(t *testing.T) {
+func TestRouteParamEmptySegment(t *testing.T) {
 	tree := New().Tree()
 	cases := []struct {
 		name  string
@@ -1013,6 +1013,146 @@ func TestOverlappingRoute(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "named parameter priority over catch-all",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "static priority over named parameter and catch-all",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/abc",
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch:  "/foo/abc",
+			wantParams: Params{},
+		},
+		{
+			name: "no match static with named parameter fallback",
+			path: "/foo/abd",
+			routes: []string{
+				"/foo/abc",
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "abd",
+				},
+			},
+		},
+		{
+			name: "no match static with catch all fallback",
+			path: "/foo/abc/foo",
+			routes: []string{
+				"/foo/abc",
+				"/foo/{id}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "abc/foo",
+				},
+			},
+		},
+		{
+			name: "most specific catch all with static",
+			path: "/foo/bar/abd",
+			routes: []string{
+				"/foo/{id}/abc",
+				"/foo/{id}/*{args}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id}/*{args}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "bar",
+				},
+				{
+					Key:   "args",
+					Value: "abd",
+				},
+			},
+		},
+		{
+			name: "most specific catch all with static and named parameter",
+			path: "/foo/bar/abc/def",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/{id_2}",
+				"/foo/{id_1}/*{args}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id_1}/*{args}",
+			wantParams: Params{
+				{
+					Key:   "id_1",
+					Value: "bar",
+				},
+				{
+					Key:   "args",
+					Value: "abc/def",
+				},
+			},
+		},
+		{
+			name: "backtrack to most specific named parameter with 2 skipped catch all",
+			path: "/foo/bar/def",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/*{args}",
+				"/foo/{id_1}/{id_2}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id_1}/{id_2}",
+			wantParams: Params{
+				{
+					Key:   "id_1",
+					Value: "bar",
+				},
+				{
+					Key:   "id_2",
+					Value: "def",
+				},
+			},
+		},
+		{
+			name: "backtrack to most specific catch-all with an exact match",
+			path: "/foo/bar/",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/*{args}",
+				"/foo/{id_1}/{id_2}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/{id_1}/*{args}",
+			wantParams: Params{
+				{
+					Key:   "id_1",
+					Value: "bar",
+				},
+				{
+					Key: "args",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -1068,17 +1208,17 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/ironman/{power}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/fox/", wantErr: nil, wantMatch: nil},
 				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: nil},
 			},
 		},
 		{
-			name: "incomplete match to end of edge conflicts",
+			name: "no conflict for incomplete match to end of edge",
 			routes: []struct {
 				wantErr   error
 				path      string
@@ -1087,27 +1227,27 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{id}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/*{args}"}},
+				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
-			name: "key match mid-edge conflict",
+			name: "no conflict for key match mid-edge",
 			routes: []struct {
 				wantErr   error
 				path      string
 				wantMatch []string
 			}{
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/a*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/foo*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/john{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/john*{doe}", wantErr: ErrRouteConflict, wantMatch: []string{"/john{doe}"}},
+				{path: "/john*{doe}", wantErr: nil, wantMatch: nil},
 				{path: "/john/{doe}", wantErr: nil, wantMatch: nil},
 				{path: "/joh{doe}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}/bar", "/avengers/{id}/foo"}},
+				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
@@ -1785,28 +1925,6 @@ func TestDefaultOptions(t *testing.T) {
 	assert.True(t, r.handleOptions)
 }
 
-func TestRecoveryMiddleware(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
-		c.Writer().WriteHeader(http.StatusInternalServerError)
-		_, _ = c.Writer().Write([]byte(err.(string)))
-	})
-
-	r := New(WithMiddleware(m))
-
-	const errMsg = "unexpected error"
-	h := func(c Context) {
-		func() { panic(errMsg) }()
-		_ = c.String(200, "foo")
-	}
-
-	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, errMsg, w.Body.String())
-}
-
 func TestWithScopedMiddleware(t *testing.T) {
 	called := false
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
@@ -1981,33 +2099,6 @@ func TestReverse(t *testing.T) {
 			assert.Equal(t, tc.want, Reverse(r.Tree(), http.MethodGet, tc.path))
 		})
 	}
-}
-
-func TestAbortHandler(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
-		c.Writer().WriteHeader(http.StatusInternalServerError)
-		_, _ = c.Writer().Write([]byte(err.(error).Error()))
-	})
-
-	r := New(WithMiddleware(m))
-
-	h := func(c Context) {
-		func() { panic(http.ErrAbortHandler) }()
-		_ = c.String(200, "foo")
-	}
-
-	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	w := httptest.NewRecorder()
-
-	defer func() {
-		val := recover()
-		require.NotNil(t, val)
-		err := val.(error)
-		require.NotNil(t, err)
-		assert.ErrorIs(t, err, http.ErrAbortHandler)
-	}()
-	r.ServeHTTP(w, req)
 }
 
 func TestEncodedPath(t *testing.T) {

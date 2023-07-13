@@ -28,9 +28,8 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 **Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
 observability middleware like open telemetry.
 
-**Only explicit matches:**  A request can only match exactly one route or no route at all. Fox strikes a balance between routing flexibility,
-performance and clarity by enforcing clear priority rules, ensuring that there are no unintended matches and maintaining high performance 
-even for complex routing pattern.
+**Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear 
+priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
 
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash.
@@ -136,7 +135,14 @@ Patter /src/file=*{path}
 
 #### Priority rules
 Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
-A wildcard segment (named parameter or catch all) can only overlap with static segments, for the same HTTP method.
+
+The following rules apply:
+
+- Static segments are always evaluated first.
+- A named parameter can only overlap with a catch-all parameter or static segments.
+- A catch-all parameter can only overlap with a named parameter or static segments.
+- When a named parameter overlaps with a catch-all parameter, the named parameter is evaluated first.
+
 For instance, `GET /users/{id}` and `GET /users/{name}/profile` cannot coexist, as the `{id}` and `{name}` segments 
 are overlapping. These limitations help to minimize the number of branches that need to be evaluated in order to find 
 the right match, thereby maintaining high-performance routing.
@@ -148,6 +154,13 @@ GET /users/{id}
 GET /users/{id}/emails
 GET /users/{id}/{actions}
 POST /users/{name}/emails
+````
+
+Additionally, let's consider an example to illustrate the prioritization:
+````
+GET /fs/avengers.txt    #1 => match /fs/avengers.txt
+GET /fs/{filename}      #2 => match /fs/ironman.txt
+GET /fs/*{filepath}     #3 => match /fs/avengers/ironman.txt
 ````
 
 #### Warning about context
@@ -620,6 +633,7 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 ## Road to v1
 - [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
 - [x] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
+- [x] [Route overlapping (catch-all and params)](https://github.com/tigerwill90/fox/pull/24#issue-1784686061) @v0.10.0
 - [ ] Improving performance and polishing
 
 ## Contributions
