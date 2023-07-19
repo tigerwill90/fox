@@ -38,7 +38,7 @@ func Recovery(handle RecoveryFunc) MiddlewareFunc {
 // If the response has not been written yet and the error is not caused by a broken connection,
 // it sets the status code to http.StatusInternalServerError and writes a generic error message.
 func DefaultHandleRecovery(c Context, err any) {
-	stdErr.Printf("[PANIC] %q panic recovered\n%s", err, debug.Stack())
+	stdErr.Printf("[PANIC] %q recovered\n%s", err, debug.Stack())
 	if !c.Writer().Written() && !connIsBroken(err) {
 		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
