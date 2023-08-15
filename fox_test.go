@@ -31,19 +31,19 @@ var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Request().UR
 
 type mockResponseWriter struct{}
 
-func (m *mockResponseWriter) Header() (h http.Header) {
+func (m mockResponseWriter) Header() (h http.Header) {
 	return http.Header{}
 }
 
-func (m *mockResponseWriter) Write(p []byte) (n int, err error) {
+func (m mockResponseWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
+func (m mockResponseWriter) WriteString(s string) (n int, err error) {
 	return len(s), nil
 }
 
-func (m *mockResponseWriter) WriteHeader(int) {}
+func (m mockResponseWriter) WriteHeader(int) {}
 
 type route struct {
 	method string

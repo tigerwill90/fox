@@ -158,28 +158,39 @@ func (c *context) TeeWriter(w io.Writer) {
 		switch c.w.(type) {
 		case h1Writer:
 			c.w = h1MultiWriter{c.mw}
+			return
 		case h2Writer:
 			c.w = h2MultiWriter{c.mw}
-		default:
-			_, rfOk := c.w.(io.ReaderFrom)
-			_, flOk := c.w.(http.Flusher)
-			_, hiOk := c.w.(http.Hijacker)
-			if rfOk && flOk && hiOk {
-				c.w = h1MultiWriter{c.mw}
-				break
-			}
+			return
+		}
 
-			_, puOk := c.w.(http.Pusher)
-			if flOk && puOk {
+		if c.req.ProtoMajor == 2 {
+			switch c.w.(type) {
+			case interface {
+				http.Flusher
+				http.Pusher
+			}:
 				c.w = h2MultiWriter{c.mw}
-				break
-			}
-
-			if flOk {
+			case http.Flusher:
 				c.w = flushMultiWriter{c.mw}
-				break
+			case http.Pusher:
+				c.w = pushMultiWriter{c.mw}
+			default:
+				c.w = multiWriter{c.mw}
 			}
+			return
+		}
 
+		switch c.w.(type) {
+		case interface {
+			http.Flusher
+			http.Hijacker
+			io.ReaderFrom
+		}:
+			c.w = h1MultiWriter{c.mw}
+		case http.Flusher:
+			c.w = flushMultiWriter{c.mw}
+		default:
 			c.w = multiWriter{c.mw}
 		}
 	}

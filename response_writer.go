@@ -44,8 +44,23 @@ var (
 )
 
 var (
+	_ ResponseWriter = (*flushWriter)(nil)
+	_ http.Flusher   = (*flushWriter)(nil)
+)
+
+var (
+	_ ResponseWriter = (*pushWriter)(nil)
+	_ http.Pusher    = (*pushWriter)(nil)
+)
+
+var (
 	_ ResponseWriter = (*flushMultiWriter)(nil)
 	_ http.Flusher   = (*flushMultiWriter)(nil)
+)
+
+var (
+	_ ResponseWriter = (*pushMultiWriter)(nil)
+	_ http.Pusher    = (*pushMultiWriter)(nil)
 )
 
 var _ ResponseWriter = (*multiWriter)(nil)
@@ -201,17 +216,13 @@ func (w h2Writer) Flush() {
 	w.recorder.ResponseWriter.(http.Flusher).Flush()
 }
 
-type noopWriter struct{}
-
-func (n noopWriter) Header() http.Header {
-	return make(http.Header)
+type pushWriter struct {
+	*recorder
 }
 
-func (n noopWriter) Write([]byte) (int, error) {
-	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
+func (w pushWriter) Push(target string, opts *http.PushOptions) error {
+	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
 }
-
-func (n noopWriter) WriteHeader(int) {}
 
 type h1MultiWriter struct {
 	writers *[]io.Writer
@@ -317,6 +328,50 @@ func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
 	return (*w.writers)[0].(http.Pusher).Push(target, opts)
 }
 
+type pushMultiWriter struct {
+	writers *[]io.Writer
+}
+
+func (w pushMultiWriter) Header() http.Header {
+	return (*w.writers)[0].(ResponseWriter).Header()
+}
+
+func (w pushMultiWriter) WriteHeader(statusCode int) {
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
+}
+
+func (w pushMultiWriter) Status() int {
+	return (*w.writers)[0].(ResponseWriter).Status()
+}
+
+func (w pushMultiWriter) Written() bool {
+	return (*w.writers)[0].(ResponseWriter).Written()
+}
+
+func (w pushMultiWriter) Size() int {
+	return (*w.writers)[0].(ResponseWriter).Size()
+}
+
+func (w pushMultiWriter) Unwrap() http.ResponseWriter {
+	return (*w.writers)[0].(ResponseWriter).Unwrap()
+}
+
+func (w pushMultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
+func (w pushMultiWriter) Write(p []byte) (n int, err error) {
+	return multiWrite(w.writers, p)
+}
+
+func (w pushMultiWriter) WriteString(s string) (n int, err error) {
+	return multiWriteString(w.writers, s)
+}
+
+func (w pushMultiWriter) Push(target string, opts *http.PushOptions) error {
+	return (*w.writers)[0].(http.Pusher).Push(target, opts)
+}
+
 type flushMultiWriter struct {
 	writers *[]io.Writer
 }
@@ -400,6 +455,18 @@ func (w multiWriter) Write(p []byte) (n int, err error) {
 func (w multiWriter) WriteString(s string) (n int, err error) {
 	return multiWriteString(w.writers, s)
 }
+
+type noopWriter struct{}
+
+func (n noopWriter) Header() http.Header {
+	return make(http.Header)
+}
+
+func (n noopWriter) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
+}
+
+func (n noopWriter) WriteHeader(int) {}
 
 func multiWrite(writers *[]io.Writer, p []byte) (n int, err error) {
 	for _, writer := range *writers {
