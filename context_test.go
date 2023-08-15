@@ -9,17 +9,15 @@ import (
 	"compress/gzip"
 	netcontext "context"
 	"crypto/rand"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 )
 
 func TestContext_QueryParams(t *testing.T) {
@@ -85,12 +83,8 @@ func TestContext_Ctx(t *testing.T) {
 	cancel()
 	req = req.WithContext(ctx)
 	_, c := NewTestContext(httptest.NewRecorder(), req)
-	select {
-	case <-c.Ctx().Done():
-		require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
-	case <-time.After(1):
-		t.FailNow()
-	}
+	<-c.Ctx().Done()
+	require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
 }
 
 func TestContext_Redirect(t *testing.T) {
