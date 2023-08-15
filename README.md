@@ -402,11 +402,22 @@ f.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
 ````
 
 ### Custom http.ResponseWriter Implementations
-When using custom `http.ResponseWriter` implementations, it's important to ensure that these implementations expose the 
-required http interfaces. For HTTP/1.x requests, Fox expects the `http.ResponseWriter` to implement the `http.Flusher`, 
-`http.Hijacker`, and `io.ReaderFrom` interfaces. For HTTP/2 requests, the `http.ResponseWriter` should implement the 
-`http.Flusher` and `http.Pusher` interfaces. Fox will invoke these methods **without any prior assertion**.
+The behavior of ServeHTTP with respect to the `http.ResponseWriter` interfaces is influenced by
+the state of the `WithWriterSafety` option:
 
+- With `WithWriterSafety` enabled: `ServeHTTP` derives the protocol from the request's 
+`ProtoMajor` and conducts explicit type assertions on the provided `http.ResponseWriter`. This ensures
+compatibility across various writer implementations and safeguards against unpredictable outcomes.
+For example, using `http.TimeoutHandler` will result in a `ResponseWriter` that doesn't implement the `http.Flusher`
+interface, which would be safely detected in this mode.
+
+- Without `WithWriterSafety` (default behavior): `ServeHTTP` operates under an optimistic assumption that the provided
+`http.ResponseWriter` fully supports the necessary interfaces for the request's protocol. This results in ~30%
+improved performance since interface checks are bypassed. Specifically, for HTTP/1.x requests, the writer
+should implement `http.Flusher`, `http.Hijacker`, and `io.ReaderFrom`. For HTTP/2 requests, the writer should
+support `http.Flusher` and `http.Pusher`.
+
+When the exact capabilities of a custom response writer are uncertain, it's advisable to enable this safety check.
 
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 

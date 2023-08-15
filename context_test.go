@@ -371,7 +371,7 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 			t.Parallel()
 			f := New()
 			dumper := bytes.NewBuffer(nil)
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", WrapTestContextFlusher(tc.handler(dumper))))
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler(dumper)))
 
 			srv := httptest.NewServer(f)
 			defer srv.Close()

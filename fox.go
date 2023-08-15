@@ -48,6 +48,7 @@ type Router struct {
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
+	writerSafety           bool
 }
 
 type middleware struct {
@@ -253,13 +254,25 @@ func defaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
 
-// ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
-// to the appropriate handler function based on the request's method and path.
+// ServeHTTP is the primary entry point for handling incoming HTTP requests, dispatching them
+// to the appropriate handler function based on the method and path of the request.
 //
-// It expects the http.ResponseWriter provided to implement the http.Flusher, http.Hijacker, and io.ReaderFrom
-// interfaces for HTTP/1.x requests and the http.Flusher and http.Pusher interfaces for HTTP/2 requests.
-// If a custom response writer is used, it is critical to ensure that these methods are properly exposed as Fox
-// will invoke them without any prior assertion.
+// The behavior of ServeHTTP with respect to the http.ResponseWriter interfaces is influenced by
+// the state of the WithWriterSafety option:
+//
+//   - With WithWriterSafety enabled: ServeHTTP derives the protocol from the request's
+//     ProtoMajor and conducts explicit type assertions on the provided http.ResponseWriter. This ensures
+//     compatibility across various writer implementations and safeguards against unpredictable outcomes.
+//     For example, using http.TimeoutHandler will result in a ResponseWriter that doesn't implement the http.Flusher
+//     interface, which would be safely detected in this mode.
+//
+//   - Without WithWriterSafety (default behavior): ServeHTTP operates under an optimistic assumption that the provided
+//     http.ResponseWriter fully supports the necessary interfaces for the request's protocol. This results in
+//     improved performance since interface checks are bypassed. Specifically, for HTTP/1.x requests, the writer
+//     should implement http.Flusher, http.Hijacker, and io.ReaderFrom. For HTTP/2 requests, the writer should
+//     support http.Flusher and http.Pusher.
+//
+// When the exact capabilities of a custom response writer are uncertain, it's advisable to enable this safety check.
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var (
@@ -275,7 +288,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
+	c.Reset(fox, w, r, fox.writerSafety)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)

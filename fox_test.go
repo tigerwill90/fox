@@ -484,18 +484,18 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 }
 
 func BenchmarkStaticAll(b *testing.B) {
-	r := New()
+	f := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
-	benchRoutes(b, r, staticRoutes)
+	benchRoutes(b, f, staticRoutes)
 }
 
 func BenchmarkGithubParamsAll(b *testing.B) {
-	r := New()
+	f := New()
 	for _, route := range githubAPI {
-		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
 	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
@@ -505,14 +505,14 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
+		f.ServeHTTP(w, req)
 	}
 }
 
 func BenchmarkOverlappingRoute(b *testing.B) {
-	r := New()
+	f := New()
 	for _, route := range overlappingRoutes {
-		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
 	req := httptest.NewRequest("GET", "/foo/abc/id:123/xy", nil)
@@ -522,21 +522,21 @@ func BenchmarkOverlappingRoute(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
+		f.ServeHTTP(w, req)
 	}
 }
 
 func BenchmarkStaticParallel(b *testing.B) {
-	r := New()
+	f := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
 	}
-	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
+	benchRouteParallel(b, f, route{"GET", "/progs/image_package4.out"})
 }
 
 func BenchmarkCatchAll(b *testing.B) {
-	r := New()
-	require.NoError(b, r.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
+	f := New()
+	require.NoError(b, f.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -544,13 +544,13 @@ func BenchmarkCatchAll(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
+		f.ServeHTTP(w, req)
 	}
 }
 
 func BenchmarkCatchAllParallel(b *testing.B) {
-	r := New()
-	require.NoError(b, r.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
+	f := New()
+	require.NoError(b, f.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -559,7 +559,7 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			r.ServeHTTP(w, req)
+			f.ServeHTTP(w, req)
 		}
 	})
 }

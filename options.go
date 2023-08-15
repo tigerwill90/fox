@@ -119,12 +119,34 @@ func WithRedirectTrailingSlash(enable bool) Option {
 	})
 }
 
-// DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope and enable
-// automatic OPTIONS response. Note that DefaultOptions push the Recovery middleware to the first position of the
-// middleware chains.
+// WithWriterSafety controls the rigor of inspections on the http.ResponseWriter for supported interfaces.
+//
+// When disabled, the protocol handling is optimistic and is chosen based solely on the request's ProtoMajor.
+// It assumes the provided http.ResponseWriter supports all relevant interfaces for the chosen protocol, offering better
+// performance. However, this can introduce risks of unexpected panics if the writer doesn't truly support the assumed interfaces.
+// This option is designed for situations where you're certain about the capabilities of the original http.ResponseWriter.
+//
+// When enabled, the protocol handling is more conservative. The chosen protocol is based on a combination of
+// the request's ProtoMajor and explicit type assertions against the http.ResponseWriter, ensuring compatibility with
+// varying implementations and safety against unexpected panics. This mode offers a safer but slightly less performant approach.
+//
+// In most scenarios, users are recommended to keep the safety checks intact unless there's a compelling performance reason and
+// confidence in the provided http.ResponseWriter's capabilities.
+//
+// This API is EXPERIMENTAL and is likely to change in future releases.
+func WithWriterSafety(enable bool) Option {
+	return optionFunc(func(r *Router) {
+		r.writerSafety = enable
+	})
+}
+
+// DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope, enable automatic
+// OPTIONS response and writer safety checks. Note that DefaultOptions push the Recovery middleware to the first
+// position of the middleware chains.
 func DefaultOptions() Option {
 	return optionFunc(func(r *Router) {
 		r.mws = append([]middleware{{Recovery(DefaultHandleRecovery), RouteHandlers}}, r.mws...)
 		r.handleOptions = true
+		r.writerSafety = true
 	})
 }

@@ -44,8 +44,23 @@ var (
 )
 
 var (
+	_ ResponseWriter = (*flushWriter)(nil)
+	_ http.Flusher   = (*flushWriter)(nil)
+)
+
+var (
+	_ ResponseWriter = (*pushWriter)(nil)
+	_ http.Pusher    = (*pushWriter)(nil)
+)
+
+var (
 	_ ResponseWriter = (*flushMultiWriter)(nil)
 	_ http.Flusher   = (*flushMultiWriter)(nil)
+)
+
+var (
+	_ ResponseWriter = (*pushMultiWriter)(nil)
+	_ http.Pusher    = (*pushMultiWriter)(nil)
 )
 
 var _ ResponseWriter = (*multiWriter)(nil)
@@ -59,9 +74,13 @@ var copyBufPool = sync.Pool{
 	},
 }
 
-// ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
-// written state, and response size. ResponseWriter object implements additional http.Flusher, http.Hijacker,
-// io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces for HTTP/2 requests.
+// ResponseWriter is an enhanced interface that extends http.ResponseWriter. It provides methods
+// to retrieve information such as the recorded status code, written state, and response size.
+//
+// Depending on the underlying http.ResponseWriter it wraps and the request's protocol:
+//   - For HTTP/1.x requests, ResponseWriter might implement the full set of http.Flusher, http.Hijacker,
+//     and io.ReaderFrom interfaces, or a subset of these (e.g., only http.Flusher).
+//   - For HTTP/2 requests, ResponseWriter might implement http.Flusher, http.Pusher, or just one of them.
 type ResponseWriter interface {
 	http.ResponseWriter
 	// Status recorded after Write and WriteHeader.
@@ -73,8 +92,17 @@ type ResponseWriter interface {
 	// Unwrap returns the underlying http.ResponseWriter.
 	Unwrap() http.ResponseWriter
 	// Wrap replaces the underlying http.ResponseWriter for the current ResponseWriter. It does not reset the status,
-	// written state, or response size of the current ResponseWriter. Caution: You should pass the original
-	// http.ResponseWriter to this method, not the ResponseWriter itself, to avoid wrapping the ResponseWriter within itself.
+	// written state, or response size of the current ResponseWriter. This method gives direct access to replace the
+	// underlying http.ResponseWriter without performing any safety checks on the provided writer's supported interfaces.
+	// Hence, it's the responsibility of the caller to ensure the provided writer supports the necessary interfaces
+	// based on the request's protocol. Using this method without caution can introduce risks of unexpected
+	// panics if the provided writer doesn't truly support the required interfaces.
+	//
+	// In most scenarios, ResetWriter in safe mode is the recommended method as it wraps the http.ResponseWriter
+	// while ensuring protocol and interface compatibility.
+	//
+	// Important: Always pass the original http.ResponseWriter to this method and not the ResponseWriter itself
+	// to prevent wrapping the ResponseWriter within itself.
 	Wrap(w http.ResponseWriter)
 	// WriteString writes the provided string to the underlying connection
 	// as part of an HTTP reply. The method returns the number of bytes written
@@ -201,17 +229,13 @@ func (w h2Writer) Flush() {
 	w.recorder.ResponseWriter.(http.Flusher).Flush()
 }
 
-type noopWriter struct{}
-
-func (n noopWriter) Header() http.Header {
-	return make(http.Header)
+type pushWriter struct {
+	*recorder
 }
 
-func (n noopWriter) Write([]byte) (int, error) {
-	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
+func (w pushWriter) Push(target string, opts *http.PushOptions) error {
+	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
 }
-
-func (n noopWriter) WriteHeader(int) {}
 
 type h1MultiWriter struct {
 	writers *[]io.Writer
@@ -314,6 +338,50 @@ func (w h2MultiWriter) Flush() {
 }
 
 func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
+	return (*w.writers)[0].(http.Pusher).Push(target, opts)
+}
+
+type pushMultiWriter struct {
+	writers *[]io.Writer
+}
+
+func (w pushMultiWriter) Header() http.Header {
+	return (*w.writers)[0].(ResponseWriter).Header()
+}
+
+func (w pushMultiWriter) WriteHeader(statusCode int) {
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
+}
+
+func (w pushMultiWriter) Status() int {
+	return (*w.writers)[0].(ResponseWriter).Status()
+}
+
+func (w pushMultiWriter) Written() bool {
+	return (*w.writers)[0].(ResponseWriter).Written()
+}
+
+func (w pushMultiWriter) Size() int {
+	return (*w.writers)[0].(ResponseWriter).Size()
+}
+
+func (w pushMultiWriter) Unwrap() http.ResponseWriter {
+	return (*w.writers)[0].(ResponseWriter).Unwrap()
+}
+
+func (w pushMultiWriter) Wrap(rw http.ResponseWriter) {
+	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+}
+
+func (w pushMultiWriter) Write(p []byte) (n int, err error) {
+	return multiWrite(w.writers, p)
+}
+
+func (w pushMultiWriter) WriteString(s string) (n int, err error) {
+	return multiWriteString(w.writers, s)
+}
+
+func (w pushMultiWriter) Push(target string, opts *http.PushOptions) error {
 	return (*w.writers)[0].(http.Pusher).Push(target, opts)
 }
 
@@ -444,3 +512,15 @@ func multiFlush(writers *[]io.Writer) {
 		}
 	}
 }
+
+type noopWriter struct{}
+
+func (n noopWriter) Header() http.Header {
+	return make(http.Header)
+}
+
+func (n noopWriter) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
+}
+
+func (n noopWriter) WriteHeader(int) {}

@@ -30,21 +30,23 @@ type Context interface {
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
 	SetRequest(r *http.Request)
-	// Writer method returns a custom ResponseWriter implementation. The returned ResponseWriter object implements additional
-	// http.Flusher, http.Hijacker, io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces
-	// for HTTP/2 requests. These additional interfaces provide extra functionality and are used by underlying HTTP protocols
-	// for specific tasks.
-	//
-	// In actual workload scenarios, the custom ResponseWriter satisfies interfaces for HTTP/1.x and HTTP/2 protocols,
-	// however, if testing with e.g. httptest.Recorder, only the http.Flusher is available to the underlying ResponseWriter.
-	// Therefore, while asserting interfaces like http.Hijacker will not fail, invoking Hijack method will panic if the
-	// underlying ResponseWriter does not implement this interface.
-	//
-	// To facilitate testing with e.g. httptest.Recorder, use the WrapTestContextFlusher helper function which only exposes the
-	// http.Flusher interface for the ResponseWriter.
+	// Writer returns the ResponseWriter.
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
+	// ResetWriter resets the Writer with the provided http.ResponseWriter. It also resets any previously recorded size,
+	// written state, and status code. Caution: Ensure you pass the original http.ResponseWriter to this method and not the
+	// ResponseWriter itself, to prevent wrapping the ResponseWriter within itself.
+	//
+	// The safe flag controls the rigor of inspections on the http.ResponseWriter for supported interfaces:
+	//
+	// In unsafe mode, the protocol is chosen based solely on r.ProtoMajor. It optimistically assumes the writer supports
+	// all relevant interfaces for the chosen protocol. This mode offers better performance but can introduce risks of
+	// unexpected panic if the writer doesn't truly support the assumed interfaces. It's vital to use this mode only when
+	// certain about the capabilities of the original http.ResponseWriter. In safe mode, the protocol is chosen based on a
+	// combination of r.ProtoMajor and explicit type assertions. It checks the http.ResponseWriter to determine which
+	// interfaces are supported, ensuring compatibility with varying implementations.
+	ResetWriter(w http.ResponseWriter, safe bool)
 	// TeeWriter append an additional writer (sink) to which the response body will be written.
 	// This API is EXPERIMENTAL and is likely to change in future release.
 	TeeWriter(w io.Writer)
@@ -77,9 +79,11 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router in use to serve the request.
 	Fox() *Router
-	// Reset resets the Context to its initial state, attaching the provided Router,
-	// http.ResponseWriter, and *http.Request.
-	Reset(fox *Router, w http.ResponseWriter, r *http.Request)
+	// Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
+	// Caution: You should pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to avoid
+	// wrapping the ResponseWriter within itself. The safe flag controls the rigor of inspections on the http.ResponseWriter
+	// for supported interfaces (see ResetWriter).
+	Reset(fox *Router, w http.ResponseWriter, r *http.Request, safe bool)
 }
 
 // context holds request-related information and allows interaction with the ResponseWriter.
@@ -101,20 +105,71 @@ type context struct {
 
 // Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
 // Caution: You should pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to avoid
-// wrapping the ResponseWriter within itself.
-func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
-	c.rec.reset(w)
-	c.req = r
-	if r.ProtoMajor == 2 {
-		c.w = h2Writer{&c.rec}
-	} else {
-		c.w = h1Writer{&c.rec}
-	}
+// wrapping the ResponseWriter within itself. The safe flag controls the rigor of inspections on the http.ResponseWriter
+// for supported interfaces (see ResetWriter).
+func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request, safe bool) {
 	c.fox = fox
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
 	*c.mw = (*c.mw)[:0]
+	c.req = r
+	c.ResetWriter(w, safe)
+}
+
+// ResetWriter resets the Writer with the provided http.ResponseWriter. It also resets any previously recorded size,
+// written state, and status code. Caution: Ensure you pass the original http.ResponseWriter to this method and not the
+// ResponseWriter itself, to prevent wrapping the ResponseWriter within itself.
+//
+// The safe flag controls the rigor of inspections on the http.ResponseWriter for supported interfaces:
+//
+// In unsafe mode, the protocol is chosen based solely on r.ProtoMajor. It optimistically assumes the writer supports
+// all relevant interfaces for the chosen protocol. This mode offers better performance but can introduce risks of
+// unexpected panic if the writer doesn't truly support the assumed interfaces. It's vital to use this mode only when
+// certain about the capabilities of the original http.ResponseWriter. In safe mode, the protocol is chosen based on a
+// combination of r.ProtoMajor and explicit type assertions. It checks the http.ResponseWriter to determine which
+// interfaces are supported, ensuring compatibility with varying implementations.
+func (c *context) ResetWriter(w http.ResponseWriter, safe bool) {
+	c.rec.reset(w)
+	if c.req.ProtoMajor == 2 {
+		if !safe {
+			c.w = h2Writer{&c.rec}
+			return
+		}
+
+		switch w.(type) {
+		case interface {
+			http.Flusher
+			http.Pusher
+		}:
+			c.w = h2Writer{&c.rec}
+		case http.Flusher:
+			c.w = flushWriter{&c.rec}
+		case http.Pusher:
+			c.w = pushWriter{&c.rec}
+		default:
+			c.w = &c.rec
+		}
+		return
+	}
+
+	if !safe {
+		c.w = h1Writer{&c.rec}
+		return
+	}
+
+	switch w.(type) {
+	case interface {
+		http.Flusher
+		http.Hijacker
+		io.ReaderFrom
+	}:
+		c.w = h1Writer{&c.rec}
+	case http.Flusher:
+		c.w = flushWriter{&c.rec}
+	default:
+		c.w = &c.rec
+	}
 }
 
 func (c *context) resetNil() {
@@ -155,31 +210,49 @@ func (c *context) TeeWriter(w io.Writer) {
 			*c.mw = append(*c.mw, c.w)
 		}
 		*c.mw = append(*c.mw, w)
+
 		switch c.w.(type) {
 		case h1Writer:
 			c.w = h1MultiWriter{c.mw}
+			return
 		case h2Writer:
 			c.w = h2MultiWriter{c.mw}
-		default:
-			_, rfOk := c.w.(io.ReaderFrom)
-			_, flOk := c.w.(http.Flusher)
-			_, hiOk := c.w.(http.Hijacker)
-			if rfOk && flOk && hiOk {
-				c.w = h1MultiWriter{c.mw}
-				break
-			}
+			return
+		case flushWriter:
+			c.w = flushMultiWriter{c.mw}
+			return
+		case pushWriter:
+			c.w = pushMultiWriter{c.mw}
+			return
+		}
 
-			_, puOk := c.w.(http.Pusher)
-			if flOk && puOk {
+		if c.req.ProtoMajor == 2 {
+			switch c.w.(type) {
+			case interface {
+				http.Flusher
+				http.Pusher
+			}:
 				c.w = h2MultiWriter{c.mw}
-				break
-			}
-
-			if flOk {
+			case http.Flusher:
 				c.w = flushMultiWriter{c.mw}
-				break
+			case http.Pusher:
+				c.w = pushMultiWriter{c.mw}
+			default:
+				c.w = multiWriter{c.mw}
 			}
+			return
+		}
 
+		switch c.w.(type) {
+		case interface {
+			http.Flusher
+			http.Hijacker
+			io.ReaderFrom
+		}:
+			c.w = h1MultiWriter{c.mw}
+		case http.Flusher:
+			c.w = flushMultiWriter{c.mw}
+		default:
 			c.w = multiWriter{c.mw}
 		}
 	}
@@ -281,6 +354,7 @@ func (c *context) Fox() *Router {
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
+// Writing on a cloned ResponseWriter will return an error ErrDiscardedResponseWriter.
 func (c *context) Clone() Context {
 	cp := context{
 		rec:  c.rec,
@@ -363,7 +437,7 @@ func WrapM(m func(handler http.Handler) http.Handler, useOriginalWriter bool) Mi
 		return func(c Context) {
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if useOriginalWriter {
-					c.Writer().Wrap(w)
+					c.ResetWriter(w, false)
 				}
 				c.SetRequest(r)
 				next(c)
