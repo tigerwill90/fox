@@ -167,6 +167,95 @@ func TestContext_Writer(t *testing.T) {
 	assert.True(t, c.Writer().Written())
 }
 
+func TestContext_ResetWriter(t *testing.T) {
+	t.Parallel()
+	type capabilities struct {
+		rf  bool
+		fl  bool
+		hij bool
+		psh bool
+	}
+
+	cases := []struct {
+		name       string
+		w          http.ResponseWriter
+		protoMajor int
+		want       capabilities
+	}{
+		{
+			name:       "implement all h1 writer",
+			w:          h1Writer{},
+			protoMajor: 1,
+			want: capabilities{
+				rf:  true,
+				fl:  true,
+				hij: true,
+			},
+		},
+		{
+			name:       "implement all h2 writer",
+			w:          h2Writer{},
+			protoMajor: 2,
+			want: capabilities{
+				fl:  true,
+				psh: true,
+			},
+		},
+		{
+			name:       "implement only flusher for h1",
+			w:          flushWriter{},
+			protoMajor: 1,
+			want: capabilities{
+				fl: true,
+			},
+		},
+		{
+			name:       "implement only flusher for h2",
+			w:          flushWriter{},
+			protoMajor: 2,
+			want: capabilities{
+				fl: true,
+			},
+		},
+		{
+			name:       "implement only pusher",
+			w:          pushWriter{},
+			protoMajor: 2,
+			want: capabilities{
+				psh: true,
+			},
+		},
+		{
+			name:       "only rw for h1",
+			w:          mockResponseWriter{},
+			protoMajor: 1,
+		},
+		{
+			name:       "only rw for h2",
+			w:          mockResponseWriter{},
+			protoMajor: 2,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+			req.ProtoMajor = tc.protoMajor
+			c := NewTestContextOnly(New(), tc.w, req)
+			_, flOk := c.Writer().(http.Flusher)
+			_, rfOk := c.Writer().(io.ReaderFrom)
+			_, hijOk := c.Writer().(http.Hijacker)
+			_, pshOk := c.Writer().(http.Pusher)
+			assert.Equal(t, tc.want.fl, flOk)
+			assert.Equal(t, tc.want.rf, rfOk)
+			assert.Equal(t, tc.want.hij, hijOk)
+			assert.Equal(t, tc.want.psh, pshOk)
+		})
+	}
+}
+
 func TestContext_Header(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()

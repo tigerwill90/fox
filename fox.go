@@ -257,13 +257,13 @@ func defaultOptionsHandler(c Context) {
 // ServeHTTP is the primary entry point for handling incoming HTTP requests, dispatching them
 // to the appropriate handler function based on the method and path of the request.
 //
-// The behavior of ServeHTTP with respect to the http.ResponseWriter interfaces is influenced by
+// The behavior of ServeHTTP with respect to the http.ResponseWriter interfaces depend on
 // the state of the WithWriterSafety option:
 //
 //   - With WithWriterSafety enabled: ServeHTTP derives the protocol from the request's
 //     ProtoMajor and conducts explicit type assertions on the provided http.ResponseWriter. This ensures
 //     compatibility across various writer implementations and safeguards against unpredictable outcomes.
-//     For example, using http.TimeoutHandler will result in a ResponseWriter that doesn't implement the http.Flusher
+//     For example, using http.TimeoutHandler will result in a http.ResponseWriter that doesn't implement the http.Flusher
 //     interface, which would be safely detected in this mode.
 //
 //   - Without WithWriterSafety (default behavior): ServeHTTP operates under an optimistic assumption that the provided

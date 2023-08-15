@@ -31,19 +31,19 @@ var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Request().UR
 
 type mockResponseWriter struct{}
 
-func (m *mockResponseWriter) Header() (h http.Header) {
+func (m mockResponseWriter) Header() (h http.Header) {
 	return http.Header{}
 }
 
-func (m *mockResponseWriter) Write(p []byte) (n int, err error) {
+func (m mockResponseWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
+func (m mockResponseWriter) WriteString(s string) (n int, err error) {
 	return len(s), nil
 }
 
-func (m *mockResponseWriter) WriteHeader(int) {}
+func (m mockResponseWriter) WriteHeader(int) {}
 
 type route struct {
 	method string
@@ -1819,6 +1819,21 @@ func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 	assert.Equal(t, "POST", w.Header().Get("Allow"))
 	assert.Equal(t, "BAR", w.Header().Get("FOO"))
+}
+
+func TestRouterWithWriterSafety(t *testing.T) {
+	f := New(WithWriterSafety(true))
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+		_, flOK := c.Writer().(http.Flusher)
+		assert.False(t, flOK)
+	}))
+
+	h := http.TimeoutHandler(f, 1*time.Second, "")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+
+	h.ServeHTTP(w, req)
 }
 
 func TestRouterWithAutomaticOptions(t *testing.T) {

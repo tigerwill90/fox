@@ -23,10 +23,9 @@ func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Con
 func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *context {
 	c := fox.Tree().allocateContext()
 	c.resetNil()
-	c.rec.reset(w)
-	c.w = flushWriter{&c.rec}
 	c.fox = fox
 	c.req = r
+	c.ResetWriter(w, true)
 	return c
 }
 
