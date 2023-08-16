@@ -360,7 +360,9 @@ func WrapH(h http.Handler) HandlerFunc {
 }
 
 // WrapM is an adapter for converting http.Handler middleware into a MiddlewareFunc. It does not work with middleware
-// that wrap custom http.ResponseWriter (e.g. gzip). This API is EXPERIMENTAL and is likely to change in future release.
+// that wrap custom http.ResponseWriter (e.g. gzip).
+// This API is EXPERIMENTAL and is likely to change in future release.
+// Deprecated: WrapM is planned to be removed in v1.0.0.
 func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {

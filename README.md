@@ -393,9 +393,9 @@ f := fox.New(fox.DefaultOptions())
 f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
-Wrapping an `http.Handler` compatible middleware
+Wrapping an `http.Handler` compatible middleware. Please note that `WrapM` is slated for deprecation in a forthcoming release.
 ````go
-f := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit, false)))
+f := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
 f.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
     _ = c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
 })
