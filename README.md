@@ -467,6 +467,7 @@ f := fox.New(
 ### Official middlewares
 * [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
 * [tigerwill90/foxdump](https://github.com/tigerwill90/foxdump): Body dump middleware for capturing requests and responses payload.
+* [tigerwill90/foxtimeout](https://github.com/tigerwill90/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
 
 ## Handling OPTIONS Requests and CORS Automatically
 The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 
