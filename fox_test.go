@@ -581,6 +581,21 @@ func BenchmarkMultiWriter(b *testing.B) {
 	}
 }
 
+func BenchmarkCloneWith(b *testing.B) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		cp := c.CloneWith(c.Writer(), c.Request())
+		cp.Close()
+	})
+	w := new(mockResponseWriter)
+	r := httptest.NewRequest("GET", "/hello/fox", nil)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		f.ServeHTTP(w, r)
+	}
+}
+
 func TestStaticRoute(t *testing.T) {
 	r := New()
 

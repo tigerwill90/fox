@@ -71,8 +71,27 @@ func TestContext_Clone(t *testing.T) {
 	assert.Equal(t, len(buf), cc.Writer().Size())
 	assert.Equal(t, wantValues, c.QueryParams())
 	assert.Empty(t, *c.mw)
-	_, err = cc.Writer().Write([]byte("invalid"))
-	assert.ErrorIs(t, err, ErrDiscardedResponseWriter)
+	assert.Panics(t, func() {
+		_, _ = cc.Writer().Write([]byte("invalid"))
+	})
+}
+
+func TestContext_CloneWith(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	c := newTextContextOnly(New(), w, req)
+
+	cp := c.CloneWith(c.Writer(), c.Request())
+	cc := unwrapContext(t, cp)
+
+	assert.Equal(t, c.Params(), cp.Params())
+	assert.Equal(t, c.Request(), cp.Request())
+	assert.Equal(t, c.Writer(), cp.Writer())
+	assert.Equal(t, c.Path(), cp.Path())
+	assert.Equal(t, c.Fox(), cp.Fox())
+	assert.Nil(t, cc.cachedQuery)
+	assert.Empty(t, cc.mw)
 }
 
 func TestContext_Ctx(t *testing.T) {
@@ -574,21 +593,21 @@ func TestWrapF(t *testing.T) {
 		{
 			name: "wrap handlerFunc without context params",
 			handler: func(expectedParams Params) http.HandlerFunc {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return func(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write([]byte("fox"))
-				})
+				}
 			},
 		},
 		{
 			name: "wrap handlerFunc with context params",
 			handler: func(expectedParams Params) http.HandlerFunc {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return func(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write([]byte("fox"))
 
 					p := ParamsFromContext(r.Context())
 
 					assert.Equal(t, expectedParams, p)
-				})
+				}
 			},
 			params: &Params{
 				{

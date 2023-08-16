@@ -122,6 +122,9 @@ func (r *recorder) Written() bool {
 }
 
 func (r *recorder) Size() int {
+	if r.size < 0 {
+		return 0
+	}
 	return r.size
 }
 
@@ -437,17 +440,26 @@ func (w multiWriter) WriteString(s string) (n int, err error) {
 	return multiWriteString(w.writers, s)
 }
 
-type noopWriter struct{}
+// noUnwrap hide the Unwrap method of the ResponseWriter.
+type noUnwrap struct {
+	ResponseWriter
+}
+
+type noopWriter struct {
+	h http.Header
+}
 
 func (n noopWriter) Header() http.Header {
-	return make(http.Header)
+	return n.h
 }
 
 func (n noopWriter) Write([]byte) (int, error) {
-	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
+	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
 }
 
-func (n noopWriter) WriteHeader(int) {}
+func (n noopWriter) WriteHeader(int) {
+	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
+}
 
 func multiWrite(writers *[]io.Writer, p []byte) (n int, err error) {
 	for _, writer := range *writers {

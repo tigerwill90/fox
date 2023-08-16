@@ -6,6 +6,7 @@ package fox
 
 import (
 	"net/http"
+	"testing"
 )
 
 // NewTestContext returns a new Router and its associated Context, designed only for testing purpose.
@@ -34,4 +35,13 @@ func newTestContextTree(t *Tree) *context {
 	c := t.allocateContext()
 	c.resetNil()
 	return c
+}
+
+func unwrapContext(t *testing.T, c Context) *context {
+	t.Helper()
+	cc, ok := c.(*context)
+	if !ok {
+		t.Fatal("unable to unwrap context")
+	}
+	return cc
 }

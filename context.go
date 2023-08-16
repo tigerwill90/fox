@@ -73,6 +73,12 @@ type Context interface {
 	Redirect(code int, url string) error
 	// Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
 	Clone() Context
+	// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
+	// http.Request with the provided ones. The method is designed for zero allocation during the
+	// copy process. The returned ContextCloser must be closed once no longer needed.
+	// This functionality is particularly beneficial for middlewares that need to wrap
+	// their custom ResponseWriter while preserving the state of the original Context.
+	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
 	// Tree is a local copy of the Tree in use to serve the request.
 	Tree() *Tree
 	// Fox returns the Router in use to serve the request.
@@ -292,15 +298,18 @@ func (c *context) Fox() *Router {
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
+// Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter. Note that
+// TeeWriter are discarded.
 func (c *context) Clone() Context {
 	cp := context{
 		rec:  c.rec,
-		req:  c.req,
+		req:  c.req.Clone(c.req.Context()),
 		fox:  c.fox,
 		tree: c.tree,
 	}
-	cp.rec.ResponseWriter = noopWriter{}
-	cp.w = &cp.rec
+
+	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
+	cp.w = noUnwrap{&cp.rec}
 	params := make(Params, len(*c.params))
 	copy(params, *c.params)
 	cp.params = &params
@@ -308,6 +317,30 @@ func (c *context) Clone() Context {
 	mw := make([]io.Writer, 0, 2)
 	cp.mw = &mw
 	return &cp
+}
+
+// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
+// http.Request with the provided ones. The method is designed for zero allocation during the
+// copy process. The returned ContextCloser must be closed once no longer needed.
+// This functionality is particularly beneficial for middlewares that need to wrap
+// their custom ResponseWriter while preserving the state of the original Context.
+func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
+	cp := c.tree.ctx.Get().(*context)
+	cp.req = r
+	cp.w = w
+	cp.path = c.path
+	cp.fox = c.fox
+	cp.cachedQuery = nil
+	if len(*c.params) > len(*cp.params) {
+		// Grow cp.params to a least cap(c.params)
+		*cp.params = grow(*cp.params, len(*c.params)-len(*cp.params))
+	}
+	// cap(cp.params) >= cap(c.params)
+	// now constraint into len(c.params) & cap(c.params)
+	*cp.params = (*cp.params)[:len(*c.params):cap(*c.params)]
+	copy(*cp.params, *c.params)
+	*cp.mw = (*cp.mw)[:0]
+	return cp
 }
 
 // Close releases the context to be reused later.
