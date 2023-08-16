@@ -14,8 +14,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"path"
+	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -85,16 +89,14 @@ type ResponseWriter interface {
 	Written() bool
 	// Size returns the size of the written response.
 	Size() int
-	// Unwrap returns the underlying http.ResponseWriter.
-	Unwrap() http.ResponseWriter
-	// Wrap replaces the underlying http.ResponseWriter for the current ResponseWriter. It does not reset the status,
-	// written state, or response size of the current ResponseWriter. Caution: You should pass the original
-	// http.ResponseWriter to this method, not the ResponseWriter itself, to avoid wrapping the ResponseWriter within itself.
-	Wrap(w http.ResponseWriter)
 	// WriteString writes the provided string to the underlying connection
 	// as part of an HTTP reply. The method returns the number of bytes written
 	// and an error, if any.
 	WriteString(s string) (int, error)
+}
+
+type rwUnwrapper interface {
+	Unwrap() http.ResponseWriter
 }
 
 const notWritten = -1
@@ -127,16 +129,17 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-func (r *recorder) Wrap(w http.ResponseWriter) {
-	r.ResponseWriter = w
-}
-
 func (r *recorder) WriteHeader(code int) {
-	if !r.Written() {
-		r.size = 0
-		r.status = code
+	if r.Written() {
+		caller := relevantCaller()
+		log.Printf("http: superfluous response.WriteHeader call from %s (%s:%d)", caller.Function, path.Base(caller.File), caller.Line)
+		return
 	}
+
+	r.size = 0
+	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+	return
 }
 
 func (r *recorder) Write(buf []byte) (n int, err error) {
@@ -144,7 +147,6 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 		r.size = 0
 		r.ResponseWriter.WriteHeader(r.status)
 	}
-
 	n, err = r.ResponseWriter.Write(buf)
 	r.size += n
 	return
@@ -249,11 +251,7 @@ func (w h1MultiWriter) Size() int {
 }
 
 func (w h1MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w h1MultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w h1MultiWriter) Write(p []byte) (n int, err error) {
@@ -305,11 +303,7 @@ func (w h2MultiWriter) Size() int {
 }
 
 func (w h2MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w h2MultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w h2MultiWriter) Write(p []byte) (n int, err error) {
@@ -353,11 +347,7 @@ func (w pushMultiWriter) Size() int {
 }
 
 func (w pushMultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w pushMultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w pushMultiWriter) Write(p []byte) (n int, err error) {
@@ -397,11 +387,7 @@ func (w flushMultiWriter) Size() int {
 }
 
 func (w flushMultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w flushMultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w flushMultiWriter) Write(p []byte) (n int, err error) {
@@ -441,11 +427,7 @@ func (w multiWriter) Size() int {
 }
 
 func (w multiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w multiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w multiWriter) Write(p []byte) (n int, err error) {
@@ -510,4 +492,21 @@ func multiFlush(writers *[]io.Writer) {
 			f.Flush()
 		}
 	}
+}
+
+func relevantCaller() runtime.Frame {
+	pc := make([]uintptr, 16)
+	n := runtime.Callers(1, pc)
+	frames := runtime.CallersFrames(pc[:n])
+	var frame runtime.Frame
+	for {
+		frame, more := frames.Next()
+		if !strings.HasPrefix(frame.Function, "github.com/tigerwill90/fox.") {
+			return frame
+		}
+		if !more {
+			break
+		}
+	}
+	return frame
 }

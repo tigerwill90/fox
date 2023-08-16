@@ -6,7 +6,6 @@ package fox
 
 import (
 	"bytes"
-	"compress/gzip"
 	netcontext "context"
 	"crypto/rand"
 	"github.com/stretchr/testify/assert"
@@ -157,7 +156,7 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Writer().Status())
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
-	assert.Equal(t, w, c.Writer().Unwrap())
+	assert.Equal(t, w, c.Writer().(rwUnwrapper).Unwrap())
 	assert.True(t, c.Writer().Written())
 }
 
@@ -707,19 +706,6 @@ func TestWrapM(t *testing.T) {
 		wantSize   int
 	}{
 		{
-			name: "using original writer",
-			m: WrapM(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					req := r.Clone(r.Context())
-					req.Header.Set("foo", "bar")
-					next.ServeHTTP(mockWriter{w}, req)
-				})
-			}, true),
-			wantStatus: http.StatusCreated,
-			wantBody:   "foo bar",
-			wantSize:   7,
-		},
-		{
 			name: "using fox writer",
 			m: WrapM(func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -727,7 +713,7 @@ func TestWrapM(t *testing.T) {
 					req.Header.Set("foo", "bar")
 					next.ServeHTTP(w, req)
 				})
-			}, false),
+			}),
 			wantStatus: http.StatusCreated,
 			wantBody:   "foo bar",
 			wantSize:   7,
@@ -741,7 +727,7 @@ func TestWrapM(t *testing.T) {
 					w.WriteHeader(http.StatusUnauthorized)
 					_, _ = w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
 				})
-			}, false),
+			}),
 			wantStatus: http.StatusUnauthorized,
 			wantBody:   http.StatusText(http.StatusUnauthorized),
 			wantSize:   12,
@@ -797,13 +783,6 @@ type gzipResponseWriter struct {
 // This example demonstrates the usage of the WrapM function which is used to wrap an http.Handler middleware
 // and returns a MiddlewareFunc function compatible with Fox.
 func ExampleWrapM() {
-	// Case 1: Middleware that may write a response and stop execution.
-	// This is commonly seen in middleware that implements authorization checks. If the check does not pass,
-	// the middleware can stop the execution of the subsequent handlers and write an error response.
-	// The "authorizationMiddleware" in this example checks for a specific token in the request's Authorization header.
-	// If the token is not the expected value, it sends an HTTP 401 Unauthorized error and stops the execution.
-	// In this case, the WrapM function is used with the "useOriginalWriter" set to false, as we want to use
-	// the custom ResponseWriter provided by the Fox framework to capture the status code and response size.
 	authorizationMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := r.Header.Get("Authorization")
@@ -815,24 +794,8 @@ func ExampleWrapM() {
 		})
 	}
 
-	_ = New(WithMiddleware(WrapM(authorizationMiddleware, false)))
-
-	// Case 2: Middleware that wraps the ResponseWriter with its own implementation.
-	// This is typically used in middleware that transforms the response in some way, for instance by applying gzip compression.
-	// The "gzipMiddleware" in this example wraps the original ResponseWriter with a gzip writer, which compresses the response data.
-	// In this case, the WrapM function is used with the "useOriginalWriter" set to true, as the middleware needs to wrap the original
-	// http.ResponseWriter with its own implementation. After wrapping, the Fox framework's ResponseWriter is updated to the new ResponseWriter.
-	gzipMiddleware := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gz := gzip.NewWriter(w)
-			defer gz.Close()
-
-			// Create a new ResponseWriter that writes to the gzip writer
-			gzw := gzipResponseWriter{Writer: gz, ResponseWriter: w}
-			r.Header.Set("Content-Encoding", "gzip")
-			next.ServeHTTP(gzw, r)
-		})
-	}
-
-	_ = New(WithMiddleware(WrapM(gzipMiddleware, true)))
+	f := New(WithMiddleware(WrapM(authorizationMiddleware)))
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		_ = c.String(http.StatusOK, "Authorized\n")
+	})
 }

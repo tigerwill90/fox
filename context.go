@@ -359,31 +359,16 @@ func WrapH(h http.Handler) HandlerFunc {
 	}
 }
 
-// WrapM is an adapter for converting http.Handler middleware into a MiddlewareFunc.
-// The boolean parameter, useOriginalWriter, determines how the middleware interacts with the ResponseWriter:
-//   - If useOriginalWriter is false, the middleware is provided with the ResponseWriter from the Fox router.
-//     This is suitable for middlewares that may write a response and stop further execution (like an authorization middleware).
-//     The Fox's ResponseWriter allows to keep track of the response status and size.
-//   - If useOriginalWriter is true, the middleware is provided with the original http.ResponseWriter from Go's net/http package.
-//     This is required for middlewares that need to wrap the ResponseWriter with their own implementation (like a gzip middleware).
-//     The Wrap function is used to ensure that the Fox's ResponseWriter wraps the middleware's ResponseWriter implementation.
-//
-// This API is EXPERIMENTAL and is likely to change in future release.
-func WrapM(m func(handler http.Handler) http.Handler, useOriginalWriter bool) MiddlewareFunc {
+// WrapM is an adapter for converting http.Handler middleware into a MiddlewareFunc. It does not work with middleware
+// that wrap custom http.ResponseWriter (e.g. gzip). This API is EXPERIMENTAL and is likely to change in future release.
+func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if useOriginalWriter {
-					c.Writer().Wrap(w)
-				}
 				c.SetRequest(r)
 				next(c)
 			}))
-			var w http.ResponseWriter = c.Writer()
-			if useOriginalWriter {
-				w = c.Writer().Unwrap()
-			}
-			adapter.ServeHTTP(w, c.Request())
+			adapter.ServeHTTP(c.Writer(), c.Request())
 		}
 	}
 }
