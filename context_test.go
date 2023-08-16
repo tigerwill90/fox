@@ -685,10 +685,6 @@ func TestWrapH(t *testing.T) {
 func TestWrapM(t *testing.T) {
 	t.Parallel()
 
-	type mockWriter struct {
-		http.ResponseWriter
-	}
-
 	wantSize := func(size int) func(next HandlerFunc) HandlerFunc {
 		return func(next HandlerFunc) HandlerFunc {
 			return func(c Context) {
@@ -773,11 +769,6 @@ func ExampleContext_TeeWriter() {
 	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
 		_ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
 	})
-}
-
-type gzipResponseWriter struct {
-	Writer io.Writer
-	http.ResponseWriter
 }
 
 // This example demonstrates the usage of the WrapM function which is used to wrap an http.Handler middleware

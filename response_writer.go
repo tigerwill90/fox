@@ -139,7 +139,6 @@ func (r *recorder) WriteHeader(code int) {
 	r.size = 0
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
-	return
 }
 
 func (r *recorder) Write(buf []byte) (n int, err error) {
