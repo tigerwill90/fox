@@ -500,9 +500,9 @@ func relevantCaller() runtime.Frame {
 	frames := runtime.CallersFrames(pc[:n])
 	var frame runtime.Frame
 	for {
-		frame, more := frames.Next()
-		if !strings.HasPrefix(frame.Function, "github.com/tigerwill90/fox.") {
-			return frame
+		f, more := frames.Next()
+		if !strings.HasPrefix(f.Function, "github.com/tigerwill90/fox.") {
+			return f
 		}
 		if !more {
 			break
