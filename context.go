@@ -73,6 +73,12 @@ type Context interface {
 	Redirect(code int, url string) error
 	// Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
 	Clone() Context
+	// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
+	// http.Request with the provided ones. The method is designed for zero allocation during the
+	// copy process. The returned ContextCloser must be closed once no longer needed.
+	// This functionality is particularly beneficial for middlewares that need to wrap
+	// their custom ResponseWriter while preserving the state of the original Context.
+	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
 	// Tree is a local copy of the Tree in use to serve the request.
 	Tree() *Tree
 	// Fox returns the Router in use to serve the request.
@@ -158,28 +164,39 @@ func (c *context) TeeWriter(w io.Writer) {
 		switch c.w.(type) {
 		case h1Writer:
 			c.w = h1MultiWriter{c.mw}
+			return
 		case h2Writer:
 			c.w = h2MultiWriter{c.mw}
-		default:
-			_, rfOk := c.w.(io.ReaderFrom)
-			_, flOk := c.w.(http.Flusher)
-			_, hiOk := c.w.(http.Hijacker)
-			if rfOk && flOk && hiOk {
-				c.w = h1MultiWriter{c.mw}
-				break
-			}
+			return
+		}
 
-			_, puOk := c.w.(http.Pusher)
-			if flOk && puOk {
+		if c.req.ProtoMajor == 2 {
+			switch c.w.(type) {
+			case interface {
+				http.Flusher
+				http.Pusher
+			}:
 				c.w = h2MultiWriter{c.mw}
-				break
-			}
-
-			if flOk {
+			case http.Flusher:
 				c.w = flushMultiWriter{c.mw}
-				break
+			case http.Pusher:
+				c.w = pushMultiWriter{c.mw}
+			default:
+				c.w = multiWriter{c.mw}
 			}
+			return
+		}
 
+		switch c.w.(type) {
+		case interface {
+			http.Flusher
+			http.Hijacker
+			io.ReaderFrom
+		}:
+			c.w = h1MultiWriter{c.mw}
+		case http.Flusher:
+			c.w = flushMultiWriter{c.mw}
+		default:
 			c.w = multiWriter{c.mw}
 		}
 	}
@@ -281,15 +298,18 @@ func (c *context) Fox() *Router {
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
+// Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter. Note that
+// TeeWriter are discarded.
 func (c *context) Clone() Context {
 	cp := context{
 		rec:  c.rec,
-		req:  c.req,
+		req:  c.req.Clone(c.req.Context()),
 		fox:  c.fox,
 		tree: c.tree,
 	}
-	cp.rec.ResponseWriter = noopWriter{}
-	cp.w = &cp.rec
+
+	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
+	cp.w = noUnwrap{&cp.rec}
 	params := make(Params, len(*c.params))
 	copy(params, *c.params)
 	cp.params = &params
@@ -297,6 +317,30 @@ func (c *context) Clone() Context {
 	mw := make([]io.Writer, 0, 2)
 	cp.mw = &mw
 	return &cp
+}
+
+// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
+// http.Request with the provided ones. The method is designed for zero allocation during the
+// copy process. The returned ContextCloser must be closed once no longer needed.
+// This functionality is particularly beneficial for middlewares that need to wrap
+// their custom ResponseWriter while preserving the state of the original Context.
+func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
+	cp := c.tree.ctx.Get().(*context)
+	cp.req = r
+	cp.w = w
+	cp.path = c.path
+	cp.fox = c.fox
+	cp.cachedQuery = nil
+	if len(*c.params) > len(*cp.params) {
+		// Grow cp.params to a least cap(c.params)
+		*cp.params = grow(*cp.params, len(*c.params)-len(*cp.params))
+	}
+	// cap(cp.params) >= cap(c.params)
+	// now constraint into len(c.params) & cap(c.params)
+	*cp.params = (*cp.params)[:len(*c.params):cap(*c.params)]
+	copy(*cp.params, *c.params)
+	*cp.mw = (*cp.mw)[:0]
+	return cp
 }
 
 // Close releases the context to be reused later.
@@ -348,31 +392,18 @@ func WrapH(h http.Handler) HandlerFunc {
 	}
 }
 
-// WrapM is an adapter for converting http.Handler middleware into a MiddlewareFunc.
-// The boolean parameter, useOriginalWriter, determines how the middleware interacts with the ResponseWriter:
-//   - If useOriginalWriter is false, the middleware is provided with the ResponseWriter from the Fox router.
-//     This is suitable for middlewares that may write a response and stop further execution (like an authorization middleware).
-//     The Fox's ResponseWriter allows to keep track of the response status and size.
-//   - If useOriginalWriter is true, the middleware is provided with the original http.ResponseWriter from Go's net/http package.
-//     This is required for middlewares that need to wrap the ResponseWriter with their own implementation (like a gzip middleware).
-//     The Wrap function is used to ensure that the Fox's ResponseWriter wraps the middleware's ResponseWriter implementation.
-//
+// WrapM is an adapter for converting http.Handler middleware into a MiddlewareFunc. It does not work with middleware
+// that wrap custom http.ResponseWriter (e.g. gzip).
 // This API is EXPERIMENTAL and is likely to change in future release.
-func WrapM(m func(handler http.Handler) http.Handler, useOriginalWriter bool) MiddlewareFunc {
+// Deprecated: WrapM is planned to be removed in v1.0.0.
+func WrapM(m func(handler http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			adapter := m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if useOriginalWriter {
-					c.Writer().Wrap(w)
-				}
 				c.SetRequest(r)
 				next(c)
 			}))
-			var w http.ResponseWriter = c.Writer()
-			if useOriginalWriter {
-				w = c.Writer().Unwrap()
-			}
-			adapter.ServeHTTP(w, c.Request())
+			adapter.ServeHTTP(c.Writer(), c.Request())
 		}
 	}
 }

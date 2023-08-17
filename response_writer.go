@@ -14,8 +14,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"path"
+	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -44,8 +48,23 @@ var (
 )
 
 var (
+	_ ResponseWriter = (*flushWriter)(nil)
+	_ http.Flusher   = (*flushWriter)(nil)
+)
+
+var (
+	_ ResponseWriter = (*pushWriter)(nil)
+	_ http.Pusher    = (*pushWriter)(nil)
+)
+
+var (
 	_ ResponseWriter = (*flushMultiWriter)(nil)
 	_ http.Flusher   = (*flushMultiWriter)(nil)
+)
+
+var (
+	_ ResponseWriter = (*pushMultiWriter)(nil)
+	_ http.Pusher    = (*pushMultiWriter)(nil)
 )
 
 var _ ResponseWriter = (*multiWriter)(nil)
@@ -70,16 +89,14 @@ type ResponseWriter interface {
 	Written() bool
 	// Size returns the size of the written response.
 	Size() int
-	// Unwrap returns the underlying http.ResponseWriter.
-	Unwrap() http.ResponseWriter
-	// Wrap replaces the underlying http.ResponseWriter for the current ResponseWriter. It does not reset the status,
-	// written state, or response size of the current ResponseWriter. Caution: You should pass the original
-	// http.ResponseWriter to this method, not the ResponseWriter itself, to avoid wrapping the ResponseWriter within itself.
-	Wrap(w http.ResponseWriter)
 	// WriteString writes the provided string to the underlying connection
 	// as part of an HTTP reply. The method returns the number of bytes written
 	// and an error, if any.
 	WriteString(s string) (int, error)
+}
+
+type rwUnwrapper interface {
+	Unwrap() http.ResponseWriter
 }
 
 const notWritten = -1
@@ -105,6 +122,9 @@ func (r *recorder) Written() bool {
 }
 
 func (r *recorder) Size() int {
+	if r.size < 0 {
+		return 0
+	}
 	return r.size
 }
 
@@ -112,15 +132,15 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-func (r *recorder) Wrap(w http.ResponseWriter) {
-	r.ResponseWriter = w
-}
-
 func (r *recorder) WriteHeader(code int) {
-	if !r.Written() {
-		r.size = 0
-		r.status = code
+	if r.Written() {
+		caller := relevantCaller()
+		log.Printf("http: superfluous response.WriteHeader call from %s (%s:%d)", caller.Function, path.Base(caller.File), caller.Line)
+		return
 	}
+
+	r.size = 0
+	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
 
@@ -129,7 +149,6 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 		r.size = 0
 		r.ResponseWriter.WriteHeader(r.status)
 	}
-
 	n, err = r.ResponseWriter.Write(buf)
 	r.size += n
 	return
@@ -201,17 +220,13 @@ func (w h2Writer) Flush() {
 	w.recorder.ResponseWriter.(http.Flusher).Flush()
 }
 
-type noopWriter struct{}
-
-func (n noopWriter) Header() http.Header {
-	return make(http.Header)
+type pushWriter struct {
+	*recorder
 }
 
-func (n noopWriter) Write([]byte) (int, error) {
-	return 0, fmt.Errorf("%w: writing on a clone", ErrDiscardedResponseWriter)
+func (w pushWriter) Push(target string, opts *http.PushOptions) error {
+	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
 }
-
-func (n noopWriter) WriteHeader(int) {}
 
 type h1MultiWriter struct {
 	writers *[]io.Writer
@@ -238,11 +253,7 @@ func (w h1MultiWriter) Size() int {
 }
 
 func (w h1MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w h1MultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w h1MultiWriter) Write(p []byte) (n int, err error) {
@@ -294,11 +305,7 @@ func (w h2MultiWriter) Size() int {
 }
 
 func (w h2MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w h2MultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w h2MultiWriter) Write(p []byte) (n int, err error) {
@@ -314,6 +321,46 @@ func (w h2MultiWriter) Flush() {
 }
 
 func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
+	return (*w.writers)[0].(http.Pusher).Push(target, opts)
+}
+
+type pushMultiWriter struct {
+	writers *[]io.Writer
+}
+
+func (w pushMultiWriter) Header() http.Header {
+	return (*w.writers)[0].(ResponseWriter).Header()
+}
+
+func (w pushMultiWriter) WriteHeader(statusCode int) {
+	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
+}
+
+func (w pushMultiWriter) Status() int {
+	return (*w.writers)[0].(ResponseWriter).Status()
+}
+
+func (w pushMultiWriter) Written() bool {
+	return (*w.writers)[0].(ResponseWriter).Written()
+}
+
+func (w pushMultiWriter) Size() int {
+	return (*w.writers)[0].(ResponseWriter).Size()
+}
+
+func (w pushMultiWriter) Unwrap() http.ResponseWriter {
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
+}
+
+func (w pushMultiWriter) Write(p []byte) (n int, err error) {
+	return multiWrite(w.writers, p)
+}
+
+func (w pushMultiWriter) WriteString(s string) (n int, err error) {
+	return multiWriteString(w.writers, s)
+}
+
+func (w pushMultiWriter) Push(target string, opts *http.PushOptions) error {
 	return (*w.writers)[0].(http.Pusher).Push(target, opts)
 }
 
@@ -342,11 +389,7 @@ func (w flushMultiWriter) Size() int {
 }
 
 func (w flushMultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w flushMultiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w flushMultiWriter) Write(p []byte) (n int, err error) {
@@ -386,11 +429,7 @@ func (w multiWriter) Size() int {
 }
 
 func (w multiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(ResponseWriter).Unwrap()
-}
-
-func (w multiWriter) Wrap(rw http.ResponseWriter) {
-	(*w.writers)[0].(ResponseWriter).Wrap(rw)
+	return (*w.writers)[0].(rwUnwrapper).Unwrap()
 }
 
 func (w multiWriter) Write(p []byte) (n int, err error) {
@@ -399,6 +438,27 @@ func (w multiWriter) Write(p []byte) (n int, err error) {
 
 func (w multiWriter) WriteString(s string) (n int, err error) {
 	return multiWriteString(w.writers, s)
+}
+
+// noUnwrap hide the Unwrap method of the ResponseWriter.
+type noUnwrap struct {
+	ResponseWriter
+}
+
+type noopWriter struct {
+	h http.Header
+}
+
+func (n noopWriter) Header() http.Header {
+	return n.h
+}
+
+func (n noopWriter) Write([]byte) (int, error) {
+	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
+}
+
+func (n noopWriter) WriteHeader(int) {
+	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
 }
 
 func multiWrite(writers *[]io.Writer, p []byte) (n int, err error) {
@@ -443,4 +503,21 @@ func multiFlush(writers *[]io.Writer) {
 			f.Flush()
 		}
 	}
+}
+
+func relevantCaller() runtime.Frame {
+	pc := make([]uintptr, 16)
+	n := runtime.Callers(1, pc)
+	frames := runtime.CallersFrames(pc[:n])
+	var frame runtime.Frame
+	for {
+		f, more := frames.Next()
+		if !strings.HasPrefix(f.Function, "github.com/tigerwill90/fox.") {
+			return f
+		}
+		if !more {
+			break
+		}
+	}
+	return frame
 }

@@ -581,3 +581,17 @@ func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code 
 	w.Header().Set(HeaderLocation, newPath)
 	w.WriteHeader(code)
 }
+
+// grow increases the slice's capacity, if necessary, to guarantee space for
+// another n elements. After Grow(n), at least n elements can be appended
+// to the slice without another allocation. If n is negative or too large to
+// allocate the memory, Grow panics.
+func grow[S ~[]E, E any](s S, n int) S {
+	if n < 0 {
+		panic("cannot be negative")
+	}
+	if n -= cap(s) - len(s); n > 0 {
+		s = append(s[:cap(s)], make([]E, n)...)[:len(s)]
+	}
+	return s
+}

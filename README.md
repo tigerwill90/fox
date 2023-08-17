@@ -393,9 +393,9 @@ f := fox.New(fox.DefaultOptions())
 f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
-Wrapping an `http.Handler` compatible middleware
+Wrapping an `http.Handler` compatible middleware. Please note that `WrapM` is slated for deprecation in a forthcoming release.
 ````go
-f := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit, false)))
+f := fox.New(fox.DefaultOptions(), fox.WithMiddleware(fox.WrapM(httpRateLimiter.RateLimit)))
 f.MustHandle(http.MethodGet, "/articles/{id}", func(c fox.Context) {
     _ = c.String(http.StatusOK, "Article id: %s\n", c.Param("id"))
 })
@@ -467,6 +467,7 @@ f := fox.New(
 ### Official middlewares
 * [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
 * [tigerwill90/foxdump](https://github.com/tigerwill90/foxdump): Body dump middleware for capturing requests and responses payload.
+* [tigerwill90/foxtimeout](https://github.com/tigerwill90/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
 
 ## Handling OPTIONS Requests and CORS Automatically
 The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 

@@ -6,20 +6,17 @@ package fox
 
 import (
 	"bytes"
-	"compress/gzip"
 	netcontext "context"
 	"crypto/rand"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 )
 
 func TestContext_QueryParams(t *testing.T) {
@@ -74,8 +71,27 @@ func TestContext_Clone(t *testing.T) {
 	assert.Equal(t, len(buf), cc.Writer().Size())
 	assert.Equal(t, wantValues, c.QueryParams())
 	assert.Empty(t, *c.mw)
-	_, err = cc.Writer().Write([]byte("invalid"))
-	assert.ErrorIs(t, err, ErrDiscardedResponseWriter)
+	assert.Panics(t, func() {
+		_, _ = cc.Writer().Write([]byte("invalid"))
+	})
+}
+
+func TestContext_CloneWith(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	c := newTextContextOnly(New(), w, req)
+
+	cp := c.CloneWith(c.Writer(), c.Request())
+	cc := unwrapContext(t, cp)
+
+	assert.Equal(t, c.Params(), cp.Params())
+	assert.Equal(t, c.Request(), cp.Request())
+	assert.Equal(t, c.Writer(), cp.Writer())
+	assert.Equal(t, c.Path(), cp.Path())
+	assert.Equal(t, c.Fox(), cp.Fox())
+	assert.Nil(t, cc.cachedQuery)
+	assert.Empty(t, cc.mw)
 }
 
 func TestContext_Ctx(t *testing.T) {
@@ -85,12 +101,8 @@ func TestContext_Ctx(t *testing.T) {
 	cancel()
 	req = req.WithContext(ctx)
 	_, c := NewTestContext(httptest.NewRecorder(), req)
-	select {
-	case <-c.Ctx().Done():
-		require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
-	case <-time.After(1):
-		t.FailNow()
-	}
+	<-c.Ctx().Done()
+	require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
 }
 
 func TestContext_Redirect(t *testing.T) {
@@ -163,7 +175,7 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Writer().Status())
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
-	assert.Equal(t, w, c.Writer().Unwrap())
+	assert.Equal(t, w, c.Writer().(rwUnwrapper).Unwrap())
 	assert.True(t, c.Writer().Written())
 }
 
@@ -210,6 +222,97 @@ func TestContext_Tree(t *testing.T) {
 	}))
 
 	f.ServeHTTP(w, req)
+}
+
+func TestContext_TeeWriter(t *testing.T) {
+	t.Parallel()
+	type capabilities struct {
+		rf  bool
+		fl  bool
+		hij bool
+		psh bool
+	}
+
+	cases := []struct {
+		name       string
+		w          ResponseWriter
+		protoMajor int
+		want       capabilities
+	}{
+		{
+			name:       "implement all h1 writer",
+			w:          h1Writer{},
+			protoMajor: 1,
+			want: capabilities{
+				rf:  true,
+				fl:  true,
+				hij: true,
+			},
+		},
+		{
+			name:       "implement all h2 writer",
+			w:          h2Writer{},
+			protoMajor: 2,
+			want: capabilities{
+				fl:  true,
+				psh: true,
+			},
+		},
+		{
+			name:       "implement only flusher for h1",
+			w:          flushWriter{},
+			protoMajor: 1,
+			want: capabilities{
+				fl: true,
+			},
+		},
+		{
+			name:       "implement only flusher for h2",
+			w:          flushWriter{},
+			protoMajor: 2,
+			want: capabilities{
+				fl: true,
+			},
+		},
+		{
+			name:       "implement only pusher",
+			w:          pushWriter{},
+			protoMajor: 2,
+			want: capabilities{
+				psh: true,
+			},
+		},
+		{
+			name:       "only rw for h1",
+			w:          multiWriter{},
+			protoMajor: 1,
+		},
+		{
+			name:       "only rw for h2",
+			w:          multiWriter{},
+			protoMajor: 2,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+			req.ProtoMajor = tc.protoMajor
+			c := NewTestContextOnly(New(), mockResponseWriter{}, req)
+			c.SetWriter(tc.w)
+			c.TeeWriter(bytes.NewBuffer(nil))
+			_, flOk := c.Writer().(http.Flusher)
+			_, rfOk := c.Writer().(io.ReaderFrom)
+			_, hijOk := c.Writer().(http.Hijacker)
+			_, pshOk := c.Writer().(http.Pusher)
+			assert.Equal(t, tc.want.fl, flOk)
+			assert.Equal(t, tc.want.rf, rfOk)
+			assert.Equal(t, tc.want.hij, hijOk)
+			assert.Equal(t, tc.want.psh, pshOk)
+		})
+	}
 }
 
 func TestContext_TeeWriter_h1(t *testing.T) {
@@ -371,7 +474,7 @@ func TestContext_TeeWriter_flusher(t *testing.T) {
 			t.Parallel()
 			f := New()
 			dumper := bytes.NewBuffer(nil)
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", WrapTestContextFlusher(tc.handler(dumper))))
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", tc.handler(dumper)))
 
 			srv := httptest.NewServer(f)
 			defer srv.Close()
@@ -490,21 +593,21 @@ func TestWrapF(t *testing.T) {
 		{
 			name: "wrap handlerFunc without context params",
 			handler: func(expectedParams Params) http.HandlerFunc {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return func(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write([]byte("fox"))
-				})
+				}
 			},
 		},
 		{
 			name: "wrap handlerFunc with context params",
 			handler: func(expectedParams Params) http.HandlerFunc {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return func(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write([]byte("fox"))
 
 					p := ParamsFromContext(r.Context())
 
 					assert.Equal(t, expectedParams, p)
-				})
+				}
 			},
 			params: &Params{
 				{
@@ -601,10 +704,6 @@ func TestWrapH(t *testing.T) {
 func TestWrapM(t *testing.T) {
 	t.Parallel()
 
-	type mockWriter struct {
-		http.ResponseWriter
-	}
-
 	wantSize := func(size int) func(next HandlerFunc) HandlerFunc {
 		return func(next HandlerFunc) HandlerFunc {
 			return func(c Context) {
@@ -622,19 +721,6 @@ func TestWrapM(t *testing.T) {
 		wantSize   int
 	}{
 		{
-			name: "using original writer",
-			m: WrapM(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					req := r.Clone(r.Context())
-					req.Header.Set("foo", "bar")
-					next.ServeHTTP(mockWriter{w}, req)
-				})
-			}, true),
-			wantStatus: http.StatusCreated,
-			wantBody:   "foo bar",
-			wantSize:   7,
-		},
-		{
 			name: "using fox writer",
 			m: WrapM(func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -642,7 +728,7 @@ func TestWrapM(t *testing.T) {
 					req.Header.Set("foo", "bar")
 					next.ServeHTTP(w, req)
 				})
-			}, false),
+			}),
 			wantStatus: http.StatusCreated,
 			wantBody:   "foo bar",
 			wantSize:   7,
@@ -656,7 +742,7 @@ func TestWrapM(t *testing.T) {
 					w.WriteHeader(http.StatusUnauthorized)
 					_, _ = w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
 				})
-			}, false),
+			}),
 			wantStatus: http.StatusUnauthorized,
 			wantBody:   http.StatusText(http.StatusUnauthorized),
 			wantSize:   12,
@@ -704,21 +790,9 @@ func ExampleContext_TeeWriter() {
 	})
 }
 
-type gzipResponseWriter struct {
-	Writer io.Writer
-	http.ResponseWriter
-}
-
 // This example demonstrates the usage of the WrapM function which is used to wrap an http.Handler middleware
 // and returns a MiddlewareFunc function compatible with Fox.
 func ExampleWrapM() {
-	// Case 1: Middleware that may write a response and stop execution.
-	// This is commonly seen in middleware that implements authorization checks. If the check does not pass,
-	// the middleware can stop the execution of the subsequent handlers and write an error response.
-	// The "authorizationMiddleware" in this example checks for a specific token in the request's Authorization header.
-	// If the token is not the expected value, it sends an HTTP 401 Unauthorized error and stops the execution.
-	// In this case, the WrapM function is used with the "useOriginalWriter" set to false, as we want to use
-	// the custom ResponseWriter provided by the Fox framework to capture the status code and response size.
 	authorizationMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := r.Header.Get("Authorization")
@@ -730,24 +804,8 @@ func ExampleWrapM() {
 		})
 	}
 
-	_ = New(WithMiddleware(WrapM(authorizationMiddleware, false)))
-
-	// Case 2: Middleware that wraps the ResponseWriter with its own implementation.
-	// This is typically used in middleware that transforms the response in some way, for instance by applying gzip compression.
-	// The "gzipMiddleware" in this example wraps the original ResponseWriter with a gzip writer, which compresses the response data.
-	// In this case, the WrapM function is used with the "useOriginalWriter" set to true, as the middleware needs to wrap the original
-	// http.ResponseWriter with its own implementation. After wrapping, the Fox framework's ResponseWriter is updated to the new ResponseWriter.
-	gzipMiddleware := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gz := gzip.NewWriter(w)
-			defer gz.Close()
-
-			// Create a new ResponseWriter that writes to the gzip writer
-			gzw := gzipResponseWriter{Writer: gz, ResponseWriter: w}
-			r.Header.Set("Content-Encoding", "gzip")
-			next.ServeHTTP(gzw, r)
-		})
-	}
-
-	_ = New(WithMiddleware(WrapM(gzipMiddleware, true)))
+	f := New(WithMiddleware(WrapM(authorizationMiddleware)))
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		_ = c.String(http.StatusOK, "Authorized\n")
+	})
 }

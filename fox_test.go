@@ -31,19 +31,19 @@ var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Request().UR
 
 type mockResponseWriter struct{}
 
-func (m *mockResponseWriter) Header() (h http.Header) {
+func (m mockResponseWriter) Header() (h http.Header) {
 	return http.Header{}
 }
 
-func (m *mockResponseWriter) Write(p []byte) (n int, err error) {
+func (m mockResponseWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (m *mockResponseWriter) WriteString(s string) (n int, err error) {
+func (m mockResponseWriter) WriteString(s string) (n int, err error) {
 	return len(s), nil
 }
 
-func (m *mockResponseWriter) WriteHeader(int) {}
+func (m mockResponseWriter) WriteHeader(int) {}
 
 type route struct {
 	method string
@@ -571,6 +571,21 @@ func BenchmarkMultiWriter(b *testing.B) {
 		buf.Reset()
 		c.TeeWriter(buf)
 		_, _ = io.WriteString(c.Writer(), c.Param("name"))
+	})
+	w := new(mockResponseWriter)
+	r := httptest.NewRequest("GET", "/hello/fox", nil)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		f.ServeHTTP(w, r)
+	}
+}
+
+func BenchmarkCloneWith(b *testing.B) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		cp := c.CloneWith(c.Writer(), c.Request())
+		cp.Close()
 	})
 	w := new(mockResponseWriter)
 	r := httptest.NewRequest("GET", "/hello/fox", nil)
