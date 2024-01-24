@@ -701,73 +701,6 @@ func TestWrapH(t *testing.T) {
 	}
 }
 
-func TestWrapM(t *testing.T) {
-	t.Parallel()
-
-	wantSize := func(size int) func(next HandlerFunc) HandlerFunc {
-		return func(next HandlerFunc) HandlerFunc {
-			return func(c Context) {
-				next(c)
-				assert.Equal(t, size, c.Writer().Size())
-			}
-		}
-	}
-
-	cases := []struct {
-		name       string
-		m          MiddlewareFunc
-		wantStatus int
-		wantBody   string
-		wantSize   int
-	}{
-		{
-			name: "using fox writer",
-			m: WrapM(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					req := r.Clone(r.Context())
-					req.Header.Set("foo", "bar")
-					next.ServeHTTP(w, req)
-				})
-			}),
-			wantStatus: http.StatusCreated,
-			wantBody:   "foo bar",
-			wantSize:   7,
-		},
-		{
-			name: "using fox writer without calling next",
-			m: WrapM(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					req := r.Clone(r.Context())
-					req.Header.Set("foo", "bar")
-					w.WriteHeader(http.StatusUnauthorized)
-					_, _ = w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
-				})
-			}),
-			wantStatus: http.StatusUnauthorized,
-			wantBody:   http.StatusText(http.StatusUnauthorized),
-			wantSize:   12,
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f := New(WithMiddleware(wantSize(tc.wantSize), tc.m))
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
-				assert.Equal(t, "bar", c.Header("foo"))
-				_ = c.String(http.StatusCreated, "foo bar")
-			}))
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/foo", nil)
-			f.ServeHTTP(w, r)
-			assert.Equal(t, tc.wantStatus, w.Code)
-			assert.Equal(t, tc.wantBody, w.Body.String())
-		})
-	}
-}
-
 // This example demonstrates how to capture the HTTP response body by using the TeeWriter method.
 // The TeeWriter method attaches the provided io.Writer (in this case a bytes.Buffer) to the existing ResponseWriter.
 // Unlike a typical io.MultiWriter, this implementation is designed to ensure that the ResponseWriter remains compatible
@@ -787,25 +720,5 @@ func ExampleContext_TeeWriter() {
 	f := New(WithMiddleware(bodyLogger))
 	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
 		_ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
-	})
-}
-
-// This example demonstrates the usage of the WrapM function which is used to wrap an http.Handler middleware
-// and returns a MiddlewareFunc function compatible with Fox.
-func ExampleWrapM() {
-	authorizationMiddleware := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := r.Header.Get("Authorization")
-			if token != "valid-token" {
-				http.Error(w, "Invalid token", http.StatusUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-
-	f := New(WithMiddleware(WrapM(authorizationMiddleware)))
-	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
-		_ = c.String(http.StatusOK, "Authorized\n")
 	})
 }
