@@ -20,7 +20,6 @@ import (
 	"path"
 	"runtime"
 	"strings"
-	"sync"
 )
 
 var (
@@ -43,15 +42,6 @@ var (
 	_ ResponseWriter = (*pushWriter)(nil)
 	_ http.Pusher    = (*pushWriter)(nil)
 )
-
-const kib = 1024
-
-var copyBufPool = sync.Pool{
-	New: func() any {
-		b := make([]byte, 32*kib)
-		return &b
-	},
-}
 
 // ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
 // written state, and response size. ResponseWriter object implements additional http.Flusher, http.Hijacker,
