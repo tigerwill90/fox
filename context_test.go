@@ -169,7 +169,7 @@ func TestContext_Writer(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Writer().Status())
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
-	assert.Equal(t, w, c.Writer().(rwUnwrapper).Unwrap())
+	assert.Equal(t, w, c.Writer().(interface{ Unwrap() http.ResponseWriter }).Unwrap())
 	assert.True(t, c.Writer().Written())
 }
 

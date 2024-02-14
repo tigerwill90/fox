@@ -60,10 +60,6 @@ type ResponseWriter interface {
 	WriteString(s string) (int, error)
 }
 
-type rwUnwrapper interface {
-	Unwrap() http.ResponseWriter
-}
-
 const notWritten = -1
 
 type recorder struct {
