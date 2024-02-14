@@ -20,7 +20,6 @@ import (
 	"path"
 	"runtime"
 	"strings"
-	"sync"
 )
 
 var (
@@ -30,21 +29,8 @@ var (
 )
 
 var (
-	_ ResponseWriter = (*h1MultiWriter)(nil)
-	_ http.Flusher   = (*h1MultiWriter)(nil)
-	_ http.Hijacker  = (*h1MultiWriter)(nil)
-	_ io.ReaderFrom  = (*h1MultiWriter)(nil)
-)
-
-var (
 	_ http.Pusher  = (*h2Writer)(nil)
 	_ http.Flusher = (*h2Writer)(nil)
-)
-
-var (
-	_ ResponseWriter = (*h2MultiWriter)(nil)
-	_ http.Flusher   = (*h2MultiWriter)(nil)
-	_ http.Pusher    = (*h2MultiWriter)(nil)
 )
 
 var (
@@ -56,27 +42,6 @@ var (
 	_ ResponseWriter = (*pushWriter)(nil)
 	_ http.Pusher    = (*pushWriter)(nil)
 )
-
-var (
-	_ ResponseWriter = (*flushMultiWriter)(nil)
-	_ http.Flusher   = (*flushMultiWriter)(nil)
-)
-
-var (
-	_ ResponseWriter = (*pushMultiWriter)(nil)
-	_ http.Pusher    = (*pushMultiWriter)(nil)
-)
-
-var _ ResponseWriter = (*multiWriter)(nil)
-
-const kib = 1024
-
-var copyBufPool = sync.Pool{
-	New: func() any {
-		b := make([]byte, 32*kib)
-		return &b
-	},
-}
 
 // ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
 // written state, and response size. ResponseWriter object implements additional http.Flusher, http.Hijacker,
@@ -93,10 +58,6 @@ type ResponseWriter interface {
 	// as part of an HTTP reply. The method returns the number of bytes written
 	// and an error, if any.
 	WriteString(s string) (int, error)
-}
-
-type rwUnwrapper interface {
-	Unwrap() http.ResponseWriter
 }
 
 const notWritten = -1
@@ -228,218 +189,6 @@ func (w pushWriter) Push(target string, opts *http.PushOptions) error {
 	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
 }
 
-type h1MultiWriter struct {
-	writers *[]io.Writer
-}
-
-func (w h1MultiWriter) Header() http.Header {
-	return (*w.writers)[0].(ResponseWriter).Header()
-}
-
-func (w h1MultiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
-}
-
-func (w h1MultiWriter) Status() int {
-	return (*w.writers)[0].(ResponseWriter).Status()
-}
-
-func (w h1MultiWriter) Written() bool {
-	return (*w.writers)[0].(ResponseWriter).Written()
-}
-
-func (w h1MultiWriter) Size() int {
-	return (*w.writers)[0].(ResponseWriter).Size()
-}
-
-func (w h1MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(rwUnwrapper).Unwrap()
-}
-
-func (w h1MultiWriter) Write(p []byte) (n int, err error) {
-	return multiWrite(w.writers, p)
-}
-
-func (w h1MultiWriter) WriteString(s string) (n int, err error) {
-	return multiWriteString(w.writers, s)
-}
-
-func (w h1MultiWriter) Flush() {
-	multiFlush(w.writers)
-}
-
-func (w h1MultiWriter) ReadFrom(src io.Reader) (n int64, err error) {
-	bufp := copyBufPool.Get().(*[]byte)
-	buf := *bufp
-	n, err = io.CopyBuffer(w, src, buf)
-	copyBufPool.Put(bufp)
-	return
-}
-
-func (w h1MultiWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return (*w.writers)[0].(http.Hijacker).Hijack()
-}
-
-type h2MultiWriter struct {
-	writers *[]io.Writer
-}
-
-func (w h2MultiWriter) Header() http.Header {
-	return (*w.writers)[0].(ResponseWriter).Header()
-}
-
-func (w h2MultiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
-}
-
-func (w h2MultiWriter) Status() int {
-	return (*w.writers)[0].(ResponseWriter).Status()
-}
-
-func (w h2MultiWriter) Written() bool {
-	return (*w.writers)[0].(ResponseWriter).Written()
-}
-
-func (w h2MultiWriter) Size() int {
-	return (*w.writers)[0].(ResponseWriter).Size()
-}
-
-func (w h2MultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(rwUnwrapper).Unwrap()
-}
-
-func (w h2MultiWriter) Write(p []byte) (n int, err error) {
-	return multiWrite(w.writers, p)
-}
-
-func (w h2MultiWriter) WriteString(s string) (n int, err error) {
-	return multiWriteString(w.writers, s)
-}
-
-func (w h2MultiWriter) Flush() {
-	multiFlush(w.writers)
-}
-
-func (w h2MultiWriter) Push(target string, opts *http.PushOptions) error {
-	return (*w.writers)[0].(http.Pusher).Push(target, opts)
-}
-
-type pushMultiWriter struct {
-	writers *[]io.Writer
-}
-
-func (w pushMultiWriter) Header() http.Header {
-	return (*w.writers)[0].(ResponseWriter).Header()
-}
-
-func (w pushMultiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
-}
-
-func (w pushMultiWriter) Status() int {
-	return (*w.writers)[0].(ResponseWriter).Status()
-}
-
-func (w pushMultiWriter) Written() bool {
-	return (*w.writers)[0].(ResponseWriter).Written()
-}
-
-func (w pushMultiWriter) Size() int {
-	return (*w.writers)[0].(ResponseWriter).Size()
-}
-
-func (w pushMultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(rwUnwrapper).Unwrap()
-}
-
-func (w pushMultiWriter) Write(p []byte) (n int, err error) {
-	return multiWrite(w.writers, p)
-}
-
-func (w pushMultiWriter) WriteString(s string) (n int, err error) {
-	return multiWriteString(w.writers, s)
-}
-
-func (w pushMultiWriter) Push(target string, opts *http.PushOptions) error {
-	return (*w.writers)[0].(http.Pusher).Push(target, opts)
-}
-
-type flushMultiWriter struct {
-	writers *[]io.Writer
-}
-
-func (w flushMultiWriter) Header() http.Header {
-	return (*w.writers)[0].(ResponseWriter).Header()
-}
-
-func (w flushMultiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
-}
-
-func (w flushMultiWriter) Status() int {
-	return (*w.writers)[0].(ResponseWriter).Status()
-}
-
-func (w flushMultiWriter) Written() bool {
-	return (*w.writers)[0].(ResponseWriter).Written()
-}
-
-func (w flushMultiWriter) Size() int {
-	return (*w.writers)[0].(ResponseWriter).Size()
-}
-
-func (w flushMultiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(rwUnwrapper).Unwrap()
-}
-
-func (w flushMultiWriter) Write(p []byte) (n int, err error) {
-	return multiWrite(w.writers, p)
-}
-
-func (w flushMultiWriter) WriteString(s string) (n int, err error) {
-	return multiWriteString(w.writers, s)
-}
-
-func (w flushMultiWriter) Flush() {
-	multiFlush(w.writers)
-}
-
-type multiWriter struct {
-	writers *[]io.Writer
-}
-
-func (w multiWriter) Header() http.Header {
-	return (*w.writers)[0].(ResponseWriter).Header()
-}
-
-func (w multiWriter) WriteHeader(statusCode int) {
-	(*w.writers)[0].(ResponseWriter).WriteHeader(statusCode)
-}
-
-func (w multiWriter) Status() int {
-	return (*w.writers)[0].(ResponseWriter).Status()
-}
-
-func (w multiWriter) Written() bool {
-	return (*w.writers)[0].(ResponseWriter).Written()
-}
-
-func (w multiWriter) Size() int {
-	return (*w.writers)[0].(ResponseWriter).Size()
-}
-
-func (w multiWriter) Unwrap() http.ResponseWriter {
-	return (*w.writers)[0].(rwUnwrapper).Unwrap()
-}
-
-func (w multiWriter) Write(p []byte) (n int, err error) {
-	return multiWrite(w.writers, p)
-}
-
-func (w multiWriter) WriteString(s string) (n int, err error) {
-	return multiWriteString(w.writers, s)
-}
-
 // noUnwrap hide the Unwrap method of the ResponseWriter.
 type noUnwrap struct {
 	ResponseWriter
@@ -459,50 +208,6 @@ func (n noopWriter) Write([]byte) (int, error) {
 
 func (n noopWriter) WriteHeader(int) {
 	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
-}
-
-func multiWrite(writers *[]io.Writer, p []byte) (n int, err error) {
-	for _, writer := range *writers {
-		n, err = writer.Write(p)
-		if err != nil {
-			return
-		}
-		if n != len(p) {
-			err = io.ErrShortWrite
-			return
-		}
-	}
-	return len(p), nil
-}
-
-func multiWriteString(writers *[]io.Writer, s string) (n int, err error) {
-	var p []byte // lazily initialized if/when needed
-	for _, writer := range *writers {
-		if sw, ok := writer.(io.StringWriter); ok {
-			n, err = sw.WriteString(s)
-		} else {
-			if p == nil {
-				p = []byte(s)
-			}
-			n, err = writer.Write(p)
-		}
-		if err != nil {
-			return
-		}
-		if n != len(s) {
-			err = io.ErrShortWrite
-			return
-		}
-	}
-	return len(s), nil
-}
-
-func multiFlush(writers *[]io.Writer) {
-	for _, writer := range *writers {
-		if f, ok := writer.(http.Flusher); ok {
-			f.Flush()
-		}
-	}
 }
 
 func relevantCaller() runtime.Frame {

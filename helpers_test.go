@@ -5,7 +5,6 @@
 package fox
 
 import (
-	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,12 +19,6 @@ func TestNewTestContext(t *testing.T) {
 	w := httptest.NewRecorder()
 	_, c := NewTestContext(w, req)
 
-	buf := bytes.NewBuffer(nil)
-
-	_, ok := c.Writer().(http.Flusher)
-	require.True(t, ok)
-
-	c.TeeWriter(buf)
 	flusher, ok := c.Writer().(http.Flusher)
 	require.True(t, ok)
 

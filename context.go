@@ -45,9 +45,6 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
-	// TeeWriter append an additional writer (sink) to which the response body will be written.
-	// This API is EXPERIMENTAL and is likely to change in future release.
-	TeeWriter(w io.Writer)
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -94,7 +91,6 @@ type context struct {
 	req     *http.Request
 	params  *Params
 	skipNds *skippedNodes
-	mw      *[]io.Writer
 
 	// tree at allocation (read-only, no reset)
 	tree *Tree
@@ -120,7 +116,6 @@ func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
-	*c.mw = (*c.mw)[:0]
 }
 
 func (c *context) resetNil() {
@@ -130,7 +125,6 @@ func (c *context) resetNil() {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
-	*c.mw = (*c.mw)[:0]
 }
 
 // Request returns the *http.Request.
@@ -151,55 +145,6 @@ func (c *context) Writer() ResponseWriter {
 // SetWriter sets the ResponseWriter.
 func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
-}
-
-// TeeWriter append an additional writer (sink) to which the response body will be written.
-// Internally, TeeWriter make reasonable effort to reflect which interface the underlying ResponseWriter implement.
-func (c *context) TeeWriter(w io.Writer) {
-	if w != nil {
-		if len(*c.mw) == 0 {
-			*c.mw = append(*c.mw, c.w)
-		}
-		*c.mw = append(*c.mw, w)
-		switch c.w.(type) {
-		case h1Writer:
-			c.w = h1MultiWriter{c.mw}
-			return
-		case h2Writer:
-			c.w = h2MultiWriter{c.mw}
-			return
-		}
-
-		if c.req.ProtoMajor == 2 {
-			switch c.w.(type) {
-			case interface {
-				http.Flusher
-				http.Pusher
-			}:
-				c.w = h2MultiWriter{c.mw}
-			case http.Flusher:
-				c.w = flushMultiWriter{c.mw}
-			case http.Pusher:
-				c.w = pushMultiWriter{c.mw}
-			default:
-				c.w = multiWriter{c.mw}
-			}
-			return
-		}
-
-		switch c.w.(type) {
-		case interface {
-			http.Flusher
-			http.Hijacker
-			io.ReaderFrom
-		}:
-			c.w = h1MultiWriter{c.mw}
-		case http.Flusher:
-			c.w = flushMultiWriter{c.mw}
-		default:
-			c.w = multiWriter{c.mw}
-		}
-	}
 }
 
 // Ctx returns the context associated with the current request.
@@ -298,8 +243,7 @@ func (c *context) Fox() *Router {
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
-// Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter. Note that
-// TeeWriter are discarded.
+// Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter.
 func (c *context) Clone() Context {
 	cp := context{
 		rec:  c.rec,
@@ -314,8 +258,6 @@ func (c *context) Clone() Context {
 	copy(params, *c.params)
 	cp.params = &params
 	cp.cachedQuery = nil
-	mw := make([]io.Writer, 0, 2)
-	cp.mw = &mw
 	return &cp
 }
 
@@ -339,7 +281,6 @@ func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	// now constraint into len(c.params) & cap(c.params)
 	*cp.params = (*cp.params)[:len(*c.params):cap(*c.params)]
 	copy(*cp.params, *c.params)
-	*cp.mw = (*cp.mw)[:0]
 	return cp
 }
 
