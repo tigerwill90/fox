@@ -5,9 +5,7 @@
 package fox
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -562,23 +560,6 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 			r.ServeHTTP(w, req)
 		}
 	})
-}
-
-func BenchmarkMultiWriter(b *testing.B) {
-	buf := bytes.NewBuffer(nil)
-	f := New()
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		buf.Reset()
-		c.TeeWriter(buf)
-		_, _ = io.WriteString(c.Writer(), c.Param("name"))
-	})
-	w := new(mockResponseWriter)
-	r := httptest.NewRequest("GET", "/hello/fox", nil)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		f.ServeHTTP(w, r)
-	}
 }
 
 func BenchmarkCloneWith(b *testing.B) {
