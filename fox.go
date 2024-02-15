@@ -71,7 +71,7 @@ func New(opts ...Option) *Router {
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlash)
+	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler)
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.NewTree())
@@ -159,24 +159,38 @@ func (fox *Router) Remove(method, path string) error {
 	return t.Remove(method, path)
 }
 
-// Reverse perform a lookup on the tree for the given method and path and return the matching registered route if any.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
+// and a boolean indicating if a trailing slash redirect is recommended. The ContextCloser should always be closed if non-nil.
+// This method is primarily intended for integrating the fox router into custom routing solutions. It requires the use of the
+// original http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
+// and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func Reverse(t *Tree, method, path string) string {
-	nds := *t.nodes.Load()
-	index := findRootNode(method, nds)
+func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+	tree := fox.tree.Load()
+
+	nds := *tree.nodes.Load()
+	index := findRootNode(r.Method, nds)
+
 	if index < 0 {
-		return ""
+		return
 	}
 
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
-	c.Close()
-	if n == nil {
-		return ""
+	c := tree.ctx.Get().(*context)
+	c.reset(fox, w, r)
+
+	target := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		target = r.URL.RawPath
 	}
-	return n.path
+
+	n, tsr := tree.lookup(nds[index], target, c.params, c.skipNds, false)
+	if n != nil {
+		c.path = n.path
+		return n.handler, c, tsr
+	}
+	c.Close()
+	return nil, nil, tsr
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -226,7 +240,7 @@ func DefaultMethodNotAllowedHandler() HandlerFunc {
 	}
 }
 
-func defaultRedirectTrailingSlash(c Context) {
+func defaultRedirectTrailingSlashHandler(c Context) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -275,7 +289,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
+	c.reset(fox, w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)

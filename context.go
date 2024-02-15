@@ -80,9 +80,6 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router in use to serve the request.
 	Fox() *Router
-	// Reset resets the Context to its initial state, attaching the provided Router,
-	// http.ResponseWriter, and *http.Request.
-	Reset(fox *Router, w http.ResponseWriter, r *http.Request)
 }
 
 // context holds request-related information and allows interaction with the ResponseWriter.
@@ -101,17 +98,12 @@ type context struct {
 	rec         recorder
 }
 
-// Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
-// Caution: You should pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to avoid
-// wrapping the ResponseWriter within itself.
-func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
+// reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
+// Caution: the only valid http.ResponseWriter this method may consume is the original own (from ServeHTTP).
+func (c *context) reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
-	if r.ProtoMajor == 2 {
-		c.w = h2Writer{&c.rec}
-	} else {
-		c.w = h1Writer{&c.rec}
-	}
+	c.w = &c.rec
 	c.fox = fox
 	c.path = ""
 	c.cachedQuery = nil

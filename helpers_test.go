@@ -19,7 +19,11 @@ func TestNewTestContext(t *testing.T) {
 	w := httptest.NewRecorder()
 	_, c := NewTestContext(w, req)
 
-	flusher, ok := c.Writer().(http.Flusher)
+	require.Implements(t, (*interface{ Unwrap() http.ResponseWriter })(nil), c.Writer())
+	rw := c.Writer().(interface{ Unwrap() http.ResponseWriter }).Unwrap()
+	assert.IsType(t, flushWriter{}, rw)
+
+	flusher, ok := rw.(http.Flusher)
 	require.True(t, ok)
 
 	n, err := c.Writer().Write([]byte("foo"))
@@ -36,6 +40,12 @@ func TestNewTestContext(t *testing.T) {
 	_, ok = c.Writer().(http.Hijacker)
 	assert.False(t, ok)
 
+	_, ok = rw.(http.Hijacker)
+	assert.False(t, ok)
+
 	_, ok = c.Writer().(io.ReaderFrom)
+	assert.False(t, ok)
+
+	_, ok = rw.(io.ReaderFrom)
 	assert.False(t, ok)
 }

@@ -23,24 +23,26 @@ import (
 )
 
 var (
-	_ http.Flusher  = (*h1Writer)(nil)
-	_ http.Hijacker = (*h1Writer)(nil)
-	_ io.ReaderFrom = (*h1Writer)(nil)
+	_ http.ResponseWriter = (*h1Writer)(nil)
+	_ http.Flusher        = (*h1Writer)(nil)
+	_ http.Hijacker       = (*h1Writer)(nil)
+	_ io.ReaderFrom       = (*h1Writer)(nil)
 )
 
 var (
-	_ http.Pusher  = (*h2Writer)(nil)
-	_ http.Flusher = (*h2Writer)(nil)
+	_ http.ResponseWriter = (*h2Writer)(nil)
+	_ http.Pusher         = (*h2Writer)(nil)
+	_ http.Flusher        = (*h2Writer)(nil)
 )
 
 var (
-	_ ResponseWriter = (*flushWriter)(nil)
-	_ http.Flusher   = (*flushWriter)(nil)
+	_ http.ResponseWriter = (*flushWriter)(nil)
+	_ http.Flusher        = (*flushWriter)(nil)
 )
 
 var (
-	_ ResponseWriter = (*pushWriter)(nil)
-	_ http.Pusher    = (*pushWriter)(nil)
+	_ http.ResponseWriter = (*pushWriter)(nil)
+	_ http.Pusher         = (*pushWriter)(nil)
 )
 
 // ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
@@ -74,14 +76,17 @@ func (r *recorder) reset(w http.ResponseWriter) {
 	r.status = http.StatusOK
 }
 
+// Status recorded after Write and WriteHeader.
 func (r *recorder) Status() int {
 	return r.status
 }
 
+// Written returns true if the response has been written.
 func (r *recorder) Written() bool {
 	return r.size != notWritten
 }
 
+// Size returns the size of the written response.
 func (r *recorder) Size() int {
 	if r.size < 0 {
 		return 0
@@ -89,10 +94,32 @@ func (r *recorder) Size() int {
 	return r.size
 }
 
+// Unwrap returns a compliant http.ResponseWriter, which safely supports additional interfaces such as http.Flusher
+// or http.Hijacker. The exact scope of supported interfaces is determined by the capabilities
+// of the http.ResponseWriter provided to the ServeHTTP function,
 func (r *recorder) Unwrap() http.ResponseWriter {
-	return r.ResponseWriter
+	switch r.ResponseWriter.(type) {
+	case interface {
+		http.Flusher
+		http.Hijacker
+		io.ReaderFrom
+	}:
+		return h1Writer{r}
+	case interface {
+		http.Flusher
+		http.Pusher
+	}:
+		return h2Writer{r}
+	case http.Pusher:
+		return pushWriter{r}
+	case http.Flusher:
+		return flushWriter{r}
+	}
+	return r
 }
 
+// WriteHeader sends an HTTP response header with the provided
+// status code. See http.ResponseWriter for more details.
 func (r *recorder) WriteHeader(code int) {
 	if r.Written() {
 		caller := relevantCaller()
@@ -105,6 +132,8 @@ func (r *recorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Write writes the data to the connection as part of an HTTP reply.
+// See http.ResponseWriter for more details.
 func (r *recorder) Write(buf []byte) (n int, err error) {
 	if !r.Written() {
 		r.size = 0
@@ -115,6 +144,9 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 	return
 }
 
+// WriteString writes the provided string to the underlying connection
+// as part of an HTTP reply. The method returns the number of bytes written
+// and an error, if any.
 func (r *recorder) WriteString(s string) (n int, err error) {
 	if !r.Written() {
 		r.size = 0
@@ -127,66 +159,130 @@ func (r *recorder) WriteString(s string) (n int, err error) {
 }
 
 type flushWriter struct {
-	*recorder
+	r *recorder
+}
+
+func (w flushWriter) Header() http.Header {
+	return w.r.Header()
+}
+
+func (w flushWriter) Write(buf []byte) (int, error) {
+	return w.r.Write(buf)
+}
+
+func (w flushWriter) WriteHeader(statusCode int) {
+	w.r.WriteHeader(statusCode)
+}
+
+func (w flushWriter) WriteString(s string) (int, error) {
+	return w.r.WriteString(s)
 }
 
 func (w flushWriter) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+	if !w.r.Written() {
+		w.r.size = 0
 	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
+	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
 type h1Writer struct {
-	*recorder
+	r *recorder
+}
+
+func (w h1Writer) Header() http.Header {
+	return w.r.Header()
+}
+
+func (w h1Writer) Write(buf []byte) (int, error) {
+	return w.r.Write(buf)
+}
+
+func (w h1Writer) WriteHeader(statusCode int) {
+	w.r.WriteHeader(statusCode)
+}
+
+func (w h1Writer) WriteString(s string) (int, error) {
+	return w.r.WriteString(s)
 }
 
 func (w h1Writer) ReadFrom(src io.Reader) (n int64, err error) {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+	if !w.r.Written() {
+		w.r.size = 0
 	}
 
-	rf := w.recorder.ResponseWriter.(io.ReaderFrom)
+	rf := w.r.ResponseWriter.(io.ReaderFrom)
 	n, err = rf.ReadFrom(src)
-	w.recorder.size += int(n)
+	w.r.size += int(n)
 	return
 }
 
 func (w h1Writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+	if !w.r.Written() {
+		w.r.size = 0
 	}
-	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
+	return w.r.ResponseWriter.(http.Hijacker).Hijack()
 }
 
 func (w h1Writer) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+	if !w.r.Written() {
+		w.r.size = 0
 	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
+	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
 type h2Writer struct {
-	*recorder
+	r *recorder
+}
+
+func (w h2Writer) Header() http.Header {
+	return w.r.Header()
+}
+
+func (w h2Writer) Write(buf []byte) (int, error) {
+	return w.r.Write(buf)
+}
+
+func (w h2Writer) WriteHeader(statusCode int) {
+	w.r.WriteHeader(statusCode)
+}
+
+func (w h2Writer) WriteString(s string) (int, error) {
+	return w.r.WriteString(s)
 }
 
 func (w h2Writer) Push(target string, opts *http.PushOptions) error {
-	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
+	return w.r.ResponseWriter.(http.Pusher).Push(target, opts)
 }
 
 func (w h2Writer) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+	if !w.r.Written() {
+		w.r.size = 0
 	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
+	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
 type pushWriter struct {
-	*recorder
+	r *recorder
+}
+
+func (w pushWriter) Header() http.Header {
+	return w.r.Header()
+}
+
+func (w pushWriter) Write(buf []byte) (int, error) {
+	return w.r.Write(buf)
+}
+
+func (w pushWriter) WriteHeader(statusCode int) {
+	w.r.WriteHeader(statusCode)
+}
+
+func (w pushWriter) WriteString(s string) (int, error) {
+	return w.r.WriteString(s)
 }
 
 func (w pushWriter) Push(target string, opts *http.PushOptions) error {
-	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
+	return w.r.ResponseWriter.(http.Pusher).Push(target, opts)
 }
 
 // noUnwrap hide the Unwrap method of the ResponseWriter.
