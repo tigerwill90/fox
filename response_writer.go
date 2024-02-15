@@ -20,6 +20,8 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 )
 
 var (
@@ -50,16 +52,21 @@ var (
 // io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces for HTTP/2 requests.
 type ResponseWriter interface {
 	http.ResponseWriter
+	io.StringWriter
+	io.ReaderFrom
 	// Status recorded after Write and WriteHeader.
 	Status() int
 	// Written returns true if the response has been written.
 	Written() bool
 	// Size returns the size of the written response.
 	Size() int
-	// WriteString writes the provided string to the underlying connection
-	// as part of an HTTP reply. The method returns the number of bytes written
-	// and an error, if any.
-	WriteString(s string) (int, error)
+}
+
+var copyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 32*1024)
+		return &b
+	},
 }
 
 const notWritten = -1
@@ -102,13 +109,29 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 	case interface {
 		http.Flusher
 		http.Hijacker
-		io.ReaderFrom
 	}:
+		// h1 extended
+		if _, ok := r.ResponseWriter.(interface {
+			SetReadDeadline(deadline time.Time) error
+			SetWriteDeadline(deadline time.Time) error
+			EnableFullDuplex() error
+		}); ok {
+			return fullH1writer{r}
+		}
+
 		return h1Writer{r}
 	case interface {
 		http.Flusher
 		http.Pusher
 	}:
+		// h2 extended
+		if _, ok := r.ResponseWriter.(interface {
+			SetReadDeadline(deadline time.Time) error
+			SetWriteDeadline(deadline time.Time) error
+		}); ok {
+			return fullH2writer{r}
+		}
+
 		return h2Writer{r}
 	case http.Pusher:
 		return pushWriter{r}
@@ -158,6 +181,24 @@ func (r *recorder) WriteString(s string) (n int, err error) {
 	return
 }
 
+func (r *recorder) ReadFrom(src io.Reader) (n int64, err error) {
+	if !r.Written() {
+		r.size = 0
+	}
+
+	if rf, ok := r.ResponseWriter.(io.ReaderFrom); ok {
+		n, err = rf.ReadFrom(src)
+		r.size += int(n)
+		return
+	}
+
+	bufp := copyBufPool.Get().(*[]byte)
+	buf := *bufp
+	n, err = io.CopyBuffer(onlyWrite{r}, src, buf)
+	copyBufPool.Put(bufp)
+	return
+}
+
 type flushWriter struct {
 	r *recorder
 }
@@ -178,6 +219,8 @@ func (w flushWriter) WriteString(s string) (int, error) {
 	return w.r.WriteString(s)
 }
 
+func (w flushWriter) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+
 func (w flushWriter) Flush() {
 	if !w.r.Written() {
 		w.r.size = 0
@@ -197,24 +240,13 @@ func (w h1Writer) Write(buf []byte) (int, error) {
 	return w.r.Write(buf)
 }
 
-func (w h1Writer) WriteHeader(statusCode int) {
-	w.r.WriteHeader(statusCode)
-}
+func (w h1Writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
 
 func (w h1Writer) WriteString(s string) (int, error) {
 	return w.r.WriteString(s)
 }
 
-func (w h1Writer) ReadFrom(src io.Reader) (n int64, err error) {
-	if !w.r.Written() {
-		w.r.size = 0
-	}
-
-	rf := w.r.ResponseWriter.(io.ReaderFrom)
-	n, err = rf.ReadFrom(src)
-	w.r.size += int(n)
-	return
-}
+func (w h1Writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
 
 func (w h1Writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.r.Written() {
@@ -228,6 +260,52 @@ func (w h1Writer) Flush() {
 		w.r.size = 0
 	}
 	w.r.ResponseWriter.(http.Flusher).Flush()
+}
+
+type fullH1writer struct {
+	r *recorder
+}
+
+func (w fullH1writer) Header() http.Header {
+	return w.r.Header()
+}
+
+func (w fullH1writer) Write(buf []byte) (int, error) {
+	return w.r.Write(buf)
+}
+
+func (w fullH1writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
+
+func (w fullH1writer) WriteString(s string) (int, error) {
+	return w.r.WriteString(s)
+}
+
+func (w fullH1writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+
+func (w fullH1writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if !w.r.Written() {
+		w.r.size = 0
+	}
+	return w.r.ResponseWriter.(http.Hijacker).Hijack()
+}
+
+func (w fullH1writer) Flush() {
+	if !w.r.Written() {
+		w.r.size = 0
+	}
+	w.r.ResponseWriter.(http.Flusher).Flush()
+}
+
+func (w fullH1writer) SetReadDeadline(deadline time.Time) error {
+	return w.r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }).SetReadDeadline(deadline)
+}
+
+func (w fullH1writer) SetWriteDeadline(deadline time.Time) error {
+	return w.r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }).SetWriteDeadline(deadline)
+}
+
+func (w fullH1writer) EnableFullDuplex() error {
+	return w.r.ResponseWriter.(interface{ EnableFullDuplex() error }).EnableFullDuplex()
 }
 
 type h2Writer struct {
@@ -250,6 +328,8 @@ func (w h2Writer) WriteString(s string) (int, error) {
 	return w.r.WriteString(s)
 }
 
+func (w h2Writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+
 func (w h2Writer) Push(target string, opts *http.PushOptions) error {
 	return w.r.ResponseWriter.(http.Pusher).Push(target, opts)
 }
@@ -259,6 +339,45 @@ func (w h2Writer) Flush() {
 		w.r.size = 0
 	}
 	w.r.ResponseWriter.(http.Flusher).Flush()
+}
+
+type fullH2writer struct {
+	r *recorder
+}
+
+func (w fullH2writer) Header() http.Header {
+	return w.r.Header()
+}
+
+func (w fullH2writer) Write(buf []byte) (int, error) {
+	return w.r.Write(buf)
+}
+
+func (w fullH2writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
+
+func (w fullH2writer) WriteString(s string) (int, error) {
+	return w.r.WriteString(s)
+}
+
+func (w fullH2writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+
+func (w fullH2writer) Push(target string, opts *http.PushOptions) error {
+	return w.r.ResponseWriter.(http.Pusher).Push(target, opts)
+}
+
+func (w fullH2writer) Flush() {
+	if !w.r.Written() {
+		w.r.size = 0
+	}
+	w.r.ResponseWriter.(http.Flusher).Flush()
+}
+
+func (w fullH2writer) SetReadDeadline(deadline time.Time) error {
+	return w.r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }).SetReadDeadline(deadline)
+}
+
+func (w fullH2writer) SetWriteDeadline(deadline time.Time) error {
+	return w.r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }).SetWriteDeadline(deadline)
 }
 
 type pushWriter struct {
@@ -281,6 +400,8 @@ func (w pushWriter) WriteString(s string) (int, error) {
 	return w.r.WriteString(s)
 }
 
+func (w pushWriter) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+
 func (w pushWriter) Push(target string, opts *http.PushOptions) error {
 	return w.r.ResponseWriter.(http.Pusher).Push(target, opts)
 }
@@ -290,19 +411,25 @@ type noUnwrap struct {
 	ResponseWriter
 }
 
+type onlyWrite struct{ io.Writer }
+
 type noopWriter struct {
 	h http.Header
 }
 
-func (n noopWriter) Header() http.Header {
-	return n.h
+func (w noopWriter) Header() http.Header {
+	return w.h
 }
 
-func (n noopWriter) Write([]byte) (int, error) {
+func (w noopWriter) Write([]byte) (int, error) {
 	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
 }
 
-func (n noopWriter) WriteHeader(int) {
+func (w noopWriter) WriteHeader(int) {
+	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
+}
+
+func (w noopWriter) ReadFrom(src io.Reader) (n int64, err error) {
 	panic(fmt.Errorf("%w: attempt to write on a clone", ErrDiscardedResponseWriter))
 }
 

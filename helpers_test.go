@@ -5,7 +5,6 @@
 package fox
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,16 +35,4 @@ func TestNewTestContext(t *testing.T) {
 	assert.Equal(t, 3, n)
 
 	assert.Equal(t, 6, c.Writer().Size())
-
-	_, ok = c.Writer().(http.Hijacker)
-	assert.False(t, ok)
-
-	_, ok = rw.(http.Hijacker)
-	assert.False(t, ok)
-
-	_, ok = c.Writer().(io.ReaderFrom)
-	assert.False(t, ok)
-
-	_, ok = rw.(io.ReaderFrom)
-	assert.False(t, ok)
 }
