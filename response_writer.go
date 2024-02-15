@@ -29,22 +29,45 @@ var (
 	_ http.Flusher        = (*h1Writer)(nil)
 	_ http.Hijacker       = (*h1Writer)(nil)
 	_ io.ReaderFrom       = (*h1Writer)(nil)
+	_ io.StringWriter     = (*h1Writer)(nil)
+)
+
+var (
+	_ http.ResponseWriter = (*extendedH1writer)(nil)
+	_ http.Flusher        = (*extendedH1writer)(nil)
+	_ http.Hijacker       = (*extendedH1writer)(nil)
+	_ io.ReaderFrom       = (*extendedH1writer)(nil)
+	_ io.StringWriter     = (*extendedH1writer)(nil)
 )
 
 var (
 	_ http.ResponseWriter = (*h2Writer)(nil)
 	_ http.Pusher         = (*h2Writer)(nil)
 	_ http.Flusher        = (*h2Writer)(nil)
+	_ io.ReaderFrom       = (*h2Writer)(nil)
+	_ io.StringWriter     = (*h2Writer)(nil)
+)
+
+var (
+	_ http.ResponseWriter = (*extendedH2writer)(nil)
+	_ http.Pusher         = (*extendedH2writer)(nil)
+	_ http.Flusher        = (*extendedH2writer)(nil)
+	_ io.ReaderFrom       = (*extendedH2writer)(nil)
+	_ io.StringWriter     = (*extendedH2writer)(nil)
 )
 
 var (
 	_ http.ResponseWriter = (*flushWriter)(nil)
 	_ http.Flusher        = (*flushWriter)(nil)
+	_ io.ReaderFrom       = (*flushWriter)(nil)
+	_ io.StringWriter     = (*flushWriter)(nil)
 )
 
 var (
 	_ http.ResponseWriter = (*pushWriter)(nil)
 	_ http.Pusher         = (*pushWriter)(nil)
+	_ io.ReaderFrom       = (*pushWriter)(nil)
+	_ io.StringWriter     = (*pushWriter)(nil)
 )
 
 // ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
@@ -116,7 +139,7 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 			SetWriteDeadline(deadline time.Time) error
 			EnableFullDuplex() error
 		}); ok {
-			return fullH1writer{r}
+			return extendedH1writer{r}
 		}
 
 		return h1Writer{r}
@@ -129,7 +152,7 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 			SetReadDeadline(deadline time.Time) error
 			SetWriteDeadline(deadline time.Time) error
 		}); ok {
-			return fullH2writer{r}
+			return extendedH2writer{r}
 		}
 
 		return h2Writer{r}
@@ -262,49 +285,49 @@ func (w h1Writer) Flush() {
 	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
-type fullH1writer struct {
+type extendedH1writer struct {
 	r *recorder
 }
 
-func (w fullH1writer) Header() http.Header {
+func (w extendedH1writer) Header() http.Header {
 	return w.r.Header()
 }
 
-func (w fullH1writer) Write(buf []byte) (int, error) {
+func (w extendedH1writer) Write(buf []byte) (int, error) {
 	return w.r.Write(buf)
 }
 
-func (w fullH1writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
+func (w extendedH1writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
 
-func (w fullH1writer) WriteString(s string) (int, error) {
+func (w extendedH1writer) WriteString(s string) (int, error) {
 	return w.r.WriteString(s)
 }
 
-func (w fullH1writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+func (w extendedH1writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
 
-func (w fullH1writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (w extendedH1writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if !w.r.Written() {
 		w.r.size = 0
 	}
 	return w.r.ResponseWriter.(http.Hijacker).Hijack()
 }
 
-func (w fullH1writer) Flush() {
+func (w extendedH1writer) Flush() {
 	if !w.r.Written() {
 		w.r.size = 0
 	}
 	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
-func (w fullH1writer) SetReadDeadline(deadline time.Time) error {
+func (w extendedH1writer) SetReadDeadline(deadline time.Time) error {
 	return w.r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }).SetReadDeadline(deadline)
 }
 
-func (w fullH1writer) SetWriteDeadline(deadline time.Time) error {
+func (w extendedH1writer) SetWriteDeadline(deadline time.Time) error {
 	return w.r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }).SetWriteDeadline(deadline)
 }
 
-func (w fullH1writer) EnableFullDuplex() error {
+func (w extendedH1writer) EnableFullDuplex() error {
 	return w.r.ResponseWriter.(interface{ EnableFullDuplex() error }).EnableFullDuplex()
 }
 
@@ -341,42 +364,42 @@ func (w h2Writer) Flush() {
 	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
-type fullH2writer struct {
+type extendedH2writer struct {
 	r *recorder
 }
 
-func (w fullH2writer) Header() http.Header {
+func (w extendedH2writer) Header() http.Header {
 	return w.r.Header()
 }
 
-func (w fullH2writer) Write(buf []byte) (int, error) {
+func (w extendedH2writer) Write(buf []byte) (int, error) {
 	return w.r.Write(buf)
 }
 
-func (w fullH2writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
+func (w extendedH2writer) WriteHeader(statusCode int) { w.r.WriteHeader(statusCode) }
 
-func (w fullH2writer) WriteString(s string) (int, error) {
+func (w extendedH2writer) WriteString(s string) (int, error) {
 	return w.r.WriteString(s)
 }
 
-func (w fullH2writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
+func (w extendedH2writer) ReadFrom(src io.Reader) (n int64, err error) { return w.r.ReadFrom(src) }
 
-func (w fullH2writer) Push(target string, opts *http.PushOptions) error {
+func (w extendedH2writer) Push(target string, opts *http.PushOptions) error {
 	return w.r.ResponseWriter.(http.Pusher).Push(target, opts)
 }
 
-func (w fullH2writer) Flush() {
+func (w extendedH2writer) Flush() {
 	if !w.r.Written() {
 		w.r.size = 0
 	}
 	w.r.ResponseWriter.(http.Flusher).Flush()
 }
 
-func (w fullH2writer) SetReadDeadline(deadline time.Time) error {
+func (w extendedH2writer) SetReadDeadline(deadline time.Time) error {
 	return w.r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }).SetReadDeadline(deadline)
 }
 
-func (w fullH2writer) SetWriteDeadline(deadline time.Time) error {
+func (w extendedH2writer) SetWriteDeadline(deadline time.Time) error {
 	return w.r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }).SetWriteDeadline(deadline)
 }
 
