@@ -393,12 +393,29 @@ f := fox.New(fox.DefaultOptions())
 f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
-### Custom http.ResponseWriter Implementations
-When using custom `http.ResponseWriter` implementations, it's important to ensure that these implementations expose the 
-required http interfaces. For HTTP/1.x requests, Fox expects the `http.ResponseWriter` to implement the `http.Flusher`, 
-`http.Hijacker`, and `io.ReaderFrom` interfaces. For HTTP/2 requests, the `http.ResponseWriter` should implement the 
-`http.Flusher` and `http.Pusher` interfaces. Fox will invoke these methods **without any prior assertion**.
+### Working with fox.ResponseWriter
+Fox provides a `ResponseWriter` that extends the standard `http.ResponseWriter` by enabling access to the status code, 
+written state, and response size. Importantly, the `fox.ResponseWriter` does not directly implement additional 
+interfaces like `http.Flusher` or `http.Hijacker`. Instead, it provides an `Unwrap` method that returns a 
+compliant `http.ResponseWriter` which potentially supports additional interfaces, depending on the capabilities of 
+the underlying writer — whether it's the one provided to the ServeHTTP function or a custom writer introduced by 
+middleware.
 
+Implementers are encouraged to adopt this model, using `Unwrap` to carefully reveal the underlying writer's capabilities 
+(such as flushing, hijacking, or HTTP/2 pushing).
+
+This example demonstrates how to leverage `http.ResponseController` to access advanced HTTP functionalities by 
+automatically unwrapping the `fox.ResponseWriter`.
+````go
+func Upgrade(c fox.Context) {
+	ctl := http.NewResponseController(c.Writer())
+	conn, rw, err := ctl.Hijack()
+	if err != nil {
+		// handler error
+	}
+	// Do something with the hijacked conn
+}
+````
 
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 

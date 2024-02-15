@@ -269,11 +269,6 @@ func defaultOptionsHandler(c Context) {
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
 // to the appropriate handler function based on the request's method and path.
-//
-// It expects the http.ResponseWriter provided to implement the http.Flusher, http.Hijacker, and io.ReaderFrom
-// interfaces for HTTP/1.x requests and the http.Flusher and http.Pusher interfaces for HTTP/2 requests.
-// If a custom response writer is used, it is critical to ensure that these methods are properly exposed as Fox
-// will invoke them without any prior assertion.
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var (

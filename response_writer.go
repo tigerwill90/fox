@@ -1,12 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
 // at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
-//
-// This implementation is influenced by the work done by goji and chi libraries,
-// with additional optimizations to avoid unnecessary memory allocations.
-// See their respective licenses for more information:
-// https://github.com/zenazn/goji/blob/master/LICENSE
-// https://github.com/go-chi/chi/blob/master/LICENSE
 
 package fox
 
@@ -71,8 +65,13 @@ var (
 )
 
 // ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
-// written state, and response size. ResponseWriter object implements additional http.Flusher, http.Hijacker,
-// io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces for HTTP/2 requests.
+// written state, and response size. Unlike traditional implementations that might directly implement additional
+// interfaces such as http.Flusher or http.Hijacker, implementers are encouraged to use the Unwrap() method. Unwrap()
+// returns an http.ResponseWriter that potentially supports additional interfaces based on the capabilities of the underlying
+// response writer provided to the ServeHTTP function or a custom writer implemented by a middleware in the chain.
+// Implementations of ResponseWriter should ensure that Unwrap() methodically identifies and exposes the appropriate
+// capabilities (e.g., flushing, hijacking, HTTP/2 pushing) of the underlying writer in a type-safe manner, without
+// requiring the ResponseWriter itself to directly implement these interfaces.
 type ResponseWriter interface {
 	http.ResponseWriter
 	io.StringWriter
@@ -125,8 +124,8 @@ func (r *recorder) Size() int {
 }
 
 // Unwrap returns a compliant http.ResponseWriter, which safely supports additional interfaces such as http.Flusher
-// or http.Hijacker. The exact scope of supported interfaces is determined by the capabilities
-// of the http.ResponseWriter provided to the ServeHTTP function,
+// or http.Hijacker. The exact scope of supported interfaces is determined by the capabilities of the http.ResponseWriter
+// provided to the ServeHTTP function or a custom writer implemented by a middleware in the chain.
 func (r *recorder) Unwrap() http.ResponseWriter {
 	switch r.ResponseWriter.(type) {
 	case interface {
