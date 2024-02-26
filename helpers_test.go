@@ -5,7 +5,6 @@
 package fox
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +18,7 @@ func TestNewTestContext(t *testing.T) {
 	w := httptest.NewRecorder()
 	_, c := NewTestContext(w, req)
 
-	flusher, ok := c.Writer().(http.Flusher)
+	flusher, ok := c.Writer().(interface{ Unwrap() http.ResponseWriter }).Unwrap().(http.Flusher)
 	require.True(t, ok)
 
 	n, err := c.Writer().Write([]byte("foo"))
@@ -33,9 +32,9 @@ func TestNewTestContext(t *testing.T) {
 
 	assert.Equal(t, 6, c.Writer().Size())
 
-	_, ok = c.Writer().(http.Hijacker)
-	assert.False(t, ok)
+	_, _, err = c.Writer().Hijack()
+	assert.ErrorIs(t, err, http.ErrNotSupported)
 
-	_, ok = c.Writer().(io.ReaderFrom)
-	assert.False(t, ok)
+	err = c.Writer().Push("foo", nil)
+	assert.ErrorIs(t, err, http.ErrNotSupported)
 }

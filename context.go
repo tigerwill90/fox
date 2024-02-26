@@ -107,11 +107,7 @@ type context struct {
 func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
-	if r.ProtoMajor == 2 {
-		c.w = h2Writer{&c.rec}
-	} else {
-		c.w = h1Writer{&c.rec}
-	}
+	c.w = &c.rec
 	c.fox = fox
 	c.path = ""
 	c.cachedQuery = nil

@@ -27,7 +27,7 @@ func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *co
 	c.fox = fox
 	c.req = r
 	c.rec.reset(w)
-	c.w = flushWriter{&c.rec}
+	c.w = &c.rec
 	return c
 }
 
