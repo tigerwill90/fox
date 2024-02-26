@@ -42,6 +42,10 @@ type Tree struct {
 // for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To override an existing route, use Update.
 func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
+	if matched := regEnLetter.MatchString(method); !matched {
+		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+	}
+
 	p, catchAllKey, n, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -55,6 +59,10 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To add new handler, use Handle method.
 func (t *Tree) Update(method, path string, handler HandlerFunc) error {
+	if method == "" {
+		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+
 	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -68,13 +76,17 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 // However, this function is NOT thread-safe and should be run serially, along with all other Tree APIs that perform
 // write operations.
 func (t *Tree) Remove(method, path string) error {
+	if method == "" {
+		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+
 	path, _, _, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
 	if !t.remove(method, path) {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, method, path)
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
 	return nil
@@ -158,10 +170,6 @@ func (t *Tree) Methods(path string) []string {
 // parseRoute before.
 func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	if method == "" {
-		return fmt.Errorf("%w: http method is missing", ErrInvalidRoute)
-	}
-
 	var rootNode *node
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -186,7 +194,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			if result.matched.isCatchAll() && isCatchAll {
 				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 			}
-			return fmt.Errorf("%w: new route [%s] %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
+			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
 		}
 
 		// We are updating an existing node. We only need to create a new node from
@@ -343,12 +351,12 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, method, path)
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
 	result := t.search(nds[index], path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, method, path)
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
 	if catchAllKey != result.matched.catchAllKey {

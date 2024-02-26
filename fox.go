@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,7 +17,12 @@ import (
 
 const verb = 4
 
-var commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
+var (
+	// regEnLetter matches english letters for http method name.
+	regEnLetter = regexp.MustCompile("^[A-Z]+$")
+	// commonVerbs define http method for which node are pre instantiated.
+	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
+)
 
 // HandlerFunc is a function type that responds to an HTTP request.
 // It enforces the same contract as http.Handler but provides additional feature
