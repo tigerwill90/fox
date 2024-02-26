@@ -1987,6 +1987,12 @@ func TestRouter_Lookup(t *testing.T) {
 
 		cc.Close()
 	}
+
+	// No method
+	req := httptest.NewRequest("ANY", "/bar", nil)
+	handler, cc, _ := f.Lookup(mockResponseWriter{}, req)
+	assert.Nil(t, handler)
+	assert.Nil(t, cc)
 }
 
 func TestTree_Has(t *testing.T) {
