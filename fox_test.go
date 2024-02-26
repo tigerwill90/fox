@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1746,13 +1745,16 @@ func TestTree_RemoveRoot(t *testing.T) {
 }
 
 func TestTree_Methods(t *testing.T) {
-	tree := New().Tree()
-	methods := []string{"GET", "POST", "PATCH"}
-	for _, m := range methods {
-		require.NoError(t, tree.Handle(m, "/foo/bar", emptyHandler))
+	f := New()
+	for _, rte := range githubAPI {
+		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
 	}
-	sort.Strings(methods)
-	assert.Equal(t, methods, tree.Methods())
+
+	methods := f.Tree().Methods("/gists/123/star")
+	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
+
+	methods = f.Tree().Methods("*")
+	assert.Equal(t, []string{"DELETE", "GET", "POST", "PUT"}, methods)
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
@@ -1862,7 +1864,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     "GET, OPTIONS, PUT, TRACE",
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -1878,7 +1880,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(c.Tree().LookupMethods(c.Request().URL.Path), ", "))
+					c.SetHeader("Allow", strings.Join(c.Tree().Methods(c.Request().URL.Path), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				}))
 			}
@@ -1887,7 +1889,6 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.want, w.Header().Get("Allow"))
-
 			// Reset
 			f.Swap(f.NewTree())
 		})
@@ -1959,16 +1960,16 @@ func TestWithNotFoundHandler(t *testing.T) {
 	assert.Equal(t, "NOT FOUND\n", w.Body.String())
 }
 
-func TestTree_Lookup(t *testing.T) {
+func TestRouter_Lookup(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	f := New()
 	for _, rte := range githubAPI {
 		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
 	}
 
-	tree := f.Tree()
 	for _, rte := range githubAPI {
-		handler, cc, _ := tree.Lookup(rte.method, rte.path, false)
+		req := httptest.NewRequest(rte.method, rte.path, nil)
+		handler, cc, _ := f.Lookup(mockResponseWriter{}, req)
 		require.NotNil(t, cc)
 		assert.NotNil(t, handler)
 
@@ -1988,17 +1989,7 @@ func TestTree_Lookup(t *testing.T) {
 	}
 }
 
-func TestTree_LookupMethods(t *testing.T) {
-	f := New()
-	for _, rte := range githubAPI {
-		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
-	}
-
-	methods := f.Tree().LookupMethods("/gists/123/star")
-	assert.Equal(t, []string{"GET", "PUT", "DELETE"}, methods)
-}
-
-func TestHas(t *testing.T) {
+func TestTree_Has(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}",
@@ -2052,7 +2043,7 @@ func TestHas(t *testing.T) {
 	}
 }
 
-func TestReverse(t *testing.T) {
+func TestTree_Match(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}",
@@ -2092,7 +2083,7 @@ func TestReverse(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, Reverse(r.Tree(), http.MethodGet, tc.path))
+			assert.Equal(t, tc.want, r.Tree().Match(http.MethodGet, tc.path))
 		})
 	}
 }
@@ -2446,20 +2437,14 @@ func ExampleRouter_Tree() {
 // This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
 // lookup on the tree. If the cleaned path matches a registered route, the client is redirected with a 301 status
 // code (Moved Permanently).
-func ExampleTree_Lookup() {
+func ExampleTree_Match() {
 	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			req := c.Request()
 
 			cleanedPath := CleanPath(req.URL.Path)
-			handler, cc, _ := c.Tree().Lookup(req.Method, cleanedPath, true)
-			// You should always close a non-nil Context.
-			if cc != nil {
-				defer cc.Close()
-			}
-
-			// 301 redirect and returns.
-			if handler != nil {
+			if match := c.Tree().Match(req.Method, cleanedPath); match != "" {
+				// 301 redirect and returns.
 				req.URL.Path = cleanedPath
 				http.Redirect(c.Writer(), req, req.URL.String(), http.StatusMovedPermanently)
 				return
