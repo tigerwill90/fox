@@ -1988,9 +1988,15 @@ func TestRouter_Lookup(t *testing.T) {
 		cc.Close()
 	}
 
-	// No method
+	// No method match
 	req := httptest.NewRequest("ANY", "/bar", nil)
 	handler, cc, _ := f.Lookup(mockResponseWriter{}, req)
+	assert.Nil(t, handler)
+	assert.Nil(t, cc)
+
+	// No path match
+	req = httptest.NewRequest(http.MethodGet, "/bar", nil)
+	handler, cc, _ = f.Lookup(mockResponseWriter{}, req)
 	assert.Nil(t, handler)
 	assert.Nil(t, cc)
 }
