@@ -69,7 +69,7 @@ func New(opts ...Option) *Router {
 
 	r.noRoute = DefaultNotFoundHandler()
 	r.noMethod = DefaultMethodNotAllowedHandler()
-	r.autoOptions = defaultOptionsHandler
+	r.autoOptions = DefaultOptionsHandler()
 
 	for _, opt := range opts {
 		opt.apply(r)
@@ -246,6 +246,13 @@ func DefaultMethodNotAllowedHandler() HandlerFunc {
 	}
 }
 
+// DefaultOptionsHandler returns a simple HandlerFunc that replies to each request with a "200 OK" reply.
+func DefaultOptionsHandler() HandlerFunc {
+	return func(c Context) {
+		c.Writer().WriteHeader(http.StatusOK)
+	}
+}
+
 func defaultRedirectTrailingSlashHandler(c Context) {
 	req := c.Request()
 
@@ -267,10 +274,6 @@ func defaultRedirectTrailingSlashHandler(c Context) {
 		return
 	}
 	localRedirect(c.Writer(), req, "../"+path.Base(url), code)
-}
-
-func defaultOptionsHandler(c Context) {
-	c.Writer().WriteHeader(http.StatusOK)
 }
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them

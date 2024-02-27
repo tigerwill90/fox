@@ -57,7 +57,8 @@ func WithNoMethodHandler(handler HandlerFunc) Option {
 
 // WithOptionsHandler register an HandlerFunc which is called on automatic OPTIONS requests. By default, the router
 // respond with a 200 OK status code. The "Allow" header it automatically set before calling the handler. Note that custom OPTIONS
-// handler take priority over automatic replies. This option automatically enable WithAutoOptions.
+// handler take priority over automatic replies. By default, DefaultOptionsHandler is used. Note that this option
+// automatically enable WithAutoOptions.
 // This api is EXPERIMENTAL and is likely to change in future release.
 func WithOptionsHandler(handler HandlerFunc) Option {
 	return optionFunc(func(r *Router) {
