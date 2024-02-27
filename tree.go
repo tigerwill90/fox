@@ -42,6 +42,10 @@ type Tree struct {
 // for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To override an existing route, use Update.
 func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
+	if matched := regEnLetter.MatchString(method); !matched {
+		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+	}
+
 	p, catchAllKey, n, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -55,6 +59,10 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To add new handler, use Handle method.
 func (t *Tree) Update(method, path string, handler HandlerFunc) error {
+	if method == "" {
+		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+
 	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
 		return err
@@ -68,77 +76,20 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 // However, this function is NOT thread-safe and should be run serially, along with all other Tree APIs that perform
 // write operations.
 func (t *Tree) Remove(method, path string) error {
+	if method == "" {
+		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+
 	path, _, _, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
 	if !t.remove(method, path) {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, method, path)
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
 	return nil
-}
-
-// Methods returns a sorted slice of HTTP methods that are currently in use to route requests.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Methods() []string {
-	var methods []string
-	nds := *t.nodes.Load()
-	for i := range nds {
-		if len(nds[i].children) > 0 {
-			if methods == nil {
-				methods = make([]string, 0)
-			}
-			methods = append(methods, nds[i].key)
-		}
-	}
-	sort.Strings(methods)
-	return methods
-}
-
-// Lookup allow to do manual lookup of a route for the given method and path and return the matched HandlerFunc
-// along with a ContextCloser and trailing slash redirect recommendation. If lazy is set to true, wildcard parameter are
-// not parsed. You should always close the ContextCloser if NOT nil by calling cc.Close(). Note that the returned
-// ContextCloser does not have a router, request and response writer attached (use the Reset method).
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Lookup(method, path string, lazy bool) (handler HandlerFunc, cc ContextCloser, tsr bool) {
-	nds := *t.nodes.Load()
-	index := findRootNode(method, nds)
-	if index < 0 {
-		return
-	}
-
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, lazy)
-	if n != nil {
-		c.path = n.path
-		return n.handler, c, tsr
-	}
-	return nil, c, tsr
-}
-
-// LookupMethods lookup and returns all HTTP methods associated with a route that match the given path. This function
-// is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) LookupMethods(path string) (methods []string) {
-	nds := *t.nodes.Load()
-
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-
-	methods = make([]string, 0)
-	for i := 0; i < len(nds); i++ {
-		n, _ := t.lookup(nds[i], path, c.params, c.skipNds, true)
-		if n != nil {
-			methods = append(methods, nds[i].key)
-		}
-	}
-	c.Close()
-	return methods
 }
 
 // Has allows to check if the given method and path exactly match a registered route. This function is safe for
@@ -158,14 +109,67 @@ func (t *Tree) Has(method, path string) bool {
 	return n != nil && n.path == path
 }
 
+// Match perform a lookup on the tree for the given method and path and return the matching registered route if any.
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Match(method, path string) string {
+	nds := *t.nodes.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return ""
+	}
+
+	c := t.ctx.Get().(*context)
+	c.resetNil()
+	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	c.Close()
+	if n == nil {
+		return ""
+	}
+	return n.path
+}
+
+// Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
+// it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the methods
+// that can route requests to that path.
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Methods(path string) []string {
+	var methods []string
+	nds := *t.nodes.Load()
+
+	if path == "*" {
+		for i := range nds {
+			if len(nds[i].children) > 0 {
+				if methods == nil {
+					methods = make([]string, 0)
+				}
+				methods = append(methods, nds[i].key)
+			}
+		}
+	} else {
+		c := t.ctx.Get().(*context)
+		c.resetNil()
+		for i := range nds {
+			n, _ := t.lookup(nds[i], path, c.params, c.skipNds, true)
+			if n != nil {
+				if methods == nil {
+					methods = make([]string, 0)
+				}
+				methods = append(methods, nds[i].key)
+			}
+		}
+		c.Close()
+	}
+
+	sort.Strings(methods)
+	return methods
+}
+
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
 func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	if method == "" {
-		return fmt.Errorf("%w: http method is missing", ErrInvalidRoute)
-	}
-
 	var rootNode *node
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -190,7 +194,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			if result.matched.isCatchAll() && isCatchAll {
 				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 			}
-			return fmt.Errorf("%w: new route [%s] %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
+			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
 		}
 
 		// We are updating an existing node. We only need to create a new node from
@@ -347,12 +351,12 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, method, path)
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
 	result := t.search(nds[index], path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, method, path)
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
 	if catchAllKey != result.matched.catchAllKey {

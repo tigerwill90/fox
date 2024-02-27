@@ -54,6 +54,7 @@ func recovery(c Context, handle RecoveryFunc) {
 }
 
 func connIsBroken(err any) bool {
+	//goland:noinspection GoTypeAssertionOnErrors
 	if ne, ok := err.(*net.OpError); ok {
 		var se *os.SyscallError
 		if errors.As(ne, &se) {
