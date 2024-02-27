@@ -23,9 +23,7 @@ import (
 	"sync"
 )
 
-var (
-	_ ResponseWriter = (*recorder)(nil)
-)
+var _ ResponseWriter = (*recorder)(nil)
 
 var copyBufPool = sync.Pool{
 	New: func() any {
