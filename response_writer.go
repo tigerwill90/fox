@@ -141,7 +141,6 @@ func (r *recorder) ReadFrom(src io.Reader) (n int64, err error) {
 	if rf, ok := r.ResponseWriter.(io.ReaderFrom); ok {
 		n, err = rf.ReadFrom(src)
 		r.size += int(n)
-		fmt.Println("reader from")
 		return
 	}
 
@@ -150,7 +149,6 @@ func (r *recorder) ReadFrom(src io.Reader) (n int64, err error) {
 	buf := *bufp
 	n, err = io.CopyBuffer(onlyWrite{r}, src, buf)
 	copyBufPool.Put(bufp)
-	fmt.Println("reader from: compatibility mode")
 	return
 }
 
