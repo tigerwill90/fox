@@ -20,44 +20,39 @@ import (
 	"path"
 	"runtime"
 	"strings"
+	"sync"
 )
 
-var (
-	_ http.Flusher  = (*h1Writer)(nil)
-	_ http.Hijacker = (*h1Writer)(nil)
-	_ io.ReaderFrom = (*h1Writer)(nil)
-)
+var _ ResponseWriter = (*recorder)(nil)
 
-var (
-	_ http.Pusher  = (*h2Writer)(nil)
-	_ http.Flusher = (*h2Writer)(nil)
-)
-
-var (
-	_ ResponseWriter = (*flushWriter)(nil)
-	_ http.Flusher   = (*flushWriter)(nil)
-)
-
-var (
-	_ ResponseWriter = (*pushWriter)(nil)
-	_ http.Pusher    = (*pushWriter)(nil)
-)
+var copyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 32*1024)
+		return &b
+	},
+}
 
 // ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
-// written state, and response size. ResponseWriter object implements additional http.Flusher, http.Hijacker,
-// io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces for HTTP/2 requests.
+// written state, and response size.
 type ResponseWriter interface {
 	http.ResponseWriter
+	io.StringWriter
+	io.ReaderFrom
 	// Status recorded after Write and WriteHeader.
 	Status() int
 	// Written returns true if the response has been written.
 	Written() bool
 	// Size returns the size of the written response.
 	Size() int
-	// WriteString writes the provided string to the underlying connection
-	// as part of an HTTP reply. The method returns the number of bytes written
-	// and an error, if any.
-	WriteString(s string) (int, error)
+	// FlushError flushes buffered data to the client. If flush is not supported, FlushError returns an error
+	// matching http.ErrNotSupported. See http.Flusher for more details.
+	FlushError() error
+	// Hijack lets the caller take over the connection. If hijacking the connection is not supported, Hijack returns
+	// an error matching http.ErrNotSupported. See http.Hijacker for more details.
+	Hijack() (net.Conn, *bufio.ReadWriter, error)
+	// Push initiates an HTTP/2 server push. Push returns http.ErrNotSupported if the client has disabled push or if push
+	// is not supported on the underlying connection. See http.Pusher for more details.
+	Push(target string, opts *http.PushOptions) error
 }
 
 const notWritten = -1
@@ -74,14 +69,17 @@ func (r *recorder) reset(w http.ResponseWriter) {
 	r.status = http.StatusOK
 }
 
+// Status recorded after Write or WriteHeader.
 func (r *recorder) Status() int {
 	return r.status
 }
 
+// Written returns true if the response has been written.
 func (r *recorder) Written() bool {
 	return r.size != notWritten
 }
 
+// Size returns the size of the written response.
 func (r *recorder) Size() int {
 	if r.size < 0 {
 		return 0
@@ -93,6 +91,8 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
+// WriteHeader sends an HTTP response header with the provided
+// status code. See http.ResponseWriter for more details.
 func (r *recorder) WriteHeader(code int) {
 	if r.Written() {
 		caller := relevantCaller()
@@ -105,6 +105,8 @@ func (r *recorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Write writes the data to the connection as part of an HTTP reply.
+// See http.ResponseWriter for more details.
 func (r *recorder) Write(buf []byte) (n int, err error) {
 	if !r.Written() {
 		r.size = 0
@@ -115,6 +117,9 @@ func (r *recorder) Write(buf []byte) (n int, err error) {
 	return
 }
 
+// WriteString writes the provided string to the underlying connection
+// as part of an HTTP reply. The method returns the number of bytes written
+// and an error, if any.
 func (r *recorder) WriteString(s string) (n int, err error) {
 	if !r.Written() {
 		r.size = 0
@@ -126,72 +131,65 @@ func (r *recorder) WriteString(s string) (n int, err error) {
 	return
 }
 
-type flushWriter struct {
-	*recorder
-}
-
-func (w flushWriter) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
-	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
-}
-
-type h1Writer struct {
-	*recorder
-}
-
-func (w h1Writer) ReadFrom(src io.Reader) (n int64, err error) {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+// ReadFrom reads data from src until EOF or error. The return value n is the number of bytes read.
+// Any error except EOF encountered during the read is also returned.
+func (r *recorder) ReadFrom(src io.Reader) (n int64, err error) {
+	if !r.Written() {
+		r.size = 0
 	}
 
-	rf := w.recorder.ResponseWriter.(io.ReaderFrom)
-	n, err = rf.ReadFrom(src)
-	w.recorder.size += int(n)
+	if rf, ok := r.ResponseWriter.(io.ReaderFrom); ok {
+		n, err = rf.ReadFrom(src)
+		r.size += int(n)
+		return
+	}
+
+	// Fallback in compatibility mode.
+	bufp := copyBufPool.Get().(*[]byte)
+	buf := *bufp
+	n, err = io.CopyBuffer(onlyWrite{r}, src, buf)
+	copyBufPool.Put(bufp)
 	return
 }
 
-func (w h1Writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+// FlushError flushes buffered data to the client. If flush is not supported, FlushError returns an error
+// matching http.ErrNotSupported. See http.Flusher for more details.
+func (r *recorder) FlushError() error {
+	switch flusher := r.ResponseWriter.(type) {
+	case interface{ FlushError() error }:
+		return flusher.FlushError()
+	case http.Flusher:
+		flusher.Flush()
+		return nil
+	default:
+		return errNotSupported()
 	}
-	return w.recorder.ResponseWriter.(http.Hijacker).Hijack()
 }
 
-func (w h1Writer) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+// Push initiates an HTTP/2 server push. Push returns http.ErrNotSupported if the client has disabled push or if push
+// is not supported on the underlying connection. See http.Pusher for more details.
+func (r *recorder) Push(target string, opts *http.PushOptions) error {
+	if pusher, ok := r.ResponseWriter.(http.Pusher); ok {
+		return pusher.Push(target, opts)
 	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
+	return http.ErrNotSupported
 }
 
-type h2Writer struct {
-	*recorder
-}
-
-func (w h2Writer) Push(target string, opts *http.PushOptions) error {
-	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
-}
-
-func (w h2Writer) Flush() {
-	if !w.recorder.Written() {
-		w.recorder.size = 0
+// Hijack lets the caller take over the connection. If hijacking the connection is not supported, Hijack returns
+// an error matching http.ErrNotSupported. See http.Hijacker for more details.
+func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
 	}
-	w.recorder.ResponseWriter.(http.Flusher).Flush()
+	return nil, nil, errNotSupported()
 }
 
-type pushWriter struct {
-	*recorder
-}
-
-func (w pushWriter) Push(target string, opts *http.PushOptions) error {
-	return w.recorder.ResponseWriter.(http.Pusher).Push(target, opts)
-}
-
-// noUnwrap hide the Unwrap method of the ResponseWriter.
 type noUnwrap struct {
 	ResponseWriter
+}
+
+type onlyWrite struct {
+	io.Writer
 }
 
 type noopWriter struct {
@@ -225,4 +223,8 @@ func relevantCaller() runtime.Frame {
 		}
 	}
 	return frame
+}
+
+func errNotSupported() error {
+	return fmt.Errorf("%w", http.ErrNotSupported)
 }

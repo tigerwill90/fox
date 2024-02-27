@@ -393,13 +393,6 @@ f := fox.New(fox.DefaultOptions())
 f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
-### Custom http.ResponseWriter Implementations
-When using custom `http.ResponseWriter` implementations, it's important to ensure that these implementations expose the 
-required http interfaces. For HTTP/1.x requests, Fox expects the `http.ResponseWriter` to implement the `http.Flusher`, 
-`http.Hijacker`, and `io.ReaderFrom` interfaces. For HTTP/2 requests, the `http.ResponseWriter` should implement the 
-`http.Flusher` and `http.Pusher` interfaces. Fox will invoke these methods **without any prior assertion**.
-
-
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 
 to create and apply automatically a simple logging middleware to all routes (including 404, 405, etc...).

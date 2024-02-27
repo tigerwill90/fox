@@ -15,6 +15,42 @@ import (
 	"testing"
 )
 
+func TestContext_Writer_ReadFrom(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	w := httptest.NewRecorder()
+
+	c := NewTestContextOnly(New(), w, req)
+
+	n, err := c.Writer().ReadFrom(bytes.NewBuffer([]byte("foo bar")))
+	require.NoError(t, err)
+	assert.Equal(t, int(n), c.Writer().Size())
+	assert.True(t, c.Writer().Written())
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, int(n), w.Body.Len())
+}
+
+func TestContext_SetWriter(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	w := httptest.NewRecorder()
+
+	c := NewTestContextOnly(New(), w, req)
+
+	newRec := new(recorder)
+	c.SetWriter(newRec)
+	assert.Equal(t, newRec, c.Writer())
+}
+
+func TestContext_SetRequest(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	w := httptest.NewRecorder()
+
+	c := NewTestContextOnly(New(), w, req)
+
+	newReq := new(http.Request)
+	c.SetRequest(newReq)
+	assert.Equal(t, newReq, c.Request())
+}
+
 func TestContext_QueryParams(t *testing.T) {
 	t.Parallel()
 	wantValues := url.Values{
