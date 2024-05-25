@@ -28,20 +28,18 @@ import (
 // Dramatically bad, may cause deadlock
 // r.Tree().Lock()
 // defer r.Tree().Unlock()
-type Tree struct {
-	ctx   sync.Pool
-	nodes atomic.Pointer[[]*node]
-	mws   []middleware
+type Tree[T Context] struct {
+	builder ContextBuilder[T]
+	nodes   atomic.Pointer[[]*node[T]]
+	mws     []middleware[T]
 	sync.Mutex
-	maxParams atomic.Uint32
-	maxDepth  atomic.Uint32
 }
 
 // Handle registers a new handler for the given method and path. This function return an error if the route
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
 // for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To override an existing route, use Update.
-func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
+func (t *Tree[T]) Handle(method, path string, handler HandlerFunc[T]) error {
 	if matched := regEnLetter.MatchString(method); !matched {
 		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
@@ -58,7 +56,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To add new handler, use Handle method.
-func (t *Tree) Update(method, path string, handler HandlerFunc) error {
+func (t *Tree[T]) Update(method, path string, handler HandlerFunc[T]) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
@@ -75,7 +73,7 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
 // However, this function is NOT thread-safe and should be run serially, along with all other Tree APIs that perform
 // write operations.
-func (t *Tree) Remove(method, path string) error {
+func (t *Tree[T]) Remove(method, path string) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
@@ -95,16 +93,15 @@ func (t *Tree) Remove(method, path string) error {
 // Has allows to check if the given method and path exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Has(method, path string) bool {
+func (t *Tree[T]) Has(method, path string) bool {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return false
 	}
 
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	c := t.builder.Get()
+	n, _ := t.lookup(nds[index], path, t.builder.Params(c), t.builder.SkippedNodes(c), true)
 	c.Close()
 	return n != nil && n.path == path
 }
@@ -112,16 +109,15 @@ func (t *Tree) Has(method, path string) bool {
 // Match perform a lookup on the tree for the given method and path and return the matching registered route if any.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Match(method, path string) string {
+func (t *Tree[T]) Match(method, path string) string {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return ""
 	}
 
-	c := t.ctx.Get().(*context)
-	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	c := t.builder.Get()
+	n, _ := t.lookup(nds[index], path, t.builder.Params(c), t.builder.SkippedNodes(c), true)
 	c.Close()
 	if n == nil {
 		return ""
@@ -134,7 +130,7 @@ func (t *Tree) Match(method, path string) string {
 // that can route requests to that path.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Methods(path string) []string {
+func (t *Tree[T]) Methods(path string) []string {
 	var methods []string
 	nds := *t.nodes.Load()
 
@@ -148,10 +144,9 @@ func (t *Tree) Methods(path string) []string {
 			}
 		}
 	} else {
-		c := t.ctx.Get().(*context)
-		c.resetNil()
+		c := t.builder.Get()
 		for i := range nds {
-			n, _ := t.lookup(nds[i], path, c.params, c.skipNds, true)
+			n, _ := t.lookup(nds[i], path, t.builder.Params(c), t.builder.SkippedNodes(c), true)
 			if n != nil {
 				if methods == nil {
 					methods = make([]string, 0)
@@ -168,13 +163,13 @@ func (t *Tree) Methods(path string) []string {
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
-func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc) error {
+func (t *Tree[T]) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc[T]) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
-	var rootNode *node
+	var rootNode *node[T]
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		rootNode = &node{key: method}
+		rootNode = &node[T]{key: method}
 		t.addRoot(rootNode)
 	} else {
 		rootNode = nds[index]
@@ -192,7 +187,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
 			if result.matched.isCatchAll() && isCatchAll {
-				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
+				return newConflictErr(method, path, catchAllKey, getRouteConflict[T](result.matched))
 			}
 			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
 		}
@@ -201,7 +196,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		// the matched one with the updated/added value (handler and wildcard).
 		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex, path)
 
-		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
@@ -237,13 +231,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		parent := newNode(
 			cPrefix,
 			handler,
-			[]*node{child},
+			[]*node[T]{child},
 			catchAllKey,
 			path,
 		)
 
-		t.updateMaxParams(paramsN)
-		t.updateMaxDepth(result.depth + 1)
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
 		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
@@ -273,9 +265,6 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			result.matched.catchAllKey,
 			result.matched.path,
 		)
-
-		t.updateMaxDepth(result.depth + 1)
-		t.updateMaxParams(paramsN)
 
 		if result.matched == rootNode {
 			n.key = method
@@ -333,10 +322,8 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		) // previous matched node
 
 		// n3 children never start with a param
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", "") // intermediary node
+		n3 := newNode[T](cPrefix, nil, []*node[T]{n1, n2}, "", "") // intermediary node
 
-		t.updateMaxDepth(result.depth + 1)
-		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type
@@ -346,7 +333,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 }
 
 // update is not safe for concurrent use.
-func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFunc) error {
+func (t *Tree[T]) update(method string, path, catchAllKey string, handler HandlerFunc[T]) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -381,7 +368,7 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 }
 
 // remove is not safe for concurrent use.
-func (t *Tree) remove(method, path string) bool {
+func (t *Tree[T]) remove(method, path string) bool {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -400,7 +387,7 @@ func (t *Tree) remove(method, path string) bool {
 	}
 
 	if len(result.matched.children) > 1 {
-		n := newNodeFromRef(
+		n := newNodeFromRef[T](
 			result.matched.key,
 			nil,
 			result.matched.children,
@@ -416,7 +403,7 @@ func (t *Tree) remove(method, path string) bool {
 	if len(result.matched.children) == 1 {
 		child := result.matched.get(0)
 		mergedPath := fmt.Sprintf("%s%s", result.matched.key, child.key)
-		n := newNodeFromRef(
+		n := newNodeFromRef[T](
 			mergedPath,
 			child.handler,
 			child.children,
@@ -430,7 +417,7 @@ func (t *Tree) remove(method, path string) bool {
 	}
 
 	// recreate the parent edges without the removed node
-	parentEdges := make([]*node, len(result.p.children)-1)
+	parentEdges := make([]*node[T], len(result.p.children)-1)
 	added := 0
 	for i := 0; i < len(result.p.children); i++ {
 		n := result.p.get(i)
@@ -441,11 +428,11 @@ func (t *Tree) remove(method, path string) bool {
 	}
 
 	parentIsRoot := result.p == nds[index]
-	var parent *node
+	var parent *node[T]
 	if len(parentEdges) == 1 && !result.p.isLeaf() && !parentIsRoot {
 		child := parentEdges[0]
 		mergedPath := fmt.Sprintf("%s%s", result.p.key, child.key)
-		parent = newNodeFromRef(
+		parent = newNodeFromRef[T](
 			mergedPath,
 			child.handler,
 			child.children,
@@ -455,7 +442,7 @@ func (t *Tree) remove(method, path string) bool {
 			child.path,
 		)
 	} else {
-		parent = newNode(
+		parent = newNode[T](
 			result.p.key,
 			result.p.handler,
 			parentEdges,
@@ -483,7 +470,7 @@ const (
 	bracketDelim = '{'
 )
 
-func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skippedNodes, lazy bool) (n *node, tsr bool) {
+func (t *Tree[T]) lookup(rootNode *node[T], path string, params *Params, skipNds *SkippedNodes[T], lazy bool) (n *node[T], tsr bool) {
 	if len(rootNode.children) == 0 {
 		return nil, false
 	}
@@ -495,6 +482,7 @@ func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skip
 	)
 
 	current := rootNode.children[0].Load()
+	*params = (*params)[:0]
 	*skipNds = (*skipNds)[:0]
 
 Walk:
@@ -565,7 +553,7 @@ Walk:
 
 				// The node is also a catch-all, save it as the last fallback.
 				if current.catchAllKey != "" {
-					*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, true})
+					*skipNds = append(*skipNds, skippedNode[T]{current, charsMatched, paramCnt, true})
 				}
 
 				idx = current.paramChildIndex
@@ -575,7 +563,7 @@ Walk:
 
 			// Save the node if we need to evaluate the child param or catch-all later
 			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
-				*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, false})
+				*skipNds = append(*skipNds, skippedNode[T]{current, charsMatched, paramCnt, false})
 			}
 			current = current.children[idx].Load()
 		}
@@ -671,7 +659,7 @@ Backtrack:
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
 		if skipped.node.catchAllKey != "" {
-			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, skipped.paramCnt, true})
+			*skipNds = append(*skipNds, skippedNode[T]{skipped.node, skipped.pathIndex, skipped.paramCnt, true})
 		}
 
 		current = skipped.node.children[skipped.node.paramChildIndex].Load()
@@ -684,12 +672,12 @@ Backtrack:
 	return nil, tsr
 }
 
-func (t *Tree) search(rootNode *node, path string) searchResult {
+func (t *Tree[T]) search(rootNode *node[T], path string) searchResult[T] {
 	current := rootNode
 
 	var (
-		pp                      *node
-		p                       *node
+		pp                      *node[T]
+		p                       *node[T]
 		charsMatched            int
 		charsMatchedInNodeFound int
 		depth                   uint32
@@ -721,7 +709,7 @@ STOP:
 		}
 	}
 
-	return searchResult{
+	return searchResult[T]{
 		path:                    path,
 		matched:                 current,
 		charsMatched:            charsMatched,
@@ -732,23 +720,11 @@ STOP:
 	}
 }
 
-func (t *Tree) allocateContext() *context {
-	params := make(Params, 0, t.maxParams.Load())
-	skipNds := make(skippedNodes, 0, t.maxDepth.Load())
-	return &context{
-		params:  &params,
-		skipNds: &skipNds,
-		// This is a read only value, no reset, it's always the
-		// owner of the pool.
-		tree: t,
-	}
-}
-
 // addRoot append a new root node to the tree.
 // Note: This function should be guarded by mutex.
-func (t *Tree) addRoot(n *node) {
+func (t *Tree[T]) addRoot(n *node[T]) {
 	nds := *t.nodes.Load()
-	newNds := make([]*node, 0, len(nds)+1)
+	newNds := make([]*node[T], 0, len(nds)+1)
 	newNds = append(newNds, nds...)
 	newNds = append(newNds, n)
 	t.nodes.Store(&newNds)
@@ -760,14 +736,14 @@ func (t *Tree) addRoot(n *node) {
 // directly by swapping the pointer. Instead, a new list of nodes is created with the
 // updated root node, and the entire list is swapped afterwards.
 // Note: This function should be guarded by mutex.
-func (t *Tree) updateRoot(n *node) bool {
+func (t *Tree[T]) updateRoot(n *node[T]) bool {
 	nds := *t.nodes.Load()
 	// for root node, the key contains the HTTP verb.
 	index := findRootNode(n.key, nds)
 	if index < 0 {
 		return false
 	}
-	newNds := make([]*node, 0, len(nds))
+	newNds := make([]*node[T], 0, len(nds))
 	newNds = append(newNds, nds[:index]...)
 	newNds = append(newNds, n)
 	newNds = append(newNds, nds[index+1:]...)
@@ -777,31 +753,15 @@ func (t *Tree) updateRoot(n *node) bool {
 
 // removeRoot remove a root nod from the tree.
 // Note: This function should be guarded by mutex.
-func (t *Tree) removeRoot(method string) bool {
+func (t *Tree[T]) removeRoot(method string) bool {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return false
 	}
-	newNds := make([]*node, 0, len(nds)-1)
+	newNds := make([]*node[T], 0, len(nds)-1)
 	newNds = append(newNds, nds[:index]...)
 	newNds = append(newNds, nds[index+1:]...)
 	t.nodes.Store(&newNds)
 	return true
-}
-
-// updateMaxParams perform an update only if max is greater than the current
-// max params. This function should be guarded by mutex.
-func (t *Tree) updateMaxParams(max uint32) {
-	if max > t.maxParams.Load() {
-		t.maxParams.Store(max)
-	}
-}
-
-// updateMaxDepth perform an update only if max is greater than the current
-// max depth. This function should be guarded my mutex.
-func (t *Tree) updateMaxDepth(max uint32) {
-	if max > t.maxDepth.Load() {
-		t.maxDepth.Store(max)
-	}
 }

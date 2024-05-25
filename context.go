@@ -10,19 +10,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 )
 
-// ContextCloser extends Context for manually created instances, adding a Close method
-// to release resources after use.
-type ContextCloser interface {
-	Context
-	Close()
-}
-
 // Context represents the context of the current HTTP request. It provides methods to access request data and
-// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
+// to write a response. Be aware that the Context API is not designed to be thread-safe and its lifetime should be limited to the
 // duration of the HandlerFunc execution, as the underlying implementation may be reused a soon as the handler return.
-// (see Clone method).
 type Context interface {
 	// Ctx returns the context associated with the current request.
 	Ctx() netcontext.Context
@@ -47,54 +40,67 @@ type Context interface {
 	SetWriter(w ResponseWriter)
 	// Path returns the registered path for the handler.
 	Path() string
+	// SetPath set the matching path for the handler.
+	SetPath(path string)
 	// Params returns a Params slice containing the matched
 	// wildcard parameters.
 	Params() Params
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
-	// QueryParams parses the Request RawQuery and returns the corresponding values.
-	QueryParams() url.Values
-	// QueryParam returns the first query value associated with the given key.
-	QueryParam(name string) string
-	// SetHeader sets the response header for the given key to the specified value.
-	SetHeader(key, value string)
-	// Header retrieves the value of the request header for the given key.
-	Header(key string) string
-	// String sends a formatted string with the specified status code.
-	String(code int, format string, values ...any) error
-	// Blob sends a byte slice with the specified status code and content type.
-	Blob(code int, contentType string, buf []byte) error
-	// Stream sends data from an io.Reader with the specified status code and content type.
-	Stream(code int, contentType string, r io.Reader) error
-	// Redirect sends an HTTP redirect response with the given status code and URL.
-	Redirect(code int, url string) error
-	// Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
-	Clone() Context
-	// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
-	// http.Request with the provided ones. The method is designed for zero allocation during the
-	// copy process. The returned ContextCloser must be closed once no longer needed.
-	// This functionality is particularly beneficial for middlewares that need to wrap
-	// their custom ResponseWriter while preserving the state of the original Context.
-	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
-	// Tree is a local copy of the Tree in use to serve the request.
-	Tree() *Tree
-	// Fox returns the Router in use to serve the request.
-	Fox() *Router
 	// Reset resets the Context to its initial state, attaching the provided Router,
 	// http.ResponseWriter, and *http.Request.
-	Reset(fox *Router, w http.ResponseWriter, r *http.Request)
+	Reset(w http.ResponseWriter, r *http.Request)
+	// Close release the Context and it's resource.
+	Close()
 }
 
-// context holds request-related information and allows interaction with the ResponseWriter.
-type context struct {
+type CtxBuilder struct {
+	p sync.Pool
+}
+
+func NewCtxBuilder(fox *Router[*Ctx]) ContextBuilder[*Ctx] {
+	b := new(CtxBuilder)
+	b.p.New = func() any {
+		params := make(Params, 0)
+		skipNds := make(SkippedNodes[*Ctx], 0)
+		return &Ctx{
+			fox:     fox,
+			tree:    fox.Tree(),
+			skipNds: &skipNds,
+			params:  &params,
+			b:       b,
+		}
+	}
+
+	return b
+}
+
+func (b *CtxBuilder) Get() *Ctx {
+	c := b.p.Get().(*Ctx)
+	c.path = ""
+	c.cachedQuery = nil
+	return c
+}
+
+func (b *CtxBuilder) Params(c *Ctx) *Params {
+	return c.params
+}
+
+func (b *CtxBuilder) SkippedNodes(c *Ctx) *SkippedNodes[*Ctx] {
+	return c.skipNds
+}
+
+// Ctx holds request-related information and allows interaction with the ResponseWriter.
+type Ctx struct {
 	w       ResponseWriter
 	req     *http.Request
 	params  *Params
-	skipNds *skippedNodes
+	skipNds *SkippedNodes[*Ctx]
 
 	// tree at allocation (read-only, no reset)
-	tree *Tree
-	fox  *Router
+	tree *Tree[*Ctx]
+	fox  *Router[*Ctx]
+	b    *CtxBuilder
 
 	cachedQuery url.Values
 	path        string
@@ -104,59 +110,46 @@ type context struct {
 // Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
 // Caution: You should pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to avoid
 // wrapping the ResponseWriter within itself.
-func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
+func (c *Ctx) Reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
-	c.fox = fox
-	c.path = ""
-	c.cachedQuery = nil
-	*c.params = (*c.params)[:0]
-}
-
-func (c *context) resetNil() {
-	c.req = nil
-	c.w = nil
-	c.fox = nil
-	c.path = ""
-	c.cachedQuery = nil
-	*c.params = (*c.params)[:0]
 }
 
 // Request returns the *http.Request.
-func (c *context) Request() *http.Request {
+func (c *Ctx) Request() *http.Request {
 	return c.req
 }
 
 // SetRequest sets the *http.Request.
-func (c *context) SetRequest(r *http.Request) {
+func (c *Ctx) SetRequest(r *http.Request) {
 	c.req = r
 }
 
 // Writer returns the ResponseWriter.
-func (c *context) Writer() ResponseWriter {
+func (c *Ctx) Writer() ResponseWriter {
 	return c.w
 }
 
 // SetWriter sets the ResponseWriter.
-func (c *context) SetWriter(w ResponseWriter) {
+func (c *Ctx) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
 // Ctx returns the context associated with the current request.
-func (c *context) Ctx() netcontext.Context {
+func (c *Ctx) Ctx() netcontext.Context {
 	return c.req.Context()
 }
 
 // Params returns a Params slice containing the matched
 // wildcard parameters.
-func (c *context) Params() Params {
+func (c *Ctx) Params() Params {
 	return *c.params
 }
 
 // Param retrieve a matching wildcard segment by name.
 // It's a helper for c.Params.Get(name).
-func (c *context) Param(name string) string {
+func (c *Ctx) Param(name string) string {
 	for _, p := range c.Params() {
 		if p.Key == name {
 			return p.Value
@@ -168,33 +161,38 @@ func (c *context) Param(name string) string {
 // QueryParams parses RawQuery and returns the corresponding values.
 // It's a helper for c.Request.URL.Query(). Note that the parsed
 // result is cached.
-func (c *context) QueryParams() url.Values {
+func (c *Ctx) QueryParams() url.Values {
 	return c.getQueries()
 }
 
 // QueryParam returns the first value associated with the given key.
 // It's a helper for c.QueryParams().Get(name).
-func (c *context) QueryParam(name string) string {
+func (c *Ctx) QueryParam(name string) string {
 	return c.getQueries().Get(name)
 }
 
 // SetHeader sets the response header for the given key to the specified value.
-func (c *context) SetHeader(key, value string) {
+func (c *Ctx) SetHeader(key, value string) {
 	c.w.Header().Set(key, value)
 }
 
 // Header retrieves the value of the request header for the given key.
-func (c *context) Header(key string) string {
+func (c *Ctx) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
 // Path returns the registered path for the handler.
-func (c *context) Path() string {
+func (c *Ctx) Path() string {
 	return c.path
 }
 
+// SetPath set the matching path for the handler.
+func (c *Ctx) SetPath(path string) {
+	c.path = path
+}
+
 // String sends a formatted string with the specified status code.
-func (c *context) String(code int, format string, values ...any) (err error) {
+func (c *Ctx) String(code int, format string, values ...any) (err error) {
 	if c.w.Header().Get(HeaderContentType) == "" {
 		c.w.Header().Set(HeaderContentType, MIMETextPlainCharsetUTF8)
 	}
@@ -204,7 +202,7 @@ func (c *context) String(code int, format string, values ...any) (err error) {
 }
 
 // Blob sends a byte slice with the specified status code and content type.
-func (c *context) Blob(code int, contentType string, buf []byte) (err error) {
+func (c *Ctx) Blob(code int, contentType string, buf []byte) (err error) {
 	c.w.Header().Set(HeaderContentType, contentType)
 	c.w.WriteHeader(code)
 	_, err = c.w.Write(buf)
@@ -212,7 +210,7 @@ func (c *context) Blob(code int, contentType string, buf []byte) (err error) {
 }
 
 // Stream sends data from an io.Reader with the specified status code and content type.
-func (c *context) Stream(code int, contentType string, r io.Reader) (err error) {
+func (c *Ctx) Stream(code int, contentType string, r io.Reader) (err error) {
 	c.w.Header().Set(HeaderContentType, contentType)
 	c.w.WriteHeader(code)
 	_, err = io.Copy(c.w, r)
@@ -220,7 +218,7 @@ func (c *context) Stream(code int, contentType string, r io.Reader) (err error) 
 }
 
 // Redirect sends an HTTP redirect response with the given status code and URL.
-func (c *context) Redirect(code int, url string) error {
+func (c *Ctx) Redirect(code int, url string) error {
 	if code < http.StatusMultipleChoices || code > http.StatusPermanentRedirect {
 		return ErrInvalidRedirectCode
 	}
@@ -229,19 +227,19 @@ func (c *context) Redirect(code int, url string) error {
 }
 
 // Tree is a local copy of the Tree in use to serve the request.
-func (c *context) Tree() *Tree {
+func (c *Ctx) Tree() *Tree[*Ctx] {
 	return c.tree
 }
 
 // Fox returns the Router in use to serve the request.
-func (c *context) Fox() *Router {
+func (c *Ctx) Fox() *Router[*Ctx] {
 	return c.fox
 }
 
 // Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
 // Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter.
-func (c *context) Clone() Context {
-	cp := context{
+func (c *Ctx) Clone() *Ctx {
+	cp := Ctx{
 		rec:  c.rec,
 		req:  c.req.Clone(c.req.Context()),
 		fox:  c.fox,
@@ -262,8 +260,8 @@ func (c *context) Clone() Context {
 // copy process. The returned ContextCloser must be closed once no longer needed.
 // This functionality is particularly beneficial for middlewares that need to wrap
 // their custom ResponseWriter while preserving the state of the original Context.
-func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
-	cp := c.tree.ctx.Get().(*context)
+func (c *Ctx) CloneWith(w ResponseWriter, r *http.Request) *Ctx {
+	cp := c.b.Get()
 	cp.req = r
 	cp.w = w
 	cp.path = c.path
@@ -281,16 +279,11 @@ func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 }
 
 // Close releases the context to be reused later.
-func (c *context) Close() {
-	// Put back the context, if not extended more than max params or max depth, allowing
-	// the slice to naturally grow within the constraint.
-	if cap(*c.params) > int(c.tree.maxParams.Load()) || cap(*c.skipNds) > int(c.tree.maxDepth.Load()) {
-		return
-	}
-	c.tree.ctx.Put(c)
+func (c *Ctx) Close() {
+	c.b.p.Put(c)
 }
 
-func (c *context) getQueries() url.Values {
+func (c *Ctx) getQueries() url.Values {
 	if c.cachedQuery == nil {
 		if c.req != nil {
 			c.cachedQuery = c.req.URL.Query()
@@ -303,8 +296,8 @@ func (c *context) getQueries() url.Values {
 
 // WrapF is an adapter for wrapping http.HandlerFunc and returns a HandlerFunc function.
 // The route parameters are being accessed by the wrapped handler through the context.
-func WrapF(f http.HandlerFunc) HandlerFunc {
-	return func(c Context) {
+func WrapF[T Context](f http.HandlerFunc) HandlerFunc[T] {
+	return func(c T) {
 		if len(c.Params()) > 0 {
 			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
@@ -317,8 +310,8 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 
 // WrapH is an adapter for wrapping http.Handler and returns a HandlerFunc function.
 // The route parameters are being accessed by the wrapped handler through the context.
-func WrapH(h http.Handler) HandlerFunc {
-	return func(c Context) {
+func WrapH[T Context](h http.Handler) HandlerFunc[T] {
+	return func(c T) {
 		if len(c.Params()) > 0 {
 			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
 			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))

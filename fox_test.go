@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var emptyHandler = HandlerFunc(func(c Context) {})
-var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Request().URL.Path) })
+var emptyHandler = HandlerFunc[*Ctx](func(c *Ctx) {})
+var pathHandler = HandlerFunc[*Ctx](func(c *Ctx) { _ = c.String(200, c.Request().URL.Path) })
 
 type mockResponseWriter struct{}
 
@@ -563,7 +563,7 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 
 func BenchmarkCloneWith(b *testing.B) {
 	f := New()
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Ctx) {
 		cp := c.CloneWith(c.Writer(), c.Request())
 		cp.Close()
 	})
@@ -610,7 +610,7 @@ func TestStaticRouteMalloc(t *testing.T) {
 func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r := New()
-	h := func(c Context) {
+	h := func(c *Ctx) {
 		matches := rx.FindAllString(c.Request().URL.Path, -1)
 		for _, match := range matches {
 			var key string
@@ -1686,7 +1686,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New(WithRedirectTrailingSlash(true))
+			r := New(WithRedirectTrailingSlash[*Ctx](true))
 			require.NoError(t, r.Tree().Handle(tc.method, tc.path, emptyHandler))
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -1701,7 +1701,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 }
 
 func TestEncodedRedirectTrailingSlash(t *testing.T) {
-	r := New(WithRedirectTrailingSlash(true))
+	r := New(WithRedirectTrailingSlash[*Ctx](true))
 	require.NoError(t, r.Handle(http.MethodGet, "/foo/{bar}/", emptyHandler))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar%2Fbaz", nil)
@@ -1728,7 +1728,7 @@ func TestTree_Remove(t *testing.T) {
 	}
 
 	cnt := 0
-	_ = Walk(tree, func(method, path string, handler HandlerFunc) error {
+	_ = Walk[*Ctx](tree, func(method, path string, handler HandlerFunc[*Ctx]) error {
 		cnt++
 		return nil
 	})
@@ -1758,7 +1758,7 @@ func TestTree_Methods(t *testing.T) {
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
-	r := New(WithNoMethod(true))
+	r := New(WithNoMethod[*Ctx](true))
 
 	cases := []struct {
 		name    string
@@ -1805,7 +1805,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 }
 
 func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
-	f := New(WithNoMethodHandler(func(c Context) {
+	f := New(WithNoMethodHandler[*Ctx](func(c *Ctx) {
 		c.SetHeader("FOO", "BAR")
 		c.Writer().WriteHeader(http.StatusMethodNotAllowed)
 	}))
@@ -1820,7 +1820,7 @@ func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
 }
 
 func TestRouterWithAutomaticOptions(t *testing.T) {
-	f := New(WithAutoOptions(true))
+	f := New(WithAutoOptions[*Ctx](true))
 
 	cases := []struct {
 		name     string
@@ -1879,7 +1879,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
-				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
+				require.NoError(t, f.Tree().Handle(method, tc.path, func(c *Ctx) {
 					c.SetHeader("Allow", strings.Join(c.Tree().Methods(c.Request().URL.Path), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				}))
@@ -1896,7 +1896,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 }
 
 func TestRouterWithOptionsHandler(t *testing.T) {
-	f := New(WithOptionsHandler(func(c Context) {
+	f := New(WithOptionsHandler[*Ctx](func(c *Ctx) {
 		assert.Equal(t, "/foo/bar", c.Path())
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
@@ -1912,20 +1912,20 @@ func TestRouterWithOptionsHandler(t *testing.T) {
 }
 
 func TestDefaultOptions(t *testing.T) {
-	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+	m := MiddlewareFunc[*Ctx](func(next HandlerFunc[*Ctx]) HandlerFunc[*Ctx] {
+		return func(c *Ctx) {
 			next(c)
 		}
 	})
-	r := New(WithMiddleware(m), DefaultOptions())
+	r := New(WithMiddleware(m), DefaultOptions[*Ctx]())
 	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1].m).Pointer())
 	assert.True(t, r.handleOptions)
 }
 
 func TestWithScopedMiddleware(t *testing.T) {
 	called := false
-	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+	m := MiddlewareFunc[*Ctx](func(next HandlerFunc[*Ctx]) HandlerFunc[*Ctx] {
+		return func(c *Ctx) {
 			called = true
 			next(c)
 		}
@@ -1945,7 +1945,7 @@ func TestWithScopedMiddleware(t *testing.T) {
 }
 
 func TestWithNotFoundHandler(t *testing.T) {
-	notFound := func(c Context) {
+	notFound := func(c *Ctx) {
 		_ = c.String(http.StatusNotFound, "NOT FOUND\n")
 	}
 
@@ -2106,7 +2106,7 @@ func TestEncodedPath(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	r := New()
-	r.MustHandle(http.MethodGet, "/*{request}", func(c Context) {
+	r.MustHandle(http.MethodGet, "/*{request}", func(c *Ctx) {
 		_ = c.String(http.StatusOK, "%s", c.Param("request"))
 	})
 
@@ -2192,7 +2192,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath := 0
-	require.NoError(t, Walk(tree, func(method, path string, handler HandlerFunc) error {
+	require.NoError(t, Walk[*Ctx](tree, func(method, path string, handler HandlerFunc[*Ctx]) error {
 		countPath++
 		return nil
 	}))
@@ -2214,7 +2214,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	countPath = 0
-	require.NoError(t, Walk(tree, func(method, path string, handler HandlerFunc) error {
+	require.NoError(t, Walk[*Ctx](tree, func(method, path string, handler HandlerFunc[*Ctx]) error {
 		countPath++
 		return nil
 	}))
@@ -2225,8 +2225,8 @@ func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(c Context) {})
-	newH := HandlerFunc(func(c Context) {})
+	h := HandlerFunc[*Ctx](func(c *Ctx) {})
+	newH := HandlerFunc[*Ctx](func(c *Ctx) {})
 
 	r := New()
 
@@ -2278,14 +2278,14 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	r := New()
 
 	// /repos/{owner}/{repo}/keys
-	h1 := HandlerFunc(func(c Context) {
+	h1 := HandlerFunc[*Ctx](func(c *Ctx) {
 		assert.Equal(t, "john", c.Param("owner"))
 		assert.Equal(t, "fox", c.Param("repo"))
 		_ = c.String(200, c.Path())
 	})
 
 	// /repos/{owner}/{repo}/contents/*{path}
-	h2 := HandlerFunc(func(c Context) {
+	h2 := HandlerFunc[*Ctx](func(c *Ctx) {
 		assert.Equal(t, "alex", c.Param("owner"))
 		assert.Equal(t, "vault", c.Param("repo"))
 		assert.Equal(t, "file.txt", c.Param("path"))
@@ -2293,7 +2293,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	})
 
 	// /users/{user}/received_events/public
-	h3 := HandlerFunc(func(c Context) {
+	h3 := HandlerFunc[*Ctx](func(c *Ctx) {
 		assert.Equal(t, "go", c.Param("user"))
 		_ = c.String(200, c.Path())
 	})
@@ -2361,12 +2361,12 @@ func atomicSync() (start func(), wait func()) {
 func ExampleNew() {
 
 	// Create a new router with default options, which include the Recovery middleware
-	r := New(DefaultOptions())
+	r := New(DefaultOptions[*Ctx]())
 
 	// Define a custom middleware to measure the time taken for request processing and
 	// log the URL, route, time elapsed, and status code
-	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+	metrics := func(next HandlerFunc[*Ctx]) HandlerFunc[*Ctx] {
+		return func(c *Ctx) {
 			start := time.Now()
 			next(c)
 			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
@@ -2375,7 +2375,7 @@ func ExampleNew() {
 
 	// Define a route with the path "/hello/{name}", apply the custom "metrics" middleware,
 	// and set a simple handler that greets the user by their name
-	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) {
+	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c *Ctx) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	}))
 
@@ -2390,8 +2390,8 @@ func ExampleWithMiddleware() {
 
 	// Define a custom middleware to measure the time taken for request processing and
 	// log the URL, route, time elapsed, and status code
-	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+	metrics := func(next HandlerFunc[*Ctx]) HandlerFunc[*Ctx] {
+		return func(c *Ctx) {
 			start := time.Now()
 			next(c)
 			log.Printf(
@@ -2406,7 +2406,7 @@ func ExampleWithMiddleware() {
 
 	r := New(WithMiddleware(metrics))
 
-	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+	r.MustHandle(http.MethodGet, "/hello/{name}", func(c *Ctx) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	})
 }
@@ -2419,7 +2419,7 @@ func ExampleRouter_Tree() {
 	// any given time, you MUST always copy the pointer locally, This ensures that you do not inadvertently cause a
 	// deadlock by locking/unlocking the wrong tree.
 	tree := r.Tree()
-	upsert := func(method, path string, handler HandlerFunc) error {
+	upsert := func(method, path string, handler HandlerFunc[*Ctx]) error {
 		tree.Lock()
 		defer tree.Unlock()
 		if tree.Has(method, path) {
@@ -2428,7 +2428,7 @@ func ExampleRouter_Tree() {
 		return tree.Handle(method, path, handler)
 	}
 
-	_ = upsert(http.MethodGet, "/foo/bar", func(c Context) {
+	_ = upsert(http.MethodGet, "/foo/bar", func(c *Ctx) {
 		// Note the tree accessible from fox.Context is already a local copy so the golden rule above does not apply.
 		c.Tree().Lock()
 		defer c.Tree().Unlock()
@@ -2436,7 +2436,7 @@ func ExampleRouter_Tree() {
 	})
 
 	// Bad, instead make a local copy of the tree!
-	_ = func(method, path string, handler HandlerFunc) error {
+	_ = func(method, path string, handler HandlerFunc[*Ctx]) error {
 		r.Tree().Lock()
 		defer r.Tree().Unlock()
 		if r.Tree().Has(method, path) {
@@ -2450,8 +2450,8 @@ func ExampleRouter_Tree() {
 // lookup on the tree. If the cleaned path matches a registered route, the client is redirected with a 301 status
 // code (Moved Permanently).
 func ExampleTree_Match() {
-	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+	redirectFixedPath := MiddlewareFunc[*Ctx](func(next HandlerFunc[*Ctx]) HandlerFunc[*Ctx] {
+		return func(c *Ctx) {
 			req := c.Request()
 
 			cleanedPath := CleanPath(req.URL.Path)
@@ -2471,7 +2471,7 @@ func ExampleTree_Match() {
 		WithMiddlewareFor(NoRouteHandler, redirectFixedPath),
 	)
 
-	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
+	f.MustHandle(http.MethodGet, "/foo/bar", func(c *Ctx) {
 		_ = c.String(http.StatusOK, "foo bar")
 	})
 }

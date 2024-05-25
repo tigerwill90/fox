@@ -16,7 +16,7 @@ import (
 func TestNewTestContext(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 	w := httptest.NewRecorder()
-	_, c := NewTestContext(w, req)
+	_, c := NewTestContext(NewCtxBuilder, w, req)
 
 	flusher, ok := c.Writer().(interface{ Unwrap() http.ResponseWriter }).Unwrap().(http.Flusher)
 	require.True(t, ok)

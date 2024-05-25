@@ -11,7 +11,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"sync"
 	"sync/atomic"
 )
 
@@ -24,6 +23,14 @@ var (
 	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 )
 
+type ContextBuilderFunc[T Context] func(fox *Router[T]) ContextBuilder[T]
+
+type ContextBuilder[T Context] interface {
+	Get() T
+	Params(c T) *Params
+	SkippedNodes(c T) *SkippedNodes[T]
+}
+
 // HandlerFunc is a function type that responds to an HTTP request.
 // It enforces the same contract as http.Handler but provides additional feature
 // like matched wildcard route segments via the Context type. The Context is freed once
@@ -34,42 +41,47 @@ var (
 // response, panic with the value http.ErrAbortHandler.
 //
 // HandlerFunc functions should be thread-safe, as they will be called concurrently.
-type HandlerFunc func(c Context)
+type HandlerFunc[T Context] func(c T)
 
 // MiddlewareFunc is a function type for implementing HandlerFunc middleware.
 // The returned HandlerFunc usually wraps the input HandlerFunc, allowing you to perform operations
 // before and/or after the wrapped HandlerFunc is executed. MiddlewareFunc functions should
 // be thread-safe, as they will be called concurrently.
-type MiddlewareFunc func(next HandlerFunc) HandlerFunc
+type MiddlewareFunc[T Context] func(next HandlerFunc[T]) HandlerFunc[T]
 
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
-type Router struct {
-	noRoute                HandlerFunc
-	noMethod               HandlerFunc
-	tsrRedirect            HandlerFunc
-	autoOptions            HandlerFunc
-	tree                   atomic.Pointer[Tree]
-	mws                    []middleware
+type Router[T Context] struct {
+	noRoute                HandlerFunc[T]
+	noMethod               HandlerFunc[T]
+	tsrRedirect            HandlerFunc[T]
+	autoOptions            HandlerFunc[T]
+	tree                   atomic.Pointer[Tree[T]]
+	alloc                  ContextBuilderFunc[T]
+	mws                    []middleware[T]
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
 }
 
-type middleware struct {
-	m     MiddlewareFunc
+type middleware[T Context] struct {
+	m     MiddlewareFunc[T]
 	scope MiddlewareScope
 }
 
-var _ http.Handler = (*Router)(nil)
+var _ http.Handler = (*Router[Context])(nil)
 
 // New returns a ready to use instance of Fox router.
-func New(opts ...Option) *Router {
-	r := new(Router)
+func New(opts ...Option[*Ctx]) *Router[*Ctx] {
+	return NewWithContext[*Ctx](NewCtxBuilder, opts...)
+}
 
-	r.noRoute = DefaultNotFoundHandler()
-	r.noMethod = DefaultMethodNotAllowedHandler()
-	r.autoOptions = DefaultOptionsHandler()
+func NewWithContext[T Context](fn ContextBuilderFunc[T], opts ...Option[T]) *Router[T] {
+	r := new(Router[T])
+
+	r.noRoute = DefaultNotFoundHandler[T]()
+	r.noMethod = DefaultMethodNotAllowedHandler[T]()
+	r.autoOptions = DefaultOptionsHandler[T]()
 
 	for _, opt := range opts {
 		opt.apply(r)
@@ -77,10 +89,12 @@ func New(opts ...Option) *Router {
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler)
+	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler[T])
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
+	r.alloc = fn
 	r.tree.Store(r.NewTree())
+
 	return r
 }
 
@@ -88,37 +102,33 @@ func New(opts ...Option) *Router {
 // concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
 // serially. Note that a Tree give direct access to the underlying sync.Mutex.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) NewTree() *Tree {
-	tree := new(Tree)
+func (fox *Router[T]) NewTree() *Tree[T] {
+	tree := new(Tree[T])
 	tree.mws = fox.mws
 
 	// Pre instantiate nodes for common http verb
-	nds := make([]*node, len(commonVerbs))
+	nds := make([]*node[T], len(commonVerbs))
 	for i := range commonVerbs {
-		nds[i] = new(node)
+		nds[i] = new(node[T])
 		nds[i].key = commonVerbs[i]
 		nds[i].paramChildIndex = -1
 	}
 	tree.nodes.Store(&nds)
 
-	tree.ctx = sync.Pool{
-		New: func() any {
-			return tree.allocateContext()
-		},
-	}
+	tree.builder = fox.alloc(fox)
 
 	return tree
 }
 
 // Tree atomically loads and return the currently in-use routing tree.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Tree() *Tree {
+func (fox *Router[T]) Tree() *Tree[T] {
 	return fox.tree.Load()
 }
 
 // Swap atomically replaces the currently in-use routing tree with the provided new tree, and returns the previous tree.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Swap(new *Tree) (old *Tree) {
+func (fox *Router[T]) Swap(new *Tree[T]) (old *Tree[T]) {
 	return fox.tree.Swap(new)
 }
 
@@ -126,7 +136,7 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
 // for serving requests. This function is safe for concurrent use by multiple goroutine.
 // To override an existing route, use Update.
-func (fox *Router) Handle(method, path string, handler HandlerFunc) error {
+func (fox *Router[T]) Handle(method, path string, handler HandlerFunc[T]) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
@@ -138,7 +148,7 @@ func (fox *Router) Handle(method, path string, handler HandlerFunc) error {
 // with another route. It's perfectly safe to add a new handler while the tree is in use for serving
 // requests. This function is safe for concurrent use by multiple goroutines.
 // To override an existing route, use Update.
-func (fox *Router) MustHandle(method, path string, handler HandlerFunc) {
+func (fox *Router[T]) MustHandle(method, path string, handler HandlerFunc[T]) {
 	if err := fox.Handle(method, path, handler); err != nil {
 		panic(err)
 	}
@@ -148,7 +158,7 @@ func (fox *Router) MustHandle(method, path string, handler HandlerFunc) {
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. This function is safe for concurrent use by multiple goroutine.
 // To add new handler, use Handle method.
-func (fox *Router) Update(method, path string, handler HandlerFunc) error {
+func (fox *Router[T]) Update(method, path string, handler HandlerFunc[T]) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
@@ -158,7 +168,7 @@ func (fox *Router) Update(method, path string, handler HandlerFunc) error {
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
 // return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
 // This function is safe for concurrent use by multiple goroutine.
-func (fox *Router) Remove(method, path string) error {
+func (fox *Router[T]) Remove(method, path string) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
@@ -171,7 +181,7 @@ func (fox *Router) Remove(method, path string) error {
 // original http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
 // and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (fox *Router[T]) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc[T], cc T, tsr bool) {
 	tree := fox.tree.Load()
 
 	nds := *tree.nodes.Load()
@@ -181,8 +191,8 @@ func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler Handl
 		return
 	}
 
-	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
+	c := tree.builder.Get()
+	c.Reset(w, r)
 
 	target := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
@@ -190,13 +200,14 @@ func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler Handl
 		target = r.URL.RawPath
 	}
 
-	n, tsr := tree.lookup(nds[index], target, c.params, c.skipNds, false)
+	n, tsr := tree.lookup(nds[index], target, tree.builder.Params(c), tree.builder.SkippedNodes(c), false)
 	if n != nil {
-		c.path = n.path
+		c.SetPath(n.path)
 		return n.handler, c, tsr
 	}
 	c.Close()
-	return nil, nil, tsr
+	var zero T
+	return nil, zero, tsr
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -204,13 +215,13 @@ func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler Handl
 var SkipMethod = errors.New("skip method")
 
 // WalkFunc is the type of the function called by Walk to visit each registered routes.
-type WalkFunc func(method, path string, handler HandlerFunc) error
+type WalkFunc[T Context] func(method, path string, handler HandlerFunc[T]) error
 
 // Walk allow to walk over all registered route in lexicographical order. If the function
 // return the special value SkipMethod, Walk skips the current method. This function is
 // safe for concurrent use by multiple goroutine and while mutation are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func Walk(tree *Tree, fn WalkFunc) error {
+func Walk[T Context](tree *Tree[T], fn WalkFunc[T]) error {
 	nds := *tree.nodes.Load()
 Next:
 	for i := range nds {
@@ -232,28 +243,28 @@ Next:
 
 // DefaultNotFoundHandler returns a simple HandlerFunc that replies to each request
 // with a “404 page not found” reply.
-func DefaultNotFoundHandler() HandlerFunc {
-	return func(c Context) {
+func DefaultNotFoundHandler[T Context]() HandlerFunc[T] {
+	return func(c T) {
 		http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 	}
 }
 
 // DefaultMethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
 // with a “405 Method Not Allowed” reply.
-func DefaultMethodNotAllowedHandler() HandlerFunc {
-	return func(c Context) {
+func DefaultMethodNotAllowedHandler[T Context]() HandlerFunc[T] {
+	return func(c T) {
 		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
 }
 
 // DefaultOptionsHandler returns a simple HandlerFunc that replies to each request with a "200 OK" reply.
-func DefaultOptionsHandler() HandlerFunc {
-	return func(c Context) {
+func DefaultOptionsHandler[T Context]() HandlerFunc[T] {
+	return func(c T) {
 		c.Writer().WriteHeader(http.StatusOK)
 	}
 }
 
-func defaultRedirectTrailingSlashHandler(c Context) {
+func defaultRedirectTrailingSlashHandler[T Context](c T) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -278,10 +289,10 @@ func defaultRedirectTrailingSlashHandler(c Context) {
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
 // to the appropriate handler function based on the request's method and path.
-func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (fox *Router[T]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var (
-		n   *node
+		n   *node[T]
 		tsr bool
 	)
 
@@ -292,8 +303,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tree := fox.tree.Load()
-	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
+	c := tree.builder.Get()
+	c.Reset(w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
@@ -301,20 +312,15 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
+	n, tsr = tree.lookup(nds[index], target, tree.builder.Params(c), tree.builder.SkippedNodes(c), false)
 	if n != nil {
-		c.path = n.path
+		c.SetPath(n.path)
 		n.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
-		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
-			c.tree.ctx.Put(c)
-		}
+		c.Close()
 		return
 	}
-
-	// Reset params as it may have recorded wildcard segment
-	*c.params = (*c.params)[:0]
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr && fox.redirectTrailingSlash && target == CleanPath(target) {
 		fox.tsrRedirect(c)
@@ -338,11 +344,11 @@ NoMethodFallback:
 			}
 		} else {
 			for i := 0; i < len(nds); i++ {
-				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+				if n, _ := tree.lookup(nds[i], target, tree.builder.Params(c), tree.builder.SkippedNodes(c), true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					} else {
-						c.path = n.path
+						c.SetPath(n.path)
 					}
 					sb.WriteString(nds[i].key)
 				}
@@ -361,7 +367,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+				if n, _ := tree.lookup(nds[i], target, tree.builder.Params(c), tree.builder.SkippedNodes(c), true); n != nil {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -390,7 +396,7 @@ const (
 	keyEndMidEdge
 )
 
-func (r searchResult) classify() resultType {
+func (r searchResult[T]) classify() resultType {
 	if r.charsMatched == len(r.path) {
 		if r.charsMatchedInNodeFound == len(r.matched.key) {
 			return exactMatch
@@ -410,11 +416,11 @@ func (r searchResult) classify() resultType {
 	}
 	panic("internal error: cannot classify the result")
 }
-func (r searchResult) isExactMatch() bool {
+func (r searchResult[T]) isExactMatch() bool {
 	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }
 
-func (r searchResult) isKeyMidEdge() bool {
+func (r searchResult[T]) isKeyMidEdge() bool {
 	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
 }
 
@@ -422,10 +428,10 @@ func (c resultType) String() string {
 	return [...]string{"EXACT_MATCH", "INCOMPLETE_MATCH_TO_END_OF_EDGE", "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE", "KEY_END_MID_EDGE"}[c]
 }
 
-type searchResult struct {
-	matched                 *node
-	p                       *node
-	pp                      *node
+type searchResult[T Context] struct {
+	matched                 *node[T]
+	p                       *node[T]
+	pp                      *node[T]
 	path                    string
 	charsMatched            int
 	charsMatchedInNodeFound int
@@ -449,7 +455,7 @@ func commonPrefix(k1, k2 string) string {
 	return k1[:minLength]
 }
 
-func findRootNode(method string, nodes []*node) int {
+func findRootNode[T Context](method string, nodes []*node[T]) int {
 	// Nodes for common http method are pre instantiated.
 	switch method {
 	case http.MethodGet:
@@ -553,7 +559,7 @@ func parseRoute(path string) (string, string, int, error) {
 	return path, "", paramCnt, nil
 }
 
-func getRouteConflict(n *node) []string {
+func getRouteConflict[T Context](n *node[T]) []string {
 	routes := make([]string, 0)
 
 	if n.isCatchAll() {
@@ -580,7 +586,7 @@ func isRemovable(method string) bool {
 	return true
 }
 
-func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) HandlerFunc {
+func applyMiddleware[T Context](scope MiddlewareScope, mws []middleware[T], h HandlerFunc[T]) HandlerFunc[T] {
 	m := h
 	for i := len(mws) - 1; i >= 0; i-- {
 		if mws[i].scope&scope != 0 {

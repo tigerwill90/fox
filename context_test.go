@@ -114,14 +114,13 @@ func TestContext_CloneWith(t *testing.T) {
 	c := newTextContextOnly(New(), w, req)
 
 	cp := c.CloneWith(c.Writer(), c.Request())
-	cc := unwrapContext(t, cp)
 
 	assert.Equal(t, c.Params(), cp.Params())
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Path(), cp.Path())
 	assert.Equal(t, c.Fox(), cp.Fox())
-	assert.Nil(t, cc.cachedQuery)
+	assert.Nil(t, cp.cachedQuery)
 }
 
 func TestContext_Ctx(t *testing.T) {
@@ -130,7 +129,7 @@ func TestContext_Ctx(t *testing.T) {
 	ctx, cancel := netcontext.WithCancel(netcontext.Background())
 	cancel()
 	req = req.WithContext(ctx)
-	_, c := NewTestContext(httptest.NewRecorder(), req)
+	_, c := NewTestContext(NewCtxBuilder, httptest.NewRecorder(), req)
 	<-c.Ctx().Done()
 	require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
 }
@@ -139,7 +138,7 @@ func TestContext_Redirect(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	_, c := NewTestContext(NewCtxBuilder, w, r)
 	require.NoError(t, c.Redirect(http.StatusTemporaryRedirect, "https://example.com/foo/bar"))
 	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	assert.Equal(t, "https://example.com/foo/bar", w.Header().Get(HeaderLocation))
@@ -149,7 +148,7 @@ func TestContext_Blob(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	_, c := NewTestContext(NewCtxBuilder, w, r)
 	buf := []byte("foobar")
 	require.NoError(t, c.Blob(http.StatusCreated, MIMETextPlain, buf))
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -164,7 +163,7 @@ func TestContext_Stream(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	_, c := NewTestContext(NewCtxBuilder, w, r)
 	buf := []byte("foobar")
 	require.NoError(t, c.Stream(http.StatusCreated, MIMETextPlain, bytes.NewBuffer(buf)))
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -179,7 +178,7 @@ func TestContext_String(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	_, c := NewTestContext(NewCtxBuilder, w, r)
 	s := "foobar"
 	require.NoError(t, c.String(http.StatusCreated, s))
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -194,7 +193,7 @@ func TestContext_Writer(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	_, c := NewTestContext(NewCtxBuilder, w, r)
 	buf := []byte("foobar")
 	c.Writer().WriteHeader(http.StatusCreated)
 	assert.Equal(t, 0, c.Writer().Size())
@@ -213,7 +212,7 @@ func TestContext_Header(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	fox, c := NewTestContext(w, r)
+	fox, c := NewTestContext(NewCtxBuilder, w, r)
 	c.SetHeader(HeaderServer, "go")
 	fox.ServeHTTP(w, r)
 	assert.Equal(t, "go", w.Header().Get(HeaderServer))
@@ -224,7 +223,7 @@ func TestContext_GetHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
-	_, c := NewTestContext(w, r)
+	_, c := NewTestContext(NewCtxBuilder, w, r)
 	assert.Equal(t, MIMEApplicationJSON, c.Header(HeaderAccept))
 }
 
@@ -234,7 +233,7 @@ func TestContext_Fox(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
 	f := New()
-	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c *Ctx) {
 		assert.NotNil(t, c.Fox())
 	}))
 
@@ -247,7 +246,7 @@ func TestContext_Tree(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
 	f := New()
-	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c *Ctx) {
 		assert.NotNil(t, c.Tree())
 	}))
 
@@ -298,15 +297,15 @@ func TestWrapF(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-			_, c := NewTestContext(w, r)
+			_, c := NewTestContext(NewCtxBuilder, w, r)
 
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.Clone()
-				c.(*context).params = &params
+				c.params = &params
 			}
 
-			WrapF(tc.handler(params))(c)
+			WrapF[*Ctx](tc.handler(params))(c)
 
 			assert.Equal(t, "fox", w.Body.String())
 		})
@@ -358,15 +357,15 @@ func TestWrapH(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-			_, c := NewTestContext(w, r)
+			_, c := NewTestContext(NewCtxBuilder, w, r)
 
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.Clone()
-				c.(*context).params = &params
+				c.params = &params
 			}
 
-			WrapH(tc.handler(params))(c)
+			WrapH[*Ctx](tc.handler(params))(c)
 
 			assert.Equal(t, "fox", w.Body.String())
 		})

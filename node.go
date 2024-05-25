@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 )
 
-type node struct {
+type node[T Context] struct {
 	// The registered handler matching the full path. Nil if the node is not a leaf.
 	// Once assigned, handler is immutable.
-	handler HandlerFunc
+	handler HandlerFunc[T]
 
 	// key represent a segment of a route which share a common prefix with it parent.
 	key string
@@ -34,17 +34,17 @@ type node struct {
 	// Child nodes representing outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is mostly a read only slice with the exception than we can update atomically
 	// each pointer reference to a new child node starting with the same character.
-	children []atomic.Pointer[node]
+	children []atomic.Pointer[node[T]]
 
 	// The index of a paramChild if any, -1 if none (per rules, only one paramChildren is allowed).
 	paramChildIndex int
 }
 
-func newNode(key string, handler HandlerFunc, children []*node, catchAllKey string, path string) *node {
+func newNode[T Context](key string, handler HandlerFunc[T], children []*node[T], catchAllKey string, path string) *node[T] {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].key < children[j].key
 	})
-	nds := make([]atomic.Pointer[node], len(children))
+	nds := make([]atomic.Pointer[node[T]], len(children))
 	childKeys := make([]byte, len(children))
 	childIndex := -1
 	for i := range children {
@@ -59,8 +59,8 @@ func newNode(key string, handler HandlerFunc, children []*node, catchAllKey stri
 	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, childIndex, path)
 }
 
-func newNodeFromRef(key string, handler HandlerFunc, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, childIndex int, path string) *node {
-	n := &node{
+func newNodeFromRef[T Context](key string, handler HandlerFunc[T], children []atomic.Pointer[node[T]], childKeys []byte, catchAllKey string, childIndex int, path string) *node[T] {
+	n := &node[T]{
 		key:             key,
 		childKeys:       childKeys,
 		children:        children,
@@ -73,15 +73,15 @@ func newNodeFromRef(key string, handler HandlerFunc, children []atomic.Pointer[n
 	return n
 }
 
-func (n *node) isLeaf() bool {
+func (n *node[T]) isLeaf() bool {
 	return n.handler != nil
 }
 
-func (n *node) isCatchAll() bool {
+func (n *node[T]) isCatchAll() bool {
 	return n.catchAllKey != ""
 }
 
-func (n *node) getEdge(s byte) *node {
+func (n *node[T]) getEdge(s byte) *node[T] {
 	if len(n.children) <= 50 {
 		id := linearSearch(n.childKeys, s)
 		if id < 0 {
@@ -96,7 +96,7 @@ func (n *node) getEdge(s byte) *node {
 	return n.children[id].Load()
 }
 
-func (n *node) updateEdge(node *node) {
+func (n *node[T]) updateEdge(node *node[T]) {
 	if len(n.children) <= 50 {
 		id := linearSearch(n.childKeys, node.key[0])
 		if id < 0 {
@@ -152,12 +152,12 @@ func compare(a, b byte) int {
 	return +1
 }
 
-func (n *node) get(i int) *node {
+func (n *node[T]) get(i int) *node[T] {
 	return n.children[i].Load()
 }
 
-func (n *node) getEdgesShallowCopy() []*node {
-	nodes := make([]*node, len(n.children))
+func (n *node[T]) getEdgesShallowCopy() []*node[T] {
+	nodes := make([]*node[T], len(n.children))
 	for i := range n.children {
 		nodes[i] = n.get(i)
 	}
@@ -165,17 +165,17 @@ func (n *node) getEdgesShallowCopy() []*node {
 }
 
 // assertNotNil is a safeguard against creating unsafe.Pointer(nil).
-func assertNotNil(n *node) {
+func assertNotNil[T Context](n *node[T]) {
 	if n == nil {
 		panic("internal error: a node cannot be nil")
 	}
 }
 
-func (n *node) String() string {
+func (n *node[T]) String() string {
 	return n.string(0)
 }
 
-func (n *node) string(space int) string {
+func (n *node[T]) string(space int) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
 	sb.WriteString("path: ")
@@ -205,16 +205,16 @@ func (n *node) string(space int) string {
 	return sb.String()
 }
 
-type skippedNodes []skippedNode
+type SkippedNodes[T Context] []skippedNode[T]
 
-func (n *skippedNodes) pop() skippedNode {
+func (n *SkippedNodes[T]) pop() skippedNode[T] {
 	skipped := (*n)[len(*n)-1]
 	*n = (*n)[:len(*n)-1]
 	return skipped
 }
 
-type skippedNode struct {
-	node      *node
+type skippedNode[T Context] struct {
+	node      *node[T]
 	pathIndex int
 	paramCnt  uint32
 	seen      bool

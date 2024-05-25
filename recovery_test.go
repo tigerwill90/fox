@@ -12,14 +12,14 @@ import (
 )
 
 func TestAbortHandler(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
+	m := Recovery(func(c *Ctx, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
 
 	r := New(WithMiddleware(m))
 
-	h := func(c Context) {
+	h := func(c *Ctx) {
 		func() { panic(http.ErrAbortHandler) }()
 		_ = c.String(200, "foo")
 	}
@@ -39,7 +39,7 @@ func TestAbortHandler(t *testing.T) {
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
+	m := Recovery(func(c *Ctx, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
@@ -47,7 +47,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 	r := New(WithMiddleware(m))
 
 	const errMsg = "unexpected error"
-	h := func(c Context) {
+	h := func(c *Ctx) {
 		func() { panic(errMsg) }()
 		_ = c.String(200, "foo")
 	}
@@ -68,12 +68,12 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 	for errno, expectMsg := range expectMsgs {
 		t.Run(expectMsg, func(t *testing.T) {
-			f := New(WithMiddleware(Recovery(func(c Context, err any) {
+			f := New(WithMiddleware(Recovery(func(c *Ctx, err any) {
 				if !connIsBroken(err) {
 					http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				}
 			})))
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+			require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c *Ctx) {
 				e := &net.OpError{Err: &os.SyscallError{Err: errno}}
 				panic(e)
 			}))

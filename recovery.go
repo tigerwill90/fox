@@ -18,15 +18,15 @@ var stdErr = log.New(os.Stderr, "", log.LstdFlags)
 
 // RecoveryFunc is a function type that defines how to handle panics that occur during the
 // handling of an HTTP request.
-type RecoveryFunc func(c Context, err any)
+type RecoveryFunc[T Context] func(c T, err any)
 
 // Recovery is a middleware that captures panics and recovers from them. It takes a custom handle function
 // that will be called with the Context and the value recovered from the panic.
 // Note that the middleware check if the panic is caused by http.ErrAbortHandler and re-panic if true
 // allowing the http server to handle it as an abort.
-func Recovery(handle RecoveryFunc) MiddlewareFunc {
-	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+func Recovery[T Context](handle RecoveryFunc[T]) MiddlewareFunc[T] {
+	return func(next HandlerFunc[T]) HandlerFunc[T] {
+		return func(c T) {
 			defer recovery(c, handle)
 			next(c)
 		}
@@ -37,14 +37,14 @@ func Recovery(handle RecoveryFunc) MiddlewareFunc {
 // It logs the recovered panic error to stderr, including the stack trace.
 // If the response has not been written yet and the error is not caused by a broken connection,
 // it sets the status code to http.StatusInternalServerError and writes a generic error message.
-func DefaultHandleRecovery(c Context, err any) {
+func DefaultHandleRecovery[T Context](c T, err any) {
 	stdErr.Printf("[PANIC] %q recovered\n%s", err, debug.Stack())
 	if !c.Writer().Written() && !connIsBroken(err) {
 		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
-func recovery(c Context, handle RecoveryFunc) {
+func recovery[T Context](c T, handle RecoveryFunc[T]) {
 	if err := recover(); err != nil {
 		if abortErr, ok := err.(error); ok && errors.Is(abortErr, http.ErrAbortHandler) {
 			panic(abortErr)

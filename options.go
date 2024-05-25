@@ -22,20 +22,20 @@ const (
 	AllHandlers = RouteHandlers | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
 )
 
-type Option interface {
-	apply(*Router)
+type Option[T Context] interface {
+	apply(*Router[T])
 }
 
-type optionFunc func(*Router)
+type optionFunc[T Context] func(*Router[T])
 
-func (o optionFunc) apply(r *Router) {
+func (o optionFunc[T]) apply(r *Router[T]) {
 	o(r)
 }
 
 // WithNoRouteHandler register an HandlerFunc which is called when no matching route is found.
 // By default, the DefaultNotFoundHandler is used.
-func WithNoRouteHandler(handler HandlerFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithNoRouteHandler[T Context](handler HandlerFunc[T]) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		if handler != nil {
 			r.noRoute = handler
 		}
@@ -46,8 +46,8 @@ func WithNoRouteHandler(handler HandlerFunc) Option {
 // but the same route exist for other methods. The "Allow" header it automatically set before calling the
 // handler. By default, the DefaultMethodNotAllowedHandler is used. Note that this option automatically
 // enable WithNoMethod.
-func WithNoMethodHandler(handler HandlerFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithNoMethodHandler[T Context](handler HandlerFunc[T]) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		if handler != nil {
 			r.noMethod = handler
 			r.handleMethodNotAllowed = true
@@ -60,8 +60,8 @@ func WithNoMethodHandler(handler HandlerFunc) Option {
 // handler take priority over automatic replies. By default, DefaultOptionsHandler is used. Note that this option
 // automatically enable WithAutoOptions.
 // This api is EXPERIMENTAL and is likely to change in future release.
-func WithOptionsHandler(handler HandlerFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithOptionsHandler[T Context](handler HandlerFunc[T]) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		if handler != nil {
 			r.autoOptions = handler
 			r.handleOptions = true
@@ -72,7 +72,7 @@ func WithOptionsHandler(handler HandlerFunc) Option {
 // WithMiddleware attaches a global middleware to the router. Middlewares provided will be chained
 // in the order they were added. Note that this option apply middleware to all handler, including NotFound,
 // MethodNotAllowed and the internal redirect handler.
-func WithMiddleware(m ...MiddlewareFunc) Option {
+func WithMiddleware[T Context](m ...MiddlewareFunc[T]) Option[T] {
 	return WithMiddlewareFor(AllHandlers, m...)
 }
 
@@ -81,10 +81,10 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 // Possible scopes include RouteHandlers (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler, OptionsHandler,
 // and any combination of these. Use this option when you need fine-grained control over where the middleware is applied.
 // This api is EXPERIMENTAL and is likely to change in future release.
-func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithMiddlewareFor[T Context](scope MiddlewareScope, m ...MiddlewareFunc[T]) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		for i := range m {
-			r.mws = append(r.mws, middleware{m[i], scope})
+			r.mws = append(r.mws, middleware[T]{m[i], scope})
 		}
 	})
 }
@@ -93,8 +93,8 @@ func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {
 // when the route exist for another http verb. The "Allow" header it automatically set before calling the
 // handler. Note that this option is automatically enabled when providing a custom handler with the
 // option WithNoMethodHandler.
-func WithNoMethod(enable bool) Option {
-	return optionFunc(func(r *Router) {
+func WithNoMethod[T Context](enable bool) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		r.handleMethodNotAllowed = enable
 	})
 }
@@ -104,8 +104,8 @@ func WithNoMethod(enable bool) Option {
 // determines the "Allow" header value based on the methods registered for the given route. Note that custom OPTIONS
 // handler take priority over automatic replies. This option is automatically enabled when providing a custom handler with
 // the option WithOptionsHandler. This api is EXPERIMENTAL and is likely to change in future release.
-func WithAutoOptions(enable bool) Option {
-	return optionFunc(func(r *Router) {
+func WithAutoOptions[T Context](enable bool) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		r.handleOptions = enable
 	})
 }
@@ -114,8 +114,8 @@ func WithAutoOptions(enable bool) Option {
 // another handler is found with/without an additional trailing slash. E.g. /foo/bar/ request does not match
 // but /foo/bar would match. The client is redirected with a http status code 301 for GET requests and 308 for
 // all other methods.
-func WithRedirectTrailingSlash(enable bool) Option {
-	return optionFunc(func(r *Router) {
+func WithRedirectTrailingSlash[T Context](enable bool) Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
 		r.redirectTrailingSlash = enable
 	})
 }
@@ -123,9 +123,9 @@ func WithRedirectTrailingSlash(enable bool) Option {
 // DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope and enable
 // automatic OPTIONS response. Note that DefaultOptions push the Recovery middleware to the first position of the
 // middleware chains.
-func DefaultOptions() Option {
-	return optionFunc(func(r *Router) {
-		r.mws = append([]middleware{{Recovery(DefaultHandleRecovery), RouteHandlers}}, r.mws...)
+func DefaultOptions[T Context]() Option[T] {
+	return optionFunc[T](func(r *Router[T]) {
+		r.mws = append([]middleware[T]{{Recovery[T](DefaultHandleRecovery[T]), RouteHandlers}}, r.mws...)
 		r.handleOptions = true
 	})
 }

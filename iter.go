@@ -8,11 +8,11 @@ import (
 	"sort"
 )
 
-type Iterator struct {
-	tree    *Tree
+type Iterator[T Context] struct {
+	tree    *Tree[T]
 	method  string
-	current *node
-	stacks  []stack
+	current *node[T]
+	stacks  []stack[T]
 	valid   bool
 	started bool
 }
@@ -21,15 +21,15 @@ type Iterator struct {
 // An Iterator is safe to use when the router is serving request, when routing updates are ongoing or
 // in parallel with other Iterators. Note that changes that happen while iterating over routes may not be reflected
 // by the Iterator. This api is EXPERIMENTAL and is likely to change in future release.
-func NewIterator(t *Tree) *Iterator {
-	return &Iterator{
+func NewIterator[T Context](t *Tree[T]) *Iterator[T] {
+	return &Iterator[T]{
 		tree: t,
 	}
 }
 
-func (it *Iterator) methods() map[string]*node {
+func (it *Iterator[T]) methods() map[string]*node[T] {
 	nds := *it.tree.nodes.Load()
-	m := make(map[string]*node, len(nds))
+	m := make(map[string]*node[T], len(nds))
 	for i := range nds {
 		if len(nds[i].children) > 0 {
 			m[nds[i].key] = nds[i]
@@ -40,7 +40,7 @@ func (it *Iterator) methods() map[string]*node {
 
 // SeekPrefix reset the iterator cursor to the first route starting with key.
 // It does not keep tracking of previous seek.
-func (it *Iterator) SeekPrefix(key string) {
+func (it *Iterator[T]) SeekPrefix(key string) {
 	nds := it.methods()
 	keys := make([]string, 0, len(nds))
 	for method, n := range nds {
@@ -52,10 +52,10 @@ func (it *Iterator) SeekPrefix(key string) {
 	}
 
 	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
-	stacks := make([]stack, 0, len(keys))
+	stacks := make([]stack[T], 0, len(keys))
 	for _, key := range keys {
-		stacks = append(stacks, stack{
-			edges:  []*node{nds[key]},
+		stacks = append(stacks, stack[T]{
+			edges:  []*node[T]{nds[key]},
 			method: key,
 		})
 	}
@@ -65,13 +65,13 @@ func (it *Iterator) SeekPrefix(key string) {
 
 // SeekMethod reset the iterator cursor to the first route for the given method.
 // It does not keep tracking of previous seek.
-func (it *Iterator) SeekMethod(method string) {
+func (it *Iterator[T]) SeekMethod(method string) {
 	nds := it.methods()
-	stacks := make([]stack, 0, 1)
+	stacks := make([]stack[T], 0, 1)
 	n, ok := nds[method]
 	if ok {
-		stacks = append(stacks, stack{
-			edges:  []*node{n},
+		stacks = append(stacks, stack[T]{
+			edges:  []*node[T]{n},
 			method: method,
 		})
 	}
@@ -81,15 +81,15 @@ func (it *Iterator) SeekMethod(method string) {
 
 // SeekMethodPrefix reset the iterator cursor to the first route starting with key for the given method.
 // It does not keep tracking of previous seek.
-func (it *Iterator) SeekMethodPrefix(method, key string) {
+func (it *Iterator[T]) SeekMethodPrefix(method, key string) {
 	nds := it.methods()
-	stacks := make([]stack, 0, 1)
+	stacks := make([]stack[T], 0, 1)
 	n, ok := nds[method]
 	if ok {
 		result := it.tree.search(n, key)
 		if result.isExactMatch() || result.isKeyMidEdge() {
-			stacks = append(stacks, stack{
-				edges:  []*node{result.matched},
+			stacks = append(stacks, stack[T]{
+				edges:  []*node[T]{result.matched},
 				method: method,
 			})
 		}
@@ -100,7 +100,7 @@ func (it *Iterator) SeekMethodPrefix(method, key string) {
 
 // Rewind reset the iterator cursor all the way to zero-th position which is the first method and route.
 // It does not keep track of whether the cursor started with SeekPrefix, SeekMethod or SeekMethodPrefix.
-func (it *Iterator) Rewind() {
+func (it *Iterator[T]) Rewind() {
 	nds := it.methods()
 	methods := make([]string, 0, len(nds))
 	for method := range nds {
@@ -109,10 +109,10 @@ func (it *Iterator) Rewind() {
 
 	sort.Sort(sort.Reverse(sort.StringSlice(methods)))
 
-	stacks := make([]stack, 0, len(methods))
+	stacks := make([]stack[T], 0, len(methods))
 	for _, method := range methods {
-		stacks = append(stacks, stack{
-			edges:  []*node{nds[method]},
+		stacks = append(stacks, stack[T]{
+			edges:  []*node[T]{nds[method]},
 			method: method,
 		})
 	}
@@ -121,7 +121,7 @@ func (it *Iterator) Rewind() {
 }
 
 // Valid returns false when iteration is done.
-func (it *Iterator) Valid() bool {
+func (it *Iterator[T]) Valid() bool {
 	if !it.started {
 		it.started = true
 		it.Next()
@@ -131,7 +131,7 @@ func (it *Iterator) Valid() bool {
 }
 
 // Next advance the iterator to the next route. Always check it.Valid() after a it.Next().
-func (it *Iterator) Next() {
+func (it *Iterator[T]) Next() {
 	for len(it.stacks) > 0 {
 		n := len(it.stacks)
 		last := it.stacks[n-1]
@@ -144,7 +144,7 @@ func (it *Iterator) Next() {
 		}
 
 		if len(elem.children) > 0 {
-			it.stacks = append(it.stacks, stack{edges: elem.getEdgesShallowCopy()})
+			it.stacks = append(it.stacks, stack[T]{edges: elem.getEdgesShallowCopy()})
 		}
 
 		it.current = elem
@@ -165,7 +165,7 @@ func (it *Iterator) Next() {
 }
 
 // Path returns the registered path for the current route.
-func (it *Iterator) Path() string {
+func (it *Iterator[T]) Path() string {
 	if it.current != nil {
 		return it.current.path
 	}
@@ -173,36 +173,36 @@ func (it *Iterator) Path() string {
 }
 
 // Method returns the http method for the current route.
-func (it *Iterator) Method() string {
+func (it *Iterator[T]) Method() string {
 	return it.method
 }
 
 // Handler return the registered handler for the current route.
-func (it *Iterator) Handler() HandlerFunc {
+func (it *Iterator[T]) Handler() HandlerFunc[T] {
 	if it.current != nil {
 		return it.current.handler
 	}
 	return nil
 }
 
-type stack struct {
+type stack[T Context] struct {
 	method string
-	edges  []*node
+	edges  []*node[T]
 }
 
-func newRawIterator(n *node) *rawIterator {
-	return &rawIterator{
-		stack: []stack{{edges: []*node{n}}},
+func newRawIterator[T Context](n *node[T]) *rawIterator[T] {
+	return &rawIterator[T]{
+		stack: []stack[T]{{edges: []*node[T]{n}}},
 	}
 }
 
-type rawIterator struct {
-	current *node
+type rawIterator[T Context] struct {
+	current *node[T]
 	path    string
-	stack   []stack
+	stack   []stack[T]
 }
 
-func (it *rawIterator) hasNext() bool {
+func (it *rawIterator[T]) hasNext() bool {
 	for len(it.stack) > 0 {
 		n := len(it.stack)
 		last := it.stack[n-1]
@@ -215,7 +215,7 @@ func (it *rawIterator) hasNext() bool {
 		}
 
 		if len(elem.children) > 0 {
-			it.stack = append(it.stack, stack{edges: elem.getEdgesShallowCopy()})
+			it.stack = append(it.stack, stack[T]{edges: elem.getEdgesShallowCopy()})
 		}
 
 		it.current = elem
