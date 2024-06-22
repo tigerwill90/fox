@@ -494,6 +494,7 @@ func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skip
 		paramCnt                uint32
 	)
 
+	var parent *node
 	current := rootNode.children[0].Load()
 	*skipNds = (*skipNds)[:0]
 
@@ -569,6 +570,7 @@ Walk:
 				}
 
 				idx = current.paramChildIndex
+				parent = current
 				current = current.children[idx].Load()
 				continue
 			}
@@ -577,6 +579,7 @@ Walk:
 			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
 				*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, false})
 			}
+			parent = current
 			current = current.children[idx].Load()
 		}
 	}
@@ -585,13 +588,29 @@ Walk:
 	hasSkpNds := len(*skipNds) > 0
 
 	if !current.isLeaf() {
+
+		if !tsr {
+			// Tsr recommendation: remove the extra trailing slash (got an exact match)
+			// If match the completely /foo/, we end up in an intermediary node which is not a leaf.
+			// /foo [leaf=/foo]
+			//	  /
+			//		b/ [leaf=/foo/b/]
+			//		x/ [leaf=/foo/x/]
+			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
+			// the intermediary node (charsMatched == len(path)).
+			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() {
+				tsr = charsMatched == len(path)
+			}
+		}
+
 		if hasSkpNds {
 			goto Backtrack
 		}
 
-		return nil, false
+		return nil, tsr
 	}
 
+	// From here we are always in a leaf
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a catch-all node
@@ -655,9 +674,9 @@ Walk:
 Backtrack:
 	if hasSkpNds {
 		skipped := skipNds.pop()
-		if skipped.node.paramChildIndex < 0 || skipped.seen {
+		if skipped.parent.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
-			current = skipped.node
+			current = skipped.parent
 			*params = (*params)[:skipped.paramCnt]
 
 			if !lazy {
@@ -673,11 +692,12 @@ Backtrack:
 		// /foo/*{any}
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
-		if skipped.node.catchAllKey != "" {
-			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, skipped.paramCnt, true})
+		if skipped.parent.catchAllKey != "" {
+			*skipNds = append(*skipNds, skippedNode{skipped.parent, skipped.pathIndex, skipped.paramCnt, true})
 		}
 
-		current = skipped.node.children[skipped.node.paramChildIndex].Load()
+		parent = skipped.parent
+		current = skipped.parent.children[skipped.parent.paramChildIndex].Load()
 
 		*params = (*params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex

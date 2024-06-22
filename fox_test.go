@@ -10,7 +10,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -1624,6 +1623,43 @@ func TestRedirectTrailingSlash(t *testing.T) {
 		wantLocation string
 	}{
 		{
+			name:         "current not a leaf get method and status moved permanently with extra ts",
+			paths:        []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:          "/foo/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "../foo",
+		},
+		{
+			name:         "current not a leaf post method and status moved permanently with extra ts",
+			paths:        []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:          "/foo/",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "../foo",
+		},
+		{
+			name:     "current not a leaf and path does not end with ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/c",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf and path end with extra char and ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/c/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf and path end with ts but last is not a leaf",
+			paths:    []string{"/foo/a/a", "/foo/a/b", "/foo/c/"},
+			req:      "/foo/a/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
 			name:         "mid edge key with get method and status moved permanently with extra ts",
 			paths:        []string{"/foo/bar/"},
 			req:          "/foo/bar",
@@ -1656,7 +1692,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			wantLocation: "../bar",
 		},
 		{
-			name:         "incomplete match end of edge",
+			name:         "incomplete match end of edge with get method",
 			paths:        []string{"/foo/bar"},
 			req:          "/foo/bar/",
 			method:       http.MethodGet,
@@ -1664,7 +1700,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			wantLocation: "../bar",
 		},
 		{
-			name:         "incomplete match end of edge",
+			name:         "incomplete match end of edge with post method",
 			paths:        []string{"/foo/bar"},
 			req:          "/foo/bar/",
 			method:       http.MethodPost,
@@ -2493,16 +2529,4 @@ func ExampleTree_Match() {
 	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
 		_ = c.String(http.StatusOK, "foo bar")
 	})
-}
-
-func TestX(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/foo/bar", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/", emptyHandler)
-
-	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
-	w := httptest.NewRecorder()
-	f.ServeHTTP(w, req)
-
-	fmt.Println(filepath.Join("/foo/bar/", "../bar"))
 }
