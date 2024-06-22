@@ -606,10 +606,12 @@ Walk:
 			// Key end mid-edge
 			if !tsr {
 				if strings.HasSuffix(path, "/") {
+					// TODO need last
 					// Tsr recommendation: remove the extra trailing slash (got an exact match)
 					remainingPrefix := current.key[:charsMatchedInNodeFound]
 					tsr = len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim
 				} else {
+					// TODO current
 					// Tsr recommendation: add an extra trailing slash (got an exact match)
 					remainingSuffix := current.key[charsMatchedInNodeFound:]
 					tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
@@ -637,6 +639,7 @@ Walk:
 
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		if !tsr {
+			// TODO current
 			remainingKeySuffix := path[charsMatched:]
 			tsr = len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim
 		}

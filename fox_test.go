@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -1616,31 +1617,47 @@ func TestRedirectTrailingSlash(t *testing.T) {
 
 	cases := []struct {
 		name         string
-		path         string
+		paths        []string
 		req          string
 		method       string
 		wantCode     int
 		wantLocation string
 	}{
 		{
-			name:         "mid edge key with get method and status moved permanently",
-			path:         "/foo/bar/",
+			name:         "mid edge key with get method and status moved permanently with extra ts",
+			paths:        []string{"/foo/bar/"},
 			req:          "/foo/bar",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "bar/",
 		},
 		{
-			name:         "mid edge key with post method and status permanent redirect",
-			path:         "/foo/bar/",
+			name:         "mid edge key with post method and status permanent redirect with extra ts",
+			paths:        []string{"/foo/bar/"},
 			req:          "/foo/bar",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
 			wantLocation: "bar/",
 		},
 		{
+			name:         "mid edge key with get method and status moved permanently without extra ts",
+			paths:        []string{"/foo/bar/baz", "/foo/bar"},
+			req:          "/foo/bar/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "../bar",
+		},
+		{
+			name:         "mid edge key with post method and status permanent redirect without extra ts",
+			paths:        []string{"/foo/bar/baz", "/foo/bar"},
+			req:          "/foo/bar/",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "../bar",
+		},
+		{
 			name:         "incomplete match end of edge",
-			path:         "/foo/bar",
+			paths:        []string{"/foo/bar"},
 			req:          "/foo/bar/",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
@@ -1648,7 +1665,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 		},
 		{
 			name:         "incomplete match end of edge",
-			path:         "/foo/bar",
+			paths:        []string{"/foo/bar"},
 			req:          "/foo/bar/",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
@@ -1656,28 +1673,28 @@ func TestRedirectTrailingSlash(t *testing.T) {
 		},
 		{
 			name:     "match mid edge with ts and more char after",
-			path:     "/foo/bar/buzz",
+			paths:    []string{"/foo/bar/buzz"},
 			req:      "/foo/bar",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "match mid edge with ts and more char before",
-			path:     "/foo/barr/",
+			paths:    []string{"/foo/barr/"},
 			req:      "/foo/bar",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "incomplete match end of edge with ts and more char after",
-			path:     "/foo/bar",
+			paths:    []string{"/foo/bar"},
 			req:      "/foo/bar/buzz",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "incomplete match end of edge with ts and more char before",
-			path:     "/foo/bar",
+			paths:    []string{"/foo/bar"},
 			req:      "/foo/barr/",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
@@ -1687,7 +1704,9 @@ func TestRedirectTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New(WithRedirectTrailingSlash(true))
-			require.NoError(t, r.Tree().Handle(tc.method, tc.path, emptyHandler))
+			for _, path := range tc.paths {
+				require.NoError(t, r.Tree().Handle(tc.method, path, emptyHandler))
+			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
 			w := httptest.NewRecorder()
@@ -2474,4 +2493,16 @@ func ExampleTree_Match() {
 	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
 		_ = c.String(http.StatusOK, "foo bar")
 	})
+}
+
+func TestX(t *testing.T) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo/bar", emptyHandler)
+	f.MustHandle(http.MethodGet, "/foo/", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+
+	fmt.Println(filepath.Join("/foo/bar/", "../bar"))
 }
