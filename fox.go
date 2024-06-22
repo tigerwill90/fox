@@ -54,6 +54,7 @@ type Router struct {
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
+	ignoreTrailingSlash    bool
 }
 
 type middleware struct {
@@ -166,10 +167,10 @@ func (fox *Router) Remove(method, path string) error {
 }
 
 // Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
-// and a boolean indicating if a trailing slash redirect is recommended. The ContextCloser should always be closed if non-nil.
+// and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always be closed if non-nil.
 // This method is primarily intended for integrating the fox router into custom routing solutions. It requires the use of the
 // original http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
-// and while mutation on Tree are ongoing.
+// and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible, Lookup always return a HandlerFunc and a ContextCloser.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
@@ -302,7 +303,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
-	if n != nil {
+	if !tsr && n != nil {
 		c.path = n.path
 		n.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
@@ -313,14 +314,26 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reset params as it may have recorded wildcard segment
-	*c.params = (*c.params)[:0]
+	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
+		if fox.redirectTrailingSlash && target == CleanPath(target) {
+			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
+			*c.params = (*c.params)[:0]
+			fox.tsrRedirect(c)
+			c.Close()
+			return
+		}
 
-	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr && fox.redirectTrailingSlash && target == CleanPath(target) {
-		fox.tsrRedirect(c)
-		c.Close()
-		return
+		if fox.ignoreTrailingSlash {
+			c.path = n.path
+			n.handler(c)
+			c.Close()
+			return
+		}
 	}
+
+	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
+	// automatic option handler or middleware)
+	*c.params = (*c.params)[:0]
 
 NoMethodFallback:
 	if r.Method == http.MethodOptions && fox.handleOptions {
@@ -338,7 +351,7 @@ NoMethodFallback:
 			}
 		} else {
 			for i := 0; i < len(nds); i++ {
-				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					} else {
@@ -361,7 +374,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}

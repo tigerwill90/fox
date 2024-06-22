@@ -104,9 +104,9 @@ func (t *Tree) Has(method, path string) bool {
 
 	c := t.ctx.Get().(*context)
 	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	return n != nil && n.path == path
+	return !tsr && n != nil && n.path == path
 }
 
 // Match perform a lookup on the tree for the given method and path and return the matching registered route if any.
@@ -121,9 +121,9 @@ func (t *Tree) Match(method, path string) string {
 
 	c := t.ctx.Get().(*context)
 	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	if n == nil {
+	if tsr || n == nil {
 		return ""
 	}
 	return n.path
@@ -151,8 +151,8 @@ func (t *Tree) Methods(path string) []string {
 		c := t.ctx.Get().(*context)
 		c.resetNil()
 		for i := range nds {
-			n, _ := t.lookup(nds[i], path, c.params, c.skipNds, true)
-			if n != nil {
+			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
+			if !tsr && n != nil {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
@@ -598,8 +598,9 @@ Walk:
 			//		x/ [leaf=/foo/x/]
 			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
 			// the intermediary node (charsMatched == len(path)).
-			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() {
-				tsr = charsMatched == len(path)
+			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() && charsMatched == len(path) {
+				tsr = true
+				n = parent
 			}
 		}
 
@@ -607,7 +608,7 @@ Walk:
 			goto Backtrack
 		}
 
-		return nil, tsr
+		return n, tsr
 	}
 
 	// From here we are always in a leaf
@@ -625,15 +626,19 @@ Walk:
 			// Key end mid-edge
 			if !tsr {
 				if strings.HasSuffix(path, "/") {
-					// TODO need last
 					// Tsr recommendation: remove the extra trailing slash (got an exact match)
 					remainingPrefix := current.key[:charsMatchedInNodeFound]
-					tsr = len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim
+					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
+						tsr = true
+						n = parent
+					}
 				} else {
-					// TODO current
 					// Tsr recommendation: add an extra trailing slash (got an exact match)
 					remainingSuffix := current.key[charsMatchedInNodeFound:]
-					tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
+					if len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim {
+						tsr = true
+						n = current
+					}
 				}
 			}
 
@@ -641,7 +646,7 @@ Walk:
 				goto Backtrack
 			}
 
-			return nil, tsr
+			return n, tsr
 		}
 	}
 
@@ -658,16 +663,18 @@ Walk:
 
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		if !tsr {
-			// TODO current
 			remainingKeySuffix := path[charsMatched:]
-			tsr = len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim
+			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
+				tsr = true
+				n = current
+			}
 		}
 
 		if hasSkpNds {
 			goto Backtrack
 		}
 
-		return nil, tsr
+		return n, tsr
 	}
 
 	// Finally incomplete match to middle of edge
@@ -704,7 +711,7 @@ Backtrack:
 		goto Walk
 	}
 
-	return nil, tsr
+	return n, tsr
 }
 
 func (t *Tree) search(rootNode *node, path string) searchResult {

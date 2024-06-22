@@ -34,6 +34,9 @@ priority rules, ensuring that there are no unintended matches and maintaining hi
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash.
 
+**Ignore trailing slashes:** In contrast to redirecting, this option allows the router to handle requests regardless of an extra 
+or missing trailing slash, at no extra cost.
+
 **Automatic OPTIONS replies:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
 support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 

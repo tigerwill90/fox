@@ -714,8 +714,9 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, _ := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
+		n, tsr := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
 		require.NotNil(t, n)
+		assert.False(t, tsr)
 		assert.Equal(t, rte, n.path)
 	}
 }
@@ -1159,10 +1160,10 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, _ := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
-
+			assert.False(t, tsr)
 			assert.Equal(t, tc.wantMatch, n.path)
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, c.Params())
@@ -1172,9 +1173,10 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, _ = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
+			n, tsr = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
+			assert.False(t, tsr)
 			assert.Empty(t, c.Params())
 			assert.Equal(t, tc.wantMatch, n.path)
 		})
@@ -1606,8 +1608,11 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			_, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
+			n, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
 			assert.Equal(t, tc.want, got)
+			if tc.want {
+				assert.NotNil(t, n)
+			}
 		})
 	}
 }
@@ -2197,8 +2202,9 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, _ := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
 			require.NotNil(t, n)
+			assert.False(t, tsr)
 			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
 			assert.Equal(t, "xxxx", c.Param(e1))
 			assert.Equal(t, "xxxx", c.Param(e2))
@@ -2256,8 +2262,9 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, _ := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
+		n, tsr := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
 		require.NotNilf(t, n, "route /%s", rte)
+		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.path)
 		require.NoError(t, tree.update(http.MethodGet, "/"+rte, "", emptyHandler))
