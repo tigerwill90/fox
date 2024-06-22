@@ -17,8 +17,6 @@ import (
 // to write a response. Be aware that the Context API is not designed to be thread-safe and its lifetime should be limited to the
 // duration of the HandlerFunc execution, as the underlying implementation may be reused a soon as the handler return.
 type Context interface {
-	// Ctx returns the context associated with the current request.
-	Ctx() netcontext.Context
 	// Request returns the current *http.Request.
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
@@ -299,7 +297,7 @@ func (c *Ctx) getQueries() url.Values {
 func WrapF[T Context](f http.HandlerFunc) HandlerFunc[T] {
 	return func(c T) {
 		if len(c.Params()) > 0 {
-			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
+			ctx := netcontext.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}
@@ -313,7 +311,7 @@ func WrapF[T Context](f http.HandlerFunc) HandlerFunc[T] {
 func WrapH[T Context](h http.Handler) HandlerFunc[T] {
 	return func(c T) {
 		if len(c.Params()) > 0 {
-			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
+			ctx := netcontext.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
 			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}
