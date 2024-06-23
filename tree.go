@@ -112,7 +112,7 @@ func (t *Tree) Has(method, path string) bool {
 		return false
 	}
 	if n.path == path {
-		return !tsr
+		return true
 	}
 	if tsr && t.ignoreTrailingSlash {
 		return n.path == fixTrailingSlash(path)
