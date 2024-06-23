@@ -33,8 +33,9 @@ type Tree struct {
 	nodes atomic.Pointer[[]*node]
 	mws   []middleware
 	sync.Mutex
-	maxParams atomic.Uint32
-	maxDepth  atomic.Uint32
+	maxParams           atomic.Uint32
+	maxDepth            atomic.Uint32
+	ignoreTrailingSlash bool
 }
 
 // Handle registers a new handler for the given method and path. This function return an error if the route
@@ -92,8 +93,9 @@ func (t *Tree) Remove(method, path string) error {
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for
-// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// Has allows to check if the given method and path exactly match a registered route.  When WithIgnoreTrailingSlash
+// is enabled, Has will match a registered route regardless of an extra or missing trailing slash. This function is
+// safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
 	nds := *t.nodes.Load()
@@ -106,10 +108,21 @@ func (t *Tree) Has(method, path string) bool {
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	return !tsr && n != nil && n.path == path
+	if n == nil {
+		return false
+	}
+	if n.path == path {
+		return !tsr
+	}
+	if tsr && t.ignoreTrailingSlash {
+		return n.path == fixTrailingSlash(path)
+	}
+
+	return false
 }
 
-// Match perform a lookup on the tree for the given method and path and return the matching registered route if any.
+// Match perform a lookup on the tree for the given method and path and return the matching registered route if any. When
+// WithIgnoreTrailingSlash is enabled, Match will match a registered route regardless of an extra or missing trailing slash.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Match(method, path string) string {
@@ -123,10 +136,10 @@ func (t *Tree) Match(method, path string) string {
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	if tsr || n == nil {
-		return ""
+	if n != nil && (!tsr || t.ignoreTrailingSlash) {
+		return n.path
 	}
-	return n.path
+	return ""
 }
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
@@ -152,7 +165,7 @@ func (t *Tree) Methods(path string) []string {
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
-			if !tsr && n != nil {
+			if n != nil && (!tsr || t.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}

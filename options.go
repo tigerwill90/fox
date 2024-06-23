@@ -114,7 +114,7 @@ func WithAutoOptions(enable bool) Option {
 // another handler is found with/without an additional trailing slash. E.g. /foo/bar/ request does not match
 // but /foo/bar would match. The client is redirected with a http status code 301 for GET requests and 308 for
 // all other methods. Note that this option is mutually exclusive with WithIgnoreTrailingSlash, and if both are
-// enabled, WithRedirectTrailingSlash takes precedence.
+// enabled, WithIgnoreTrailingSlash takes precedence.
 func WithRedirectTrailingSlash(enable bool) Option {
 	return optionFunc(func(r *Router) {
 		r.redirectTrailingSlash = enable
@@ -124,7 +124,7 @@ func WithRedirectTrailingSlash(enable bool) Option {
 // WithIgnoreTrailingSlash allows the router to match routes regardless of whether a trailing slash is present or not.
 // E.g. /foo/bar/ and /foo/bar would both match the same handler. This option prevents the router from issuing
 // a redirect and instead matches the request directly. Note that this option is mutually exclusive with
-// WithRedirectTrailingSlash, and if both are enabled, WithRedirectTrailingSlash takes precedence.
+// WithRedirectTrailingSlash, and if both are enabled, WithIgnoreTrailingSlash takes precedence.
 // This api is EXPERIMENTAL and is likely to change in future release.
 func WithIgnoreTrailingSlash(enable bool) Option {
 	return optionFunc(func(r *Router) {

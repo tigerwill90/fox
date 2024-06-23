@@ -92,6 +92,7 @@ func New(opts ...Option) *Router {
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.mws = fox.mws
+	tree.ignoreTrailingSlash = fox.ignoreTrailingSlash
 
 	// Pre instantiate nodes for common http verb
 	nds := make([]*node, len(commonVerbs))
@@ -315,17 +316,17 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
-		if fox.redirectTrailingSlash && target == CleanPath(target) {
-			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
-			*c.params = (*c.params)[:0]
-			fox.tsrRedirect(c)
+		if fox.ignoreTrailingSlash {
+			c.path = n.path
+			n.handler(c)
 			c.Close()
 			return
 		}
 
-		if fox.ignoreTrailingSlash {
-			c.path = n.path
-			n.handler(c)
+		if fox.redirectTrailingSlash && target == CleanPath(target) {
+			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
+			*c.params = (*c.params)[:0]
+			fox.tsrRedirect(c)
 			c.Close()
 			return
 		}
