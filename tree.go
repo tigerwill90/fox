@@ -144,7 +144,8 @@ func (t *Tree) Match(method, path string) string {
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
 // it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the methods
-// that can route requests to that path.
+// that can route requests to that path.  When WithIgnoreTrailingSlash is enabled, Methods will match a registered route
+// regardless of an extra or missing trailing slash.
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Methods(path string) []string {
