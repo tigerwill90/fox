@@ -120,12 +120,15 @@ func WithRedirectTrailingSlash(enable bool) Option {
 	})
 }
 
-// DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope and enable
-// automatic OPTIONS response. Note that DefaultOptions push the Recovery middleware to the first position of the
-// middleware chains.
+// DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope, the Logger middleware
+// for AllHandlers scope and enable automatic OPTIONS response. Note that DefaultOptions push the Recovery and Logger middleware
+// respectively to the first and second position of the middleware chains.
 func DefaultOptions() Option {
 	return optionFunc(func(r *Router) {
-		r.mws = append([]middleware{{Recovery(DefaultHandleRecovery), RouteHandlers}}, r.mws...)
+		r.mws = append([]middleware{
+			{Recovery(DefaultHandleRecovery), RouteHandlers},
+			{Logger(), AllHandlers},
+		}, r.mws...)
 		r.handleOptions = true
 	})
 }
