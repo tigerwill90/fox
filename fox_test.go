@@ -1918,7 +1918,7 @@ func TestDefaultOptions(t *testing.T) {
 		}
 	})
 	r := New(WithMiddleware(m), DefaultOptions())
-	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[1].m).Pointer())
+	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[2].m).Pointer())
 	assert.True(t, r.handleOptions)
 }
 
