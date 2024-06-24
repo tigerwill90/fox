@@ -78,11 +78,12 @@ type Context interface {
 	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
 	// Tree is a local copy of the Tree in use to serve the request.
 	Tree() *Tree
-	// Fox returns the Router in use to serve the request.
+	// Fox returns the Router instance.
 	Fox() *Router
-	// Reset resets the Context to its initial state, attaching the provided Router,
-	// http.ResponseWriter, and *http.Request.
-	Reset(fox *Router, w http.ResponseWriter, r *http.Request)
+	// Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
+	// Caution: You should always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
+	// avoid wrapping the ResponseWriter within itself. Use wisely!
+	Reset(w http.ResponseWriter, r *http.Request)
 }
 
 // context holds request-related information and allows interaction with the ResponseWriter.
@@ -102,13 +103,13 @@ type context struct {
 }
 
 // Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
-// Caution: You should pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to avoid
-// wrapping the ResponseWriter within itself.
-func (c *context) Reset(fox *Router, w http.ResponseWriter, r *http.Request) {
+// Caution: You should always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
+// avoid wrapping the ResponseWriter within itself. Use wisely!
+func (c *context) Reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
-	c.fox = fox
+	c.fox = c.tree.fox
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
@@ -233,7 +234,7 @@ func (c *context) Tree() *Tree {
 	return c.tree
 }
 
-// Fox returns the Router in use to serve the request.
+// Fox returns the Router instance.
 func (c *context) Fox() *Router {
 	return c.fox
 }

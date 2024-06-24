@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -21,21 +22,21 @@ import (
 // the wrong Tree.
 //
 // Good:
-// t := r.Tree()
+// t := fox.Tree()
 // t.Lock()
 // defer t.Unlock()
 //
 // Dramatically bad, may cause deadlock
-// r.Tree().Lock()
-// defer r.Tree().Unlock()
+// fox.Tree().Lock()
+// defer fox.Tree().Unlock()
 type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
+	fox   *Router
 	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
-	ingorets  bool
 }
 
 // Handle registers a new handler for the given method and path. This function return an error if the route
@@ -129,7 +130,7 @@ func (t *Tree) Match(method, path string) string {
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	if n != nil && (!tsr || t.ingorets) {
+	if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
 		return n.path
 	}
 	return ""
@@ -159,7 +160,7 @@ func (t *Tree) Methods(path string) []string {
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
-			if n != nil && (!tsr || t.ingorets) {
+			if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
@@ -171,6 +172,38 @@ func (t *Tree) Methods(path string) []string {
 
 	sort.Strings(methods)
 	return methods
+}
+
+// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
+// and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always be closed if non-nil.
+// This method is primarily intended for integrating the fox router into custom routing solutions. It requires the use of the
+// original http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
+// and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible, Lookup always return a HandlerFunc and a ContextCloser.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+	nds := *t.nodes.Load()
+	index := findRootNode(r.Method, nds)
+
+	if index < 0 {
+		return
+	}
+
+	c := t.ctx.Get().(*context)
+	c.Reset(w, r)
+
+	target := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		target = r.URL.RawPath
+	}
+
+	n, tsr := t.lookup(nds[index], target, c.params, c.skipNds, false)
+	if n != nil {
+		c.path = n.path
+		return n.handler, c, tsr
+	}
+	c.Close()
+	return nil, nil, tsr
 }
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use

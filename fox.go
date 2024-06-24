@@ -120,7 +120,7 @@ func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.mws = fox.mws
-	tree.ingorets = fox.ignoreTrailingSlash || fox.redirectTrailingSlash
+	tree.fox = fox
 
 	// Pre instantiate nodes for common http verb
 	nds := make([]*node, len(commonVerbs))
@@ -203,30 +203,7 @@ func (fox *Router) Remove(method, path string) error {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
-
-	nds := *tree.nodes.Load()
-	index := findRootNode(r.Method, nds)
-
-	if index < 0 {
-		return
-	}
-
-	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
-
-	target := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = r.URL.RawPath
-	}
-
-	n, tsr := tree.lookup(nds[index], target, c.params, c.skipNds, false)
-	if n != nil {
-		c.path = n.path
-		return n.handler, c, tsr
-	}
-	c.Close()
-	return nil, nil, tsr
+	return tree.Lookup(w, r)
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -323,7 +300,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
+	c.Reset(w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
