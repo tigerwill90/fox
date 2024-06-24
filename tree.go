@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -21,16 +22,17 @@ import (
 // the wrong Tree.
 //
 // Good:
-// t := r.Tree()
+// t := fox.Tree()
 // t.Lock()
 // defer t.Unlock()
 //
 // Dramatically bad, may cause deadlock
-// r.Tree().Lock()
-// defer r.Tree().Unlock()
+// fox.Tree().Lock()
+// defer fox.Tree().Unlock()
 type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
+	fox   *Router
 	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
@@ -57,7 +59,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
-// Tree APIs that perform write operations. To add new handler, use Handle method.
+// Tree APIs that perform write operations. To add a new handler, use Handle method.
 func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
@@ -92,8 +94,8 @@ func (t *Tree) Remove(method, path string) error {
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for
-// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// Has allows to check if the given method and path exactly match a registered route. This function is safe for concurrent
+// use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
 	nds := *t.nodes.Load()
@@ -104,13 +106,18 @@ func (t *Tree) Has(method, path string) bool {
 
 	c := t.ctx.Get().(*context)
 	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	return n != nil && n.path == path
+	if n != nil && !tsr {
+		return n.path == path
+	}
+	return false
 }
 
-// Match perform a lookup on the tree for the given method and path and return the matching registered route if any.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route if any. When
+// WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled, Match will match a registered route regardless of an
+// extra or missing trailing slash. This function is safe for concurrent use by multiple goroutine and while mutation on
+// Tree are ongoing. See also Tree.Lookup as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Match(method, path string) string {
 	nds := *t.nodes.Load()
@@ -121,18 +128,19 @@ func (t *Tree) Match(method, path string) string {
 
 	c := t.ctx.Get().(*context)
 	c.resetNil()
-	n, _ := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	if n == nil {
-		return ""
+	if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
+		return n.path
 	}
-	return n.path
+	return ""
 }
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
-// it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the methods
-// that can route requests to that path.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the
+// methods that can route requests to that path. When WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled,
+// Methods will match a registered route regardless of an extra or missing trailing slash. This function is safe for
+// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Methods(path string) []string {
 	var methods []string
@@ -151,8 +159,8 @@ func (t *Tree) Methods(path string) []string {
 		c := t.ctx.Get().(*context)
 		c.resetNil()
 		for i := range nds {
-			n, _ := t.lookup(nds[i], path, c.params, c.skipNds, true)
-			if n != nil {
+			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
+			if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
@@ -164,6 +172,40 @@ func (t *Tree) Methods(path string) []string {
 
 	sort.Strings(methods)
 	return methods
+}
+
+// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a
+// ContextCloser, and a boolean indicating if the handler was matched by adding or removing a trailing slash
+// (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
+// intended for integrating the fox router into custom routing solutions or middleware. It requires the use of the original
+// http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
+// and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible, Lookup always return a
+// HandlerFunc and a ContextCloser.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+	nds := *t.nodes.Load()
+	index := findRootNode(r.Method, nds)
+
+	if index < 0 {
+		return
+	}
+
+	c := t.ctx.Get().(*context)
+	c.Reset(w, r)
+
+	target := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		target = r.URL.RawPath
+	}
+
+	n, tsr := t.lookup(nds[index], target, c.params, c.skipNds, false)
+	if n != nil {
+		c.path = n.path
+		return n.handler, c, tsr
+	}
+	c.Close()
+	return nil, nil, tsr
 }
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
@@ -494,6 +536,7 @@ func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skip
 		paramCnt                uint32
 	)
 
+	var parent *node
 	current := rootNode.children[0].Load()
 	*skipNds = (*skipNds)[:0]
 
@@ -569,6 +612,7 @@ Walk:
 				}
 
 				idx = current.paramChildIndex
+				parent = current
 				current = current.children[idx].Load()
 				continue
 			}
@@ -577,6 +621,7 @@ Walk:
 			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
 				*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, false})
 			}
+			parent = current
 			current = current.children[idx].Load()
 		}
 	}
@@ -585,13 +630,30 @@ Walk:
 	hasSkpNds := len(*skipNds) > 0
 
 	if !current.isLeaf() {
+
+		if !tsr {
+			// Tsr recommendation: remove the extra trailing slash (got an exact match)
+			// If match the completely /foo/, we end up in an intermediary node which is not a leaf.
+			// /foo [leaf=/foo]
+			//	  /
+			//		b/ [leaf=/foo/b/]
+			//		x/ [leaf=/foo/x/]
+			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
+			// the intermediary node (charsMatched == len(path)).
+			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() && charsMatched == len(path) {
+				tsr = true
+				n = parent
+			}
+		}
+
 		if hasSkpNds {
 			goto Backtrack
 		}
 
-		return nil, false
+		return n, tsr
 	}
 
+	// From here we are always in a leaf
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a catch-all node
@@ -608,11 +670,17 @@ Walk:
 				if strings.HasSuffix(path, "/") {
 					// Tsr recommendation: remove the extra trailing slash (got an exact match)
 					remainingPrefix := current.key[:charsMatchedInNodeFound]
-					tsr = len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim
+					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
+						tsr = true
+						n = parent
+					}
 				} else {
 					// Tsr recommendation: add an extra trailing slash (got an exact match)
 					remainingSuffix := current.key[charsMatchedInNodeFound:]
-					tsr = len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim
+					if len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim {
+						tsr = true
+						n = current
+					}
 				}
 			}
 
@@ -620,7 +688,7 @@ Walk:
 				goto Backtrack
 			}
 
-			return nil, tsr
+			return n, tsr
 		}
 	}
 
@@ -638,23 +706,26 @@ Walk:
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		if !tsr {
 			remainingKeySuffix := path[charsMatched:]
-			tsr = len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim
+			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
+				tsr = true
+				n = current
+			}
 		}
 
 		if hasSkpNds {
 			goto Backtrack
 		}
 
-		return nil, tsr
+		return n, tsr
 	}
 
 	// Finally incomplete match to middle of edge
 Backtrack:
 	if hasSkpNds {
 		skipped := skipNds.pop()
-		if skipped.node.paramChildIndex < 0 || skipped.seen {
+		if skipped.parent.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
-			current = skipped.node
+			current = skipped.parent
 			*params = (*params)[:skipped.paramCnt]
 
 			if !lazy {
@@ -670,18 +741,19 @@ Backtrack:
 		// /foo/*{any}
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
-		if skipped.node.catchAllKey != "" {
-			*skipNds = append(*skipNds, skippedNode{skipped.node, skipped.pathIndex, skipped.paramCnt, true})
+		if skipped.parent.catchAllKey != "" {
+			*skipNds = append(*skipNds, skippedNode{skipped.parent, skipped.pathIndex, skipped.paramCnt, true})
 		}
 
-		current = skipped.node.children[skipped.node.paramChildIndex].Load()
+		parent = skipped.parent
+		current = skipped.parent.children[skipped.parent.paramChildIndex].Load()
 
 		*params = (*params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
 		goto Walk
 	}
 
-	return nil, tsr
+	return n, tsr
 }
 
 func (t *Tree) search(rootNode *node, path string) searchResult {

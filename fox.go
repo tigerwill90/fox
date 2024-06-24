@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 const verb = 4
@@ -54,6 +56,7 @@ type Router struct {
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
+	ignoreTrailingSlash    bool
 }
 
 type middleware struct {
@@ -84,6 +87,34 @@ func New(opts ...Option) *Router {
 	return r
 }
 
+// MethodNotAllowedEnabled returns whether the router is configured to handle
+// requests with methods that are not allowed.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) MethodNotAllowedEnabled() bool {
+	return fox.handleMethodNotAllowed
+}
+
+// AutoOptionsEnabled returns whether the router is configured to automatically
+// respond to OPTIONS requests.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) AutoOptionsEnabled() bool {
+	return fox.handleOptions
+}
+
+// RedirectTrailingSlashEnabled returns whether the router is configured to automatically
+// redirect requests that include or omit a trailing slash.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) RedirectTrailingSlashEnabled() bool {
+	return fox.redirectTrailingSlash
+}
+
+// IgnoreTrailingSlashEnabled returns whether the router is configured to ignore
+// trailing slashes in requests when matching routes.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) IgnoreTrailingSlashEnabled() bool {
+	return fox.ignoreTrailingSlash
+}
+
 // NewTree returns a fresh routing Tree that inherits all registered router options. It's safe to create multiple Tree
 // concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
 // serially. Note that a Tree give direct access to the underlying sync.Mutex.
@@ -91,6 +122,7 @@ func New(opts ...Option) *Router {
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.mws = fox.mws
+	tree.fox = fox
 
 	// Pre instantiate nodes for common http verb
 	nds := make([]*node, len(commonVerbs))
@@ -165,38 +197,14 @@ func (fox *Router) Remove(method, path string) error {
 	return t.Remove(method, path)
 }
 
-// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
-// and a boolean indicating if a trailing slash redirect is recommended. The ContextCloser should always be closed if non-nil.
-// This method is primarily intended for integrating the fox router into custom routing solutions. It requires the use of the
-// original http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
-// and while mutation on Tree are ongoing.
+// Lookup is a helper that calls Tree.Lookup. For more details, refer to Tree.Lookup.
+// It performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
+// and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always
+// be closed if non-nil.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
-
-	nds := *tree.nodes.Load()
-	index := findRootNode(r.Method, nds)
-
-	if index < 0 {
-		return
-	}
-
-	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
-
-	target := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = r.URL.RawPath
-	}
-
-	n, tsr := tree.lookup(nds[index], target, c.params, c.skipNds, false)
-	if n != nil {
-		c.path = n.path
-		return n.handler, c, tsr
-	}
-	c.Close()
-	return nil, nil, tsr
+	return tree.Lookup(w, r)
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -293,7 +301,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
-	c.Reset(fox, w, r)
+	c.Reset(w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
@@ -302,7 +310,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
-	if n != nil {
+	if !tsr && n != nil {
 		c.path = n.path
 		n.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
@@ -313,14 +321,26 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reset params as it may have recorded wildcard segment
-	*c.params = (*c.params)[:0]
+	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
+		if fox.ignoreTrailingSlash {
+			c.path = n.path
+			n.handler(c)
+			c.Close()
+			return
+		}
 
-	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr && fox.redirectTrailingSlash && target == CleanPath(target) {
-		fox.tsrRedirect(c)
-		c.Close()
-		return
+		if fox.redirectTrailingSlash && target == CleanPath(target) {
+			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
+			*c.params = (*c.params)[:0]
+			fox.tsrRedirect(c)
+			c.Close()
+			return
+		}
 	}
+
+	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
+	// automatic option handler or middleware)
+	*c.params = (*c.params)[:0]
 
 NoMethodFallback:
 	if r.Method == http.MethodOptions && fox.handleOptions {
@@ -338,7 +358,7 @@ NoMethodFallback:
 			}
 		} else {
 			for i := 0; i < len(nds); i++ {
-				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					} else {
@@ -361,7 +381,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, _ := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil {
+				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -590,14 +610,32 @@ func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) Han
 	return m
 }
 
-// localRedirect redirect the client to the new path.
-// It does not convert relative paths to absolute paths like Redirect does.
-func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code int) {
+// localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths
+// like Redirect does. If the Content-Type header has not been set, localRedirect sets it to "text/html; charset=utf-8"
+// and writes a small HTML body. Setting the Content-Type header to any value, including nil, disables that behavior.
+func localRedirect(w http.ResponseWriter, r *http.Request, path string, code int) {
 	if q := r.URL.RawQuery; q != "" {
-		newPath += "?" + q
+		path += "?" + q
 	}
-	w.Header().Set(HeaderLocation, newPath)
+
+	h := w.Header()
+
+	// RFC 7231 notes that a short HTML body is usually included in
+	// the response because older user agents may not understand 301/307.
+	// Do it only if the request didn't already have a Content-Type header.
+	_, hadCT := h["Content-Type"]
+
+	h.Set(HeaderLocation, hexEscapeNonASCII(path))
+	if !hadCT && (r.Method == "GET" || r.Method == "HEAD") {
+		h.Set(HeaderContentType, MIMETextHTMLCharsetUTF8)
+	}
 	w.WriteHeader(code)
+
+	// Shouldn't send the body for POST or HEAD; that leaves GET.
+	if !hadCT && r.Method == "GET" {
+		body := "<a href=\"" + htmlEscape(path) + "\">" + http.StatusText(code) + "</a>.\n"
+		_, _ = fmt.Fprintln(w, body)
+	}
 }
 
 // grow increases the slice's capacity, if necessary, to guarantee space for
@@ -612,4 +650,48 @@ func grow[S ~[]E, E any](s S, n int) S {
 		s = append(s[:cap(s)], make([]E, n)...)[:len(s)]
 	}
 	return s
+}
+
+func hexEscapeNonASCII(s string) string {
+	newLen := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			newLen += 3
+		} else {
+			newLen++
+		}
+	}
+	if newLen == len(s) {
+		return s
+	}
+	b := make([]byte, 0, newLen)
+	var pos int
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			if pos < i {
+				b = append(b, s[pos:i]...)
+			}
+			b = append(b, '%')
+			b = strconv.AppendInt(b, int64(s[i]), 16)
+			pos = i + 1
+		}
+	}
+	if pos < len(s) {
+		b = append(b, s[pos:]...)
+	}
+	return string(b)
+}
+
+var htmlReplacer = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	// "&#34;" is shorter than "&quot;".
+	`"`, "&#34;",
+	// "&#39;" is shorter than "&apos;" and apos was not in HTML until HTML5.
+	"'", "&#39;",
+)
+
+func htmlEscape(s string) string {
+	return htmlReplacer.Replace(s)
 }
