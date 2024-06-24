@@ -6,15 +6,16 @@ package fox
 
 import (
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"runtime/debug"
+	"runtime"
 	"strings"
 )
 
-var stdErr = log.New(os.Stderr, "", log.LstdFlags)
+var stdErr = slog.New(defaultHandler)
 
 // RecoveryFunc is a function type that defines how to handle panics that occur during the
 // handling of an HTTP request.
@@ -38,7 +39,7 @@ func Recovery(handle RecoveryFunc) MiddlewareFunc {
 // If the response has not been written yet and the error is not caused by a broken connection,
 // it sets the status code to http.StatusInternalServerError and writes a generic error message.
 func DefaultHandleRecovery(c Context, err any) {
-	stdErr.Printf("[PANIC] %q recovered\n%s", err, debug.Stack())
+	stdErr.Error(fmt.Sprintf("Recovered: %q\n%s", err, stacktrace(4, 6)))
 	if !c.Writer().Written() && !connIsBroken(err) {
 		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
@@ -63,4 +64,28 @@ func connIsBroken(err any) bool {
 		}
 	}
 	return false
+}
+
+func stacktrace(skip, nFrames int) string {
+	pcs := make([]uintptr, nFrames+1)
+	n := runtime.Callers(skip+1, pcs)
+	if n == 0 {
+		return "(no stack)"
+	}
+	frames := runtime.CallersFrames(pcs[:n])
+	var b strings.Builder
+	i := 0
+	for {
+		frame, more := frames.Next()
+		_, _ = fmt.Fprintf(&b, "called from %s %s:%d\n", frame.Function, frame.File, frame.Line)
+		if !more {
+			break
+		}
+		i++
+		if i >= nFrames {
+			_, _ = fmt.Fprintf(&b, "(rest of stack elided)\n")
+			break
+		}
+	}
+	return b.String()
 }

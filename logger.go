@@ -27,7 +27,7 @@ var logBufPool = sync.Pool{
 	},
 }
 
-var defaultLogger = NewSlogHandler(os.Stdout, WithLevel(slog.LevelDebug))
+var defaultHandler = NewSlogHandler(os.Stdout, WithLevel(slog.LevelDebug))
 
 func freeBuf(b *[]byte) {
 	if cap(*b) <= maxBufferSize {
@@ -322,9 +322,9 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					lvl,
 					remoteAddr(req),
 					colorizedAttr("status", " "+strconv.Itoa(c.Writer().Status())+" ", color),
-					colorizedAttr("latency", roundLatency(latency).String(), selectColorFromLatency(latency)),
 					colorizedAttr("method", " "+req.Method+" ", bgBlueColor),
 					slog.String("path", c.Request().URL.String()),
+					colorizedAttr("latency", roundLatency(latency).String(), selectColorFromLatency(latency)),
 				)
 			} else {
 				location = c.Writer().Header().Get(HeaderLocation)
@@ -333,9 +333,9 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					lvl,
 					remoteAddr(req),
 					colorizedAttr("status", " "+strconv.Itoa(c.Writer().Status())+" ", color),
-					colorizedAttr("latency", roundLatency(latency).String(), selectColorFromLatency(latency)),
 					colorizedAttr("method", " "+req.Method+" ", bgBlueColor),
 					slog.String("path", req.URL.String()),
+					colorizedAttr("latency", roundLatency(latency).String(), selectColorFromLatency(latency)),
 					colorizedAttr("location", location, fgYellowColor),
 				)
 			}
@@ -345,7 +345,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 }
 
 func Logger() MiddlewareFunc {
-	return LoggerWithHandler(defaultLogger)
+	return LoggerWithHandler(defaultHandler)
 }
 
 func selectColorAndLevelFromStatus(status int) (slog.Level, colorValue) {
