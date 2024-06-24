@@ -92,7 +92,7 @@ func New(opts ...Option) *Router {
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.mws = fox.mws
-	tree.ignoreTrailingSlash = fox.ignoreTrailingSlash
+	tree.ingorets = fox.ignoreTrailingSlash || fox.redirectTrailingSlash
 
 	// Pre instantiate nodes for common http verb
 	nds := make([]*node, len(commonVerbs))

@@ -33,9 +33,9 @@ type Tree struct {
 	nodes atomic.Pointer[[]*node]
 	mws   []middleware
 	sync.Mutex
-	maxParams           atomic.Uint32
-	maxDepth            atomic.Uint32
-	ignoreTrailingSlash bool
+	maxParams atomic.Uint32
+	maxDepth  atomic.Uint32
+	ingorets  bool
 }
 
 // Handle registers a new handler for the given method and path. This function return an error if the route
@@ -58,7 +58,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
-// Tree APIs that perform write operations. To add new handler, use Handle method.
+// Tree APIs that perform write operations. To add a new handler, use Handle method.
 func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
@@ -93,9 +93,9 @@ func (t *Tree) Remove(method, path string) error {
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route.  When WithIgnoreTrailingSlash
-// is enabled, Has will match a registered route regardless of an extra or missing trailing slash. This function is
-// safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// Has allows to check if the given method and path exactly match a registered route. When WithIgnoreTrailingSlash
+// or WithRedirectTrailingSlash are enabled, Has will match a registered route regardless of an extra or missing trailing
+// slash. This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
 	nds := *t.nodes.Load()
@@ -114,7 +114,7 @@ func (t *Tree) Has(method, path string) bool {
 	if n.path == path {
 		return true
 	}
-	if tsr && t.ignoreTrailingSlash {
+	if tsr && t.ingorets {
 		return n.path == fixTrailingSlash(path)
 	}
 
@@ -122,8 +122,9 @@ func (t *Tree) Has(method, path string) bool {
 }
 
 // Match perform a lookup on the tree for the given method and path and return the matching registered route if any. When
-// WithIgnoreTrailingSlash is enabled, Match will match a registered route regardless of an extra or missing trailing slash.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled, Match will match a registered route regardless of an
+// extra or missing trailing slash. This function is safe for concurrent use by multiple goroutine and while mutation on
+// Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Match(method, path string) string {
 	nds := *t.nodes.Load()
@@ -136,17 +137,17 @@ func (t *Tree) Match(method, path string) string {
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	if n != nil && (!tsr || t.ignoreTrailingSlash) {
+	if n != nil && (!tsr || t.ingorets) {
 		return n.path
 	}
 	return ""
 }
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
-// it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the methods
-// that can route requests to that path.  When WithIgnoreTrailingSlash is enabled, Methods will match a registered route
-// regardless of an extra or missing trailing slash.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the
+// methods that can route requests to that path.  When WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled,
+// Methods will match a registered route regardless of an extra or missing trailing slash. This function is safe for
+// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Methods(path string) []string {
 	var methods []string
@@ -166,7 +167,7 @@ func (t *Tree) Methods(path string) []string {
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
-			if n != nil && (!tsr || t.ignoreTrailingSlash) {
+			if n != nil && (!tsr || t.ingorets) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
