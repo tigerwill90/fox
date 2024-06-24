@@ -85,6 +85,34 @@ func New(opts ...Option) *Router {
 	return r
 }
 
+// MethodNotAllowedEnabled returns whether the router is configured to handle
+// requests with methods that are not allowed.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) MethodNotAllowedEnabled() bool {
+	return fox.handleMethodNotAllowed
+}
+
+// AutoOptionsEnabled returns whether the router is configured to automatically
+// respond to OPTIONS requests.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) AutoOptionsEnabled() bool {
+	return fox.handleOptions
+}
+
+// RedirectTrailingSlashEnabled returns whether the router is configured to automatically
+// redirect requests that include or omit a trailing slash.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) RedirectTrailingSlashEnabled() bool {
+	return fox.redirectTrailingSlash
+}
+
+// IgnoreTrailingSlashEnabled returns whether the router is configured to ignore
+// trailing slashes in requests when matching routes.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) IgnoreTrailingSlashEnabled() bool {
+	return fox.ignoreTrailingSlash
+}
+
 // NewTree returns a fresh routing Tree that inherits all registered router options. It's safe to create multiple Tree
 // concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
 // serially. Note that a Tree give direct access to the underlying sync.Mutex.

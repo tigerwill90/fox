@@ -93,9 +93,8 @@ func (t *Tree) Remove(method, path string) error {
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route. When WithIgnoreTrailingSlash
-// or WithRedirectTrailingSlash are enabled, Has will match a registered route regardless of an extra or missing trailing
-// slash. This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// Has allows to check if the given method and path exactly match a registered route. This function is safe for concurrent
+// use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
 	nds := *t.nodes.Load()
@@ -108,16 +107,9 @@ func (t *Tree) Has(method, path string) bool {
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
-	if n == nil {
-		return false
+	if n != nil && !tsr {
+		return n.path == path
 	}
-	if n.path == path {
-		return true
-	}
-	if tsr && t.ingorets {
-		return n.path == fixTrailingSlash(path)
-	}
-
 	return false
 }
 

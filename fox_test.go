@@ -1726,6 +1726,7 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New(WithIgnoreTrailingSlash(true))
+			require.True(t, r.IgnoreTrailingSlashEnabled())
 			for _, path := range tc.paths {
 				require.NoError(t, r.Tree().Handle(tc.method, path, func(c Context) {
 					_ = c.String(http.StatusOK, c.Path())
@@ -1871,6 +1872,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New(WithRedirectTrailingSlash(true))
+			require.True(t, r.RedirectTrailingSlashEnabled())
 			for _, path := range tc.paths {
 				require.NoError(t, r.Tree().Handle(tc.method, path, emptyHandler))
 			}
@@ -1997,6 +1999,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 	}
 
+	require.True(t, r.MethodNotAllowedEnabled())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
@@ -2168,6 +2171,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		},
 	}
 
+	require.True(t, f.AutoOptionsEnabled())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
@@ -2418,6 +2422,7 @@ func TestTree_Has(t *testing.T) {
 		"/foo/bar",
 		"/welcome/{name}",
 		"/users/uid_{id}",
+		"/john/doe/",
 	}
 
 	r := New()
@@ -2436,8 +2441,17 @@ func TestTree_Has(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "no match static route (no tsr)",
+			name: "strict match static route",
+			path: "/john/doe/",
+			want: true,
+		},
+		{
+			name: "no match static route (tsr)",
 			path: "/foo/bar/",
+		},
+		{
+			name: "no match static route (tsr)",
+			path: "/john/doe",
 		},
 		{
 			name: "strict match route params",
@@ -2455,79 +2469,6 @@ func TestTree_Has(t *testing.T) {
 		},
 		{
 			name: "no match mid route params",
-			path: "/users/uid_123",
-		},
-	}
-
-	tree := r.Tree()
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tree.Has(http.MethodGet, tc.path))
-		})
-	}
-}
-
-func TestTree_HasWithIgnoreTrailingSlashEnable(t *testing.T) {
-	routes := []string{
-		"/foo/bar",
-		"/welcome/{name}/",
-		"/users/uid_{id}",
-	}
-
-	r := New(WithIgnoreTrailingSlash(true))
-	for _, rte := range routes {
-		require.NoError(t, r.Handle(http.MethodGet, rte, emptyHandler))
-	}
-
-	cases := []struct {
-		name string
-		path string
-		want bool
-	}{
-		{
-			name: "strict match static route",
-			path: "/foo/bar",
-			want: true,
-		},
-		{
-			name: "no match static route with tsr",
-			path: "/foo/bar/",
-			want: true,
-		},
-		{
-			name: "strict match route params",
-			path: "/welcome/{name}/",
-			want: true,
-		},
-		{
-			name: "strict match route params with tsr",
-			path: "/welcome/{name}",
-			want: true,
-		},
-		{
-			name: "no match route params with ts",
-			path: "/welcome/fox",
-		},
-		{
-			name: "no match route params without ts",
-			path: "/welcome/fox/",
-		},
-		{
-			name: "strict match mid route params",
-			path: "/users/uid_{id}",
-			want: true,
-		},
-		{
-			name: "strict match mid route params with tsr",
-			path: "/users/uid_{id}/",
-			want: true,
-		},
-		{
-			name: "no match mid route params without ts",
-			path: "/users/uid_123",
-		},
-		{
-			name: "no match mid route params with ts",
 			path: "/users/uid_123",
 		},
 	}
