@@ -34,6 +34,9 @@ priority rules, ensuring that there are no unintended matches and maintaining hi
 **Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
 redirects the client, at no extra cost, if another route match with or without a trailing slash.
 
+**Ignore trailing slashes:** In contrast to redirecting, this option allows the router to handle requests regardless of an extra 
+or missing trailing slash, at no extra cost.
+
 **Automatic OPTIONS replies:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
 support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 
@@ -620,6 +623,7 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 - [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
 - [x] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
 - [x] [Route overlapping (catch-all and params)](https://github.com/tigerwill90/fox/pull/24#issue-1784686061) @v0.10.0
+- [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32) @v0.14.0
 - [ ] Improving performance and polishing
 
 ## Contributions

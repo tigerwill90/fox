@@ -714,8 +714,9 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, _ := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
+		n, tsr := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
 		require.NotNil(t, n)
+		assert.False(t, tsr)
 		assert.Equal(t, rte, n.path)
 	}
 }
@@ -1159,10 +1160,10 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, _ := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
-
+			assert.False(t, tsr)
 			assert.Equal(t, tc.wantMatch, n.path)
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, c.Params())
@@ -1172,9 +1173,10 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, _ = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
+			n, tsr = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
+			assert.False(t, tsr)
 			assert.Empty(t, c.Params())
 			assert.Equal(t, tc.wantMatch, n.path)
 		})
@@ -1537,34 +1539,39 @@ func TestParseRoute(t *testing.T) {
 
 func TestTree_LookupTsr(t *testing.T) {
 	cases := []struct {
-		name  string
-		paths []string
-		key   string
-		want  bool
+		name     string
+		paths    []string
+		key      string
+		want     bool
+		wantPath string
 	}{
 		{
-			name:  "match mid edge",
-			paths: []string{"/foo/bar/"},
-			key:   "/foo/bar",
-			want:  true,
+			name:     "match mid edge",
+			paths:    []string{"/foo/bar/"},
+			key:      "/foo/bar",
+			want:     true,
+			wantPath: "/foo/bar/",
 		},
 		{
-			name:  "incomplete match end of edge",
-			paths: []string{"/foo/bar"},
-			key:   "/foo/bar/",
-			want:  true,
+			name:     "incomplete match end of edge",
+			paths:    []string{"/foo/bar"},
+			key:      "/foo/bar/",
+			want:     true,
+			wantPath: "/foo/bar",
 		},
 		{
-			name:  "match mid edge with child node",
-			paths: []string{"/users/", "/users/{id}"},
-			key:   "/users",
-			want:  true,
+			name:     "match mid edge with child node",
+			paths:    []string{"/users/", "/users/{id}"},
+			key:      "/users",
+			want:     true,
+			wantPath: "/users/",
 		},
 		{
-			name:  "match mid edge in child node",
-			paths: []string{"/users", "/users/{id}"},
-			key:   "/users/",
-			want:  true,
+			name:     "match mid edge in child node",
+			paths:    []string{"/users", "/users/{id}"},
+			key:      "/users/",
+			want:     true,
+			wantPath: "/users",
 		},
 		{
 			name:  "match mid edge in child node with invalid remaining prefix",
@@ -1606,8 +1613,133 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			_, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
+			n, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
 			assert.Equal(t, tc.want, got)
+			if tc.want {
+				require.NotNil(t, n)
+				assert.Equal(t, tc.wantPath, n.path)
+			}
+		})
+	}
+}
+
+func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
+	cases := []struct {
+		name     string
+		paths    []string
+		req      string
+		method   string
+		wantCode int
+		wantPath string
+	}{
+		{
+			name:     "current not a leaf with extra ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantPath: "/foo",
+		},
+		{
+			name:     "current not a leaf and path does not end with ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/c",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf and path end with extra char and ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/c/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf and path end with ts but last is not a leaf",
+			paths:    []string{"/foo/a/a", "/foo/a/b", "/foo/c/"},
+			req:      "/foo/a/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "mid edge key with extra ts",
+			paths:    []string{"/foo/bar/"},
+			req:      "/foo/bar",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantPath: "/foo/bar/",
+		},
+		{
+			name:     "mid edge key with without extra ts",
+			paths:    []string{"/foo/bar/baz", "/foo/bar"},
+			req:      "/foo/bar/",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantPath: "/foo/bar",
+		},
+		{
+			name:     "mid edge key without extra ts",
+			paths:    []string{"/foo/bar/baz", "/foo/bar"},
+			req:      "/foo/bar/",
+			method:   http.MethodPost,
+			wantCode: http.StatusOK,
+			wantPath: "/foo/bar",
+		},
+		{
+			name:     "incomplete match end of edge",
+			paths:    []string{"/foo/bar"},
+			req:      "/foo/bar/",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantPath: "/foo/bar",
+		},
+		{
+			name:     "match mid edge with ts and more char after",
+			paths:    []string{"/foo/bar/buzz"},
+			req:      "/foo/bar",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "match mid edge with ts and more char before",
+			paths:    []string{"/foo/barr/"},
+			req:      "/foo/bar",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "incomplete match end of edge with ts and more char after",
+			paths:    []string{"/foo/bar"},
+			req:      "/foo/bar/buzz",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "incomplete match end of edge with ts and more char before",
+			paths:    []string{"/foo/bar"},
+			req:      "/foo/barr/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New(WithIgnoreTrailingSlash(true))
+			require.True(t, r.IgnoreTrailingSlashEnabled())
+			for _, path := range tc.paths {
+				require.NoError(t, r.Tree().Handle(tc.method, path, func(c Context) {
+					_ = c.String(http.StatusOK, c.Path())
+				}))
+			}
+
+			req := httptest.NewRequest(tc.method, tc.req, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			if tc.wantPath != "" {
+				assert.Equal(t, tc.wantPath, w.Body.String())
+			}
 		})
 	}
 }
@@ -1616,39 +1748,92 @@ func TestRedirectTrailingSlash(t *testing.T) {
 
 	cases := []struct {
 		name         string
-		path         string
+		paths        []string
 		req          string
 		method       string
 		wantCode     int
 		wantLocation string
 	}{
 		{
-			name:         "mid edge key with get method and status moved permanently",
-			path:         "/foo/bar/",
+			name:         "current not a leaf get method and status moved permanently with extra ts",
+			paths:        []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:          "/foo/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "../foo",
+		},
+		{
+			name:         "current not a leaf post method and status moved permanently with extra ts",
+			paths:        []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:          "/foo/",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "../foo",
+		},
+		{
+			name:     "current not a leaf and path does not end with ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/c",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf and path end with extra char and ts",
+			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
+			req:      "/foo/c/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf and path end with ts but last is not a leaf",
+			paths:    []string{"/foo/a/a", "/foo/a/b", "/foo/c/"},
+			req:      "/foo/a/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:         "mid edge key with get method and status moved permanently with extra ts",
+			paths:        []string{"/foo/bar/"},
 			req:          "/foo/bar",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "bar/",
 		},
 		{
-			name:         "mid edge key with post method and status permanent redirect",
-			path:         "/foo/bar/",
+			name:         "mid edge key with post method and status permanent redirect with extra ts",
+			paths:        []string{"/foo/bar/"},
 			req:          "/foo/bar",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
 			wantLocation: "bar/",
 		},
 		{
-			name:         "incomplete match end of edge",
-			path:         "/foo/bar",
+			name:         "mid edge key with get method and status moved permanently without extra ts",
+			paths:        []string{"/foo/bar/baz", "/foo/bar"},
 			req:          "/foo/bar/",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "../bar",
 		},
 		{
-			name:         "incomplete match end of edge",
-			path:         "/foo/bar",
+			name:         "mid edge key with post method and status permanent redirect without extra ts",
+			paths:        []string{"/foo/bar/baz", "/foo/bar"},
+			req:          "/foo/bar/",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "../bar",
+		},
+		{
+			name:         "incomplete match end of edge with get method",
+			paths:        []string{"/foo/bar"},
+			req:          "/foo/bar/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "../bar",
+		},
+		{
+			name:         "incomplete match end of edge with post method",
+			paths:        []string{"/foo/bar"},
 			req:          "/foo/bar/",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
@@ -1656,28 +1841,28 @@ func TestRedirectTrailingSlash(t *testing.T) {
 		},
 		{
 			name:     "match mid edge with ts and more char after",
-			path:     "/foo/bar/buzz",
+			paths:    []string{"/foo/bar/buzz"},
 			req:      "/foo/bar",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "match mid edge with ts and more char before",
-			path:     "/foo/barr/",
+			paths:    []string{"/foo/barr/"},
 			req:      "/foo/bar",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "incomplete match end of edge with ts and more char after",
-			path:     "/foo/bar",
+			paths:    []string{"/foo/bar"},
 			req:      "/foo/bar/buzz",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "incomplete match end of edge with ts and more char before",
-			path:     "/foo/bar",
+			paths:    []string{"/foo/bar"},
 			req:      "/foo/barr/",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
@@ -1687,14 +1872,21 @@ func TestRedirectTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New(WithRedirectTrailingSlash(true))
-			require.NoError(t, r.Tree().Handle(tc.method, tc.path, emptyHandler))
+			require.True(t, r.RedirectTrailingSlashEnabled())
+			for _, path := range tc.paths {
+				require.NoError(t, r.Tree().Handle(tc.method, path, emptyHandler))
+			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
-				assert.Equal(t, tc.wantLocation, w.Header().Get("Location"))
+				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				if tc.method == http.MethodGet {
+					assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
+					assert.Equal(t, "<a href=\""+htmlEscape(w.Header().Get(HeaderLocation))+"\">"+http.StatusText(w.Code)+"</a>.\n\n", w.Body.String())
+				}
 			}
 		})
 	}
@@ -1755,6 +1947,27 @@ func TestTree_Methods(t *testing.T) {
 
 	methods = f.Tree().Methods("*")
 	assert.Equal(t, []string{"DELETE", "GET", "POST", "PUT"}, methods)
+
+	// Ignore trailing slash disable
+	methods = f.Tree().Methods("/gists/123/star/")
+	assert.Empty(t, methods)
+}
+
+func TestTree_MethodsWithIgnoreTsEnable(t *testing.T) {
+	f := New(WithIgnoreTrailingSlash(true))
+	for _, method := range []string{"DELETE", "GET", "PUT"} {
+		require.NoError(t, f.Handle(method, "/foo/bar", emptyHandler))
+		require.NoError(t, f.Handle(method, "/john/doe/", emptyHandler))
+	}
+
+	methods := f.Tree().Methods("/foo/bar/")
+	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
+
+	methods = f.Tree().Methods("/john/doe")
+	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
+
+	methods = f.Tree().Methods("/foo/bar/baz")
+	assert.Empty(t, methods)
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {
@@ -1790,6 +2003,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 	}
 
+	require.True(t, r.MethodNotAllowedEnabled())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
@@ -1800,6 +2014,91 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			r.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+		})
+	}
+}
+
+func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
+	r := New(WithNoMethod(true), WithIgnoreTrailingSlash(true))
+
+	// Support for ignore Trailing slash
+	cases := []struct {
+		name    string
+		target  string
+		path    string
+		req     string
+		want    string
+		methods []string
+	}{
+		{
+			name:    "all route except the last one",
+			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead},
+			path:    "/foo/bar/",
+			req:     "/foo/bar",
+			target:  http.MethodTrace,
+			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+		},
+		{
+			name:    "all route except the first one",
+			methods: []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace},
+			path:    "/foo/baz",
+			req:     "/foo/baz/",
+			target:  http.MethodGet,
+			want:    "POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD, TRACE",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range tc.methods {
+				require.NoError(t, r.Tree().Handle(method, tc.path, emptyHandler))
+			}
+			req := httptest.NewRequest(tc.target, tc.req, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+		})
+	}
+}
+
+func TestRouterWithAllowedMethodAndIgnoreTsDisable(t *testing.T) {
+	r := New(WithNoMethod(true))
+
+	// Support for ignore Trailing slash
+	cases := []struct {
+		name    string
+		target  string
+		path    string
+		req     string
+		want    int
+		methods []string
+	}{
+		{
+			name:    "all route except the last one",
+			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead},
+			path:    "/foo/bar/",
+			req:     "/foo/bar",
+			target:  http.MethodTrace,
+		},
+		{
+			name:    "all route except the first one",
+			methods: []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace},
+			path:    "/foo/baz",
+			req:     "/foo/baz/",
+			target:  http.MethodGet,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range tc.methods {
+				require.NoError(t, r.Tree().Handle(method, tc.path, emptyHandler))
+			}
+			req := httptest.NewRequest(tc.target, tc.req, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusNotFound, w.Code)
 		})
 	}
 }
@@ -1876,6 +2175,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		},
 	}
 
+	require.True(t, f.AutoOptionsEnabled())
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
@@ -1889,6 +2189,126 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			// Reset
+			f.Swap(f.NewTree())
+		})
+	}
+}
+
+func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
+	f := New(WithAutoOptions(true), WithIgnoreTrailingSlash(true))
+
+	cases := []struct {
+		name     string
+		target   string
+		path     string
+		want     string
+		wantCode int
+		methods  []string
+	}{
+		{
+			name:     "system-wide requests",
+			target:   "*",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "system-wide with custom options registered",
+			target:   "*",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "system-wide requests with empty router",
+			target:   "*",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "regular option request and ignore ts",
+			target:   "/foo/",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			want:     "GET, PUT, TRACE, OPTIONS",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "regular option request with handler priority and ignore ts",
+			target:   "/foo",
+			path:     "/foo/",
+			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
+			want:     "GET, OPTIONS, PUT, TRACE",
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name:     "regular option request with no matching route",
+			target:   "/bar",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range tc.methods {
+				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
+					c.SetHeader("Allow", strings.Join(c.Tree().Methods(c.Request().URL.Path), ", "))
+					c.Writer().WriteHeader(http.StatusNoContent)
+				}))
+			}
+			req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			// Reset
+			f.Swap(f.NewTree())
+		})
+	}
+}
+
+func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
+	f := New(WithAutoOptions(true))
+
+	cases := []struct {
+		name     string
+		target   string
+		path     string
+		wantCode int
+		methods  []string
+	}{
+		{
+			name:     "regular option request and ignore ts",
+			target:   "/foo/",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "regular option request with handler priority and ignore ts",
+			target:   "/foo",
+			path:     "/foo/",
+			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range tc.methods {
+				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
+					c.SetHeader("Allow", strings.Join(c.Tree().Methods(c.Request().URL.Path), ", "))
+					c.Writer().WriteHeader(http.StatusNoContent)
+				}))
+			}
+			req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
 			// Reset
 			f.Swap(f.NewTree())
 		})
@@ -2006,6 +2426,7 @@ func TestTree_Has(t *testing.T) {
 		"/foo/bar",
 		"/welcome/{name}",
 		"/users/uid_{id}",
+		"/john/doe/",
 	}
 
 	r := New()
@@ -2024,8 +2445,17 @@ func TestTree_Has(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "no match static route",
+			name: "strict match static route",
+			path: "/john/doe/",
+			want: true,
+		},
+		{
+			name: "no match static route (tsr)",
 			path: "/foo/bar/",
+		},
+		{
+			name: "no match static route (tsr)",
+			path: "/john/doe",
 		},
 		{
 			name: "strict match route params",
@@ -2078,6 +2508,10 @@ func TestTree_Match(t *testing.T) {
 			want: "/foo/bar",
 		},
 		{
+			name: "reverse static route with tsr disable",
+			path: "/foo/bar/",
+		},
+		{
 			name: "reverse params route",
 			path: "/welcome/fox",
 			want: "/welcome/{name}",
@@ -2085,6 +2519,66 @@ func TestTree_Match(t *testing.T) {
 		{
 			name: "reverse mid params route",
 			path: "/users/uid_123",
+			want: "/users/uid_{id}",
+		},
+		{
+			name: "reverse no match",
+			path: "/users/fox",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, r.Tree().Match(http.MethodGet, tc.path))
+		})
+	}
+}
+
+func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
+	routes := []string{
+		"/foo/bar",
+		"/welcome/{name}/",
+		"/users/uid_{id}",
+	}
+
+	r := New(WithIgnoreTrailingSlash(true))
+	for _, rte := range routes {
+		require.NoError(t, r.Handle(http.MethodGet, rte, emptyHandler))
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "reverse static route",
+			path: "/foo/bar",
+			want: "/foo/bar",
+		},
+		{
+			name: "reverse static route with tsr",
+			path: "/foo/bar/",
+			want: "/foo/bar",
+		},
+		{
+			name: "reverse params route",
+			path: "/welcome/fox/",
+			want: "/welcome/{name}/",
+		},
+		{
+			name: "reverse params route with tsr",
+			path: "/welcome/fox",
+			want: "/welcome/{name}/",
+		},
+		{
+			name: "reverse mid params route",
+			path: "/users/uid_123",
+			want: "/users/uid_{id}",
+		},
+		{
+			name: "reverse mid params route with tsr",
+			path: "/users/uid_123/",
 			want: "/users/uid_{id}",
 		},
 		{
@@ -2142,8 +2636,9 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, _ := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
 			require.NotNil(t, n)
+			assert.False(t, tsr)
 			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
 			assert.Equal(t, "xxxx", c.Param(e1))
 			assert.Equal(t, "xxxx", c.Param(e2))
@@ -2201,8 +2696,9 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, _ := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
+		n, tsr := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
 		require.NotNilf(t, n, "route /%s", rte)
+		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.path)
 		require.NoError(t, tree.update(http.MethodGet, "/"+rte, "", emptyHandler))
@@ -2359,12 +2855,11 @@ func atomicSync() (start func(), wait func()) {
 // which include the Recovery middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.
 func ExampleNew() {
-
 	// Create a new router with default options, which include the Recovery middleware
 	r := New(DefaultOptions())
 
 	// Define a custom middleware to measure the time taken for request processing and
-	// log the URL, route, time elapsed, and status code
+	// log the URL, route, time elapsed, and status code.
 	metrics := func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			start := time.Now()
@@ -2374,7 +2869,7 @@ func ExampleNew() {
 	}
 
 	// Define a route with the path "/hello/{name}", apply the custom "metrics" middleware,
-	// and set a simple handler that greets the user by their name
+	// and set a simple handler that greets the user by their name.
 	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	}))
@@ -2385,11 +2880,9 @@ func ExampleNew() {
 
 // This example demonstrates how to register a global middleware that will be
 // applied to all routes.
-
 func ExampleWithMiddleware() {
-
 	// Define a custom middleware to measure the time taken for request processing and
-	// log the URL, route, time elapsed, and status code
+	// log the URL, route, time elapsed, and status code.
 	metrics := func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			start := time.Now()
@@ -2404,9 +2897,9 @@ func ExampleWithMiddleware() {
 		}
 	}
 
-	r := New(WithMiddleware(metrics))
+	f := New(WithMiddleware(metrics))
 
-	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	})
 }
@@ -2447,31 +2940,82 @@ func ExampleRouter_Tree() {
 }
 
 // This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
-// lookup on the tree. If the cleaned path matches a registered route, the client is redirected with a 301 status
-// code (Moved Permanently).
-func ExampleTree_Match() {
+// lookup on the tree. If the cleaned path matches a registered route, the client is redirected to the valid path.
+func ExampleRouter_Lookup() {
 	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			req := c.Request()
+			target := req.URL.Path
+			cleanedPath := CleanPath(target)
 
-			cleanedPath := CleanPath(req.URL.Path)
-			if match := c.Tree().Match(req.Method, cleanedPath); match != "" {
-				// 301 redirect and returns.
-				req.URL.Path = cleanedPath
-				http.Redirect(c.Writer(), req, req.URL.String(), http.StatusMovedPermanently)
+			// Nothing to clean, call next handler or middleware.
+			if cleanedPath == target {
+				next(c)
 				return
 			}
 
+			req.URL.Path = cleanedPath
+			handler, cc, tsr := c.Fox().Lookup(c.Writer(), req)
+			if handler != nil {
+				defer cc.Close()
+
+				code := http.StatusMovedPermanently
+				if req.Method != http.MethodGet {
+					code = http.StatusPermanentRedirect
+				}
+
+				// Redirect the client if direct match or indirect match.
+				if !tsr || c.Fox().IgnoreTrailingSlashEnabled() {
+					if err := c.Redirect(code, cleanedPath); err != nil {
+						// Only if not in the range 300..308, so not possible here!
+						panic(err)
+					}
+					return
+				}
+
+				// Add or remove an extra trailing slash and redirect the client.
+				if c.Fox().RedirectTrailingSlashEnabled() {
+					if err := c.Redirect(code, fixTrailingSlash(cleanedPath)); err != nil {
+						// Only if not in the range 300..308, so not possible here
+						panic(err)
+					}
+					return
+				}
+			}
+
+			// rollback to the original path before calling the
+			// next handler or middleware.
+			req.URL.Path = target
 			next(c)
 		}
 	})
 
 	f := New(
 		// Register the middleware for the NoRouteHandler scope.
-		WithMiddlewareFor(NoRouteHandler, redirectFixedPath),
+		WithMiddlewareFor(NoRouteHandler|NoMethodHandler, redirectFixedPath),
 	)
 
-	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
-		_ = c.String(http.StatusOK, "foo bar")
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	})
+}
+
+// This example demonstrates how to do a reverse lookup on the tree.
+func ExampleTree_Match() {
+	f := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
+
+	tree := f.Tree()
+	matched := tree.Match(http.MethodGet, "/hello/fox")
+	fmt.Println(matched) // /hello/{name}
+}
+
+// This example demonstrates how to check if a given route is registered in the tree.
+func ExampleTree_Has() {
+	f := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
+
+	tree := f.Tree()
+	exist := tree.Match(http.MethodGet, "/hello/{name}")
+	fmt.Println(exist) // true
 }
