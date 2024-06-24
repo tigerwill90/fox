@@ -114,10 +114,10 @@ func (t *Tree) Has(method, path string) bool {
 	return false
 }
 
-// Match perform a lookup on the tree for the given method and path and return the matching registered route if any. When
+// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route if any. When
 // WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled, Match will match a registered route regardless of an
 // extra or missing trailing slash. This function is safe for concurrent use by multiple goroutine and while mutation on
-// Tree are ongoing.
+// Tree are ongoing. See also Tree.Lookup as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Match(method, path string) string {
 	nds := *t.nodes.Load()
@@ -138,7 +138,7 @@ func (t *Tree) Match(method, path string) string {
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
 // it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the
-// methods that can route requests to that path.  When WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled,
+// methods that can route requests to that path. When WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled,
 // Methods will match a registered route regardless of an extra or missing trailing slash. This function is safe for
 // concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
@@ -174,11 +174,13 @@ func (t *Tree) Methods(path string) []string {
 	return methods
 }
 
-// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
-// and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always be closed if non-nil.
-// This method is primarily intended for integrating the fox router into custom routing solutions. It requires the use of the
-// original http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
-// and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible, Lookup always return a HandlerFunc and a ContextCloser.
+// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a
+// ContextCloser, and a boolean indicating if the handler was matched by adding or removing a trailing slash
+// (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
+// intended for integrating the fox router into custom routing solutions or middleware. It requires the use of the original
+// http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
+// and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible, Lookup always return a
+// HandlerFunc and a ContextCloser.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()

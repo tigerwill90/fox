@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 const verb = 4
@@ -608,14 +610,35 @@ func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) Han
 	return m
 }
 
-// localRedirect redirect the client to the new path.
-// It does not convert relative paths to absolute paths like Redirect does.
-func localRedirect(w http.ResponseWriter, r *http.Request, newPath string, code int) {
+// localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths
+// like Redirect does.
+// If the Content-Type header has not been set, localRedirect sets it
+// to "text/html; charset=utf-8" and writes a small HTML body.
+// Setting the Content-Type header to any value, including nil,
+// disables that behavior.
+func localRedirect(w http.ResponseWriter, r *http.Request, path string, code int) {
 	if q := r.URL.RawQuery; q != "" {
-		newPath += "?" + q
+		path += "?" + q
 	}
-	w.Header().Set(HeaderLocation, newPath)
+
+	h := w.Header()
+
+	// RFC 7231 notes that a short HTML body is usually included in
+	// the response because older user agents may not understand 301/307.
+	// Do it only if the request didn't already have a Content-Type header.
+	_, hadCT := h["Content-Type"]
+
+	h.Set(HeaderLocation, hexEscapeNonASCII(path))
+	if !hadCT && (r.Method == "GET" || r.Method == "HEAD") {
+		h.Set(HeaderContentType, MIMETextHTMLCharsetUTF8)
+	}
 	w.WriteHeader(code)
+
+	// Shouldn't send the body for POST or HEAD; that leaves GET.
+	if !hadCT && r.Method == "GET" {
+		body := "<a href=\"" + htmlEscape(path) + "\">" + http.StatusText(code) + "</a>.\n"
+		_, _ = fmt.Fprintln(w, body)
+	}
 }
 
 // grow increases the slice's capacity, if necessary, to guarantee space for
@@ -630,4 +653,48 @@ func grow[S ~[]E, E any](s S, n int) S {
 		s = append(s[:cap(s)], make([]E, n)...)[:len(s)]
 	}
 	return s
+}
+
+func hexEscapeNonASCII(s string) string {
+	newLen := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			newLen += 3
+		} else {
+			newLen++
+		}
+	}
+	if newLen == len(s) {
+		return s
+	}
+	b := make([]byte, 0, newLen)
+	var pos int
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			if pos < i {
+				b = append(b, s[pos:i]...)
+			}
+			b = append(b, '%')
+			b = strconv.AppendInt(b, int64(s[i]), 16)
+			pos = i + 1
+		}
+	}
+	if pos < len(s) {
+		b = append(b, s[pos:]...)
+	}
+	return string(b)
+}
+
+var htmlReplacer = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	// "&#34;" is shorter than "&quot;".
+	`"`, "&#34;",
+	// "&#39;" is shorter than "&apos;" and apos was not in HTML until HTML5.
+	"'", "&#39;",
+)
+
+func htmlEscape(s string) string {
+	return htmlReplacer.Replace(s)
 }

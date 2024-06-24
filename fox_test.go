@@ -1882,7 +1882,11 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			r.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
-				assert.Equal(t, tc.wantLocation, w.Header().Get("Location"))
+				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				if tc.method == http.MethodGet {
+					assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
+					assert.Equal(t, "<a href=\""+htmlEscape(w.Header().Get(HeaderLocation))+"\">"+http.StatusText(w.Code)+"</a>.\n\n", w.Body.String())
+				}
 			}
 		})
 	}
@@ -2851,12 +2855,11 @@ func atomicSync() (start func(), wait func()) {
 // which include the Recovery middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.
 func ExampleNew() {
-
 	// Create a new router with default options, which include the Recovery middleware
 	r := New(DefaultOptions())
 
 	// Define a custom middleware to measure the time taken for request processing and
-	// log the URL, route, time elapsed, and status code
+	// log the URL, route, time elapsed, and status code.
 	metrics := func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			start := time.Now()
@@ -2866,7 +2869,7 @@ func ExampleNew() {
 	}
 
 	// Define a route with the path "/hello/{name}", apply the custom "metrics" middleware,
-	// and set a simple handler that greets the user by their name
+	// and set a simple handler that greets the user by their name.
 	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	}))
@@ -2877,11 +2880,9 @@ func ExampleNew() {
 
 // This example demonstrates how to register a global middleware that will be
 // applied to all routes.
-
 func ExampleWithMiddleware() {
-
 	// Define a custom middleware to measure the time taken for request processing and
-	// log the URL, route, time elapsed, and status code
+	// log the URL, route, time elapsed, and status code.
 	metrics := func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			start := time.Now()
@@ -2896,9 +2897,9 @@ func ExampleWithMiddleware() {
 		}
 	}
 
-	r := New(WithMiddleware(metrics))
+	f := New(WithMiddleware(metrics))
 
-	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	})
 }
@@ -2939,31 +2940,82 @@ func ExampleRouter_Tree() {
 }
 
 // This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
-// lookup on the tree. If the cleaned path matches a registered route, the client is redirected with a 301 status
-// code (Moved Permanently).
-func ExampleTree_Match() {
+// lookup on the tree. If the cleaned path matches a registered route, the client is redirected to the valid path.
+func ExampleRouter_Lookup() {
 	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			req := c.Request()
+			target := req.URL.Path
+			cleanedPath := CleanPath(target)
 
-			cleanedPath := CleanPath(req.URL.Path)
-			if match := c.Tree().Match(req.Method, cleanedPath); match != "" {
-				// 301 redirect and returns.
-				req.URL.Path = cleanedPath
-				http.Redirect(c.Writer(), req, req.URL.String(), http.StatusMovedPermanently)
+			// Nothing to clean, call next handler or middleware.
+			if cleanedPath == target {
+				next(c)
 				return
 			}
 
+			req.URL.Path = cleanedPath
+			handler, cc, tsr := c.Fox().Lookup(c.Writer(), req)
+			if handler != nil {
+				defer cc.Close()
+
+				code := http.StatusMovedPermanently
+				if req.Method != http.MethodGet {
+					code = http.StatusPermanentRedirect
+				}
+
+				// Redirect the client if direct match or indirect match.
+				if !tsr || c.Fox().IgnoreTrailingSlashEnabled() {
+					if err := c.Redirect(code, cleanedPath); err != nil {
+						// Only if not in the range 300..308, so not possible here!
+						panic(err)
+					}
+					return
+				}
+
+				// Add or remove an extra trailing slash and redirect the client.
+				if c.Fox().RedirectTrailingSlashEnabled() {
+					if err := c.Redirect(code, fixTrailingSlash(cleanedPath)); err != nil {
+						// Only if not in the range 300..308, so not possible here
+						panic(err)
+					}
+					return
+				}
+			}
+
+			// rollback to the original path before calling the
+			// next handler or middleware.
+			req.URL.Path = target
 			next(c)
 		}
 	})
 
 	f := New(
 		// Register the middleware for the NoRouteHandler scope.
-		WithMiddlewareFor(NoRouteHandler, redirectFixedPath),
+		WithMiddlewareFor(NoRouteHandler|NoMethodHandler, redirectFixedPath),
 	)
 
-	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
-		_ = c.String(http.StatusOK, "foo bar")
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	})
+}
+
+// This example demonstrates how to do a reverse lookup on the tree.
+func ExampleTree_Match() {
+	f := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
+
+	tree := f.Tree()
+	matched := tree.Match(http.MethodGet, "/hello/fox")
+	fmt.Println(matched) // /hello/{name}
+}
+
+// This example demonstrates how to check if a given route is registered in the tree.
+func ExampleTree_Has() {
+	f := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
+
+	tree := f.Tree()
+	exist := tree.Match(http.MethodGet, "/hello/{name}")
+	fmt.Println(exist) // true
 }
