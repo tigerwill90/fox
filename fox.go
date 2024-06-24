@@ -611,11 +611,8 @@ func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) Han
 }
 
 // localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths
-// like Redirect does.
-// If the Content-Type header has not been set, localRedirect sets it
-// to "text/html; charset=utf-8" and writes a small HTML body.
-// Setting the Content-Type header to any value, including nil,
-// disables that behavior.
+// like Redirect does. If the Content-Type header has not been set, localRedirect sets it to "text/html; charset=utf-8"
+// and writes a small HTML body. Setting the Content-Type header to any value, including nil, disables that behavior.
 func localRedirect(w http.ResponseWriter, r *http.Request, path string, code int) {
 	if q := r.URL.RawQuery; q != "" {
 		path += "?" + q
