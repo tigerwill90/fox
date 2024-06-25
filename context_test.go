@@ -153,7 +153,7 @@ func TestContext_RemoteIP(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	_, c := NewTestContext(w, r)
-	assert.Equal(t, "192.0.2.1", c.RemoteIP())
+	assert.Equal(t, "192.0.2.1", c.RemoteIP().String())
 }
 
 func TestContext_Stream(t *testing.T) {
