@@ -812,6 +812,8 @@ func (t *Tree) allocateContext() *context {
 		// This is a read only value, no reset, it's always the
 		// owner of the pool.
 		tree: t,
+		// This is a read only value, no reset.
+		fox: t.fox,
 	}
 }
 

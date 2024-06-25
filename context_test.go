@@ -6,7 +6,6 @@ package fox
 
 import (
 	"bytes"
-	netcontext "context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -122,17 +121,6 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, c.Path(), cp.Path())
 	assert.Equal(t, c.Fox(), cp.Fox())
 	assert.Nil(t, cc.cachedQuery)
-}
-
-func TestContext_Ctx(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	ctx, cancel := netcontext.WithCancel(netcontext.Background())
-	cancel()
-	req = req.WithContext(ctx)
-	_, c := NewTestContext(httptest.NewRecorder(), req)
-	<-c.Ctx().Done()
-	require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
 }
 
 func TestContext_Redirect(t *testing.T) {

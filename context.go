@@ -27,24 +27,11 @@ type ContextCloser interface {
 // duration of the HandlerFunc execution, as the underlying implementation may be reused a soon as the handler return.
 // (see Clone method).
 type Context interface {
-	// Ctx returns the context associated with the current request.
-	Ctx() netcontext.Context
 	// Request returns the current *http.Request.
 	Request() *http.Request
 	// SetRequest sets the *http.Request.
 	SetRequest(r *http.Request)
-	// Writer method returns a custom ResponseWriter implementation. The returned ResponseWriter object implements additional
-	// http.Flusher, http.Hijacker, io.ReaderFrom interfaces for HTTP/1.x requests and http.Flusher, http.Pusher interfaces
-	// for HTTP/2 requests. These additional interfaces provide extra functionality and are used by underlying HTTP protocols
-	// for specific tasks.
-	//
-	// In actual workload scenarios, the custom ResponseWriter satisfies interfaces for HTTP/1.x and HTTP/2 protocols,
-	// however, if testing with e.g. httptest.Recorder, only the http.Flusher is available to the underlying ResponseWriter.
-	// Therefore, while asserting interfaces like http.Hijacker will not fail, invoking Hijack method will panic if the
-	// underlying ResponseWriter does not implement this interface.
-	//
-	// To facilitate testing with e.g. httptest.Recorder, use the WrapTestContextFlusher helper function which only exposes the
-	// http.Flusher interface for the ResponseWriter.
+	// Writer method returns a custom ResponseWriter implementation.
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
@@ -109,7 +96,6 @@ type context struct {
 func (c *context) Reset(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
-	c.fox = c.tree.fox
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
@@ -122,7 +108,6 @@ func (c *context) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
-	c.fox = c.tree.fox
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
@@ -131,7 +116,6 @@ func (c *context) reset(w http.ResponseWriter, r *http.Request) {
 func (c *context) resetNil() {
 	c.req = nil
 	c.w = nil
-	c.fox = nil
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
@@ -164,11 +148,6 @@ func (c *context) RemoteIP() net.IP {
 		return nil
 	}
 	return net.ParseIP(ip)
-}
-
-// Ctx returns the context associated with the current request.
-func (c *context) Ctx() netcontext.Context {
-	return c.req.Context()
 }
 
 // Params returns a Params slice containing the matched
@@ -290,7 +269,6 @@ func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.req = r
 	cp.w = w
 	cp.path = c.path
-	cp.fox = c.fox
 	cp.cachedQuery = nil
 	if len(*c.params) > len(*cp.params) {
 		// Grow cp.params to a least cap(c.params)
@@ -329,7 +307,7 @@ func (c *context) getQueries() url.Values {
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {
 		if len(c.Params()) > 0 {
-			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
+			ctx := netcontext.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}
@@ -343,7 +321,7 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 func WrapH(h http.Handler) HandlerFunc {
 	return func(c Context) {
 		if len(c.Params()) > 0 {
-			ctx := netcontext.WithValue(c.Ctx(), paramsKey, c.Params().Clone())
+			ctx := netcontext.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
 			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}
