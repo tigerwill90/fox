@@ -20,10 +20,8 @@ const (
 	initialBufferSize = 1024
 )
 
-var (
-	_ slog.Handler = (*LogHandler)(nil)
-	_ slog.Handler = (*NoopHandler)(nil)
-)
+var _ slog.Handler = (*LogHandler)(nil)
+
 var logBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 0, initialBufferSize)
@@ -33,10 +31,10 @@ var logBufPool = sync.Pool{
 
 var (
 	Handler = &LogHandler{
-		w:         &lockedWriter{w: os.Stdout},
-		errW:      &lockedWriter{w: os.Stderr},
-		lvl:       slog.LevelDebug,
-		groupAttr: make([]GroupOrAttrs, 0),
+		We:  &lockedWriter{w: os.Stderr},
+		Wo:  &lockedWriter{w: os.Stdout},
+		Lvl: slog.LevelDebug,
+		Goa: make([]GroupOrAttrs, 0),
 	}
 	timeFormat = fmt.Sprintf("%s %s", time.DateOnly, time.TimeOnly)
 )
@@ -54,14 +52,14 @@ type GroupOrAttrs struct {
 }
 
 type LogHandler struct {
-	w         io.Writer
-	errW      io.Writer
-	lvl       slog.Leveler
-	groupAttr []GroupOrAttrs
+	We  io.Writer
+	Wo  io.Writer
+	Lvl slog.Leveler
+	Goa []GroupOrAttrs
 }
 
 func (h *LogHandler) Enabled(_ netcontext.Context, level slog.Level) bool {
-	return level >= h.lvl.Level()
+	return level >= h.Lvl.Level()
 }
 
 func (h *LogHandler) Handle(_ netcontext.Context, record slog.Record) error {
@@ -110,7 +108,7 @@ func (h *LogHandler) Handle(_ netcontext.Context, record slog.Record) error {
 	buf = append(buf, " | "...)
 
 	lastGroup := ""
-	for _, goa := range h.groupAttr {
+	for _, goa := range h.Goa {
 		switch {
 		case goa.group != "":
 			lastGroup += goa.group + "."
@@ -140,11 +138,11 @@ func (h *LogHandler) Handle(_ netcontext.Context, record slog.Record) error {
 	buf[len(buf)-1] = '\n'
 
 	if record.Level >= slog.LevelError {
-		if _, err := h.errW.Write(buf); err != nil {
+		if _, err := h.We.Write(buf); err != nil {
 			return fmt.Errorf("failed to write buffer: %w", err)
 		}
 	} else {
-		if _, err := h.w.Write(buf); err != nil {
+		if _, err := h.Wo.Write(buf); err != nil {
 			return fmt.Errorf("failed to write buffer: %w", err)
 		}
 	}
@@ -159,19 +157,19 @@ func (h *LogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 
 	return &LogHandler{
-		w:         h.w,
-		errW:      h.errW,
-		lvl:       h.lvl,
-		groupAttr: append(h.groupAttr, newAttrs...),
+		We:  h.We,
+		Wo:  h.Wo,
+		Lvl: h.Lvl,
+		Goa: append(h.Goa, newAttrs...),
 	}
 }
 
 func (h *LogHandler) WithGroup(name string) slog.Handler {
 	return &LogHandler{
-		w:         h.w,
-		errW:      h.errW,
-		lvl:       h.lvl,
-		groupAttr: append(h.groupAttr, GroupOrAttrs{group: name}),
+		We:  h.We,
+		Wo:  h.Wo,
+		Lvl: h.Lvl,
+		Goa: append(h.Goa, GroupOrAttrs{group: name}),
 	}
 }
 
@@ -258,23 +256,4 @@ func latencyColor(d time.Duration) string {
 	}
 
 	return ansi.FgRed
-}
-
-type NoopHandler struct {
-}
-
-func (n NoopHandler) Enabled(_ netcontext.Context, _ slog.Level) bool {
-	return true
-}
-
-func (n NoopHandler) Handle(_ netcontext.Context, _ slog.Record) error {
-	return nil
-}
-
-func (n NoopHandler) WithAttrs(_ []slog.Attr) slog.Handler {
-	return NoopHandler{}
-}
-
-func (n NoopHandler) WithGroup(_ string) slog.Handler {
-	return NoopHandler{}
 }
