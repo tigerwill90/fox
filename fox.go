@@ -300,7 +300,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tree := fox.tree.Load()
-	c := tree.ctx.Get().(*context)
+	c := tree.ctx.Get().(*cTx)
 	c.reset(w, r)
 
 	nds := *tree.nodes.Load()

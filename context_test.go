@@ -291,7 +291,7 @@ func TestWrapF(t *testing.T) {
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.Clone()
-				c.(*context).params = &params
+				c.(*cTx).params = &params
 			}
 
 			WrapF(tc.handler(params))(c)
@@ -351,7 +351,7 @@ func TestWrapH(t *testing.T) {
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.Clone()
-				c.(*context).params = &params
+				c.(*cTx).params = &params
 			}
 
 			WrapH(tc.handler(params))(c)

@@ -5,7 +5,7 @@
 package slogpretty
 
 import (
-	netcontext "context"
+	"context"
 	"fmt"
 	"github.com/tigerwill90/fox/internal/ansi"
 	"io"
@@ -58,11 +58,11 @@ type LogHandler struct {
 	Goa []GroupOrAttrs
 }
 
-func (h *LogHandler) Enabled(_ netcontext.Context, level slog.Level) bool {
+func (h *LogHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.Lvl.Level()
 }
 
-func (h *LogHandler) Handle(_ netcontext.Context, record slog.Record) error {
+func (h *LogHandler) Handle(_ context.Context, record slog.Record) error {
 	bufp := logBufPool.Get().(*[]byte)
 	buf := *bufp
 
@@ -222,8 +222,8 @@ func appendAttr(level slog.Level, buf []byte, attr slog.Attr) []byte {
 }
 
 type lockedWriter struct {
-	sync.Mutex
 	w io.Writer
+	sync.Mutex
 }
 
 func (w *lockedWriter) Write(p []byte) (n int, err error) {

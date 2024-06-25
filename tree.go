@@ -104,7 +104,7 @@ func (t *Tree) Has(method, path string) bool {
 		return false
 	}
 
-	c := t.ctx.Get().(*context)
+	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
@@ -126,7 +126,7 @@ func (t *Tree) Match(method, path string) string {
 		return ""
 	}
 
-	c := t.ctx.Get().(*context)
+	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
@@ -156,7 +156,7 @@ func (t *Tree) Methods(path string) []string {
 			}
 		}
 	} else {
-		c := t.ctx.Get().(*context)
+		c := t.ctx.Get().(*cTx)
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
@@ -189,7 +189,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 		return
 	}
 
-	c := t.ctx.Get().(*context)
+	c := t.ctx.Get().(*cTx)
 	c.Reset(w, r)
 
 	target := r.URL.Path
@@ -803,10 +803,10 @@ STOP:
 	}
 }
 
-func (t *Tree) allocateContext() *context {
+func (t *Tree) allocateContext() *cTx {
 	params := make(Params, 0, t.maxParams.Load())
 	skipNds := make(skippedNodes, 0, t.maxDepth.Load())
-	return &context{
+	return &cTx{
 		params:  &params,
 		skipNds: &skipNds,
 		// This is a read only value, no reset, it's always the
