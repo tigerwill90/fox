@@ -202,7 +202,7 @@ func (fox *Router) Remove(method, path string) error {
 // and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always
 // be closed if non-nil.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
 	return tree.Lookup(w, r)
 }
@@ -301,7 +301,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*context)
-	c.Reset(w, r)
+	c.reset(w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
@@ -636,20 +636,6 @@ func localRedirect(w http.ResponseWriter, r *http.Request, path string, code int
 		body := "<a href=\"" + htmlEscape(path) + "\">" + http.StatusText(code) + "</a>.\n"
 		_, _ = fmt.Fprintln(w, body)
 	}
-}
-
-// grow increases the slice's capacity, if necessary, to guarantee space for
-// another n elements. After Grow(n), at least n elements can be appended
-// to the slice without another allocation. If n is negative or too large to
-// allocate the memory, Grow panics.
-func grow[S ~[]E, E any](s S, n int) S {
-	if n < 0 {
-		panic("cannot be negative")
-	}
-	if n -= cap(s) - len(s); n > 0 {
-		s = append(s[:cap(s)], make([]E, n)...)[:len(s)]
-	}
-	return s
 }
 
 func hexEscapeNonASCII(s string) string {

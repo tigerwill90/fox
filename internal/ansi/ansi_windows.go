@@ -1,9 +1,12 @@
-package fox
+// Copyright 2023 GreyXor. All rights reserved.
+// Mount of this source code is governed by a MIT license that can be found
+// at https://gitlab.com/greyxor/slogor/-/blob/main/LICENSE?ref_type=heads.
+
+package ansi
 
 import (
-	"os"
-
 	"golang.org/x/sys/windows"
+	"os"
 )
 
 // init initializes the Windows console mode to add colors support to it.

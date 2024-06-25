@@ -8,8 +8,11 @@ import (
 	netcontext "context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 )
 
 // ContextCloser extends Context for manually created instances, adding a Close method
@@ -45,6 +48,8 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
+	// RemoteIP parses the IP from Request.RemoteAddr, normalizes and returns a net.IP.
+	RemoteIP() net.IP
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -80,10 +85,8 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router instance.
 	Fox() *Router
-	// Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
-	// Caution: You should always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
-	// avoid wrapping the ResponseWriter within itself. Use wisely!
-	Reset(w http.ResponseWriter, r *http.Request)
+	// Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
+	Reset(w ResponseWriter, r *http.Request)
 }
 
 // context holds request-related information and allows interaction with the ResponseWriter.
@@ -102,10 +105,20 @@ type context struct {
 	rec         recorder
 }
 
-// Reset resets the Context to its initial state, attaching the provided Router, http.ResponseWriter, and *http.Request.
+// Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
+func (c *context) Reset(w ResponseWriter, r *http.Request) {
+	c.req = r
+	c.w = w
+	c.fox = c.tree.fox
+	c.path = ""
+	c.cachedQuery = nil
+	*c.params = (*c.params)[:0]
+}
+
+// reset resets the Context to its initial state, attaching the provided http.ResponseWriter and http.Request.
 // Caution: You should always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
 // avoid wrapping the ResponseWriter within itself. Use wisely!
-func (c *context) Reset(w http.ResponseWriter, r *http.Request) {
+func (c *context) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
@@ -142,6 +155,15 @@ func (c *context) Writer() ResponseWriter {
 // SetWriter sets the ResponseWriter.
 func (c *context) SetWriter(w ResponseWriter) {
 	c.w = w
+}
+
+// RemoteIP parses the IP from Request.RemoteAddr, normalizes and returns a net.IP.
+func (c *context) RemoteIP() net.IP {
+	ip, _, err := net.SplitHostPort(strings.TrimSpace(c.req.RemoteAddr))
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(ip)
 }
 
 // Ctx returns the context associated with the current request.
@@ -272,7 +294,7 @@ func (c *context) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.cachedQuery = nil
 	if len(*c.params) > len(*cp.params) {
 		// Grow cp.params to a least cap(c.params)
-		*cp.params = grow(*cp.params, len(*c.params)-len(*cp.params))
+		*cp.params = slices.Grow(*cp.params, len(*c.params)-len(*cp.params))
 	}
 	// cap(cp.params) >= cap(c.params)
 	// now constraint into len(c.params) & cap(c.params)

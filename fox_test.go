@@ -2389,7 +2389,7 @@ func TestRouter_Lookup(t *testing.T) {
 
 	for _, rte := range githubAPI {
 		req := httptest.NewRequest(rte.method, rte.path, nil)
-		handler, cc, _ := f.Lookup(mockResponseWriter{}, req)
+		handler, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
 		require.NotNil(t, cc)
 		assert.NotNil(t, handler)
 
@@ -2410,13 +2410,13 @@ func TestRouter_Lookup(t *testing.T) {
 
 	// No method match
 	req := httptest.NewRequest("ANY", "/bar", nil)
-	handler, cc, _ := f.Lookup(mockResponseWriter{}, req)
+	handler, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
 	assert.Nil(t, handler)
 	assert.Nil(t, cc)
 
 	// No path match
 	req = httptest.NewRequest(http.MethodGet, "/bar", nil)
-	handler, cc, _ = f.Lookup(mockResponseWriter{}, req)
+	handler, cc, _ = f.Lookup(newResponseWriter(mockResponseWriter{}), req)
 	assert.Nil(t, handler)
 	assert.Nil(t, cc)
 }
@@ -2852,10 +2852,10 @@ func atomicSync() (start func(), wait func()) {
 }
 
 // This example demonstrates how to create a simple router using the default options,
-// which include the Recovery middleware. A basic route is defined, along with a
+// which include the Recovery and Logger middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.
 func ExampleNew() {
-	// Create a new router with default options, which include the Recovery middleware
+	// Create a new router with default options, which include the Recovery and Logger middleware
 	r := New(DefaultOptions())
 
 	// Define a custom middleware to measure the time taken for request processing and

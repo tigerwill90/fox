@@ -7,50 +7,95 @@ package fox
 import (
 	"errors"
 	"fmt"
+	"github.com/tigerwill90/fox/internal/slogpretty"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 )
-
-var stdErr = slog.New(defaultHandler)
 
 // RecoveryFunc is a function type that defines how to handle panics that occur during the
 // handling of an HTTP request.
 type RecoveryFunc func(c Context, err any)
 
-// Recovery is a middleware that captures panics and recovers from them. It takes a custom handle function
-// that will be called with the Context and the value recovered from the panic.
-// Note that the middleware check if the panic is caused by http.ErrAbortHandler and re-panic if true
-// allowing the http server to handle it as an abort.
-func Recovery(handle RecoveryFunc) MiddlewareFunc {
+// CustomRecoveryWithLogHandler returns middleware for a given slog.Handler that recovers from any panics,
+// logs the error, request details, and stack trace, and then calls the provided handle function to handle the recovery.
+func CustomRecoveryWithLogHandler(handler slog.Handler, handle RecoveryFunc) MiddlewareFunc {
+	slogger := slog.New(handler)
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
-			defer recovery(c, handle)
+			defer recovery(slogger, c, handle)
 			next(c)
 		}
 	}
 }
 
-// DefaultHandleRecovery is a default implementation of the RecoveryFunc.
-// It logs the recovered panic error to stderr, including the stack trace.
-// If the response has not been written yet and the error is not caused by a broken connection,
-// it sets the status code to http.StatusInternalServerError and writes a generic error message.
-func DefaultHandleRecovery(c Context, err any) {
-	stdErr.Error(fmt.Sprintf("Recovered: %q\n%s", err, stacktrace(4, 6)))
-	if !c.Writer().Written() && !connIsBroken(err) {
-		http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
+// CustomRecovery returns middleware that recovers from any panics, logs the error, request details, and stack trace,
+// and then calls the provided handle function to handle the recovery.
+func CustomRecovery(handle RecoveryFunc) MiddlewareFunc {
+	return CustomRecoveryWithLogHandler(slogpretty.Handler, handle)
 }
 
-func recovery(c Context, handle RecoveryFunc) {
+// Recovery returns middleware that recovers from any panics, logs the error, request details, and stack trace,
+// and writes a 500 status code response if a panic occurs.
+func Recovery() MiddlewareFunc {
+	return CustomRecovery(DefaultHandleRecovery)
+}
+
+// DefaultHandleRecovery is a default implementation of the RecoveryFunc.
+// It responds with a status code 500 and writes a generic error message.
+func DefaultHandleRecovery(c Context, _ any) {
+	http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+}
+
+func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 	if err := recover(); err != nil {
 		if abortErr, ok := err.(error); ok && errors.Is(abortErr, http.ErrAbortHandler) {
 			panic(abortErr)
 		}
-		handle(c, err)
+
+		var sb strings.Builder
+
+		sb.WriteString("Recovered from PANIC\n")
+		sb.WriteString("Request Dump:\n")
+
+		httpRequest, _ := httputil.DumpRequest(c.Request(), false)
+		headers := strings.Split(string(httpRequest), "\r\n")
+		sb.WriteString(headers[0])
+		for i := 1; i < len(headers); i++ {
+			sb.WriteString("\r\n")
+			current := strings.Split(headers[i], ":")
+			if slices.Contains(blacklistedHeader, current[0]) {
+				sb.WriteString(current[0])
+				sb.WriteString(": <redacted>")
+				continue
+			}
+			sb.WriteString(headers[i])
+		}
+
+		sb.WriteString("Stack:\n")
+		sb.WriteString(stacktrace(4, 6))
+
+		params := c.Params()
+		attrs := make([]any, 0, len(params))
+		for _, param := range params {
+			attrs = append(attrs, slog.String(param.Key, param.Value))
+		}
+
+		logger.Error(
+			sb.String(),
+			slog.String("path", c.Path()),
+			slog.Group("param", attrs...),
+			slog.Any("error", err),
+		)
+
+		if !c.Writer().Written() && !connIsBroken(err) {
+			handle(c, err)
+		}
 	}
 }
 
@@ -77,13 +122,16 @@ func stacktrace(skip, nFrames int) string {
 	i := 0
 	for {
 		frame, more := frames.Next()
-		_, _ = fmt.Fprintf(&b, "called from %s %s:%d\n", frame.Function, frame.File, frame.Line)
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		_, _ = fmt.Fprintf(&b, "called from %s %s:%d", frame.Function, frame.File, frame.Line)
 		if !more {
 			break
 		}
 		i++
 		if i >= nFrames {
-			_, _ = fmt.Fprintf(&b, "(rest of stack elided)\n")
+			_, _ = fmt.Fprintf(&b, "\n(rest of stack elided)")
 			break
 		}
 	}

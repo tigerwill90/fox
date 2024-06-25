@@ -3,6 +3,7 @@ package fox
 import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tigerwill90/fox/internal/slogpretty"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestAbortHandler(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
+	m := CustomRecovery(func(c Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
@@ -39,7 +40,7 @@ func TestAbortHandler(t *testing.T) {
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
-	m := Recovery(func(c Context, err any) {
+	m := CustomRecoveryWithLogHandler(slogpretty.NoopHandler{}, func(c Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
@@ -68,7 +69,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 	for errno, expectMsg := range expectMsgs {
 		t.Run(expectMsg, func(t *testing.T) {
-			f := New(WithMiddleware(Recovery(func(c Context, err any) {
+			f := New(WithMiddleware(CustomRecoveryWithLogHandler(slogpretty.NoopHandler{}, func(c Context, err any) {
 				if !connIsBroken(err) {
 					http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				}

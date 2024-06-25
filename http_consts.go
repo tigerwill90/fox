@@ -36,6 +36,7 @@ const (
 	// See RFC 7231: https://datatracker.ietf.org/doc/html/rfc7231#section-7.4.1
 	HeaderAllow               = "Allow"
 	HeaderAuthorization       = "Authorization"
+	HeaderProxyAuthorization  = "Proxy-Authorization"
 	HeaderContentDisposition  = "Content-Disposition"
 	HeaderContentEncoding     = "Content-Encoding"
 	HeaderContentLength       = "Content-Length"
@@ -86,3 +87,6 @@ const (
 	HeaderXCSRFToken     = "X-CSRF-Token"
 	HeaderReferrerPolicy = "Referrer-Policy"
 )
+
+// nolint:gosec
+var blacklistedHeader = []string{HeaderAuthorization, HeaderProxyAuthorization, "X-Vault-Token", HeaderCookie, HeaderSetCookie, HeaderXCSRFToken}

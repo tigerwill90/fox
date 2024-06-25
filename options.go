@@ -138,7 +138,7 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 func DefaultOptions() Option {
 	return optionFunc(func(r *Router) {
 		r.mws = append([]middleware{
-			{Recovery(DefaultHandleRecovery), RouteHandlers},
+			{Recovery(), RouteHandlers},
 			{Logger(), AllHandlers},
 		}, r.mws...)
 		r.handleOptions = true
