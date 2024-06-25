@@ -148,6 +148,14 @@ func TestContext_Blob(t *testing.T) {
 	assert.True(t, c.Writer().Written())
 }
 
+func TestContext_RemoteIP(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	_, c := NewTestContext(w, r)
+	assert.Equal(t, "192.0.2.1", c.RemoteIP())
+}
+
 func TestContext_Stream(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()

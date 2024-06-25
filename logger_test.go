@@ -20,9 +20,6 @@ func TestLoggerWithHandler(t *testing.T) {
 				if a.Key == "time" {
 					return slog.String("time", "time")
 				}
-				if a.Key == "msg" {
-					return slog.String("msg", "ip")
-				}
 				if a.Key == "latency" {
 					return slog.String("latency", "latency")
 				}
@@ -45,22 +42,22 @@ func TestLoggerWithHandler(t *testing.T) {
 		{
 			name: "should log info level",
 			req:  httptest.NewRequest(http.MethodGet, "/success", nil),
-			want: "time=time level=INFO msg=ip status=200 method=GET path=/success latency=latency\n",
+			want: "time=time level=INFO msg=192.0.2.1 status=200 method=GET path=/success latency=latency\n",
 		},
 		{
 			name: "should log error level",
 			req:  httptest.NewRequest(http.MethodGet, "/failure", nil),
-			want: "time=time level=ERROR msg=ip status=500 method=GET path=/failure latency=latency\n",
+			want: "time=time level=ERROR msg=192.0.2.1 status=500 method=GET path=/failure latency=latency\n",
 		},
 		{
 			name: "should log warn level",
 			req:  httptest.NewRequest(http.MethodGet, "/foobar", nil),
-			want: "time=time level=WARN msg=ip status=404 method=GET path=/foobar latency=latency\n",
+			want: "time=time level=WARN msg=192.0.2.1 status=404 method=GET path=/foobar latency=latency\n",
 		},
 		{
 			name: "should log debug level",
 			req:  httptest.NewRequest(http.MethodGet, "/success/", nil),
-			want: "time=time level=DEBUG msg=ip status=301 method=GET path=/success/ latency=latency location=../success\n",
+			want: "time=time level=DEBUG msg=192.0.2.1 status=301 method=GET path=/success/ latency=latency location=../success\n",
 		},
 	}
 
