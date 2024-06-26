@@ -93,8 +93,7 @@ type SingleIPHeader struct {
 	headerName string
 }
 
-// NewSingleIPHeader creates a SingleIPHeader that uses the headerName
-// request header to get the client IP.
+// NewSingleIPHeader creates a SingleIPHeader strategy that uses the headerName request header to get the client IP.
 func NewSingleIPHeader(headerName string) SingleIPHeader {
 	if headerName == "" {
 		panic(errors.New("header must not be empty"))
@@ -129,14 +128,13 @@ func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // LeftmostNonPrivate derives the client IP from the leftmost valid and non-private IP address in the
-// X-Fowarded-For for Forwarded header. This strategy should be used when a valid, non-private IP closest to the client is desired.
+// X-Fowarded-For or Forwarded header. This strategy should be used when a valid, non-private IP closest to the client is desired.
 // Note that this MUST NOT BE USED FOR SECURITY PURPOSES. This IP can be TRIVIALLY SPOOFED.
 type LeftmostNonPrivate struct {
 	headerName string
 }
 
-// NewLeftmostNonPrivate creates a LeftmostNonPrivate. headerName must be
-// "X-Forwarded-For" or "Forwarded".
+// NewLeftmostNonPrivate creates a LeftmostNonPrivate strategy. headerName must be "X-Forwarded-For" or "Forwarded".
 func NewLeftmostNonPrivate(headerName string) LeftmostNonPrivate {
 	if headerName == "" {
 		panic("header must not be empty")
@@ -169,13 +167,13 @@ func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RightmostNonPrivate derives the client IP from the rightmost valid, non-private/non-internal IP address in
-// the X-Fowarded-For for Forwarded header. This strategy should be used when all reverse proxies between the internet
+// the X-Fowarded-For or  Forwarded header. This strategy should be used when all reverse proxies between the internet
 // and the server have private-space IP addresses.
 type RightmostNonPrivate struct {
 	headerName string
 }
 
-// NewRightmostNonPrivate creates a RightmostNonPrivate. headerName must be "X-Forwarded-For" or "Forwarded".
+// NewRightmostNonPrivate creates a RightmostNonPrivate strategy. headerName must be "X-Forwarded-For" or "Forwarded".
 func NewRightmostNonPrivate(headerName string) RightmostNonPrivate {
 	if headerName == "" {
 		panic(errors.New("header must not be empty"))
@@ -209,14 +207,14 @@ func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RightmostTrustedCount derives the client IP from the valid IP address added by the first trusted reverse
-// proxy to the X-Forwarded-For or Forwarded header. This Strategy should be used when there is a fixed number of
+// proxy to the X-Forwarded-For or Forwarded header. This strategy should be used when there is a fixed number of
 // trusted reverse proxies that are appending IP addresses to the header.
 type RightmostTrustedCount struct {
 	headerName   string
 	trustedCount int
 }
 
-// NewRightmostTrustedCount creates a RightmostTrustedCount. headerName must be "X-Forwarded-For" or "Forwarded".
+// NewRightmostTrustedCount creates a RightmostTrustedCount strategy. headerName must be "X-Forwarded-For" or "Forwarded".
 // trustedCount is the number of trusted reverse proxies. The IP returned will be the (trustedCount-1)th from the right. For
 // example, if there's only one trusted proxy, this strategy will return the last (rightmost) IP address.
 func NewRightmostTrustedCount(headerName string, trustedCount int) RightmostTrustedCount {
@@ -265,23 +263,19 @@ func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	return ipAddr, nil
 }
 
-// RightmostTrustedRange derives the client IP from the rightmost valid IP address
-// in the X-Forwarded-For or Forwarded header which is not in a set of trusted IP ranges.
-// This strategy should be used when the IP ranges of the reverse proxies between the
-// internet and the server are known.
-// If a third-party WAF, CDN, etc., is used, you SHOULD use a method of verifying its
-// access to your origin that is stronger than checking its IP address (e.g., using
-// authenticated pulls). Failure to do so can result in scenarios like:
-// You use AWS CloudFront in front of a server you host elsewhere. An attacker creates a
-// CF distribution that points at your origin server. The attacker uses Lambda@Edge to
-// spoof the Host and X-Forwarded-For headers. Now your "trusted" reverse proxy is no
-// longer trustworthy.
+// RightmostTrustedRange derives the client IP from the rightmost valid IP address in the X-Forwarded-For or Forwarded
+// header which is not in a set of trusted IP ranges. This strategy should be used when the IP ranges of the reverse
+// proxies between the internet and the server are known. If a third-party WAF, CDN, etc., is used, you SHOULD use a
+// method of verifying its access to your origin that is stronger than checking its IP address (e.g., using authenticated pulls).
+// Failure to do so can result in scenarios like: You use AWS CloudFront in front of a server you host elsewhere. An
+// attacker creates a CF distribution that points at your origin server. The attacker uses Lambda@Edge to spoof the Host
+// and X-Forwarded-For headers. Now your "trusted" reverse proxy is no longer trustworthy.
 type RightmostTrustedRange struct {
 	headerName    string
 	trustedRanges []net.IPNet
 }
 
-// NewRightmostTrustedRange creates a RightmostTrustedRange. headerName must be "X-Forwarded-For"
+// NewRightmostTrustedRange creates a RightmostTrustedRange strategy. headerName must be "X-Forwarded-For"
 // or "Forwarded". trustedRanges must contain all trusted reverse proxies on the path to this server. trustedRanges can
 // be private/internal or external (for example, if a third-party reverse proxy is used).
 func NewRightmostTrustedRange(headerName string, trustedRanges []net.IPNet) RightmostTrustedRange {
