@@ -102,9 +102,15 @@ func (h *LogHandler) Handle(_ context.Context, record slog.Record) error {
 
 	buf = append(buf, ansi.Reset...)
 	buf = append(buf, " | "...)
-
 	// Write the log message.
-	buf = append(buf, record.Message...)
+	if record.Message == "unknown" {
+		// special case if the ip cannot be found using the ClientIPStrategy.
+		buf = append(buf, ansi.FgRed...)
+		buf = append(buf, record.Message...)
+		buf = append(buf, ansi.Reset...)
+	} else {
+		buf = append(buf, record.Message...)
+	}
 	buf = append(buf, " | "...)
 
 	lastGroup := ""
@@ -250,10 +256,8 @@ func latencyColor(d time.Duration) string {
 	if d < 100*time.Millisecond {
 		return ansi.FgGreen
 	}
-
 	if d < 500*time.Millisecond {
 		return ansi.FgYellow
 	}
-
 	return ansi.FgRed
 }

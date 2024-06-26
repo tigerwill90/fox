@@ -40,6 +40,8 @@ or missing trailing slash, at no extra cost.
 **Automatic OPTIONS replies:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
 support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 
+**Client IP Derivation:** Accurately determine the "real" client IP address using best practices tailored to your network topology.
+
 Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
 
 ## Getting started
@@ -483,6 +485,53 @@ f := fox.New(
     }),
 )
 ````
+
+## Client IP Derivation
+The `WithClientIPStrategy` setting allows you to set up strategies to resolve the client IP address based on your 
+use case and network topology. Accurately determining the client IP is hard, particularly in environments with proxies or 
+load balancers. For example, the leftmost IP in the `X-Forwarded-For` header is commonly used and is often regarded as the 
+"closest to the client" and "most real," but it can be easily spoofed. Therefore, you should absolutely avoid using it 
+for any security-related purposes, such as request throttling.
+
+The strategy used must be chosen and tuned for your network configuration. This should result in the strategy never returning 
+an error and if it does, it should be treated as an application issue or a misconfiguration, rather than defaulting to an 
+untrustworthy IP.
+
+The sub-package `github.com/tigerwill90/fox/clientip` provides a set of best practices strategies that should cover most use cases.
+
+````go
+f := fox.New(
+    fox.DefaultOptions(),
+    // We are behind one or many trusted proxies that have all private-space IP addresses.
+    fox.WithClientIPStrategy(clientip.NewRightmostNonPrivateStrategy(fox.HeaderXForwardedFor)),
+)
+
+f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
+    ipAddr, err := c.ClientIP()
+    if err != nil {
+        // If the current strategy is not able to derive the client IP, an error will be returned rather than falling back
+        // on an untrustworthy IP. It should be treated as an application issue or a misconfiguration.
+        panic(err)
+    }
+    fmt.Println(ipAddr.String())
+})
+````
+
+It is also possible to create a chain with multiple strategies that attempt to derive the client IP, stopping when the first one succeeds.
+
+See this [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) for general guidance on choosing a strategy that fit your needs.
+````go
+f := fox.New(
+    fox.DefaultOptions(),
+// A common use for this is if a server is both directly connected to the internet and expecting a header to check.
+    fox.WithClientIPStrategy(clientip.NewChainStrategy(
+        clientip.NewLeftmostNonPrivateStrategy(fox.HeaderXForwardedFor),
+        clientip.NewRemoteAddrStrategy(),
+    )),
+)
+````
+
+Note that there is no "sane" default strategy, so calling `Context.ClientIP` without a strategy configured will return an `ErrNoClientIPStrategy`.
 
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.

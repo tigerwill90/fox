@@ -45,11 +45,16 @@ type HandlerFunc func(c Context)
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
-// ClientIPStrategy define a strategy for obtaining the "real" client IP from HTTP requests.
+// ClientIPStrategy define a strategy for obtaining the "real" client IP from HTTP requests. The strategy used must be
+// chosen and tuned for your network configuration. This should result in the strategy never returning an error
+// i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
+// an application error, perhaps even worthy of panicking. Builtin best practices strategies can be found in the
+// github.com/tigerwill90/fox/clientip package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
+// how to choose the right strategy for your use-case and network.
 type ClientIPStrategy interface {
 	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
-	// address can be derived. This is typically considered a misconfiguration error, unless the strategy involves obtaining
-	// an untrustworthy or optional value.
+	// address can be derived using the strategy. This is typically considered a misconfiguration error, unless the strategy
+	// involves obtaining an untrustworthy or optional value.
 	ClientIP(c Context) (*net.IPAddr, error)
 }
 
