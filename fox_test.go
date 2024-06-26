@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -1742,6 +1743,13 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRouterWithClientIPStrategy(t *testing.T) {
+	f := New(WithClientIPStrategy(ClientIPStrategyFunc(func(c Context) (*net.IPAddr, error) {
+		return c.RemoteIP(), nil
+	})))
+	require.True(t, f.ClientIPStrategyEnabled())
 }
 
 func TestRedirectTrailingSlash(t *testing.T) {
