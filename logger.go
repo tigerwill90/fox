@@ -5,6 +5,7 @@
 package fox
 
 import (
+	"errors"
 	"github.com/tigerwill90/fox/internal/slogpretty"
 	"log/slog"
 	"time"
@@ -27,7 +28,15 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 				location = c.Writer().Header().Get(HeaderLocation)
 			}
 
-			ip := c.RemoteIP()
+			ip, err := c.ClientIP()
+			if err != nil {
+				if !errors.Is(err, ErrNoClientIPStrategy) {
+					// TODO maybe to much
+					panic(err)
+				}
+				ip = c.RemoteIP()
+			}
+
 			if location == "" {
 				log.LogAttrs(
 					req.Context(),

@@ -51,6 +51,7 @@ const (
 	HeaderVary                = "Vary"
 	HeaderWWWAuthenticate     = "WWW-Authenticate"
 	HeaderXForwardedFor       = "X-Forwarded-For"
+	HeaderForwarded           = "Forwarded"
 	HeaderXForwardedProto     = "X-Forwarded-Proto"
 	HeaderXForwardedProtocol  = "X-Forwarded-Protocol"
 	HeaderXForwardedSsl       = "X-Forwarded-Ssl"

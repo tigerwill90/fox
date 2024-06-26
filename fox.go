@@ -7,6 +7,7 @@ package fox
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path"
 	"regexp"
@@ -44,6 +45,23 @@ type HandlerFunc func(c Context)
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
+// ClientIPStrategy define a strategy for obtaining the "real" client IP from HTTP requests.
+type ClientIPStrategy interface {
+	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
+	// address can be derived. This is typically considered a misconfiguration error, unless the strategy involves obtaining
+	// an untrustworthy or optional value.
+	ClientIP(c Context) (*net.IPAddr, error)
+}
+
+// The ClientIPStrategyFunc type is an adapter to allow the use of ordinary functions as ClientIPStrategy. If f is a function
+// with the appropriate signature, ClientIPStrategyFunc(f) is a ClientIPStrategyFunc that calls f.
+type ClientIPStrategyFunc func(c Context) (*net.IPAddr, error)
+
+// ClientIP calls f(c).
+func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
+	return f(c)
+}
+
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
@@ -52,6 +70,7 @@ type Router struct {
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
 	tree                   atomic.Pointer[Tree]
+	ipStrategy             ClientIPStrategy
 	mws                    []middleware
 	handleMethodNotAllowed bool
 	handleOptions          bool
@@ -73,6 +92,7 @@ func New(opts ...Option) *Router {
 	r.noRoute = DefaultNotFoundHandler()
 	r.noMethod = DefaultMethodNotAllowedHandler()
 	r.autoOptions = DefaultOptionsHandler()
+	r.ipStrategy = noClientIPStrategy{}
 
 	for _, opt := range opts {
 		opt.apply(r)
@@ -113,6 +133,13 @@ func (fox *Router) RedirectTrailingSlashEnabled() bool {
 // This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 	return fox.ignoreTrailingSlash
+}
+
+// ClientIPStrategyEnabled returns whether the router is configured with a ClientIPStrategy.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) ClientIPStrategyEnabled() bool {
+	_, ok := fox.ipStrategy.(noClientIPStrategy)
+	return !ok
 }
 
 // NewTree returns a fresh routing Tree that inherits all registered router options. It's safe to create multiple Tree
@@ -372,7 +399,7 @@ NoMethodFallback:
 		if sb.Len() > 0 {
 			sb.WriteString(", ")
 			sb.WriteString(http.MethodOptions)
-			w.Header().Set("Allow", sb.String())
+			w.Header().Set(HeaderAllow, sb.String())
 			fox.autoOptions(c)
 			c.Close()
 			return
@@ -390,7 +417,7 @@ NoMethodFallback:
 			}
 		}
 		if sb.Len() > 0 {
-			w.Header().Set("Allow", sb.String())
+			w.Header().Set(HeaderAllow, sb.String())
 			fox.noMethod(c)
 			c.Close()
 			return
@@ -680,4 +707,10 @@ var htmlReplacer = strings.NewReplacer(
 
 func htmlEscape(s string) string {
 	return htmlReplacer.Replace(s)
+}
+
+type noClientIPStrategy struct{}
+
+func (s noClientIPStrategy) ClientIP(c Context) (*net.IPAddr, error) {
+	return nil, ErrNoClientIPStrategy
 }

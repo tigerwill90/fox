@@ -132,6 +132,20 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 	})
 }
 
+// WithClientIPStrategy sets the strategy for obtaining the "real" client IP address from HTTP requests.
+// This strategy is used by the Context.ClientIP method. The strategy must be chosen and tuned for your network
+// configuration to ensure it never returns an error -- i.e., never fails to find a candidate for the "real" IP.
+// Consequently, getting an error result should be treated as an application error, perhaps even worthy of panicking.
+// There is no sane default, so if no strategy is configured, Context.ClientIP returns ErrNoClientIPStrategy.
+// This API is EXPERIMENTAL and is likely to change in future releases.
+func WithClientIPStrategy(strategy ClientIPStrategy) Option {
+	return optionFunc(func(r *Router) {
+		if strategy != nil {
+			r.ipStrategy = strategy
+		}
+	})
+}
+
 // DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope, the Logger middleware
 // for AllHandlers scope and enable automatic OPTIONS response. Note that DefaultOptions push the Recovery and Logger middleware
 // respectively to the first and second position of the middleware chains.

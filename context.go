@@ -35,8 +35,22 @@ type Context interface {
 	Writer() ResponseWriter
 	// SetWriter sets the ResponseWriter.
 	SetWriter(w ResponseWriter)
-	// RemoteIP parses the IP from Request.RemoteAddr, normalizes and returns a net.IP.
-	RemoteIP() net.IP
+	// RemoteIP parses the IP from Request.RemoteAddr, normalizes it, and returns an IP address. The returned *net.IPAddr
+	// may contain a zone identifier. RemoteIP never returns nil, even if parsing the IP fails.
+	RemoteIP() *net.IPAddr
+	// ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
+	// The strategy is set using the WithClientIPStrategy option. There is no sane default, so if no strategy is configured,
+	// the method returns the ErrNoClientIPStrategy.
+	//
+	// The strategy used must be chosen and tuned for your network configuration. This should result
+	// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
+	// Consequently, getting an error result should be treated as an application error, perhaps even
+	// worthy of panicking.
+	//
+	// The returned *net.IPAddr may contain a zone identifier.
+	//
+	// This api is EXPERIMENTAL and is likely to change in future release.
+	ClientIP() (*net.IPAddr, error)
 	// Path returns the registered path for the handler.
 	Path() string
 	// Params returns a Params slice containing the matched
@@ -141,13 +155,36 @@ func (c *cTx) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
-// RemoteIP parses the IP from Request.RemoteAddr, normalizes and returns a net.IP.
-func (c *cTx) RemoteIP() net.IP {
-	ip, _, err := net.SplitHostPort(strings.TrimSpace(c.req.RemoteAddr))
-	if err != nil {
-		return nil
+// RemoteIP parses the IP from Request.RemoteAddr, normalizes it, and returns a *net.IPAddr.
+// It never returns nil, even if parsing the IP fails.
+func (c *cTx) RemoteIP() *net.IPAddr {
+	ipStr, _, _ := net.SplitHostPort(c.req.RemoteAddr)
+
+	ip, zone := splitHostZone(ipStr)
+	ipAddr := &net.IPAddr{
+		IP:   net.ParseIP(ip),
+		Zone: zone,
 	}
-	return net.ParseIP(ip)
+
+	if ipAddr.IP == nil {
+		return &net.IPAddr{}
+	}
+
+	return ipAddr
+}
+
+// ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
+// The strategy is set using the WithClientIPStrategy option. If no strategy is configured,
+// the method returns the error ErrNoClientIPStrategy.
+//
+// The strategy used must be chosen and tuned for your network configuration. This should result
+// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
+// Consequently, getting an error result should be treated as an application error, perhaps even
+// worthy of panicking.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (c *cTx) ClientIP() (*net.IPAddr, error) {
+	ipStrategy := c.Fox().ipStrategy
+	return ipStrategy.ClientIP(c)
 }
 
 // Params returns a Params slice containing the matched
@@ -328,4 +365,17 @@ func WrapH(h http.Handler) HandlerFunc {
 
 		h.ServeHTTP(c.Writer(), c.Request())
 	}
+}
+
+func splitHostZone(s string) (host, zone string) {
+	// This is copied from an unexported function in the Go stdlib:
+	// https://github.com/golang/go/blob/5c9b6e8e63e012513b1cb1a4a08ff23dec4137a1/src/net/ipsock.go#L219-L228
+
+	// The IPv6 scoped addressing zone identifier starts after the last percent sign.
+	if i := strings.LastIndexByte(s, '%'); i > 0 {
+		host, zone = s[:i], s[i+1:]
+	} else {
+		host = s
+	}
+	return
 }

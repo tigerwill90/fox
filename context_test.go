@@ -152,8 +152,23 @@ func TestContext_RemoteIP(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	r.RemoteAddr = "192.0.2.1:8080"
 	_, c := NewTestContext(w, r)
 	assert.Equal(t, "192.0.2.1", c.RemoteIP().String())
+
+	r.RemoteAddr = "[::1]:80"
+	_, c = NewTestContext(w, r)
+	assert.Equal(t, "::1", c.RemoteIP().String())
+}
+
+func TestContext_ClientIP(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	r.RemoteAddr = "192.0.2.1:8080"
+	c := NewTestContextOnly(New(), w, r)
+	_, err := c.ClientIP()
+	assert.ErrorIs(t, err, ErrNoClientIPStrategy)
 }
 
 func TestContext_Stream(t *testing.T) {
