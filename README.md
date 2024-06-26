@@ -504,8 +504,8 @@ f := fox.New(
     fox.DefaultOptions(),
     // We are behind one or many trusted proxies that have all private-space IP addresses.
     fox.WithClientIPStrategy(
-		clientip.NewRightmostNonPrivateStrategy(fox.HeaderXForwardedFor), 
-	),
+        clientip.NewRightmostNonPrivateStrategy(fox.HeaderXForwardedFor), 
+    ),
 )
 
 f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
