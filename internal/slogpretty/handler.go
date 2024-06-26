@@ -20,7 +20,7 @@ const (
 	initialBufferSize = 1024
 )
 
-var _ slog.Handler = (*LogHandler)(nil)
+var _ slog.Handler = (*Handler)(nil)
 
 var logBufPool = sync.Pool{
 	New: func() any {
@@ -30,7 +30,7 @@ var logBufPool = sync.Pool{
 }
 
 var (
-	Handler = &LogHandler{
+	DefaultHandler = &Handler{
 		We:  &lockedWriter{w: os.Stderr},
 		Wo:  &lockedWriter{w: os.Stdout},
 		Lvl: slog.LevelDebug,
@@ -51,18 +51,18 @@ type GroupOrAttrs struct {
 	group string
 }
 
-type LogHandler struct {
+type Handler struct {
 	We  io.Writer
 	Wo  io.Writer
 	Lvl slog.Leveler
 	Goa []GroupOrAttrs
 }
 
-func (h *LogHandler) Enabled(_ context.Context, level slog.Level) bool {
+func (h *Handler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.Lvl.Level()
 }
 
-func (h *LogHandler) Handle(_ context.Context, record slog.Record) error {
+func (h *Handler) Handle(_ context.Context, record slog.Record) error {
 	bufp := logBufPool.Get().(*[]byte)
 	buf := *bufp
 
@@ -156,13 +156,13 @@ func (h *LogHandler) Handle(_ context.Context, record slog.Record) error {
 	return nil
 }
 
-func (h *LogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	newAttrs := make([]GroupOrAttrs, len(attrs))
 	for i, attr := range attrs {
 		newAttrs[i] = GroupOrAttrs{attr: attr}
 	}
 
-	return &LogHandler{
+	return &Handler{
 		We:  h.We,
 		Wo:  h.Wo,
 		Lvl: h.Lvl,
@@ -170,8 +170,8 @@ func (h *LogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 }
 
-func (h *LogHandler) WithGroup(name string) slog.Handler {
-	return &LogHandler{
+func (h *Handler) WithGroup(name string) slog.Handler {
+	return &Handler{
 		We:  h.We,
 		Wo:  h.Wo,
 		Lvl: h.Lvl,

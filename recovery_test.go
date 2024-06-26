@@ -46,7 +46,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 	woBuf := bytes.NewBuffer(nil)
 	weBuf := bytes.NewBuffer(nil)
 
-	m := CustomRecoveryWithLogHandler(&slogpretty.LogHandler{
+	m := CustomRecoveryWithLogHandler(&slogpretty.Handler{
 		We:  weBuf,
 		Wo:  woBuf,
 		Lvl: slog.LevelDebug,
@@ -85,7 +85,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 	for errno, expectMsg := range expectMsgs {
 		t.Run(expectMsg, func(t *testing.T) {
-			f := New(WithMiddleware(CustomRecoveryWithLogHandler(&slogpretty.LogHandler{
+			f := New(WithMiddleware(CustomRecoveryWithLogHandler(&slogpretty.Handler{
 				We:  weBuf,
 				Wo:  woBuf,
 				Lvl: slog.LevelDebug,

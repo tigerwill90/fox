@@ -37,7 +37,7 @@ func CustomRecoveryWithLogHandler(handler slog.Handler, handle RecoveryFunc) Mid
 // CustomRecovery returns middleware that recovers from any panics, logs the error, request details, and stack trace,
 // and then calls the provided handle function to handle the recovery.
 func CustomRecovery(handle RecoveryFunc) MiddlewareFunc {
-	return CustomRecoveryWithLogHandler(slogpretty.Handler, handle)
+	return CustomRecoveryWithLogHandler(slogpretty.DefaultHandler, handle)
 }
 
 // Recovery returns middleware that recovers from any panics, logs the error, request details, and stack trace,

@@ -69,7 +69,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 // Logger returns middleware that logs request information to os.Stdout and os.Stderr.
 // It logs details such as the remote IP, HTTP method, request path, status code and latency.
 func Logger() MiddlewareFunc {
-	return LoggerWithHandler(slogpretty.Handler)
+	return LoggerWithHandler(slogpretty.DefaultHandler)
 }
 
 func level(status int) slog.Level {

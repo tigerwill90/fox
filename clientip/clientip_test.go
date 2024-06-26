@@ -767,6 +767,1289 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 	}
 }
 
+func TestRemoteAddrStrategy(t *testing.T) {
+	// Ensure the strategy interface is implemented
+	var _ fox.ClientIPStrategy = RemoteAddrStrategy{}
+
+	type args struct {
+		headers    http.Header
+		remoteAddr string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "IPv4 with port",
+			args: args{
+				remoteAddr: "2.2.2.2:1234",
+			},
+			want: "2.2.2.2",
+		},
+		{
+			name: "IPv4 with no port",
+			args: args{
+				remoteAddr: "2.2.2.2",
+			},
+			want: "2.2.2.2",
+		},
+		{
+			name: "IPv6 with port",
+			args: args{
+				remoteAddr: "[2607:f8b0:4004:83f::18]:3838",
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with no port",
+			args: args{
+				remoteAddr: "2607:f8b0:4004:83f::18",
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with zone and no port",
+			args: args{
+				remoteAddr: `fe80::1111%eth0`,
+			},
+			want: `fe80::1111%eth0`,
+		},
+		{
+			name: "IPv6 with zone and port",
+			args: args{
+				remoteAddr: `[fe80::2222%eth0]:4848`,
+			},
+			want: `fe80::2222%eth0`,
+		},
+		{
+			name: "IPv4-mapped IPv6",
+			args: args{
+				remoteAddr: "[::ffff:172.21.0.6]:4747",
+			},
+			// It is okay that this converts to the IPv4 format, since it's most important
+			// that the respresentation be consistent. It might also be good that it does,
+			// so that it will match the same plain IPv4 address.
+			// net/netip.ParseAddr gives a different form: "::ffff:172.21.0.6"
+			want: "172.21.0.6",
+		},
+		{
+			name: "IPv4-mapped IPv6 in IPv6 form",
+			args: args{
+				remoteAddr: "0:0:0:0:0:ffff:bc15:0006",
+			},
+			// net/netip.ParseAddr gives a different form: "::ffff:188.21.0.6"
+			want: "188.21.0.6",
+		},
+		{
+			name: "NAT64 IPv4-mapped IPv6",
+			args: args{
+				remoteAddr: "[64:ff9b::188.0.2.128]:4747",
+			},
+			// net.ParseIP and net/netip.ParseAddr convert to this. This is fine, as it is
+			// done consistently.
+			want: "64:ff9b::bc00:280",
+		},
+		{
+			name: "6to4 IPv4-mapped IPv6",
+			args: args{
+				remoteAddr: "[2002:c000:204::]:4747",
+			},
+			want: "2002:c000:204::",
+		},
+		{
+			name: "IPv4 loopback",
+			args: args{
+				remoteAddr: "127.0.0.1",
+			},
+			want: "127.0.0.1",
+		},
+		{
+			name: "IPv6 loopback",
+			args: args{
+				remoteAddr: "::1",
+			},
+			want: "::1",
+		},
+		{
+			name: "Garbage header (unused)",
+			args: args{
+				headers:    http.Header{"X-Forwarded-For": []string{"!!!"}},
+				remoteAddr: "2.2.2.2:1234",
+			},
+			want: "2.2.2.2",
+		},
+		{
+			name: "Fail: empty RemoteAddr",
+			args: args{
+				remoteAddr: "",
+			},
+			want: "",
+		},
+		{
+			name: "Fail: garbage RemoteAddr",
+			args: args{
+				remoteAddr: "ohno",
+			},
+			want: "",
+		},
+		{
+			name: "Fail: zero RemoteAddr IP",
+			args: args{
+				remoteAddr: "0.0.0.0",
+			},
+			want: "",
+		},
+		{
+			name: "Fail: unspecified RemoteAddr IP",
+			args: args{
+				remoteAddr: "::",
+			},
+			want: "",
+		},
+		{
+			name: "Fail: Unix domain socket",
+			args: args{
+				remoteAddr: "@",
+			},
+			want: "",
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
+	w := httptest.NewRecorder()
+	c := fox.NewTestContextOnly(fox.New(), w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := RemoteAddrStrategy{}
+			c.Request().Header = tt.args.headers
+			c.Request().RemoteAddr = tt.args.remoteAddr
+			ipAddr, err := s.ClientIP(c)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
+func TestSingleIPHeaderStrategy(t *testing.T) {
+	// Ensure the strategy interface is implemented
+	var _ fox.ClientIPStrategy = SingleIPHeaderStrategy{}
+
+	type args struct {
+		headerName string
+		headers    http.Header
+		remoteAddr string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "IPv4 with port",
+			args: args{
+				headerName: "True-Client-IP",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"1.1.1.1"},
+					"True-Client-Ip":  []string{"2.2.2.2:49489"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "2.2.2.2",
+		},
+		{
+			name: "IPv4 with no port",
+			args: args{
+				headerName: "X-Real-IP",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"1.1.1.1"},
+					"True-Client-Ip":  []string{"2.2.2.2:49489"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "1.1.1.1",
+		},
+		{
+			name: "IPv6 with port",
+			args: args{
+				headerName: "X-Real-IP",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"[2607:f8b0:4004:83f::18]:3838"},
+					"True-Client-Ip":  []string{"2.2.2.2:49489"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with no port",
+			args: args{
+				headerName: "X-Real-IP",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"2607:f8b0:4004:83f::19"},
+					"True-Client-Ip":  []string{"2.2.2.2:49489"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "2607:f8b0:4004:83f::19",
+		},
+		{
+			name: "IPv6 with zone and no port",
+			args: args{
+				headerName: "a-b-c-d",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"2607:f8b0:4004:83f::19"},
+					"A-B-C-D":         []string{"fe80::1111%zone"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "fe80::1111%zone",
+		},
+		{
+			name: "IPv6 with zone and port",
+			args: args{
+				headerName: "a-b-c-d",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"2607:f8b0:4004:83f::19"},
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "fe80::1111%zone",
+		},
+		{
+			name: "IPv6 with brackets but no port",
+			args: args{
+				headerName: "x-real-ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"2607:f8b0:4004:83f::19"},
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "2607:f8b0:4004:83f::19",
+		},
+		{
+			name: "IP-mapped IPv6",
+			args: args{
+				headerName: "x-real-ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::ffff:172.21.0.6"},
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "172.21.0.6",
+		},
+		{
+			name: "IPv4-mapped IPv6 in IPv6 form",
+			args: args{
+				headerName: "x-real-ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"[64:ff9b::188.0.2.128]:4747"},
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "64:ff9b::bc00:280",
+		},
+		{
+			name: "6to4 IPv4-mapped IPv6",
+			args: args{
+				headerName: "x-real-ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"2002:c000:204::"},
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "2002:c000:204::",
+		},
+		{
+			name: "IPv4 loopback",
+			args: args{
+				headerName: "x-real-ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"127.0.0.1"},
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "127.0.0.1",
+		},
+		{
+			name: "Fail: missing header",
+			args: args{
+				headerName: "x-real-ip",
+				headers: http.Header{
+					"A-B-C-D":         []string{"[fe80::1111%zone]:4848"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: garbage IP",
+			args: args{
+				headerName: "True-Client-Ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"nope"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: zero IP",
+			args: args{
+				headerName: "True-Client-Ip",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"0.0.0.0"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			want: "",
+		},
+		{
+			name: "Error: empty header name",
+			args: args{
+				headerName: "",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: X-Forwarded-For header",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
+	w := httptest.NewRecorder()
+	c := fox.NewTestContextOnly(fox.New(), w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s fox.ClientIPStrategy
+			if tt.wantErr {
+				require.Panics(t, func() {
+					s = NewSingleIPHeaderStrategy(tt.args.headerName)
+				})
+				return
+			}
+
+			s = NewSingleIPHeaderStrategy(tt.args.headerName)
+
+			c.Request().Header = tt.args.headers
+			c.Request().RemoteAddr = tt.args.remoteAddr
+			ipAddr, err := s.ClientIP(c)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
+func TestLeftmostNonPrivateStrategy(t *testing.T) {
+	// Ensure the strategy interface is implemented
+	var _ fox.ClientIPStrategy = LeftmostNonPrivateStrategy{}
+
+	type args struct {
+		headerName string
+		headers    http.Header
+		remoteAddr string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "IPv4 with port",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+				},
+			},
+			want: "2.2.2.2",
+		},
+		{
+			name: "IPv4 with no port",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`For=5.5.5.5`, `For=6.6.6.6`},
+				},
+			},
+			want: "5.5.5.5",
+		},
+		{
+			name: "IPv6 with port",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`[2607:f8b0:4004:83f::18]:3838, 3.3.3.3`, `4.4.4.4`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with no port",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`Host=blah;For="2607:f8b0:4004:83f::18";Proto=https`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with port and zone",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`For=[fe80::1111%zone], Host=blah;For="[2607:f8b0:4004:83f::18%zone]:9943";Proto=https`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18%zone",
+		},
+		{
+			name: "IPv6 with port and zone, no quotes",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`For=[fe80::1111%zone], Host=blah;For=[2607:f8b0:4004:83f::18%zone]:9943;Proto=https`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18%zone",
+		},
+		{
+			name: "IPv4-mapped IPv6",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::ffff:188.0.2.128, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`Host=blah;For="7.7.7.7";Proto=https`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "188.0.2.128",
+		},
+		{
+			name: "IPv4-mapped IPv6 with port",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`[::ffff:188.0.2.128]:48483, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`Host=blah;For="7.7.7.7";Proto=https`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "188.0.2.128",
+		},
+		{
+			name: "IPv4-mapped IPv6 in IPv6 (hex) form",
+			args: args{
+				headerName: "forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`[::ffff:188.0.2.128]:48483, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "188.21.0.6",
+		},
+		{
+			name: "NAT64 IPv4-mapped IPv6",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`64:ff9b::188.0.2.128, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "64:ff9b::bc00:280",
+		},
+		{
+			name: "XFF: leftmost not desirable",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope`, `4.4.4.4, 5.5.5.5`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "4.4.4.4",
+		},
+		{
+			name: "Forwarded: leftmost not desirable",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope`, `4.4.4.4, 5.5.5.5`},
+					"Forwarded":       []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="2607:f8b0:4004:83f::18"`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "Fail: XFF: none acceptable",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope, ::, 0.0.0.0`, `192.168.1.1, !?!`},
+					"Forwarded":       []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="fe80::abcd%zone"`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: Forwarded: none acceptable",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope`, `192.168.1.1, 2.2.2.2`},
+					"Forwarded":       []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="::ffff:ac15:0006%zone",For="::",For=0.0.0.0`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: XFF: no header",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip": []string{`1.1.1.1`},
+					"Forwarded": []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="::ffff:ac15:0006%zone"`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: Forwarded: no header",
+			args: args{
+				headerName: "forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`64:ff9b::188.0.2.128, 3.3.3.3`, `4.4.4.4`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Error: empty header name",
+			args: args{
+				headerName: "",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: invalid header",
+			args: args{
+				headerName: "X-Real-IP",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
+	w := httptest.NewRecorder()
+	c := fox.NewTestContextOnly(fox.New(), w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s fox.ClientIPStrategy
+			if tt.wantErr {
+				require.Panics(t, func() {
+					s = NewLeftmostNonPrivateStrategy(tt.args.headerName)
+				})
+				return
+			}
+
+			s = NewLeftmostNonPrivateStrategy(tt.args.headerName)
+
+			c.Request().Header = tt.args.headers
+			c.Request().RemoteAddr = tt.args.remoteAddr
+			ipAddr, err := s.ClientIP(c)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
+func TestRightmostNonPrivateStrategy(t *testing.T) {
+	// Ensure the strategy interface is implemented
+	var _ fox.ClientIPStrategy = RightmostNonPrivateStrategy{}
+
+	type args struct {
+		headerName string
+		headers    http.Header
+		remoteAddr string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "IPv4 with port",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4:39333`},
+				},
+			},
+			want: "4.4.4.4",
+		},
+		{
+			name: "IPv4 with no port",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`For=5.5.5.5`, `For=6.6.6.6`},
+				},
+			},
+			want: "6.6.6.6",
+		},
+		{
+			name: "IPv6 with port",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`[2607:f8b0:4004:83f::18]:3838`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with no port",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`host=what;for=6.6.6.6;proto=https`, `Host=blah;For="2607:f8b0:4004:83f::18";Proto=https`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18",
+		},
+		{
+			name: "IPv6 with port and zone",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`host=what;for=6.6.6.6;proto=https`, `For="[2607:f8b0:4004:83f::18%eth0]:3393";Proto=https`, `Host=blah;For="[fe80::1111%zone]:9943";Proto=https`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18%eth0",
+		},
+		{
+			name: "IPv6 with port and zone, no quotes",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`host=what;for=6.6.6.6;proto=https`, `For="[2607:f8b0:4004:83f::18%eth0]:3393";Proto=https`, `Host=blah;For=[fe80::1111%zone]:9943;Proto=https`},
+				},
+			},
+			want: "2607:f8b0:4004:83f::18%eth0",
+		},
+		{
+			name: "IPv4-mapped IPv6",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`3.3.3.3`, `4.4.4.4, ::ffff:188.0.2.128`},
+					"Forwarded":       []string{`Host=blah;For="7.7.7.7";Proto=https`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "188.0.2.128",
+		},
+		{
+			name: "IPv4-mapped IPv6 with port",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`3.3.3.3`, `4.4.4.4,[::ffff:188.0.2.128]:48483`},
+					"Forwarded":       []string{`Host=blah;For="7.7.7.7";Proto=https`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "188.0.2.128",
+		},
+		{
+			name: "IPv4-mapped IPv6 in IPv6 (hex) form",
+			args: args{
+				headerName: "forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`[::ffff:188.0.2.128]:48483, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded":       []string{`host=what;for=6.6.6.6;proto=https`, `For="::ffff:bc15:0006"`},
+				},
+			},
+			want: "188.21.0.6",
+		},
+		{
+			name: "NAT64 IPv4-mapped IPv6",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`3.3.3.3`, `4.4.4.4, 64:ff9b::188.0.2.128`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "64:ff9b::bc00:280",
+		},
+		{
+			name: "XFF: rightmost not desirable",
+			args: args{
+				headerName: "x-forwarded-for",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, nope`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "5.5.5.5",
+		},
+		{
+			name: "Forwarded: rightmost not desirable",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope`, `4.4.4.4, 5.5.5.5`},
+					"Forwarded":       []string{`host=what;for=:48485;proto=https,For=2.2.2.2`, `For="", For="::ffff:192.168.1.1"`},
+				},
+			},
+			want: "2.2.2.2",
+		},
+		{
+			name: "Fail: XFF: none acceptable",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope`, `192.168.1.1, !?!, ::, 0.0.0.0`},
+					"Forwarded":       []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="fe80::abcd%zone"`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: Forwarded: none acceptable",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::1, nope`, `192.168.1.1, 2.2.2.2`},
+					"Forwarded":       []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="::ffff:ac15:0006%zone", For="::", For=0.0.0.0`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: XFF: no header",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip": []string{`1.1.1.1`},
+					"Forwarded": []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="::ffff:ac15:0006%zone"`},
+				},
+				remoteAddr: "9.9.9.9",
+			},
+			want: "",
+		},
+		{
+			name: "Fail: Forwarded: no header",
+			args: args{
+				headerName: "forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`64:ff9b::188.0.2.128, 3.3.3.3`, `4.4.4.4`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Error: empty header name",
+			args: args{
+				headerName: "",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: invalid header",
+			args: args{
+				headerName: "X-Real-IP",
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
+	w := httptest.NewRecorder()
+	c := fox.NewTestContextOnly(fox.New(), w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s fox.ClientIPStrategy
+			if tt.wantErr {
+				require.Panics(t, func() {
+					s = NewRightmostNonPrivateStrategy(tt.args.headerName)
+				})
+				return
+			}
+
+			s = NewRightmostNonPrivateStrategy(tt.args.headerName)
+
+			c.Request().Header = tt.args.headers
+			c.Request().RemoteAddr = tt.args.remoteAddr
+			ipAddr, err := s.ClientIP(c)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
+func TestRightmostTrustedCountStrategy(t *testing.T) {
+	// Ensure the strategy interface is implemented
+	var _ fox.ClientIPStrategy = RightmostTrustedCountStrategy{}
+
+	type args struct {
+		headerName   string
+		trustedCount int
+		headers      http.Header
+		remoteAddr   string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		// TODO: Is it okay not to test every IP type, since the logic is sufficiently similar to RightmostNonPrivateStrategy?
+
+		{
+			name: "Count one",
+			args: args{
+				headerName:   "Forwarded",
+				trustedCount: 1,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, fe80::382b:141b:fa4a:2a16%28`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "6.6.6.6",
+		},
+		{
+			name: "Count five",
+			args: args{
+				headerName:   "X-Forwarded-For",
+				trustedCount: 5,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, fe80::382b:141b:fa4a:2a16%28`, `7.7.7.7.7, 8.8.8.8, 9.9.9.9, 10.10.10.10,11.11.11.11, 12.12.12.12`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "8.8.8.8",
+		},
+		{
+			name: "Fail: header too short/count too large",
+			args: args{
+				headerName:   "X-Forwarded-For",
+				trustedCount: 50,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, fe80::382b:141b:fa4a:2a16%28`, `7.7.7.7.7, 8.8.8.8, 9.9.9.9, 10.10.10.10,11.11.11.11, 12.12.12.12`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: bad value at count index",
+			args: args{
+				headerName:   "Forwarded",
+				trustedCount: 2,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, fe80::382b:141b:fa4a:2a16%28`, `7.7.7.7.7, 8.8.8.8, 9.9.9.9, 10.10.10.10,11.11.11.11, 12.12.12.12`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `For=nope`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: zero value at count index",
+			args: args{
+				headerName:   "Forwarded",
+				trustedCount: 2,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, fe80::382b:141b:fa4a:2a16%28`, `7.7.7.7.7, 8.8.8.8, 9.9.9.9, 10.10.10.10,11.11.11.11, 12.12.12.12`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `For=0.0.0.0`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: header missing",
+			args: args{
+				headerName:   "Forwarded",
+				trustedCount: 1,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, fe80::382b:141b:fa4a:2a16%28`, `7.7.7.7.7, 8.8.8.8, 9.9.9.9, 10.10.10.10,11.11.11.11, 12.12.12.12`},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Error: empty header name",
+			args: args{
+				headerName:   "",
+				trustedCount: 1,
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: invalid header",
+			args: args{
+				headerName:   "X-Real-IP",
+				trustedCount: 1,
+				headers: http.Header{
+					"X-Real-Ip":       []string{"::1"},
+					"True-Client-Ip":  []string{"2.2.2.2"},
+					"X-Forwarded-For": []string{"3.3.3.3"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: zero trustedCount",
+			args: args{
+				headerName:   "x-forwarded-for",
+				trustedCount: 0,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, nope`, `fe80::382b:141b:fa4a:2a16%28`},
+					"Forwarded":       []string{`For="::ffff:bc15:0006"`, `host=what;for=6.6.6.6;proto=https`},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: negative trustedCount",
+			args: args{
+				headerName:   "X-Forwarded-For",
+				trustedCount: -999,
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4:39333`},
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
+	w := httptest.NewRecorder()
+	c := fox.NewTestContextOnly(fox.New(), w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s fox.ClientIPStrategy
+			if tt.wantErr {
+				require.Panics(t, func() {
+					s = NewRightmostTrustedCountStrategy(tt.args.headerName, tt.args.trustedCount)
+				})
+				return
+			}
+
+			s = NewRightmostTrustedCountStrategy(tt.args.headerName, tt.args.trustedCount)
+
+			c.Request().Header = tt.args.headers
+			c.Request().RemoteAddr = tt.args.remoteAddr
+			ipAddr, err := s.ClientIP(c)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
+func TestRightmostTrustedRangeStrategy(t *testing.T) {
+	// Ensure the strategy interface is implemented
+	var _ fox.ClientIPStrategy = RightmostTrustedRangeStrategy{}
+
+	type args struct {
+		headerName    string
+		headers       http.Header
+		remoteAddr    string
+		trustedRanges []string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "No ranges",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+				},
+				trustedRanges: nil,
+			},
+			want: "4.4.4.4",
+		},
+		{
+			name: "One range",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+				},
+				trustedRanges: []string{`4.4.4.0/24`},
+			},
+			want: "3.3.3.3",
+		},
+		{
+			name: "One IP",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+				},
+				trustedRanges: []string{`4.4.4.4`},
+			},
+			want: "3.3.3.3",
+		},
+		{
+			name: "Many kinds of ranges",
+			args: args{
+				headerName: "Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+					"Forwarded": []string{
+						`For=99.99.99.99, For=4.4.4.8, For="[2607:f8b0:4004:83f::200e]:4747"`,
+						`For=2.2.2.2:8883, For=64:ff9b::188.0.2.200, For=3.3.5.5, For=2001:db7::abcd`,
+					},
+				},
+				trustedRanges: []string{
+					`2.2.2.2/32`, `2607:f8b0:4004:83f::200e/128`,
+					`3.3.0.0/16`, `2001:db7::/64`,
+					`::ffff:4.4.4.4/124`, `64:ff9b::188.0.2.128/112`,
+				},
+			},
+			want: "99.99.99.99",
+		},
+		{
+			name: "Cloudflare ranges",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`, `2400:cb00::1`},
+				},
+				trustedRanges: []string{
+					"173.245.48.0/20",
+					"103.21.244.0/22",
+					"103.22.200.0/22",
+					"103.31.4.0/22",
+					"141.101.64.0/18",
+					"108.162.192.0/18",
+					"190.93.240.0/20",
+					"188.114.96.0/20",
+					"197.234.240.0/22",
+					"198.41.128.0/17",
+					"162.158.0.0/15",
+					"104.16.0.0/13",
+					"104.24.0.0/14",
+					"172.64.0.0/13",
+					"131.0.72.0/22",
+					"2400:cb00::/32",
+					"2606:4700::/32",
+					"2803:f800::/32",
+					"2405:b500::/32",
+					"2405:8100::/32",
+					"2a06:98c0::/29",
+					"2c0f:f248::/32",
+				},
+			},
+			want: "4.4.4.4",
+		},
+		{
+			name: "Fail: no non-trusted IP",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 2.2.2.3`, `2.2.2.4`},
+				},
+				trustedRanges: []string{`2.2.2.0/24`},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: rightmost non-trusted IP invalid",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`nope, 2.2.2.2:3384, 2.2.2.3`, `2.2.2.4`},
+				},
+				trustedRanges: []string{`2.2.2.0/24`},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: rightmost non-trusted IP unspecified",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`::, 2.2.2.2:3384, 2.2.2.3`, `2.2.2.4`},
+				},
+				trustedRanges: []string{`2.2.2.0/24`},
+			},
+			want: "",
+		},
+		{
+			name: "Fail: no values in header",
+			args: args{
+				headerName: "X-Forwarded-For",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{}},
+				trustedRanges: []string{`2.2.2.0/24`},
+			},
+			want: "",
+		},
+		{
+			name: "Error: empty header nanme",
+			args: args{
+				headerName: "",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+				},
+				trustedRanges: nil,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Error: bad header nanme",
+			args: args{
+				headerName: "Not-XFF-Or-Forwarded",
+				headers: http.Header{
+					"X-Real-Ip":       []string{`1.1.1.1`},
+					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
+				},
+				trustedRanges: nil,
+			},
+			wantErr: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
+	w := httptest.NewRecorder()
+	c := fox.NewTestContextOnly(fox.New(), w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			ranges, err := AddressesAndRangesToIPNets(tt.args.trustedRanges...)
+			if err != nil {
+				// We're not testing AddressesAndRangesToIPNets here
+				t.Fatalf("AddressesAndRangesToIPNets failed")
+			}
+
+			var s fox.ClientIPStrategy
+			if tt.wantErr {
+				require.Panics(t, func() {
+					s = NewRightmostTrustedRangeStrategy(tt.args.headerName, ranges)
+				})
+				return
+			}
+
+			s = NewRightmostTrustedRangeStrategy(tt.args.headerName, ranges)
+
+			c.Request().Header = tt.args.headers
+			c.Request().RemoteAddr = tt.args.remoteAddr
+			ipAddr, err := s.ClientIP(c)
+			if tt.want == "" {
+				require.Error(t, err)
+				return
+			}
+			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
 func ipAddrsEqual(a, b net.IPAddr) bool {
 	return a.IP.Equal(b.IP) && a.Zone == b.Zone
 }
