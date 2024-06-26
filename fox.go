@@ -479,13 +479,6 @@ type searchResult struct {
 	depth                   uint32
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func commonPrefix(k1, k2 string) string {
 	minLength := min(len(k1), len(k2))
 	for i := 0; i < minLength; i++ {
