@@ -522,7 +522,6 @@ f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
 
 It is also possible to create a chain with multiple strategies that attempt to derive the client IP, stopping when the first one succeeds.
 
-See this [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) for general guidance on choosing a strategy that fit your needs.
 ````go
 f := fox.New(
     fox.DefaultOptions(),
@@ -536,6 +535,7 @@ f := fox.New(
 
 Note that there is no "sane" default strategy, so calling `Context.ClientIP` without a strategy configured will return an `ErrNoClientIPStrategy`.
 
+See this [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) for general guidance on choosing a strategy that fit your needs.
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.
 The following benchmarks attempt to compare Fox to various popular alternatives, including both fully-featured web frameworks
