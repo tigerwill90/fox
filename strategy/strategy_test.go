@@ -1,4 +1,4 @@
-package clientip
+package strategy
 
 import (
 	"github.com/stretchr/testify/assert"
@@ -46,14 +46,14 @@ func TestRemoteAddrStrategy_ClientIP(t *testing.T) {
 			wantErr:  ErrInvalidIpAddress,
 		},
 		{
-			// This is for coverage. It should not be possible for RemoteAddrStrategy.
+			// This is for coverage. It should not be possible for RemoteAddr.
 			name:     "should return an an unspecified ip address error",
 			remoteIP: "0.0.0.0",
 			wantErr:  ErrUnspecifiedIpAddress,
 		},
 	}
 
-	s := NewRemoteAddrStrategy()
+	s := NewRemoteAddr()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c.Request().RemoteAddr = tc.remoteIP
@@ -78,14 +78,14 @@ func TestSingleIPHeaderStrategy_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
 
-	s := NewSingleIPHeaderStrategy("X-Real-IP")
+	s := NewSingleIPHeader("X-Real-IP")
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "5.5.5.5", ipAddr.String())
 
 	c.Request().Header.Del("X-Real-IP")
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrSingleIPHeaderStrategy)
+	assert.ErrorIs(t, err, ErrSingleIPHeader)
 }
 
 func TestLeftmostNonPrivateStrategy_ClientIP(t *testing.T) {
@@ -95,7 +95,7 @@ func TestLeftmostNonPrivateStrategy_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
 
-	s := NewLeftmostNonPrivateStrategy("Forwarded")
+	s := NewLeftmostNonPrivate("Forwarded")
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "188.0.2.128", ipAddr.String())
@@ -103,7 +103,7 @@ func TestLeftmostNonPrivateStrategy_ClientIP(t *testing.T) {
 	// Only private IP address
 	req.Header.Set("Forwarded", `for=192.168.1.1, for=10.0.0.1, for="[fd00::1]", for=172.16.0.1`)
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrLeftmostNonPrivateStrategy)
+	assert.ErrorIs(t, err, ErrLeftmostNonPrivate)
 }
 
 func TestRightmostNonPrivateStrategy_ClientIP(t *testing.T) {
@@ -112,7 +112,7 @@ func TestRightmostNonPrivateStrategy_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
-	s := NewRightmostNonPrivateStrategy("X-Forwarded-For")
+	s := NewRightmostNonPrivate("X-Forwarded-For")
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "3.3.3.3", ipAddr.String())
@@ -126,7 +126,7 @@ func TestRightmostNonPrivateStrategy_ClientIP(t *testing.T) {
 	// Only private IP
 	req.Header.Set("X-Forwarded-For", "192.168.1.1, 10.0.0.1, [fd00::1], 172.16.0.1")
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrRightmostNonPrivateStrategy)
+	assert.ErrorIs(t, err, ErrRightmostNonPrivate)
 }
 
 func TestRightmostTrustedCountStrategy_ClientIP(t *testing.T) {
@@ -135,19 +135,19 @@ func TestRightmostTrustedCountStrategy_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
-	s := NewRightmostTrustedCountStrategy("Forwarded", 2)
+	s := NewRightmostTrustedCount("Forwarded", 2)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "2001:db8:cafe::17", ipAddr.String())
 
 	req.Header.Set("Forwarded", `For=fc00::1`)
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrRightmostTrustedCountStrategy)
+	assert.ErrorIs(t, err, ErrRightmostTrustedCount)
 	assert.ErrorContains(t, err, "expected 2 IP(s) but found 1")
 
 	req.Header.Set("Forwarded", `For=fe80::abcd;By=fe80::1234, Proto=https;For=::ffff:188.0.2.128, For="invalid", For=fc00::1`)
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrRightmostTrustedCountStrategy)
+	assert.ErrorIs(t, err, ErrRightmostTrustedCount)
 	assert.ErrorContains(t, err, "invalid IP address from the first trusted proxy")
 }
 
@@ -158,7 +158,7 @@ func TestRightmostTrustedRangeStrategy_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
 	trustedRanges, _ := AddressesAndRangesToIPNets([]string{"192.168.0.0/16", "3.3.3.3"}...)
-	s := NewRightmostTrustedRangeStrategy("X-Forwarded-For", trustedRanges)
+	s := NewRightmostTrustedRange("X-Forwarded-For", trustedRanges)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "2001:db8:cafe::99%eth0", ipAddr.String())
@@ -166,12 +166,12 @@ func TestRightmostTrustedRangeStrategy_ClientIP(t *testing.T) {
 	// Invalid IP
 	req.Header.Set("X-Forwarded-For", "1.1.1.1, invalid, 3.3.3.3, 192.168.1.1")
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrRightmostTrustedRangeStrategy)
+	assert.ErrorIs(t, err, ErrRightmostTrustedRange)
 	assert.ErrorContains(t, err, "unable to find a valid IP address")
 
 	req.Header.Set("X-Forwarded-For", "192.168.1.2, 3.3.3.3, 192.168.1.1")
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrRightmostTrustedRangeStrategy)
+	assert.ErrorIs(t, err, ErrRightmostTrustedRange)
 	assert.ErrorContains(t, err, "unable to find a valid IP address")
 }
 
@@ -182,9 +182,9 @@ func TestChainStrategy_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
-	s := NewChainStrategy(
-		NewSingleIPHeaderStrategy("Cf-Connecting-IP"),
-		NewRemoteAddrStrategy(),
+	s := NewChain(
+		NewSingleIPHeader("Cf-Connecting-IP"),
+		NewRemoteAddr(),
 	)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
@@ -193,8 +193,8 @@ func TestChainStrategy_ClientIP(t *testing.T) {
 	// Invalid remote ip
 	req.RemoteAddr = " @"
 	_, err = s.ClientIP(c)
-	assert.ErrorIs(t, err, ErrSingleIPHeaderStrategy)
-	assert.ErrorIs(t, err, ErrRemoteAddressStrategy)
+	assert.ErrorIs(t, err, ErrSingleIPHeader)
+	assert.ErrorIs(t, err, ErrRemoteAddress)
 	assert.ErrorIs(t, err, ErrInvalidIpAddress)
 	assert.ErrorContains(t, err, "header \"Cf-Connecting-Ip\" not found")
 }
@@ -769,7 +769,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 
 func TestRemoteAddrStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
-	var _ fox.ClientIPStrategy = RemoteAddrStrategy{}
+	var _ fox.ClientIPStrategy = RemoteAddr{}
 
 	type args struct {
 		headers    http.Header
@@ -921,7 +921,7 @@ func TestRemoteAddrStrategy(t *testing.T) {
 	c := fox.NewTestContextOnly(fox.New(), w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := RemoteAddrStrategy{}
+			s := RemoteAddr{}
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
 			ipAddr, err := s.ClientIP(c)
@@ -937,7 +937,7 @@ func TestRemoteAddrStrategy(t *testing.T) {
 
 func TestSingleIPHeaderStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
-	var _ fox.ClientIPStrategy = SingleIPHeaderStrategy{}
+	var _ fox.ClientIPStrategy = SingleIPHeader{}
 
 	type args struct {
 		headerName string
@@ -1135,12 +1135,12 @@ func TestSingleIPHeaderStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewSingleIPHeaderStrategy(tt.args.headerName)
+					s = NewSingleIPHeader(tt.args.headerName)
 				})
 				return
 			}
 
-			s = NewSingleIPHeaderStrategy(tt.args.headerName)
+			s = NewSingleIPHeader(tt.args.headerName)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1156,7 +1156,7 @@ func TestSingleIPHeaderStrategy(t *testing.T) {
 
 func TestLeftmostNonPrivateStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
-	var _ fox.ClientIPStrategy = LeftmostNonPrivateStrategy{}
+	var _ fox.ClientIPStrategy = LeftmostNonPrivate{}
 
 	type args struct {
 		headerName string
@@ -1389,12 +1389,12 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewLeftmostNonPrivateStrategy(tt.args.headerName)
+					s = NewLeftmostNonPrivate(tt.args.headerName)
 				})
 				return
 			}
 
-			s = NewLeftmostNonPrivateStrategy(tt.args.headerName)
+			s = NewLeftmostNonPrivate(tt.args.headerName)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1410,7 +1410,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 
 func TestRightmostNonPrivateStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
-	var _ fox.ClientIPStrategy = RightmostNonPrivateStrategy{}
+	var _ fox.ClientIPStrategy = RightmostNonPrivate{}
 
 	type args struct {
 		headerName string
@@ -1644,12 +1644,12 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewRightmostNonPrivateStrategy(tt.args.headerName)
+					s = NewRightmostNonPrivate(tt.args.headerName)
 				})
 				return
 			}
 
-			s = NewRightmostNonPrivateStrategy(tt.args.headerName)
+			s = NewRightmostNonPrivate(tt.args.headerName)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1665,7 +1665,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 
 func TestRightmostTrustedCountStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
-	var _ fox.ClientIPStrategy = RightmostTrustedCountStrategy{}
+	var _ fox.ClientIPStrategy = RightmostTrustedCount{}
 
 	type args struct {
 		headerName   string
@@ -1679,8 +1679,6 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		// TODO: Is it okay not to test every IP type, since the logic is sufficiently similar to RightmostNonPrivateStrategy?
-
 		{
 			name: "Count one",
 			args: args{
@@ -1817,12 +1815,12 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewRightmostTrustedCountStrategy(tt.args.headerName, tt.args.trustedCount)
+					s = NewRightmostTrustedCount(tt.args.headerName, tt.args.trustedCount)
 				})
 				return
 			}
 
-			s = NewRightmostTrustedCountStrategy(tt.args.headerName, tt.args.trustedCount)
+			s = NewRightmostTrustedCount(tt.args.headerName, tt.args.trustedCount)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1838,7 +1836,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 
 func TestRightmostTrustedRangeStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
-	var _ fox.ClientIPStrategy = RightmostTrustedRangeStrategy{}
+	var _ fox.ClientIPStrategy = RightmostTrustedRange{}
 
 	type args struct {
 		headerName    string
@@ -2031,12 +2029,12 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewRightmostTrustedRangeStrategy(tt.args.headerName, ranges)
+					s = NewRightmostTrustedRange(tt.args.headerName, ranges)
 				})
 				return
 			}
 
-			s = NewRightmostTrustedRangeStrategy(tt.args.headerName, ranges)
+			s = NewRightmostTrustedRange(tt.args.headerName, ranges)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr

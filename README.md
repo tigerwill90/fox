@@ -497,25 +497,25 @@ The strategy used must be chosen and tuned for your network configuration. This 
 an error and if it does, it should be treated as an application issue or a misconfiguration, rather than defaulting to an 
 untrustworthy IP.
 
-The sub-package `github.com/tigerwill90/fox/clientip` provides a set of best practices strategies that should cover most use cases.
+The sub-package `github.com/tigerwill90/fox/strategy` provides a set of best practices strategies that should cover most use cases.
 
 ````go
 f := fox.New(
     fox.DefaultOptions(),
-    // We are behind one or many trusted proxies that have all private-space IP addresses.
     fox.WithClientIPStrategy(
-        clientip.NewRightmostNonPrivateStrategy(fox.HeaderXForwardedFor), 
+        // We are behind one or many trusted proxies that have all private-space IP addresses.
+        strategy.NewRightmostNonPrivate(fox.HeaderXForwardedFor),
     ),
 )
 
 f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
     ipAddr, err := c.ClientIP()
-    if err != nil {
-        // If the current strategy is not able to derive the client IP, an error 
-		// will be returned rather than falling back on an untrustworthy IP. It 
-		// should be treated as an application issue or a misconfiguration.
-        panic(err)
-    }
+        if err != nil {
+            // If the current strategy is not able to derive the client IP, an error
+            // will be returned rather than falling back on an untrustworthy IP. It
+            // should be treated as an application issue or a misconfiguration.
+            panic(err)
+        }
     fmt.Println(ipAddr.String())
 })
 ````
@@ -525,10 +525,9 @@ It is also possible to create a chain with multiple strategies that attempt to d
 ````go
 f := fox.New(
     fox.DefaultOptions(),
-    // A common use for this is if a server is both directly connected to the internet and expecting a header to check.
-    fox.WithClientIPStrategy(clientip.NewChainStrategy(
-        clientip.NewLeftmostNonPrivateStrategy(fox.HeaderXForwardedFor),
-        clientip.NewRemoteAddrStrategy(),
+    fox.WithClientIPStrategy(strategy.NewChain(
+        strategy.NewLeftmostNonPrivate(fox.HeaderXForwardedFor),
+        strategy.NewRemoteAddr(),
     )),
 )
 ````

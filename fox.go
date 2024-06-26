@@ -49,7 +49,7 @@ type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 // chosen and tuned for your network configuration. This should result in the strategy never returning an error
 // i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
 // an application error, perhaps even worthy of panicking. Builtin best practices strategies can be found in the
-// github.com/tigerwill90/fox/clientip package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
+// github.com/tigerwill90/fox/strategy package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
 // how to choose the right strategy for your use-case and network.
 type ClientIPStrategy interface {
 	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
@@ -709,6 +709,6 @@ func htmlEscape(s string) string {
 
 type noClientIPStrategy struct{}
 
-func (s noClientIPStrategy) ClientIP(c Context) (*net.IPAddr, error) {
+func (s noClientIPStrategy) ClientIP(_ Context) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPStrategy
 }
