@@ -29,7 +29,8 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          flags: coverage.txt
+          files: ./coverage.txt
+          token: ${{ secrets.CODECOV_TOKEN }}
   lint:
     name: Lint Fox
     runs-on: ubuntu-latest
