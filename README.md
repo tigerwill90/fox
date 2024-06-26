@@ -674,9 +674,7 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 - [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
 - [x] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
 - [x] [Route overlapping (catch-all and params)](https://github.com/tigerwill90/fox/pull/24#issue-1784686061) @v0.10.0
-- [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32) @v0.14.0
-- [x] [Builtin Logger Middleware](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
-- [x] [Client IP Derivation](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
+- [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32), [Builtin Logger Middleware](https://github.com/tigerwill90/fox/pull/33), [Client IP Derivation](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
 - [ ] Improving performance and polishing
 
 ## Contributions
