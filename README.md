@@ -487,7 +487,7 @@ f := fox.New(
 ````
 
 ## Client IP Derivation
-The `WithClientIPStrategy` setting allows you to set up strategies to resolve the client IP address based on your 
+The `WithClientIPStrategy` option allows you to set up strategies to resolve the client IP address based on your 
 use case and network topology. Accurately determining the client IP is hard, particularly in environments with proxies or 
 load balancers. For example, the leftmost IP in the `X-Forwarded-For` header is commonly used and is often regarded as the 
 "closest to the client" and "most real," but it can be easily spoofed. Therefore, you should absolutely avoid using it 
