@@ -104,7 +104,7 @@ func (t *Tree) Has(method, path string) bool {
 		return false
 	}
 
-	c := t.ctx.Get().(*context)
+	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
@@ -126,7 +126,7 @@ func (t *Tree) Match(method, path string) string {
 		return ""
 	}
 
-	c := t.ctx.Get().(*context)
+	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
 	c.Close()
@@ -156,7 +156,7 @@ func (t *Tree) Methods(path string) []string {
 			}
 		}
 	} else {
-		c := t.ctx.Get().(*context)
+		c := t.ctx.Get().(*cTx)
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
@@ -177,12 +177,11 @@ func (t *Tree) Methods(path string) []string {
 // Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a
 // ContextCloser, and a boolean indicating if the handler was matched by adding or removing a trailing slash
 // (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
-// intended for integrating the fox router into custom routing solutions or middleware. It requires the use of the original
-// http.ResponseWriter, typically obtained from ServeHTTP. This function is safe for concurrent use by multiple goroutine
-// and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible, Lookup always return a
-// HandlerFunc and a ContextCloser.
+// intended for integrating the fox router into custom routing solutions or middleware. This function is safe for concurrent
+// use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,
+// Lookup always return a HandlerFunc and a ContextCloser.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(r.Method, nds)
 
@@ -190,7 +189,7 @@ func (t *Tree) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFu
 		return
 	}
 
-	c := t.ctx.Get().(*context)
+	c := t.ctx.Get().(*cTx)
 	c.Reset(w, r)
 
 	target := r.URL.Path
@@ -804,15 +803,17 @@ STOP:
 	}
 }
 
-func (t *Tree) allocateContext() *context {
+func (t *Tree) allocateContext() *cTx {
 	params := make(Params, 0, t.maxParams.Load())
 	skipNds := make(skippedNodes, 0, t.maxDepth.Load())
-	return &context{
+	return &cTx{
 		params:  &params,
 		skipNds: &skipNds,
 		// This is a read only value, no reset, it's always the
 		// owner of the pool.
 		tree: t,
+		// This is a read only value, no reset.
+		fox: t.fox,
 	}
 }
 

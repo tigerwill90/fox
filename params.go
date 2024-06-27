@@ -4,7 +4,7 @@
 
 package fox
 
-import netcontext "context"
+import "context"
 
 type ctxKey struct{}
 
@@ -46,9 +46,9 @@ func (p Params) Clone() Params {
 	return cloned
 }
 
-// ParamsFromContext is a helper to retrieve params from context when a http.Handler
+// ParamsFromContext is a helper to retrieve params from context.Context when a http.Handler
 // is registered using WrapF or WrapH.
-func ParamsFromContext(ctx netcontext.Context) Params {
+func ParamsFromContext(ctx context.Context) Params {
 	p, _ := ctx.Value(paramsKey).(Params)
 	return p
 }

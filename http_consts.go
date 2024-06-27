@@ -36,6 +36,7 @@ const (
 	// See RFC 7231: https://datatracker.ietf.org/doc/html/rfc7231#section-7.4.1
 	HeaderAllow               = "Allow"
 	HeaderAuthorization       = "Authorization"
+	HeaderProxyAuthorization  = "Proxy-Authorization"
 	HeaderContentDisposition  = "Content-Disposition"
 	HeaderContentEncoding     = "Content-Encoding"
 	HeaderContentLength       = "Content-Length"
@@ -50,12 +51,13 @@ const (
 	HeaderVary                = "Vary"
 	HeaderWWWAuthenticate     = "WWW-Authenticate"
 	HeaderXForwardedFor       = "X-Forwarded-For"
+	HeaderForwarded           = "Forwarded"
 	HeaderXForwardedProto     = "X-Forwarded-Proto"
 	HeaderXForwardedProtocol  = "X-Forwarded-Protocol"
 	HeaderXForwardedSsl       = "X-Forwarded-Ssl"
+	HeaderXRealIP             = "X-Real-Ip"
 	HeaderXUrlScheme          = "X-Url-Scheme"
 	HeaderXHTTPMethodOverride = "X-HTTP-Method-Override"
-	HeaderXRealIP             = "X-Real-Ip"
 	HeaderXRequestID          = "X-Request-Id"
 	HeaderXCorrelationID      = "X-Correlation-Id"
 	HeaderXRequestedWith      = "X-Requested-With"
@@ -85,4 +87,16 @@ const (
 	// nolint:gosec
 	HeaderXCSRFToken     = "X-CSRF-Token"
 	HeaderReferrerPolicy = "Referrer-Policy"
+
+	// Platform Header for single IP
+	HeaderCFConnectionIP       = "CF-Connecting-IP"
+	HeaderTrueClientIP         = "True-Client-IP"
+	HeaderFastClientIP         = "Fastly-Client-IP"
+	HeaderXAzureClientIP       = "X-Azure-ClientIP"
+	HeaderXAzureSocketIP       = "X-Azure-SocketIP"
+	HeaderXAppengineRemoteAddr = "X-Appengine-Remote-Addr"
+	HeaderFlyClientIP          = "Fly-Client-IP"
 )
+
+// nolint:gosec
+var blacklistedHeader = []string{HeaderAuthorization, HeaderProxyAuthorization, "X-Vault-Token", HeaderCookie, HeaderSetCookie, HeaderXCSRFToken}

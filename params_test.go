@@ -5,7 +5,7 @@
 package fox
 
 import (
-	netcontext "context"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,17 +67,17 @@ func TestParamsFromContext(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		ctx            netcontext.Context
+		ctx            context.Context
 		expectedParams Params
 	}{
 		{
 			name:           "empty context",
-			ctx:            netcontext.Background(),
+			ctx:            context.Background(),
 			expectedParams: nil,
 		},
 		{
 			name: "context with params",
-			ctx: func() netcontext.Context {
+			ctx: func() context.Context {
 				params := make(Params, 0, 2)
 				params = append(params,
 					Param{
@@ -85,7 +85,7 @@ func TestParamsFromContext(t *testing.T) {
 						Value: "bar",
 					},
 				)
-				return netcontext.WithValue(netcontext.Background(), paramsKey, params)
+				return context.WithValue(context.Background(), paramsKey, params)
 			}(),
 			expectedParams: func() Params {
 				params := make(Params, 0, 2)

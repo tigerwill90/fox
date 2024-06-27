@@ -7,6 +7,7 @@ package fox
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path"
 	"regexp"
@@ -44,6 +45,28 @@ type HandlerFunc func(c Context)
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
+// ClientIPStrategy define a strategy for obtaining the "real" client IP from HTTP requests. The strategy used must be
+// chosen and tuned for your network configuration. This should result in the strategy never returning an error
+// i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
+// an application error, perhaps even worthy of panicking. Builtin best practices strategies can be found in the
+// github.com/tigerwill90/fox/strategy package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
+// how to choose the right strategy for your use-case and network.
+type ClientIPStrategy interface {
+	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
+	// address can be derived using the strategy. This is typically considered a misconfiguration error, unless the strategy
+	// involves obtaining an untrustworthy or optional value.
+	ClientIP(c Context) (*net.IPAddr, error)
+}
+
+// The ClientIPStrategyFunc type is an adapter to allow the use of ordinary functions as ClientIPStrategy. If f is a function
+// with the appropriate signature, ClientIPStrategyFunc(f) is a ClientIPStrategyFunc that calls f.
+type ClientIPStrategyFunc func(c Context) (*net.IPAddr, error)
+
+// ClientIP calls f(c).
+func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
+	return f(c)
+}
+
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
@@ -52,6 +75,7 @@ type Router struct {
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
 	tree                   atomic.Pointer[Tree]
+	ipStrategy             ClientIPStrategy
 	mws                    []middleware
 	handleMethodNotAllowed bool
 	handleOptions          bool
@@ -73,6 +97,7 @@ func New(opts ...Option) *Router {
 	r.noRoute = DefaultNotFoundHandler()
 	r.noMethod = DefaultMethodNotAllowedHandler()
 	r.autoOptions = DefaultOptionsHandler()
+	r.ipStrategy = noClientIPStrategy{}
 
 	for _, opt := range opts {
 		opt.apply(r)
@@ -113,6 +138,13 @@ func (fox *Router) RedirectTrailingSlashEnabled() bool {
 // This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 	return fox.ignoreTrailingSlash
+}
+
+// ClientIPStrategyEnabled returns whether the router is configured with a ClientIPStrategy.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) ClientIPStrategyEnabled() bool {
+	_, ok := fox.ipStrategy.(noClientIPStrategy)
+	return !ok
 }
 
 // NewTree returns a fresh routing Tree that inherits all registered router options. It's safe to create multiple Tree
@@ -202,7 +234,7 @@ func (fox *Router) Remove(method, path string) error {
 // and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always
 // be closed if non-nil.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Lookup(w http.ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
 	return tree.Lookup(w, r)
 }
@@ -300,8 +332,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tree := fox.tree.Load()
-	c := tree.ctx.Get().(*context)
-	c.Reset(w, r)
+	c := tree.ctx.Get().(*cTx)
+	c.reset(w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
@@ -372,7 +404,7 @@ NoMethodFallback:
 		if sb.Len() > 0 {
 			sb.WriteString(", ")
 			sb.WriteString(http.MethodOptions)
-			w.Header().Set("Allow", sb.String())
+			w.Header().Set(HeaderAllow, sb.String())
 			fox.autoOptions(c)
 			c.Close()
 			return
@@ -390,7 +422,7 @@ NoMethodFallback:
 			}
 		}
 		if sb.Len() > 0 {
-			w.Header().Set("Allow", sb.String())
+			w.Header().Set(HeaderAllow, sb.String())
 			fox.noMethod(c)
 			c.Close()
 			return
@@ -450,13 +482,6 @@ type searchResult struct {
 	charsMatched            int
 	charsMatchedInNodeFound int
 	depth                   uint32
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func commonPrefix(k1, k2 string) string {
@@ -638,20 +663,6 @@ func localRedirect(w http.ResponseWriter, r *http.Request, path string, code int
 	}
 }
 
-// grow increases the slice's capacity, if necessary, to guarantee space for
-// another n elements. After Grow(n), at least n elements can be appended
-// to the slice without another allocation. If n is negative or too large to
-// allocate the memory, Grow panics.
-func grow[S ~[]E, E any](s S, n int) S {
-	if n < 0 {
-		panic("cannot be negative")
-	}
-	if n -= cap(s) - len(s); n > 0 {
-		s = append(s[:cap(s)], make([]E, n)...)[:len(s)]
-	}
-	return s
-}
-
 func hexEscapeNonASCII(s string) string {
 	newLen := 0
 	for i := 0; i < len(s); i++ {
@@ -694,4 +705,10 @@ var htmlReplacer = strings.NewReplacer(
 
 func htmlEscape(s string) string {
 	return htmlReplacer.Replace(s)
+}
+
+type noClientIPStrategy struct{}
+
+func (s noClientIPStrategy) ClientIP(_ Context) (*net.IPAddr, error) {
+	return nil, ErrNoClientIPStrategy
 }

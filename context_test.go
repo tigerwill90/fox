@@ -6,7 +6,6 @@ package fox
 
 import (
 	"bytes"
-	netcontext "context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -124,17 +123,6 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Nil(t, cc.cachedQuery)
 }
 
-func TestContext_Ctx(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	ctx, cancel := netcontext.WithCancel(netcontext.Background())
-	cancel()
-	req = req.WithContext(ctx)
-	_, c := NewTestContext(httptest.NewRecorder(), req)
-	<-c.Ctx().Done()
-	require.ErrorIs(t, c.Request().Context().Err(), netcontext.Canceled)
-}
-
 func TestContext_Redirect(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
@@ -158,6 +146,29 @@ func TestContext_Blob(t *testing.T) {
 	assert.Equal(t, buf, w.Body.Bytes())
 	assert.Equal(t, len(buf), c.Writer().Size())
 	assert.True(t, c.Writer().Written())
+}
+
+func TestContext_RemoteIP(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	r.RemoteAddr = "192.0.2.1:8080"
+	_, c := NewTestContext(w, r)
+	assert.Equal(t, "192.0.2.1", c.RemoteIP().String())
+
+	r.RemoteAddr = "[::1]:80"
+	_, c = NewTestContext(w, r)
+	assert.Equal(t, "::1", c.RemoteIP().String())
+}
+
+func TestContext_ClientIP(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	r.RemoteAddr = "192.0.2.1:8080"
+	c := NewTestContextOnly(New(), w, r)
+	_, err := c.ClientIP()
+	assert.ErrorIs(t, err, ErrNoClientIPStrategy)
 }
 
 func TestContext_Stream(t *testing.T) {
@@ -303,7 +314,7 @@ func TestWrapF(t *testing.T) {
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.Clone()
-				c.(*context).params = &params
+				c.(*cTx).params = &params
 			}
 
 			WrapF(tc.handler(params))(c)
@@ -363,7 +374,7 @@ func TestWrapH(t *testing.T) {
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.Clone()
-				c.(*context).params = &params
+				c.(*cTx).params = &params
 			}
 
 			WrapH(tc.handler(params))(c)

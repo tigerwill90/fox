@@ -21,25 +21,32 @@ func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Con
 	return newTextContextOnly(fox, w, r)
 }
 
-func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *context {
+func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cTx {
 	c := fox.Tree().allocateContext()
 	c.resetNil()
-	c.fox = fox
 	c.req = r
 	c.rec.reset(w)
 	c.w = &c.rec
 	return c
 }
 
-func newTestContextTree(t *Tree) *context {
+func newTestContextTree(t *Tree) *cTx {
 	c := t.allocateContext()
 	c.resetNil()
 	return c
 }
 
-func unwrapContext(t *testing.T, c Context) *context {
+func newResponseWriter(w http.ResponseWriter) ResponseWriter {
+	return &recorder{
+		ResponseWriter: w,
+		size:           notWritten,
+		status:         http.StatusOK,
+	}
+}
+
+func unwrapContext(t *testing.T, c Context) *cTx {
 	t.Helper()
-	cc, ok := c.(*context)
+	cc, ok := c.(*cTx)
 	if !ok {
 		t.Fatal("unable to unwrap context")
 	}
