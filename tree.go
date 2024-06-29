@@ -106,7 +106,7 @@ func (t *Tree) Has(method, path string) bool {
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
 	if n != nil && !tsr {
 		return n.path == path
@@ -128,7 +128,7 @@ func (t *Tree) Match(method, path string) string {
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c.params, c.skipNds, true)
+	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
 	if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
 		return n.path
@@ -159,7 +159,7 @@ func (t *Tree) Methods(path string) []string {
 		c := t.ctx.Get().(*cTx)
 		c.resetNil()
 		for i := range nds {
-			n, tsr := t.lookup(nds[i], path, c.params, c.skipNds, true)
+			n, tsr := t.lookup(nds[i], path, c, true)
 			if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
@@ -198,7 +198,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 		target = r.URL.RawPath
 	}
 
-	n, tsr := t.lookup(nds[index], target, c.params, c.skipNds, false)
+	n, tsr := t.lookup(nds[index], target, c, false)
 	if n != nil {
 		c.path = n.path
 		return n.handler, c, tsr
@@ -524,7 +524,7 @@ const (
 	bracketDelim = '{'
 )
 
-func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skippedNodes, lazy bool) (n *node, tsr bool) {
+func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	if len(rootNode.children) == 0 {
 		return nil, false
 	}
@@ -537,7 +537,7 @@ func (t *Tree) lookup(rootNode *node, path string, params *Params, skipNds *skip
 
 	var parent *node
 	current := rootNode.children[0].Load()
-	*skipNds = (*skipNds)[:0]
+	*c.skipNds = (*c.skipNds)[:0]
 
 Walk:
 	for charsMatched < len(path) {
@@ -576,7 +576,7 @@ Walk:
 
 					if !lazy {
 						paramCnt++
-						*params = append(*params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound-1], Value: path[startPath:charsMatched]})
+						*c.params = append(*c.params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound-1], Value: path[startPath:charsMatched]})
 					}
 
 					continue
@@ -607,7 +607,7 @@ Walk:
 
 				// The node is also a catch-all, save it as the last fallback.
 				if current.catchAllKey != "" {
-					*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, true})
+					*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, true})
 				}
 
 				idx = current.paramChildIndex
@@ -618,7 +618,7 @@ Walk:
 
 			// Save the node if we need to evaluate the child param or catch-all later
 			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
-				*skipNds = append(*skipNds, skippedNode{current, charsMatched, paramCnt, false})
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, false})
 			}
 			parent = current
 			current = current.children[idx].Load()
@@ -626,7 +626,7 @@ Walk:
 	}
 
 	paramCnt = 0
-	hasSkpNds := len(*skipNds) > 0
+	hasSkpNds := len(*c.skipNds) > 0
 
 	if !current.isLeaf() {
 
@@ -657,7 +657,7 @@ Walk:
 		if charsMatchedInNodeFound == len(current.key) {
 			// Exact match, note that if we match a catch-all node
 			if !lazy && current.catchAllKey != "" {
-				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
+				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				return current, false
 			}
 
@@ -695,7 +695,7 @@ Walk:
 	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
 		if current.catchAllKey != "" {
 			if !lazy {
-				*params = append(*params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
+				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
 				return current, false
 			}
 			// Same as exact match, no tsr recommendation
@@ -721,14 +721,14 @@ Walk:
 	// Finally incomplete match to middle of edge
 Backtrack:
 	if hasSkpNds {
-		skipped := skipNds.pop()
+		skipped := c.skipNds.pop()
 		if skipped.parent.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
 			current = skipped.parent
-			*params = (*params)[:skipped.paramCnt]
+			*c.params = (*c.params)[:skipped.paramCnt]
 
 			if !lazy {
-				*params = append(*params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
+				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
 
 				return current, false
 			}
@@ -741,13 +741,13 @@ Backtrack:
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
 		if skipped.parent.catchAllKey != "" {
-			*skipNds = append(*skipNds, skippedNode{skipped.parent, skipped.pathIndex, skipped.paramCnt, true})
+			*c.skipNds = append(*c.skipNds, skippedNode{skipped.parent, skipped.pathIndex, skipped.paramCnt, true})
 		}
 
 		parent = skipped.parent
 		current = skipped.parent.children[skipped.parent.paramChildIndex].Load()
 
-		*params = (*params)[:skipped.paramCnt]
+		*c.params = (*c.params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
 		goto Walk
 	}

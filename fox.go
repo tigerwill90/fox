@@ -341,7 +341,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
+	n, tsr = tree.lookup(nds[index], target, c, false)
 	if !tsr && n != nil {
 		c.path = n.path
 		n.handler(c)
@@ -390,7 +390,7 @@ NoMethodFallback:
 			}
 		} else {
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					} else {
@@ -413,7 +413,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}

@@ -715,7 +715,7 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
+		n, tsr := tree.lookup(nds[0], rte, c, false)
 		require.NotNil(t, n)
 		assert.False(t, tsr)
 		assert.Equal(t, rte, n.path)
@@ -754,7 +754,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, c.Params())
 			assert.False(t, tsr)
@@ -1161,7 +1161,7 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
 			assert.False(t, tsr)
@@ -1174,7 +1174,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, tsr = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
+			n, tsr = tree.lookup(nds[0], tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
 			assert.False(t, tsr)
@@ -1614,7 +1614,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
+			n, got := tree.lookup(nds[0], tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -2644,7 +2644,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
 			assert.False(t, tsr)
 			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
@@ -2704,7 +2704,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
+		n, tsr := tree.lookup(nds[0], "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
