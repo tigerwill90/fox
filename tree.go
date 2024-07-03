@@ -533,9 +533,10 @@ func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, 
 		charsMatched            int
 		charsMatchedInNodeFound int
 		paramCnt                uint32
+		parent                  *node
+		localPsCopy             Params
 	)
 
-	var parent *node
 	current := rootNode.children[0].Load()
 	*c.skipNds = (*c.skipNds)[:0]
 
@@ -642,11 +643,22 @@ Walk:
 			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() && charsMatched == len(path) {
 				tsr = true
 				n = parent
+				// Save also a copy of the matched params, it should not escape on heap in most case.
+				// Note: if hasSkpNds, c.params is always > 0.
+				if !lazy && hasSkpNds {
+					localPsCopy = cloneWithHeapFallback(c.params)
+				}
 			}
 		}
 
 		if hasSkpNds {
 			goto Backtrack
+		}
+
+		if localPsCopy != nil {
+			copy(*c.params, localPsCopy)
+			// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
+			*c.params = (*c.params)[:len(localPsCopy)]
 		}
 
 		return n, tsr
@@ -658,9 +670,10 @@ Walk:
 			// Exact match, note that if we match a catch-all node
 			if !lazy && current.catchAllKey != "" {
 				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
+				// Exact match, tsr is always false
 				return current, false
 			}
-
+			// Exact match, tsr is always false
 			return current, false
 		}
 		if charsMatchedInNodeFound < len(current.key) {
@@ -672,6 +685,11 @@ Walk:
 					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
 						tsr = true
 						n = parent
+						// Save also a copy of the matched params, it should not escape on heap in most case.
+						// Note: if hasSkpNds, c.params is always > 0.
+						if !lazy && hasSkpNds {
+							localPsCopy = cloneWithHeapFallback(c.params)
+						}
 					}
 				} else {
 					// Tsr recommendation: add an extra trailing slash (got an exact match)
@@ -679,12 +697,23 @@ Walk:
 					if len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim {
 						tsr = true
 						n = current
+						// Save also a copy of the matched params, it should not escape on heap in most case.
+						// Note: if hasSkpNds, c.params is always > 0.
+						if !lazy && hasSkpNds {
+							localPsCopy = cloneWithHeapFallback(c.params)
+						}
 					}
 				}
 			}
 
 			if hasSkpNds {
 				goto Backtrack
+			}
+
+			if localPsCopy != nil {
+				copy(*c.params, localPsCopy)
+				// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
+				*c.params = (*c.params)[:len(localPsCopy)]
 			}
 
 			return n, tsr
@@ -696,6 +725,7 @@ Walk:
 		if current.catchAllKey != "" {
 			if !lazy {
 				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
+				// Same as exact match, no tsr recommendation
 				return current, false
 			}
 			// Same as exact match, no tsr recommendation
@@ -708,11 +738,22 @@ Walk:
 			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
 				tsr = true
 				n = current
+				// Save also a copy of the matched params, it should not escape on heap in most case.
+				// Note: if hasSkpNds, c.params is always > 0.
+				if !lazy && hasSkpNds {
+					localPsCopy = cloneWithHeapFallback(c.params)
+				}
 			}
 		}
 
 		if hasSkpNds {
 			goto Backtrack
+		}
+
+		if localPsCopy != nil {
+			copy(*c.params, localPsCopy)
+			// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
+			*c.params = (*c.params)[:len(localPsCopy)]
 		}
 
 		return n, tsr
@@ -722,17 +763,17 @@ Walk:
 Backtrack:
 	if hasSkpNds {
 		skipped := c.skipNds.pop()
-		if skipped.parent.paramChildIndex < 0 || skipped.seen {
+		if skipped.n.paramChildIndex < 0 || skipped.seen {
 			// skipped is catch all
-			current = skipped.parent
+			current = skipped.n
 			*c.params = (*c.params)[:skipped.paramCnt]
 
 			if !lazy {
 				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
-
+				// Same as exact match, no tsr recommendation
 				return current, false
 			}
-
+			// Same as exact match, no tsr recommendation
 			return current, false
 		}
 
@@ -740,16 +781,22 @@ Backtrack:
 		// /foo/*{any}
 		// /foo/{bar}
 		// In this case we evaluate first the child param node and fall back to the catch-all.
-		if skipped.parent.catchAllKey != "" {
-			*c.skipNds = append(*c.skipNds, skippedNode{skipped.parent, skipped.pathIndex, skipped.paramCnt, true})
+		if skipped.n.catchAllKey != "" {
+			*c.skipNds = append(*c.skipNds, skippedNode{skipped.n, skipped.pathIndex, skipped.paramCnt, true})
 		}
 
-		parent = skipped.parent
-		current = skipped.parent.children[skipped.parent.paramChildIndex].Load()
+		parent = skipped.n
+		current = skipped.n.children[skipped.n.paramChildIndex].Load()
 
 		*c.params = (*c.params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
 		goto Walk
+	}
+
+	if localPsCopy != nil {
+		copy(*c.params, localPsCopy)
+		// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
+		*c.params = (*c.params)[:len(localPsCopy)]
 	}
 
 	return n, tsr
@@ -877,4 +924,21 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	if max > t.maxDepth.Load() {
 		t.maxDepth.Store(max)
 	}
+}
+
+const stackAllocThreshold = 8
+
+// cloneWithHeapFallback creates a clone of the given Params slice. It allocates memory on the stack if the length of
+// the slice is less than or equal to stackAllocThreshold. Otherwise, it allocates memory on the heap.
+func cloneWithHeapFallback(params *Params) Params {
+	var ps2 Params
+	if len(*params) > stackAllocThreshold {
+		// Slice is heap allocated due to runtime dependent capacity.
+		ps2 = make(Params, len(*params))
+	} else {
+		// Slice can be stack allocated due to constant capacity.
+		ps2 = make(Params, len(*params), stackAllocThreshold)
+	}
+	copy(ps2, *params)
+	return ps2
 }
