@@ -7,6 +7,7 @@ package fox
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -201,6 +202,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 	n, tsr := t.lookup(nds[index], target, c, false)
 	if n != nil {
 		c.path = n.path
+		c.tsr = tsr
 		return n.handler, c, tsr
 	}
 	c.Close()
@@ -534,7 +536,6 @@ func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, 
 		charsMatchedInNodeFound int
 		paramCnt                uint32
 		parent                  *node
-		localPsCopy             Params
 	)
 
 	current := rootNode.children[0].Load()
@@ -644,21 +645,21 @@ Walk:
 				tsr = true
 				n = parent
 				// Save also a copy of the matched params, it should not escape on heap in most case.
-				// Note: if hasSkpNds, c.params is always > 0.
-				if !lazy && hasSkpNds {
-					localPsCopy = cloneWithHeapFallback(c.params)
+				if !lazy {
+					if cap(*c.params) > cap(*c.tsrParams) {
+						// Grow c.tsrParams to a least cap(c.params)
+						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+					}
+					// cap(c.tsrParams) >= cap(c.params)
+					// now constraint into len(c.params) & cap(c.params)
+					*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+					copy(*c.tsrParams, *c.params)
 				}
 			}
 		}
 
 		if hasSkpNds {
 			goto Backtrack
-		}
-
-		if localPsCopy != nil {
-			copy(*c.params, localPsCopy)
-			// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
-			*c.params = (*c.params)[:len(localPsCopy)]
 		}
 
 		return n, tsr
@@ -686,9 +687,15 @@ Walk:
 						tsr = true
 						n = parent
 						// Save also a copy of the matched params, it should not escape on heap in most case.
-						// Note: if hasSkpNds, c.params is always > 0.
-						if !lazy && hasSkpNds {
-							localPsCopy = cloneWithHeapFallback(c.params)
+						if !lazy {
+							if cap(*c.params) > cap(*c.tsrParams) {
+								// Grow c.tsrParams to a least cap(c.params)
+								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+							}
+							// cap(c.tsrParams) >= cap(c.params)
+							// now constraint into len(c.params) & cap(c.params)
+							*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+							copy(*c.tsrParams, *c.params)
 						}
 					}
 				} else {
@@ -698,9 +705,15 @@ Walk:
 						tsr = true
 						n = current
 						// Save also a copy of the matched params, it should not escape on heap in most case.
-						// Note: if hasSkpNds, c.params is always > 0.
-						if !lazy && hasSkpNds {
-							localPsCopy = cloneWithHeapFallback(c.params)
+						if !lazy {
+							if cap(*c.params) > cap(*c.tsrParams) {
+								// Grow c.tsrParams to a least cap(c.params)
+								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+							}
+							// cap(c.tsrParams) >= cap(c.params)
+							// now constraint into len(c.params) & cap(c.params)
+							*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+							copy(*c.tsrParams, *c.params)
 						}
 					}
 				}
@@ -708,12 +721,6 @@ Walk:
 
 			if hasSkpNds {
 				goto Backtrack
-			}
-
-			if localPsCopy != nil {
-				copy(*c.params, localPsCopy)
-				// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
-				*c.params = (*c.params)[:len(localPsCopy)]
 			}
 
 			return n, tsr
@@ -739,21 +746,21 @@ Walk:
 				tsr = true
 				n = current
 				// Save also a copy of the matched params, it should not escape on heap in most case.
-				// Note: if hasSkpNds, c.params is always > 0.
-				if !lazy && hasSkpNds {
-					localPsCopy = cloneWithHeapFallback(c.params)
+				if !lazy {
+					if cap(*c.params) > cap(*c.tsrParams) {
+						// Grow c.tsrParams to a least cap(c.params)
+						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+					}
+					// cap(c.tsrParams) >= cap(c.params)
+					// now constraint into len(c.params) & cap(c.params)
+					*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+					copy(*c.tsrParams, *c.params)
 				}
 			}
 		}
 
 		if hasSkpNds {
 			goto Backtrack
-		}
-
-		if localPsCopy != nil {
-			copy(*c.params, localPsCopy)
-			// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
-			*c.params = (*c.params)[:len(localPsCopy)]
 		}
 
 		return n, tsr
@@ -791,12 +798,6 @@ Backtrack:
 		*c.params = (*c.params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
 		goto Walk
-	}
-
-	if localPsCopy != nil {
-		copy(*c.params, localPsCopy)
-		// cap(localPsCopy) is always <= cap(*c.params), so truncating without bound check is safe.
-		*c.params = (*c.params)[:len(localPsCopy)]
 	}
 
 	return n, tsr
@@ -851,11 +852,14 @@ STOP:
 }
 
 func (t *Tree) allocateContext() *cTx {
-	params := make(Params, 0, t.maxParams.Load())
+	maxParams := t.maxParams.Load()
+	params := make(Params, 0, maxParams)
+	tsrParams := make(Params, 0, maxParams)
 	skipNds := make(skippedNodes, 0, t.maxDepth.Load())
 	return &cTx{
-		params:  &params,
-		skipNds: &skipNds,
+		params:    &params,
+		skipNds:   &skipNds,
+		tsrParams: &tsrParams,
 		// This is a read only value, no reset, it's always the
 		// owner of the pool.
 		tree: t,
@@ -924,21 +928,4 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	if max > t.maxDepth.Load() {
 		t.maxDepth.Store(max)
 	}
-}
-
-const stackAllocThreshold = 8
-
-// cloneWithHeapFallback creates a clone of the given Params slice. It allocates memory on the stack if the length of
-// the slice is less than or equal to stackAllocThreshold. Otherwise, it allocates memory on the heap.
-func cloneWithHeapFallback(params *Params) Params {
-	var ps2 Params
-	if len(*params) > stackAllocThreshold {
-		// Slice is heap allocated due to runtime dependent capacity.
-		ps2 = make(Params, len(*params))
-	} else {
-		// Slice can be stack allocated due to constant capacity.
-		ps2 = make(Params, len(*params), stackAllocThreshold)
-	}
-	copy(ps2, *params)
-	return ps2
 }

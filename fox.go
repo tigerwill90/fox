@@ -344,6 +344,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n, tsr = tree.lookup(nds[index], target, c, false)
 	if !tsr && n != nil {
 		c.path = n.path
+		c.tsr = tsr
 		n.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
@@ -356,6 +357,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
 		if fox.ignoreTrailingSlash {
 			c.path = n.path
+			c.tsr = tsr
 			n.handler(c)
 			c.Close()
 			return
@@ -363,16 +365,12 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.redirectTrailingSlash && target == CleanPath(target) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
-			*c.params = (*c.params)[:0]
+			c.resetParams()
 			fox.tsrRedirect(c)
 			c.Close()
 			return
 		}
 	}
-
-	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
-	// automatic option handler or middleware)
-	*c.params = (*c.params)[:0]
 
 NoMethodFallback:
 	if r.Method == http.MethodOptions && fox.handleOptions {
@@ -390,18 +388,23 @@ NoMethodFallback:
 			}
 		} else {
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, false); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					} else {
 						c.path = n.path
+						c.tsr = tsr
 					}
 					sb.WriteString(nds[i].key)
 				}
 			}
 		}
-
 		if sb.Len() > 0 {
+			if target == "*" {
+				// Reset params only for system-wide OPTIONS request as it may have recorded wildcard segment
+				// (the context may still be used in no options handler and middleware)
+				c.resetParams()
+			}
 			sb.WriteString(", ")
 			sb.WriteString(http.MethodOptions)
 			w.Header().Set(HeaderAllow, sb.String())
@@ -422,6 +425,9 @@ NoMethodFallback:
 			}
 		}
 		if sb.Len() > 0 {
+			// Reset params as it may have recorded wildcard segment (the context may still be used in no method
+			// handler and middleware)
+			c.resetParams()
 			w.Header().Set(HeaderAllow, sb.String())
 			fox.noMethod(c)
 			c.Close()
@@ -429,6 +435,9 @@ NoMethodFallback:
 		}
 	}
 
+	// Reset params as it may have recorded wildcard segment (the context may still be used in no route handler
+	// and middleware)
+	c.resetParams()
 	fox.noRoute(c)
 	c.Close()
 }

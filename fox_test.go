@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1932,6 +1931,136 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
 }
 
+func TestRouterWithTsrParams(t *testing.T) {
+	cases := []struct {
+		name       string
+		routes     []string
+		target     string
+		wantParams Params
+		wantPath   string
+		wantTsr    bool
+	}{
+		{
+			name:   "current not a leaf, with leave on incomplete to end of edge",
+			routes: []string{"/{a}", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on end mid-edge",
+			routes: []string{"/{a}/x", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on end mid-edge",
+			routes: []string{"/{a}/{b}/e", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on not a leaf",
+			routes: []string{"/{a}/{b}/e", "/{a}/{b}/d", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "mid edge key, add an extra ts",
+			routes: []string{"/{a}", "/foo/{b}/"},
+			target: "/foo/bar",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}/",
+			wantTsr:  true,
+		},
+		{
+			name:   "mid edge key, remove an extra ts",
+			routes: []string{"/{a}", "/foo/{b}/baz", "/foo/{b}"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "incomplete match end of edge, remove extra ts",
+			routes: []string{"/{a}", "/foo/{b}"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:       "current not a leaf, should empty params",
+			routes:     []string{"/{a}", "/foo", "/foo/x/", "/foo/y/"},
+			target:     "/foo/",
+			wantParams: Params{},
+			wantPath:   "/foo",
+			wantTsr:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New(WithIgnoreTrailingSlash(true))
+			for _, rte := range tc.routes {
+				require.NoError(t, f.Handle(http.MethodGet, rte, func(c Context) {
+					fmt.Println(c.Path(), c.Params())
+					assert.Equal(t, tc.wantPath, c.Path())
+					assert.Equal(t, tc.wantParams, c.Params())
+					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
+				}))
+			}
+			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
+
+}
+
 func TestTree_Remove(t *testing.T) {
 	tree := New().Tree()
 	routes := make([]route, len(githubAPI))
@@ -3046,184 +3175,4 @@ func ExampleTree_Has() {
 	tree := f.Tree()
 	exist := tree.Match(http.MethodGet, "/hello/{name}")
 	fmt.Println(exist) // true
-}
-
-// current not a leaf, with leave on incomplete to end of edge
-func TestX(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/x/", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/y/", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// current not a leaf, with leave on incomplete match to middle of edge
-func TestX2(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}/x", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/x/", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/y/", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// current not a leaf, with leave on end mid-edge
-func TestX3(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}/{b}/e", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/x/", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/y/", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// current not a leaf, with leave on not a leaf
-func TestX4(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}/{b}/e", emptyHandler)
-	f.MustHandle(http.MethodGet, "/{a}/{b}/d", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/x/", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/y/", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// mid edge key, add an extra ts
-func TestY(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// mid edge key, remove an extra ts
-func TestZ(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}/baz", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// incomplete match end of edge
-func TestW(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/bar/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-// current not a leaf, should empty params
-func TestE(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "/{a}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/x/", emptyHandler)
-	f.MustHandle(http.MethodGet, "/foo/y/", emptyHandler)
-
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	nds := tree.nodes.Load()
-	fmt.Println((*nds)[0])
-	n, tsr := tree.lookup((*nds)[0], "/foo/", c, false)
-	fmt.Println(n.path, tsr)
-	fmt.Println(c.params)
-}
-
-func BenchmarkX(b *testing.B) {
-	f := New()
-	tree := f.Tree()
-	c := newTestContextTree(tree)
-	*c.params = append(*c.params,
-		Param{
-			Key:   "foo",
-			Value: "bar",
-		},
-		Param{
-			Key:   "foo",
-			Value: "bar",
-		},
-		Param{
-			Key:   "foo",
-			Value: "bar",
-		},
-		Param{
-			Key:   "foo",
-			Value: "bar",
-		},
-		Param{
-			Key:   "foo",
-			Value: "bar",
-		},
-		Param{
-			Key:   "foo",
-			Value: "bar",
-		},
-	)
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	params := make(Params, 0, 2)
-
-	for i := 0; i < b.N; i++ {
-		if len(*c.params) > 2 {
-			params = slices.Grow(params, len(*c.params))
-		}
-		params = params[:len(*c.params)]
-		copy(params, *c.params)
-	}
-
-	*c.params = params
-	fmt.Println(*c.params)
 }
