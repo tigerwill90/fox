@@ -2474,12 +2474,13 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 
 func TestRouterWithOptionsHandler(t *testing.T) {
 	f := New(WithOptionsHandler(func(c Context) {
-		assert.Equal(t, "/foo/bar", c.Path())
+		assert.Equal(t, "", c.Path())
+		assert.Empty(t, c.Params())
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
 
-	require.NoError(t, f.Handle(http.MethodGet, "/foo/bar", emptyHandler))
-	require.NoError(t, f.Handle(http.MethodPost, "/foo/bar", emptyHandler))
+	require.NoError(t, f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler))
+	require.NoError(t, f.Handle(http.MethodPost, "/foo/{bar}", emptyHandler))
 
 	req := httptest.NewRequest(http.MethodOptions, "/foo/bar", nil)
 	w := httptest.NewRecorder()

@@ -40,7 +40,7 @@ type Context interface {
 	RemoteIP() *net.IPAddr
 	// ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
 	// The strategy is set using the WithClientIPStrategy option. There is no sane default, so if no strategy is configured,
-	// the method returns the ErrNoClientIPStrategy.
+	// the method returns ErrNoClientIPStrategy.
 	//
 	// The strategy used must be chosen and tuned for your network configuration. This should result
 	// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
@@ -138,11 +138,6 @@ func (c *cTx) resetNil() {
 	*c.params = (*c.params)[:0]
 }
 
-func (c *cTx) resetParams() {
-	*c.params = (*c.params)[:0]
-	c.tsr = false
-}
-
 // Request returns the *http.Request.
 func (c *cTx) Request() *http.Request {
 	return c.req
@@ -183,7 +178,7 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 
 // ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
 // The strategy is set using the WithClientIPStrategy option. If no strategy is configured,
-// the method returns the error ErrNoClientIPStrategy.
+// the method returns error ErrNoClientIPStrategy.
 //
 // The strategy used must be chosen and tuned for your network configuration. This should result
 // in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
