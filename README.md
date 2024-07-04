@@ -31,14 +31,12 @@ observability middleware like open telemetry.
 **Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear 
 priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
 
-**Redirect trailing slashes:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router automatically 
-redirects the client, at no extra cost, if another route match with or without a trailing slash.
+**Redirect trailing slashes:** Redirect automatically the client, at no extra cost, if another route matches, with or without a trailing slash.
 
 **Ignore trailing slashes:** In contrast to redirecting, this option allows the router to handle requests regardless of an extra 
 or missing trailing slash, at no extra cost.
 
-**Automatic OPTIONS replies:** Inspired from [httprouter](https://github.com/julienschmidt/httprouter), the router has built-in native
-support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
+**Automatic OPTIONS replies:** Fox has built-in native support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 
 **Client IP Derivation:** Accurately determine the "real" client IP address using best practices tailored to your network topology.
 
@@ -685,4 +683,6 @@ The intention behind these choices is that it can serve as a building block for 
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
 this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
-- The router API is influenced by popular routers such as [gin](https://github.com/gin-gonic/gin) and [echo](https://github.com/labstack/echo).
+- [realclientip/realclientip-go](https://github.com/realclientip/realclientip-go): Fox uses a derivative version of Adam Pritchard's `realclientip-go` library. 
+See his insightful [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) on the topic for more details.
+- The router API is influenced by popular routers such as [Gin](https://github.com/gin-gonic/gin) and [Echo](https://github.com/labstack/echo).
