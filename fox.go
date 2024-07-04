@@ -341,9 +341,10 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], target, c.params, c.skipNds, false)
+	n, tsr = tree.lookup(nds[index], target, c, false)
 	if !tsr && n != nil {
 		c.path = n.path
+		c.tsr = tsr
 		n.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
@@ -356,6 +357,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
 		if fox.ignoreTrailingSlash {
 			c.path = n.path
+			c.tsr = tsr
 			n.handler(c)
 			c.Close()
 			return
@@ -364,6 +366,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if fox.redirectTrailingSlash && target == CleanPath(target) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
+			c.tsr = false
 			fox.tsrRedirect(c)
 			c.Close()
 			return
@@ -373,6 +376,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
 	// automatic option handler or middleware)
 	*c.params = (*c.params)[:0]
+	c.tsr = false
 
 NoMethodFallback:
 	if r.Method == http.MethodOptions && fox.handleOptions {
@@ -389,18 +393,16 @@ NoMethodFallback:
 				}
 			}
 		} else {
+			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
-					} else {
-						c.path = n.path
 					}
 					sb.WriteString(nds[i].key)
 				}
 			}
 		}
-
 		if sb.Len() > 0 {
 			sb.WriteString(", ")
 			sb.WriteString(http.MethodOptions)
@@ -413,7 +415,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, tsr := tree.lookup(nds[i], target, c.params, c.skipNds, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}

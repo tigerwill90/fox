@@ -496,7 +496,7 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
-	req := httptest.NewRequest("GET", "/repos/sylvain/fox/hooks/1500", nil)
+	req := httptest.NewRequest(http.MethodGet, "/repos/sylvain/fox/hooks/1500", nil)
 	w := new(mockResponseWriter)
 
 	b.ReportAllocs()
@@ -513,7 +513,7 @@ func BenchmarkOverlappingRoute(b *testing.B) {
 		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
 
-	req := httptest.NewRequest("GET", "/foo/abc/id:123/xy", nil)
+	req := httptest.NewRequest(http.MethodGet, "/foo/abc/id:123/xy", nil)
 	w := new(mockResponseWriter)
 
 	b.ReportAllocs()
@@ -524,19 +524,38 @@ func BenchmarkOverlappingRoute(b *testing.B) {
 	}
 }
 
+func BenchmarkWithIgnoreTrailingSlash(b *testing.B) {
+	f := New(WithIgnoreTrailingSlash(true))
+	f.MustHandle(http.MethodGet, "/{a}/{b}/e", emptyHandler)
+	f.MustHandle(http.MethodGet, "/{a}/{b}/d", emptyHandler)
+	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
+	f.MustHandle(http.MethodGet, "/foo/{b}/x/", emptyHandler)
+	f.MustHandle(http.MethodGet, "/foo/{b}/y/", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar/", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkStaticParallel(b *testing.B) {
 	r := New()
 	for _, route := range staticRoutes {
 		require.NoError(b, r.Tree().Handle(route.method, route.path, emptyHandler))
 	}
-	benchRouteParallel(b, r, route{"GET", "/progs/image_package4.out"})
+	benchRouteParallel(b, r, route{http.MethodGet, "/progs/image_package4.out"})
 }
 
 func BenchmarkCatchAll(b *testing.B) {
 	r := New()
 	require.NoError(b, r.Tree().Handle(http.MethodGet, "/something/*{args}", emptyHandler))
 	w := new(mockResponseWriter)
-	req := httptest.NewRequest("GET", "/something/awesome", nil)
+	req := httptest.NewRequest(http.MethodGet, "/something/awesome", nil)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -715,7 +734,7 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], rte, c.params, c.skipNds, false)
+		n, tsr := tree.lookup(nds[0], rte, c, false)
 		require.NotNil(t, n)
 		assert.False(t, tsr)
 		assert.Equal(t, rte, n.path)
@@ -754,7 +773,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, c.Params())
 			assert.False(t, tsr)
@@ -1161,7 +1180,7 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
 			assert.False(t, tsr)
@@ -1174,7 +1193,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, tsr = tree.lookup(nds[0], tc.path, c.params, c.skipNds, true)
+			n, tsr = tree.lookup(nds[0], tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.handler)
 			assert.False(t, tsr)
@@ -1614,7 +1633,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, got := tree.lookup(nds[0], tc.key, c.params, c.skipNds, true)
+			n, got := tree.lookup(nds[0], tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -1910,6 +1929,136 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusMovedPermanently, w.Code)
 	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
+}
+
+func TestRouterWithTsrParams(t *testing.T) {
+	cases := []struct {
+		name       string
+		routes     []string
+		target     string
+		wantParams Params
+		wantPath   string
+		wantTsr    bool
+	}{
+		{
+			name:   "current not a leaf, with leave on incomplete to end of edge",
+			routes: []string{"/{a}", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on end mid-edge",
+			routes: []string{"/{a}/x", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on end mid-edge",
+			routes: []string{"/{a}/{b}/e", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on not a leaf",
+			routes: []string{"/{a}/{b}/e", "/{a}/{b}/d", "/foo/{b}", "/foo/{b}/x/", "/foo/{b}/y/"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "mid edge key, add an extra ts",
+			routes: []string{"/{a}", "/foo/{b}/"},
+			target: "/foo/bar",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}/",
+			wantTsr:  true,
+		},
+		{
+			name:   "mid edge key, remove an extra ts",
+			routes: []string{"/{a}", "/foo/{b}/baz", "/foo/{b}"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:   "incomplete match end of edge, remove extra ts",
+			routes: []string{"/{a}", "/foo/{b}"},
+			target: "/foo/bar/",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+			wantPath: "/foo/{b}",
+			wantTsr:  true,
+		},
+		{
+			name:       "current not a leaf, should empty params",
+			routes:     []string{"/{a}", "/foo", "/foo/x/", "/foo/y/"},
+			target:     "/foo/",
+			wantParams: Params{},
+			wantPath:   "/foo",
+			wantTsr:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New(WithIgnoreTrailingSlash(true))
+			for _, rte := range tc.routes {
+				require.NoError(t, f.Handle(http.MethodGet, rte, func(c Context) {
+					fmt.Println(c.Path(), c.Params())
+					assert.Equal(t, tc.wantPath, c.Path())
+					assert.Equal(t, tc.wantParams, c.Params())
+					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
+				}))
+			}
+			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
+
 }
 
 func TestTree_Remove(t *testing.T) {
@@ -2325,12 +2474,13 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 
 func TestRouterWithOptionsHandler(t *testing.T) {
 	f := New(WithOptionsHandler(func(c Context) {
-		assert.Equal(t, "/foo/bar", c.Path())
+		assert.Equal(t, "", c.Path())
+		assert.Empty(t, c.Params())
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
 
-	require.NoError(t, f.Handle(http.MethodGet, "/foo/bar", emptyHandler))
-	require.NoError(t, f.Handle(http.MethodPost, "/foo/bar", emptyHandler))
+	require.NoError(t, f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler))
+	require.NoError(t, f.Handle(http.MethodPost, "/foo/{bar}", emptyHandler))
 
 	req := httptest.NewRequest(http.MethodOptions, "/foo/bar", nil)
 	w := httptest.NewRecorder()
@@ -2644,7 +2794,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c.params, c.skipNds, false)
+			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
 			assert.False(t, tsr)
 			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
@@ -2704,7 +2854,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], "/"+rte, c.params, c.skipNds, true)
+		n, tsr := tree.lookup(nds[0], "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)

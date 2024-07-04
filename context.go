@@ -40,7 +40,7 @@ type Context interface {
 	RemoteIP() *net.IPAddr
 	// ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
 	// The strategy is set using the WithClientIPStrategy option. There is no sane default, so if no strategy is configured,
-	// the method returns the ErrNoClientIPStrategy.
+	// the method returns ErrNoClientIPStrategy.
 	//
 	// The strategy used must be chosen and tuned for your network configuration. This should result
 	// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
@@ -92,18 +92,20 @@ type Context interface {
 
 // cTx holds request-related information and allows interaction with the ResponseWriter.
 type cTx struct {
-	w       ResponseWriter
-	req     *http.Request
-	params  *Params
-	skipNds *skippedNodes
+	w         ResponseWriter
+	req       *http.Request
+	params    *Params
+	tsrParams *Params
+	skipNds   *skippedNodes
 
 	// tree at allocation (read-only, no reset)
 	tree *Tree
-	fox  *Router
-
+	// router at allocation (read-only, no reset)
+	fox         *Router
 	cachedQuery url.Values
 	path        string
 	rec         recorder
+	tsr         bool
 }
 
 // Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
@@ -111,6 +113,7 @@ func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
 	c.path = ""
+	c.tsr = false
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
 }
@@ -175,7 +178,7 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 
 // ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
 // The strategy is set using the WithClientIPStrategy option. If no strategy is configured,
-// the method returns the error ErrNoClientIPStrategy.
+// the method returns error ErrNoClientIPStrategy.
 //
 // The strategy used must be chosen and tuned for your network configuration. This should result
 // in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
@@ -190,6 +193,9 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 // Params returns a Params slice containing the matched
 // wildcard parameters.
 func (c *cTx) Params() Params {
+	if c.tsr {
+		return *c.tsrParams
+	}
 	return *c.params
 }
 
@@ -307,9 +313,9 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.w = w
 	cp.path = c.path
 	cp.cachedQuery = nil
-	if len(*c.params) > len(*cp.params) {
+	if cap(*c.params) > cap(*cp.params) {
 		// Grow cp.params to a least cap(c.params)
-		*cp.params = slices.Grow(*cp.params, len(*c.params)-len(*cp.params))
+		*cp.params = slices.Grow(*cp.params, cap(*c.params)-cap(*cp.params))
 	}
 	// cap(cp.params) >= cap(c.params)
 	// now constraint into len(c.params) & cap(c.params)
