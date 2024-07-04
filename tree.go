@@ -644,7 +644,7 @@ Walk:
 			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() && charsMatched == len(path) {
 				tsr = true
 				n = parent
-				// Save also a copy of the matched params, it should not escape on heap in most case.
+				// Save also a copy of the matched params, it should not allocate anything in most case.
 				if !lazy {
 					if cap(*c.params) > cap(*c.tsrParams) {
 						// Grow c.tsrParams to a least cap(c.params)
@@ -686,7 +686,7 @@ Walk:
 					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
 						tsr = true
 						n = parent
-						// Save also a copy of the matched params, it should not escape on heap in most case.
+						// Save also a copy of the matched params, it should not allocate anything in most case.
 						if !lazy {
 							if cap(*c.params) > cap(*c.tsrParams) {
 								// Grow c.tsrParams to a least cap(c.params)
@@ -704,7 +704,7 @@ Walk:
 					if len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim {
 						tsr = true
 						n = current
-						// Save also a copy of the matched params, it should not escape on heap in most case.
+						// Save also a copy of the matched params, it should not allocate anything in most case.
 						if !lazy {
 							if cap(*c.params) > cap(*c.tsrParams) {
 								// Grow c.tsrParams to a least cap(c.params)
@@ -745,7 +745,7 @@ Walk:
 			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
 				tsr = true
 				n = current
-				// Save also a copy of the matched params, it should not escape on heap in most case.
+				// Save also a copy of the matched params, it should not allocate anything in most case.
 				if !lazy {
 					if cap(*c.params) > cap(*c.tsrParams) {
 						// Grow c.tsrParams to a least cap(c.params)
