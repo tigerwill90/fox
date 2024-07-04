@@ -524,7 +524,8 @@ It is also possible to create a chain with multiple strategies that attempt to d
 f = fox.New(
     fox.DefaultOptions(),
     fox.WithClientIPStrategy(
-        // A common use for this is if a server is both directly connected to the internet and expecting a header to check.
+        // A common use for this is if a server is both directly connected to the 
+        // internet and expecting a header to check.
         strategy.NewChain(
             strategy.NewLeftmostNonPrivate(fox.HeaderXForwardedFor),
             strategy.NewRemoteAddr(),
