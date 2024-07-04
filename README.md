@@ -521,13 +521,17 @@ f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
 It is also possible to create a chain with multiple strategies that attempt to derive the client IP, stopping when the first one succeeds.
 
 ````go
-f := fox.New(
+f = fox.New(
     fox.DefaultOptions(),
-    fox.WithClientIPStrategy(strategy.NewChain(
-        strategy.NewLeftmostNonPrivate(fox.HeaderXForwardedFor),
-        strategy.NewRemoteAddr(),
-    )),
+    fox.WithClientIPStrategy(
+        // A common use for this is if a server is both directly connected to the internet and expecting a header to check.
+        strategy.NewChain(
+            strategy.NewLeftmostNonPrivate(fox.HeaderXForwardedFor),
+            strategy.NewRemoteAddr(),
+        ),
+    ),
 )
+
 ````
 
 Note that there is no "sane" default strategy, so calling `Context.ClientIP` without a strategy configured will return an `ErrNoClientIPStrategy`.
