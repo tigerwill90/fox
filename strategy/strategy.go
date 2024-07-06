@@ -29,19 +29,19 @@ var (
 	ErrRightmostTrustedRange = errors.New("rightmost trusted range strategy")
 )
 
-// IPRangeResolver resolve a set of IP ranges.
-type IPRangeResolver interface {
-	IPRange() ([]net.IPNet, error)
+// TrustedIPRange returns a set of trusted IP ranges.
+type TrustedIPRange interface {
+	TrustedIPRange() ([]net.IPNet, error)
 }
 
 // The IPRangeResolverFunc type is an adapter to allow the use of
-// ordinary functions as IPRangeResolver. If f is a function
+// ordinary functions as TrustedIPRange. If f is a function
 // with the appropriate signature, IPRangeResolverFunc() is a
-// IPRangeResolver that calls f.
+// TrustedIPRange that calls f.
 type IPRangeResolverFunc func() ([]net.IPNet, error)
 
 // IPRange calls f().
-func (f IPRangeResolverFunc) IPRange() ([]net.IPNet, error) {
+func (f IPRangeResolverFunc) TrustedIPRange() ([]net.IPNet, error) {
 	return f()
 }
 
@@ -293,13 +293,13 @@ func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 // and X-Forwarded-For headers. Now your "trusted" reverse proxy is no longer trustworthy.
 type RightmostTrustedRange struct {
 	headerName string
-	resolver   IPRangeResolver
+	resolver   TrustedIPRange
 }
 
 // NewRightmostTrustedRange creates a RightmostTrustedRange strategy. headerName must be "X-Forwarded-For"
 // or "Forwarded". trustedRanges must contain all trusted reverse proxies on the path to this server and can
 // be private/internal or external (for example, if a third-party reverse proxy is used).
-func NewRightmostTrustedRange(key HeaderKey, resolver IPRangeResolver) RightmostTrustedRange {
+func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) RightmostTrustedRange {
 	if key > 1 {
 		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
 	}
@@ -314,7 +314,7 @@ func NewRightmostTrustedRange(key HeaderKey, resolver IPRangeResolver) Rightmost
 // ClientIP derives the client IP using the RightmostTrustedRange.
 // The returned net.IPAddr may contain a zone identifier. If no valid IP can be derived, an error is returned.
 func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	trustedRange, err := s.resolver.IPRange()
+	trustedRange, err := s.resolver.TrustedIPRange()
 	if err != nil {
 		return nil, fmt.Errorf("%w: unable to resolve trusted ip range: %w", ErrRightmostTrustedRange, err)
 	}
