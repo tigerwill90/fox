@@ -40,7 +40,7 @@ type TrustedIPRange interface {
 // TrustedIPRange that calls f.
 type IPRangeResolverFunc func() ([]net.IPNet, error)
 
-// IPRange calls f().
+// TrustedIPRange calls f().
 func (f IPRangeResolverFunc) TrustedIPRange() ([]net.IPNet, error) {
 	return f()
 }
