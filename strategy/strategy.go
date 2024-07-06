@@ -29,7 +29,7 @@ var (
 	ErrRightmostTrustedRange = errors.New("rightmost trusted range strategy")
 )
 
-// IPRangeResolver defines an interface for resolving a set of IP ranges.
+// IPRangeResolver resolve a set of IP ranges.
 type IPRangeResolver interface {
 	IPRange() ([]net.IPNet, error)
 }
