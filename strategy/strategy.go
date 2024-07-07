@@ -29,11 +29,38 @@ var (
 	ErrRightmostTrustedRange = errors.New("rightmost trusted range strategy")
 )
 
+// TrustedIPRange returns a set of trusted IP ranges.
+type TrustedIPRange interface {
+	TrustedIPRange() ([]net.IPNet, error)
+}
+
+// The IPRangeResolverFunc type is an adapter to allow the use of
+// ordinary functions as TrustedIPRange. If f is a function
+// with the appropriate signature, IPRangeResolverFunc() is a
+// TrustedIPRange that calls f.
+type IPRangeResolverFunc func() ([]net.IPNet, error)
+
+// TrustedIPRange calls f().
+func (f IPRangeResolverFunc) TrustedIPRange() ([]net.IPNet, error) {
+	return f()
+}
+
+type HeaderKey uint8
+
+func (h HeaderKey) String() string {
+	return http.CanonicalHeaderKey([...]string{xForwardedForHdr, forwardedHdr}[h])
+}
+
+const (
+	XForwardedForKey HeaderKey = iota
+	ForwardedKey
+)
+
 // Chain attempts to use the given strategies in order. If the first one returns an error, the second one is
 // tried, and so on, until a good IP is found or the strategies are exhausted. A common use for this is if a server is
 // both directly connected to the internet and expecting a header to check. It might be called like:
 //
-//	NewChain(NewLeftmostNonPrivate("X-Forwarded-For")), NewRemoteAddr())
+//	NewChain(NewLeftmostNonPrivate(XForwardedForKey), NewRemoteAddr())
 type Chain struct {
 	strategies []fox.ClientIPStrategy
 }
@@ -127,28 +154,28 @@ func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	return ParseIPAddr(ipStr)
 }
 
-// LeftmostNonPrivate derives the client IP from the leftmost valid and non-private IP address in the
-// X-Fowarded-For or Forwarded header. This strategy should be used when a valid, non-private IP closest to the client is desired.
-// Note that this MUST NOT BE USED FOR SECURITY PURPOSES. This IP can be TRIVIALLY SPOOFED.
+// LeftmostNonPrivate derives the client IP from the leftmost valid and non-private/non-internal IP address in the X-Fowarded-For
+// or Forwarded header. This strategy should be used when a valid, non-private IP closest to the client is desired. By default,
+// loopback, link local and private net ip range are blacklisted. Note that this MUST NOT BE USED FOR SECURITY PURPOSES.
+// This IP can be TRIVIALLY SPOOFED.
 type LeftmostNonPrivate struct {
-	headerName string
+	headerName        string
+	blacklistedRanges []net.IPNet
 }
 
-// NewLeftmostNonPrivate creates a LeftmostNonPrivate strategy. headerName must be "X-Forwarded-For" or "Forwarded".
-func NewLeftmostNonPrivate(headerName string) LeftmostNonPrivate {
-	if headerName == "" {
-		panic("header must not be empty")
-	}
-
-	// We will be using the headerName for lookups in the http.Header map, which is keyed
-	// by canonicalized header name. We'll do that here so we only have to do it once.
-	headerName = http.CanonicalHeaderKey(headerName)
-
-	if headerName != xForwardedForHdr && headerName != forwardedHdr {
+// NewLeftmostNonPrivate creates a LeftmostNonPrivate strategy. By default, loopback, link local and private net ip range
+// are blacklisted.
+func NewLeftmostNonPrivate(key HeaderKey, opts ...BlacklistRangeOption) LeftmostNonPrivate {
+	if key > 1 {
 		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
 	}
 
-	return LeftmostNonPrivate{headerName: headerName}
+	cfg := new(config)
+	for _, opt := range opts {
+		opt.applyLeft(cfg)
+	}
+
+	return LeftmostNonPrivate{headerName: key.String(), blacklistedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges)}
 }
 
 // ClientIP derives the client IP using the LeftmostNonPrivate.
@@ -156,7 +183,7 @@ func NewLeftmostNonPrivate(headerName string) LeftmostNonPrivate {
 func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
 	for _, ip := range ipAddrs {
-		if ip != nil && !isPrivateOrLocal(ip.IP) {
+		if ip != nil && !isIPContainedInRanges(ip.IP, s.blacklistedRanges) {
 			// This is the leftmost valid, non-private IP
 			return ip, nil
 		}
@@ -167,27 +194,29 @@ func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RightmostNonPrivate derives the client IP from the rightmost valid, non-private/non-internal IP address in
-// the X-Fowarded-For or  Forwarded header. This strategy should be used when all reverse proxies between the internet
-// and the server have private-space IP addresses.
+// the X-Fowarded-For or Forwarded header. This strategy should be used when all reverse proxies between the internet
+// and the server have private-space IP addresses. By default, loopback, link local and private net ip range are trusted.
 type RightmostNonPrivate struct {
-	headerName string
+	headerName    string
+	trustedRanges []net.IPNet
 }
 
-// NewRightmostNonPrivate creates a RightmostNonPrivate strategy. headerName must be "X-Forwarded-For" or "Forwarded".
-func NewRightmostNonPrivate(headerName string) RightmostNonPrivate {
-	if headerName == "" {
-		panic(errors.New("header must not be empty"))
-	}
-
-	// We will be using the headerName for lookups in the http.Header map, which is keyed
-	// by canonicalized header name. We'll do that here so we only have to do it once.
-	headerName = http.CanonicalHeaderKey(headerName)
-
-	if headerName != xForwardedForHdr && headerName != forwardedHdr {
+// NewRightmostNonPrivate creates a RightmostNonPrivate strategy. By default, loopback, link local and private net ip range
+// are trusted.
+func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) RightmostNonPrivate {
+	if key > 1 {
 		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
 	}
 
-	return RightmostNonPrivate{headerName: headerName}
+	cfg := new(config)
+	for _, opt := range opts {
+		opt.applyRight(cfg)
+	}
+
+	return RightmostNonPrivate{
+		headerName:    key.String(),
+		trustedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges),
+	}
 }
 
 // ClientIP derives the client IP using the RightmostNonPrivate.
@@ -196,7 +225,7 @@ func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
 	// Look backwards through the list of IP addresses
 	for i := len(ipAddrs) - 1; i >= 0; i-- {
-		if ipAddrs[i] != nil && !isPrivateOrLocal(ipAddrs[i].IP) {
+		if ipAddrs[i] != nil && !isIPContainedInRanges(ipAddrs[i].IP, s.trustedRanges) {
 			// This is the rightmost non-private IP
 			return ipAddrs[i], nil
 		}
@@ -214,27 +243,19 @@ type RightmostTrustedCount struct {
 	trustedCount int
 }
 
-// NewRightmostTrustedCount creates a RightmostTrustedCount strategy. headerName must be "X-Forwarded-For" or "Forwarded".
-// trustedCount is the number of trusted reverse proxies. The IP returned will be the (trustedCount-1)th from the right. For
-// example, if there's only one trusted proxy, this strategy will return the last (rightmost) IP address.
-func NewRightmostTrustedCount(headerName string, trustedCount int) RightmostTrustedCount {
-	if headerName == "" {
-		panic(errors.New("header must not be empty"))
+// NewRightmostTrustedCount creates a RightmostTrustedCount strategy. trustedCount is the number of trusted reverse proxies.
+// The IP returned will be the (trustedCount-1)th from the right. For example, if there's only one trusted proxy, this
+// strategy will return the last (rightmost) IP address.
+func NewRightmostTrustedCount(key HeaderKey, trustedCount int) RightmostTrustedCount {
+	if key > 1 {
+		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
 	}
 
 	if trustedCount <= 0 {
 		panic(fmt.Errorf("count must be greater than zero"))
 	}
 
-	// We will be using the headerName for lookups in the http.Header map, which is keyed
-	// by canonicalized header name. We'll do that here so we only have to do it once.
-	headerName = http.CanonicalHeaderKey(headerName)
-
-	if headerName != xForwardedForHdr && headerName != forwardedHdr {
-		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
-	}
-
-	return RightmostTrustedCount{headerName: headerName, trustedCount: trustedCount}
+	return RightmostTrustedCount{headerName: key.String(), trustedCount: trustedCount}
 }
 
 // ClientIP derives the client IP using the RightmostTrustedCount.
@@ -271,36 +292,37 @@ func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 // attacker creates a CF distribution that points at your origin server. The attacker uses Lambda@Edge to spoof the Host
 // and X-Forwarded-For headers. Now your "trusted" reverse proxy is no longer trustworthy.
 type RightmostTrustedRange struct {
-	headerName    string
-	trustedRanges []net.IPNet
+	headerName string
+	resolver   TrustedIPRange
 }
 
 // NewRightmostTrustedRange creates a RightmostTrustedRange strategy. headerName must be "X-Forwarded-For"
-// or "Forwarded". trustedRanges must contain all trusted reverse proxies on the path to this server. trustedRanges can
+// or "Forwarded". trustedRanges must contain all trusted reverse proxies on the path to this server and can
 // be private/internal or external (for example, if a third-party reverse proxy is used).
-func NewRightmostTrustedRange(headerName string, trustedRanges []net.IPNet) RightmostTrustedRange {
-	if headerName == "" {
-		panic(errors.New("header must not be empty"))
-	}
-
-	// We will be using the headerName for lookups in the http.Header map, which is keyed
-	// by canonicalized header name. We'll do that here so we only have to do it once.
-	headerName = http.CanonicalHeaderKey(headerName)
-
-	if headerName != xForwardedForHdr && headerName != forwardedHdr {
+func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) RightmostTrustedRange {
+	if key > 1 {
 		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
 	}
 
-	return RightmostTrustedRange{headerName: headerName, trustedRanges: trustedRanges}
+	if resolver == nil {
+		panic(errors.New("no ip range resolver provided"))
+	}
+
+	return RightmostTrustedRange{headerName: key.String(), resolver: resolver}
 }
 
 // ClientIP derives the client IP using the RightmostTrustedRange.
 // The returned net.IPAddr may contain a zone identifier. If no valid IP can be derived, an error is returned.
 func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
+	trustedRange, err := s.resolver.TrustedIPRange()
+	if err != nil {
+		return nil, fmt.Errorf("%w: unable to resolve trusted ip range: %w", ErrRightmostTrustedRange, err)
+	}
+
 	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
 	// Look backwards through the list of IP addresses
 	for i := len(ipAddrs) - 1; i >= 0; i-- {
-		if ipAddrs[i] != nil && isIPContainedInRanges(ipAddrs[i].IP, s.trustedRanges) {
+		if ipAddrs[i] != nil && isIPContainedInRanges(ipAddrs[i].IP, trustedRange) {
 			// This IP is trusted
 			continue
 		}
@@ -607,6 +629,48 @@ var privateAndLocalRanges = []net.IPNet{
 	mustParseCIDR("2002::/16"),          // RFC 7526: 6to4 anycast prefix deprecated
 }
 
+var privateRange = []net.IPNet{
+	mustParseCIDR("10.0.0.0/8"),         // RFC1918
+	mustParseCIDR("172.16.0.0/12"),      // private
+	mustParseCIDR("192.168.0.0/16"),     // private
+	mustParseCIDR("0.0.0.0/8"),          // RFC1122 Section 3.2.1.3
+	mustParseCIDR("192.0.0.0/24"),       // RFC 5736
+	mustParseCIDR("192.0.2.0/24"),       // RFC 5737
+	mustParseCIDR("198.51.100.0/24"),    // Assigned as TEST-NET-2
+	mustParseCIDR("203.0.113.0/24"),     // Assigned as TEST-NET-3
+	mustParseCIDR("192.88.99.0/24"),     // RFC 3068
+	mustParseCIDR("192.18.0.0/15"),      // RFC 2544
+	mustParseCIDR("224.0.0.0/4"),        // RFC 3171
+	mustParseCIDR("240.0.0.0/4"),        // RFC 1112
+	mustParseCIDR("255.255.255.255/32"), // RFC 919 Section 7
+	mustParseCIDR("100.64.0.0/10"),      // RFC 6598
+	mustParseCIDR("::/128"),             // RFC 4291: Unspecified Address
+	mustParseCIDR("100::/64"),           // RFC 6666: Discard Address Block
+	mustParseCIDR("2001::/23"),          // RFC 2928: IETF Protocol Assignments
+	mustParseCIDR("2001:2::/48"),        // RFC 5180: Benchmarking
+	mustParseCIDR("2001:db8::/32"),      // RFC 3849: Documentation
+	mustParseCIDR("2001::/32"),          // RFC 4380: TEREDO
+	mustParseCIDR("fc00::/7"),           // RFC 4193: Unique-Local
+	mustParseCIDR("ff00::/8"),           // RFC 4291: Section 2.7
+	mustParseCIDR("2002::/16"),          // RFC 7526: 6to4 anycast prefix deprecated
+}
+
+// loopbackRanges net.IPNets that are loopback.
+// Based on https://github.com/wader/filtertransport/blob/bdd9e61eee7804e94ceb927c896b59920345c6e4/filter.go#L36-L64
+// which is based on https://github.com/letsencrypt/boulder/blob/master/bdns/dns.go
+var loopbackRanges = []net.IPNet{
+	mustParseCIDR("127.0.0.0/8"), // RFC5735, Loopback
+	mustParseCIDR("::1/128"),     // RFC4291, Loopback Address
+}
+
+// linkLocalRanges net.IPNets that are link local.
+// Based on https://github.com/wader/filtertransport/blob/bdd9e61eee7804e94ceb927c896b59920345c6e4/filter.go#L36-L64
+// which is based on https://github.com/letsencrypt/boulder/blob/master/bdns/dns.go
+var linkLocalRanges = []net.IPNet{
+	mustParseCIDR("169.254.0.0/16"), // RFC3927, Link Local
+	mustParseCIDR("fe80::/10"),      // RFC4291 Section 2.5.6, Link-Scoped Unicast
+}
+
 // isIPContainedInRanges returns true if the given IP is contained in at least one of the given ranges
 func isIPContainedInRanges(ip net.IP, ranges []net.IPNet) bool {
 	for _, r := range ranges {
@@ -617,8 +681,14 @@ func isIPContainedInRanges(ip net.IP, ranges []net.IPNet) bool {
 	return false
 }
 
-// isPrivateOrLocal return true if the given IP address is private, local, or otherwise
-// not suitable for an external client IP.
-func isPrivateOrLocal(ip net.IP) bool {
-	return isIPContainedInRanges(ip, privateAndLocalRanges)
+// orSlice returns the first of its arguments that has a length greater than zero.
+// If no argument is greater than 0, it returns the zero value.
+func orSlice[T any, S ~[]T](vals ...S) S {
+	var zero S
+	for _, val := range vals {
+		if len(val) > 0 {
+			return val
+		}
+	}
+	return zero
 }

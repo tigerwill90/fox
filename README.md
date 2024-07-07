@@ -502,7 +502,7 @@ f := fox.New(
     fox.DefaultOptions(),
     fox.WithClientIPStrategy(
         // We are behind one or many trusted proxies that have all private-space IP addresses.
-        strategy.NewRightmostNonPrivate(fox.HeaderXForwardedFor),
+        strategy.NewRightmostNonPrivate(strategy.XForwardedForKey),
     ),
 )
 
@@ -527,7 +527,7 @@ f = fox.New(
         // A common use for this is if a server is both directly connected to the 
         // internet and expecting a header to check.
         strategy.NewChain(
-            strategy.NewLeftmostNonPrivate(fox.HeaderXForwardedFor),
+            strategy.NewLeftmostNonPrivate(strategy.ForwardedKey),
             strategy.NewRemoteAddr(),
         ),
     ),

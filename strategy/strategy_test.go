@@ -5,6 +5,7 @@
 package strategy
 
 import (
+	"errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tigerwill90/fox"
@@ -99,7 +100,8 @@ func TestLeftmostNonPrivateStrategy_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
 
-	s := NewLeftmostNonPrivate("Forwarded")
+	s := NewLeftmostNonPrivate(ForwardedKey, ExcludeLoopback(true), ExcludeLinkLocal(true), ExcludePrivateNet(true))
+	assert.ElementsMatch(t, privateAndLocalRanges, s.blacklistedRanges)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "188.0.2.128", ipAddr.String())
@@ -116,7 +118,8 @@ func TestRightmostNonPrivateStrategy_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
-	s := NewRightmostNonPrivate("X-Forwarded-For")
+	s := NewRightmostNonPrivate(XForwardedForKey, TrustLoopback(true), TrustLinkLocal(true), TrustPrivateNet(true))
+	assert.ElementsMatch(t, privateAndLocalRanges, s.trustedRanges)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "3.3.3.3", ipAddr.String())
@@ -139,7 +142,7 @@ func TestRightmostTrustedCountStrategy_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
-	s := NewRightmostTrustedCount("Forwarded", 2)
+	s := NewRightmostTrustedCount(ForwardedKey, 2)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "2001:db8:cafe::17", ipAddr.String())
@@ -162,7 +165,9 @@ func TestRightmostTrustedRangeStrategy_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(fox.New(), w, req)
 	trustedRanges, _ := AddressesAndRangesToIPNets([]string{"192.168.0.0/16", "3.3.3.3"}...)
-	s := NewRightmostTrustedRange("X-Forwarded-For", trustedRanges)
+	s := NewRightmostTrustedRange(XForwardedForKey, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+		return trustedRanges, nil
+	}))
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "2001:db8:cafe::99%eth0", ipAddr.String())
@@ -177,6 +182,18 @@ func TestRightmostTrustedRangeStrategy_ClientIP(t *testing.T) {
 	_, err = s.ClientIP(c)
 	assert.ErrorIs(t, err, ErrRightmostTrustedRange)
 	assert.ErrorContains(t, err, "unable to find a valid IP address")
+
+	var resolverErr = errors.New("resolver error")
+	s.resolver = IPRangeResolverFunc(func() ([]net.IPNet, error) {
+		return nil, resolverErr
+	})
+	_, err = s.ClientIP(c)
+	assert.ErrorIs(t, err, ErrRightmostTrustedRange)
+	assert.ErrorIs(t, err, resolverErr)
+
+	assert.Panics(t, func() {
+		s = NewRightmostTrustedRange(XForwardedForKey, nil)
+	})
 }
 
 func TestChainStrategy_ClientIP(t *testing.T) {
@@ -377,68 +394,6 @@ func TestParseIPAddr(t *testing.T) {
 			if !ipAddrsEqual(*got, tt.want) {
 				t.Fatalf("ParseIPAddr() = %v, want %v", got, tt.want)
 			}
-		})
-	}
-}
-
-func Test_isPrivateOrLocal(t *testing.T) {
-	tests := []struct {
-		name string
-		ip   string
-		want bool
-	}{
-		{
-			name: "IPv4 loopback",
-			ip:   `127.0.0.2`,
-			want: true,
-		},
-		{
-			name: "IPv6 loopback",
-			ip:   `::1`,
-			want: true,
-		},
-		{
-			name: "IPv4 10.*",
-			ip:   `10.0.0.1`,
-			want: true,
-		},
-		{
-			name: "IPv4 192.168.*",
-			ip:   `192.168.1.1`,
-			want: true,
-		},
-		{
-			name: "IPv6 unique local address",
-			ip:   `fd12:3456:789a:1::1`,
-			want: true,
-		},
-		{
-			name: "IPv4 link-local",
-			ip:   `169.254.1.1`,
-			want: true,
-		},
-		{
-			name: "IPv6 link-local",
-			ip:   `fe80::abcd`,
-			want: true,
-		},
-		{
-			name: "Non-local IPv4",
-			ip:   `1.1.1.1`,
-			want: false,
-		},
-		{
-			name: "Non-local IPv4-mapped IPv6",
-			ip:   `::ffff:188.0.2.128`,
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ip)
-			require.NotNil(t, ip)
-			got := isPrivateOrLocal(ip)
-			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -1163,7 +1118,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 	var _ fox.ClientIPStrategy = LeftmostNonPrivate{}
 
 	type args struct {
-		headerName string
+		headerType HeaderKey
 		headers    http.Header
 		remoteAddr string
 	}
@@ -1176,7 +1131,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4 with port",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1187,7 +1142,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4 with no port",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1199,7 +1154,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with port",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`[2607:f8b0:4004:83f::18]:3838, 3.3.3.3`, `4.4.4.4`},
@@ -1210,7 +1165,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with no port",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1222,7 +1177,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with port and zone",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1234,7 +1189,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with port and zone, no quotes",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1246,7 +1201,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4-mapped IPv6",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::ffff:188.0.2.128, 3.3.3.3`, `4.4.4.4`},
@@ -1258,7 +1213,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4-mapped IPv6 with port",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`[::ffff:188.0.2.128]:48483, 3.3.3.3`, `4.4.4.4`},
@@ -1270,7 +1225,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4-mapped IPv6 in IPv6 (hex) form",
 			args: args{
-				headerName: "forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`[::ffff:188.0.2.128]:48483, 3.3.3.3`, `4.4.4.4`},
@@ -1282,7 +1237,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "NAT64 IPv4-mapped IPv6",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`64:ff9b::188.0.2.128, 3.3.3.3`, `4.4.4.4`},
@@ -1294,7 +1249,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "XFF: leftmost not desirable",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope`, `4.4.4.4, 5.5.5.5`},
@@ -1306,7 +1261,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Forwarded: leftmost not desirable",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope`, `4.4.4.4, 5.5.5.5`},
@@ -1318,7 +1273,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: XFF: none acceptable",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope, ::, 0.0.0.0`, `192.168.1.1, !?!`},
@@ -1330,7 +1285,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: Forwarded: none acceptable",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope`, `192.168.1.1, 2.2.2.2`},
@@ -1342,7 +1297,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: XFF: no header",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip": []string{`1.1.1.1`},
 					"Forwarded": []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="::ffff:ac15:0006%zone"`},
@@ -1353,7 +1308,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: Forwarded: no header",
 			args: args{
-				headerName: "forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`64:ff9b::188.0.2.128, 3.3.3.3`, `4.4.4.4`},
@@ -1362,20 +1317,9 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "Error: empty header name",
+			name: "Error: invalid header key",
 			args: args{
-				headerName: "",
-				headers: http.Header{
-					"X-Real-Ip":       []string{"::1"},
-					"True-Client-Ip":  []string{"2.2.2.2"},
-					"X-Forwarded-For": []string{"3.3.3.3"}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Error: invalid header",
-			args: args{
-				headerName: "X-Real-IP",
+				headerType: 3,
 				headers: http.Header{
 					"X-Real-Ip":       []string{"::1"},
 					"True-Client-Ip":  []string{"2.2.2.2"},
@@ -1393,12 +1337,12 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewLeftmostNonPrivate(tt.args.headerName)
+					s = NewLeftmostNonPrivate(tt.args.headerType)
 				})
 				return
 			}
 
-			s = NewLeftmostNonPrivate(tt.args.headerName)
+			s = NewLeftmostNonPrivate(tt.args.headerType)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1417,7 +1361,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 	var _ fox.ClientIPStrategy = RightmostNonPrivate{}
 
 	type args struct {
-		headerName string
+		headerType HeaderKey
 		headers    http.Header
 		remoteAddr string
 	}
@@ -1430,7 +1374,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4 with port",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4:39333`},
@@ -1441,7 +1385,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4 with no port",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1453,7 +1397,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with port",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`[2607:f8b0:4004:83f::18]:3838`},
@@ -1464,7 +1408,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with no port",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1476,7 +1420,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with port and zone",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1488,7 +1432,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv6 with port and zone, no quotes",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1500,7 +1444,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4-mapped IPv6",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`3.3.3.3`, `4.4.4.4, ::ffff:188.0.2.128`},
@@ -1512,7 +1456,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4-mapped IPv6 with port",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`3.3.3.3`, `4.4.4.4,[::ffff:188.0.2.128]:48483`},
@@ -1524,7 +1468,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "IPv4-mapped IPv6 in IPv6 (hex) form",
 			args: args{
-				headerName: "forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`[::ffff:188.0.2.128]:48483, 3.3.3.3`, `4.4.4.4`},
@@ -1536,7 +1480,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "NAT64 IPv4-mapped IPv6",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`3.3.3.3`, `4.4.4.4, 64:ff9b::188.0.2.128`},
@@ -1548,7 +1492,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "XFF: rightmost not desirable",
 			args: args{
-				headerName: "x-forwarded-for",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`4.4.4.4, 5.5.5.5`, `::1, nope`},
@@ -1560,7 +1504,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Forwarded: rightmost not desirable",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope`, `4.4.4.4, 5.5.5.5`},
@@ -1572,7 +1516,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: XFF: none acceptable",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope`, `192.168.1.1, !?!, ::, 0.0.0.0`},
@@ -1584,7 +1528,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: Forwarded: none acceptable",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::1, nope`, `192.168.1.1, 2.2.2.2`},
@@ -1596,7 +1540,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: XFF: no header",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip": []string{`1.1.1.1`},
 					"Forwarded": []string{`For="", For="::ffff:192.168.1.1"`, `host=what;for=:48485;proto=https,For="::ffff:ac15:0006%zone"`},
@@ -1608,7 +1552,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 		{
 			name: "Fail: Forwarded: no header",
 			args: args{
-				headerName: "forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`64:ff9b::188.0.2.128, 3.3.3.3`, `4.4.4.4`},
@@ -1617,20 +1561,9 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "Error: empty header name",
+			name: "Error: invalid header key",
 			args: args{
-				headerName: "",
-				headers: http.Header{
-					"X-Real-Ip":       []string{"::1"},
-					"True-Client-Ip":  []string{"2.2.2.2"},
-					"X-Forwarded-For": []string{"3.3.3.3"}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Error: invalid header",
-			args: args{
-				headerName: "X-Real-IP",
+				headerType: 3,
 				headers: http.Header{
 					"X-Real-Ip":       []string{"::1"},
 					"True-Client-Ip":  []string{"2.2.2.2"},
@@ -1648,12 +1581,12 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewRightmostNonPrivate(tt.args.headerName)
+					s = NewRightmostNonPrivate(tt.args.headerType)
 				})
 				return
 			}
 
-			s = NewRightmostNonPrivate(tt.args.headerName)
+			s = NewRightmostNonPrivate(tt.args.headerType)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1672,7 +1605,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 	var _ fox.ClientIPStrategy = RightmostTrustedCount{}
 
 	type args struct {
-		headerName   string
+		headerType   HeaderKey
 		trustedCount int
 		headers      http.Header
 		remoteAddr   string
@@ -1686,7 +1619,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Count one",
 			args: args{
-				headerName:   "Forwarded",
+				headerType:   ForwardedKey,
 				trustedCount: 1,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1699,7 +1632,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Count five",
 			args: args{
-				headerName:   "X-Forwarded-For",
+				headerType:   XForwardedForKey,
 				trustedCount: 5,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1712,7 +1645,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Fail: header too short/count too large",
 			args: args{
-				headerName:   "X-Forwarded-For",
+				headerType:   XForwardedForKey,
 				trustedCount: 50,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1725,7 +1658,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Fail: bad value at count index",
 			args: args{
-				headerName:   "Forwarded",
+				headerType:   ForwardedKey,
 				trustedCount: 2,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1738,7 +1671,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Fail: zero value at count index",
 			args: args{
-				headerName:   "Forwarded",
+				headerType:   ForwardedKey,
 				trustedCount: 2,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1751,7 +1684,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Fail: header missing",
 			args: args{
-				headerName:   "Forwarded",
+				headerType:   ForwardedKey,
 				trustedCount: 1,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1761,21 +1694,9 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "Error: empty header name",
+			name: "Error: invalid header key",
 			args: args{
-				headerName:   "",
-				trustedCount: 1,
-				headers: http.Header{
-					"X-Real-Ip":       []string{"::1"},
-					"True-Client-Ip":  []string{"2.2.2.2"},
-					"X-Forwarded-For": []string{"3.3.3.3"}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Error: invalid header",
-			args: args{
-				headerName:   "X-Real-IP",
+				headerType:   3,
 				trustedCount: 1,
 				headers: http.Header{
 					"X-Real-Ip":       []string{"::1"},
@@ -1787,7 +1708,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Error: zero trustedCount",
 			args: args{
-				headerName:   "x-forwarded-for",
+				headerType:   XForwardedForKey,
 				trustedCount: 0,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1800,7 +1721,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 		{
 			name: "Error: negative trustedCount",
 			args: args{
-				headerName:   "X-Forwarded-For",
+				headerType:   XForwardedForKey,
 				trustedCount: -999,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
@@ -1819,12 +1740,12 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewRightmostTrustedCount(tt.args.headerName, tt.args.trustedCount)
+					s = NewRightmostTrustedCount(tt.args.headerType, tt.args.trustedCount)
 				})
 				return
 			}
 
-			s = NewRightmostTrustedCount(tt.args.headerName, tt.args.trustedCount)
+			s = NewRightmostTrustedCount(tt.args.headerType, tt.args.trustedCount)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1843,7 +1764,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 	var _ fox.ClientIPStrategy = RightmostTrustedRange{}
 
 	type args struct {
-		headerName    string
+		headerType    HeaderKey
 		headers       http.Header
 		remoteAddr    string
 		trustedRanges []string
@@ -1857,7 +1778,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "No ranges",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1869,7 +1790,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "One range",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1881,7 +1802,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "One IP",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1893,7 +1814,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "Many kinds of ranges",
 			args: args{
-				headerName: "Forwarded",
+				headerType: ForwardedKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -1913,7 +1834,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "Cloudflare ranges",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`, `2400:cb00::1`},
@@ -1948,7 +1869,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "Fail: no non-trusted IP",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 2.2.2.3`, `2.2.2.4`},
@@ -1960,7 +1881,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "Fail: rightmost non-trusted IP invalid",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`nope, 2.2.2.2:3384, 2.2.2.3`, `2.2.2.4`},
@@ -1972,7 +1893,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "Fail: rightmost non-trusted IP unspecified",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`::, 2.2.2.2:3384, 2.2.2.3`, `2.2.2.4`},
@@ -1984,7 +1905,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 		{
 			name: "Fail: no values in header",
 			args: args{
-				headerName: "X-Forwarded-For",
+				headerType: XForwardedForKey,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{}},
@@ -1993,21 +1914,9 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "Error: empty header nanme",
+			name: "Error: invalid header key",
 			args: args{
-				headerName: "",
-				headers: http.Header{
-					"X-Real-Ip":       []string{`1.1.1.1`},
-					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
-				},
-				trustedRanges: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "Error: bad header nanme",
-			args: args{
-				headerName: "Not-XFF-Or-Forwarded",
+				headerType: 3,
 				headers: http.Header{
 					"X-Real-Ip":       []string{`1.1.1.1`},
 					"X-Forwarded-For": []string{`2.2.2.2:3384, 3.3.3.3`, `4.4.4.4`},
@@ -2033,12 +1942,16 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewRightmostTrustedRange(tt.args.headerName, ranges)
+					s = NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+						return ranges, nil
+					}))
 				})
 				return
 			}
 
-			s = NewRightmostTrustedRange(tt.args.headerName, ranges)
+			s = NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+				return ranges, nil
+			}))
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -2048,6 +1961,53 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.want, ipAddr.String())
+		})
+	}
+}
+
+func TestOrSlice(t *testing.T) {
+	cases := []struct {
+		name string
+		s1   []string
+		s2   []string
+		want []string
+	}{
+		{
+			name: "first is empty",
+			s1:   []string{},
+			s2:   []string{"foo"},
+			want: []string{"foo"},
+		},
+		{
+			name: "first is nil",
+			s2:   []string{"foo"},
+			want: []string{"foo"},
+		},
+		{
+			name: "first non empty",
+			s1:   []string{"bar"},
+			s2:   []string{"foo"},
+			want: []string{"bar"},
+		},
+		{
+			name: "second is empty",
+			s1:   []string{"foo"},
+			s2:   []string{},
+			want: []string{"foo"},
+		},
+		{
+			name: "both are empty",
+			s1:   []string{},
+			s2:   []string{},
+		},
+		{
+			name: "both are nil",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, orSlice(tc.s1, tc.s2))
 		})
 	}
 }
