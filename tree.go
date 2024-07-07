@@ -535,6 +535,7 @@ func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, 
 		charsMatched            int
 		charsMatchedInNodeFound int
 		paramCnt                uint32
+		paramKeyCnt             uint32
 		parent                  *node
 	)
 
@@ -564,8 +565,7 @@ Walk:
 						break Walk
 					}
 
-					startKey := charsMatchedInNodeFound
-					idx = strings.IndexByte(current.key[startKey:], slashDelim)
+					idx = current.params[paramKeyCnt].end - charsMatchedInNodeFound
 					if idx >= 0 {
 						// -1 since on the next incrementation, if any, 'i' are going to be incremented
 						i += idx - 1
@@ -578,9 +578,9 @@ Walk:
 
 					if !lazy {
 						paramCnt++
-						*c.params = append(*c.params, Param{Key: current.key[startKey+1 : charsMatchedInNodeFound-1], Value: path[startPath:charsMatched]})
+						*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
 					}
-
+					paramKeyCnt++
 					continue
 				}
 
@@ -615,6 +615,7 @@ Walk:
 				idx = current.paramChildIndex
 				parent = current
 				current = current.children[idx].Load()
+				paramKeyCnt = 0
 				continue
 			}
 
@@ -624,10 +625,12 @@ Walk:
 			}
 			parent = current
 			current = current.children[idx].Load()
+			paramKeyCnt = 0
 		}
 	}
 
 	paramCnt = 0
+	paramKeyCnt = 0
 	hasSkpNds := len(*c.skipNds) > 0
 
 	if !current.isLeaf() {

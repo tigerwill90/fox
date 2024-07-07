@@ -507,6 +507,20 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	}
 }
 
+func BenchmarkLongParam(b *testing.B) {
+	r := New()
+	r.MustHandle(http.MethodGet, "/foo/{very_very_very_very_very_long_param}", emptyHandler)
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkOverlappingRoute(b *testing.B) {
 	r := New()
 	for _, route := range overlappingRoutes {
