@@ -278,8 +278,6 @@ func parseWildcard(segment string) []param {
 	for i < len(segment) {
 		switch state {
 		case stateParam:
-			seg := string(segment[i])
-			_ = seg
 			if segment[i] == '}' {
 				end := -1
 				if len(segment[i+1:]) > 0 {
@@ -293,32 +291,28 @@ func parseWildcard(segment string) []param {
 				state = stateDefault
 			}
 			i++
-		case stateCatchAll:
-			seg := string(segment[i])
-			_ = seg
-			if segment[i] == '}' {
-				end := -1
-				if len(segment[i+1:]) > 0 {
-					end = i + 1
-				}
-				params = append(params, param{
-					key:      segment[start:i],
-					end:      end,
-					catchAll: true,
-				})
-				start = 0
-				state = stateDefault
-			}
-			i++
+			//case stateCatchAll:
+			//if segment[i] == '}' {
+			//	end := -1
+			//	if len(segment[i+1:]) > 0 {
+			//		end = i + 1
+			//	}
+			//	params = append(params, param{
+			//		key:      segment[start:i],
+			//		end:      end,
+			//		catchAll: true,
+			//	})
+			//	start = 0
+			//	state = stateDefault
+			//}
+			//i++
 		default:
-			seg := string(segment[i])
-			_ = seg
-			if segment[i] == '*' {
-				state = stateCatchAll
-				i += 2
-				start = i
-				continue
-			}
+			//	if segment[i] == '*' {
+			//	state = stateCatchAll
+			//	i += 2
+			//	start = i
+			//	continue
+			//}
 
 			if segment[i] == '{' {
 				state = stateParam
