@@ -3023,6 +3023,17 @@ func atomicSync() (start func(), wait func()) {
 	return
 }
 
+func TestNode_String(t *testing.T) {
+	f := New()
+	require.NoError(t, f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler))
+	tree := f.Tree()
+	nds := *tree.nodes.Load()
+
+	want := `path: GET
+      path: /foo/{bar}/ [catchAll] [leaf=/foo/{bar}/*{baz}] [bar (10)]`
+	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
+}
+
 // This example demonstrates how to create a simple router using the default options,
 // which include the Recovery and Logger middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.
