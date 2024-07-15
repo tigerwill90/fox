@@ -36,6 +36,8 @@ type node struct {
 	// each pointer reference to a new child node starting with the same character.
 	children []atomic.Pointer[node]
 
+	params []param
+
 	// The index of a paramChild if any, -1 if none (per rules, only one paramChildren is allowed).
 	paramChildIndex int
 }
@@ -60,7 +62,7 @@ func newNode(key string, handler HandlerFunc, children []*node, catchAllKey stri
 }
 
 func newNodeFromRef(key string, handler HandlerFunc, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, childIndex int, path string) *node {
-	n := &node{
+	return &node{
 		key:             key,
 		childKeys:       childKeys,
 		children:        children,
@@ -68,9 +70,8 @@ func newNodeFromRef(key string, handler HandlerFunc, children []atomic.Pointer[n
 		catchAllKey:     catchAllKey,
 		path:            appendCatchAll(path, catchAllKey),
 		paramChildIndex: childIndex,
+		params:          parseWildcard(key),
 	}
-
-	return n
 }
 
 func (n *node) isLeaf() bool {
@@ -79,6 +80,10 @@ func (n *node) isLeaf() bool {
 
 func (n *node) isCatchAll() bool {
 	return n.catchAllKey != ""
+}
+
+func (n *node) hasWildcard() bool {
+	return len(n.params) > 0
 }
 
 func (n *node) getEdge(s byte) *node {
@@ -184,7 +189,21 @@ func (n *node) string(space int) string {
 	if n.paramChildIndex >= 0 {
 		sb.WriteString(" [paramIdx=")
 		sb.WriteString(strconv.Itoa(n.paramChildIndex))
-		sb.WriteString("]")
+		sb.WriteByte(']')
+		if n.hasWildcard() {
+			sb.WriteString(" [")
+			for i, param := range n.params {
+				if i > 0 {
+					sb.WriteByte(',')
+				}
+				sb.WriteString(param.key)
+				sb.WriteString(" (")
+				sb.WriteString(strconv.Itoa(param.end))
+				sb.WriteString(")")
+			}
+			sb.WriteString("]")
+		}
+
 	}
 
 	if n.isCatchAll() {
@@ -194,6 +213,19 @@ func (n *node) string(space int) string {
 		sb.WriteString(" [leaf=")
 		sb.WriteString(n.path)
 		sb.WriteString("]")
+	}
+	if n.hasWildcard() {
+		sb.WriteString(" [")
+		for i, param := range n.params {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(param.key)
+			sb.WriteString(" (")
+			sb.WriteString(strconv.Itoa(param.end))
+			sb.WriteString(")")
+		}
+		sb.WriteByte(']')
 	}
 
 	sb.WriteByte('\n')
@@ -228,4 +260,69 @@ func appendCatchAll(path, catchAllKey string) string {
 		}
 	}
 	return path
+}
+
+// param represents a parsed parameter and its end position in the path.
+type param struct {
+	key string
+	end int // -1 if end with {a}, else pos of the next char
+	// catchAll bool
+}
+
+func parseWildcard(segment string) []param {
+	var params []param
+
+	state := stateDefault
+	start := 0
+	i := 0
+	for i < len(segment) {
+		switch state {
+		case stateParam:
+			if segment[i] == '}' {
+				end := -1
+				if len(segment[i+1:]) > 0 {
+					end = i + 1
+				}
+				params = append(params, param{
+					key: segment[start:i],
+					end: end,
+				})
+				start = 0
+				state = stateDefault
+			}
+			i++
+			//case stateCatchAll:
+			//if segment[i] == '}' {
+			//	end := -1
+			//	if len(segment[i+1:]) > 0 {
+			//		end = i + 1
+			//	}
+			//	params = append(params, param{
+			//		key:      segment[start:i],
+			//		end:      end,
+			//		catchAll: true,
+			//	})
+			//	start = 0
+			//	state = stateDefault
+			//}
+			//i++
+		default:
+			//	if segment[i] == '*' {
+			//	state = stateCatchAll
+			//	i += 2
+			//	start = i
+			//	continue
+			//}
+
+			if segment[i] == '{' {
+				state = stateParam
+				i++
+				start = i
+				continue
+			}
+			i++
+		}
+	}
+
+	return params
 }

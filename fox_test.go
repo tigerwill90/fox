@@ -507,6 +507,20 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	}
 }
 
+func BenchmarkLongParam(b *testing.B) {
+	r := New()
+	r.MustHandle(http.MethodGet, "/foo/{very_very_very_very_very_long_param}", emptyHandler)
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkOverlappingRoute(b *testing.B) {
 	r := New()
 	for _, route := range overlappingRoutes {
@@ -3007,6 +3021,17 @@ func atomicSync() (start func(), wait func()) {
 	}
 
 	return
+}
+
+func TestNode_String(t *testing.T) {
+	f := New()
+	require.NoError(t, f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler))
+	tree := f.Tree()
+	nds := *tree.nodes.Load()
+
+	want := `path: GET
+      path: /foo/{bar}/ [catchAll] [leaf=/foo/{bar}/*{baz}] [bar (10)]`
+	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
 }
 
 // This example demonstrates how to create a simple router using the default options,
