@@ -264,9 +264,9 @@ func appendCatchAll(path, catchAllKey string) string {
 
 // param represents a parsed parameter and its end position in the path.
 type param struct {
-	key      string
-	end      int // -1 if end with {a}, else pos of the next char
-	catchAll bool
+	key string
+	end int // -1 if end with {a}, else pos of the next char
+	// catchAll bool
 }
 
 func parseWildcard(segment string) []param {
