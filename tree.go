@@ -651,7 +651,7 @@ Walk:
 				if !lazy {
 					if cap(*c.params) > cap(*c.tsrParams) {
 						// Grow c.tsrParams to a least cap(c.params)
-						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
 					}
 					// cap(c.tsrParams) >= cap(c.params)
 					// now constraint into len(c.params) & cap(c.params)
@@ -693,7 +693,7 @@ Walk:
 						if !lazy {
 							if cap(*c.params) > cap(*c.tsrParams) {
 								// Grow c.tsrParams to a least cap(c.params)
-								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
 							}
 							// cap(c.tsrParams) >= cap(c.params)
 							// now constraint into len(c.params) & cap(c.params)
@@ -711,7 +711,7 @@ Walk:
 						if !lazy {
 							if cap(*c.params) > cap(*c.tsrParams) {
 								// Grow c.tsrParams to a least cap(c.params)
-								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
 							}
 							// cap(c.tsrParams) >= cap(c.params)
 							// now constraint into len(c.params) & cap(c.params)
@@ -752,7 +752,7 @@ Walk:
 				if !lazy {
 					if cap(*c.params) > cap(*c.tsrParams) {
 						// Grow c.tsrParams to a least cap(c.params)
-						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params)-cap(*c.tsrParams))
+						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
 					}
 					// cap(c.tsrParams) >= cap(c.params)
 					// now constraint into len(c.params) & cap(c.params)

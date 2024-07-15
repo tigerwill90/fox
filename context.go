@@ -315,7 +315,7 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.cachedQuery = nil
 	if cap(*c.params) > cap(*cp.params) {
 		// Grow cp.params to a least cap(c.params)
-		*cp.params = slices.Grow(*cp.params, cap(*c.params)-cap(*cp.params))
+		*cp.params = slices.Grow(*cp.params, cap(*c.params))
 	}
 	// cap(cp.params) >= cap(c.params)
 	// now constraint into len(c.params) & cap(c.params)
