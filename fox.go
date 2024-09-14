@@ -67,6 +67,47 @@ func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
 	return f(c)
 }
 
+// Route represent a registered route in the route tree.
+type Route struct {
+	ipStrategy            ClientIPStrategy
+	handler               HandlerFunc
+	path                  string
+	mws                   []middleware
+	redirectTrailingSlash bool
+	ignoreTrailingSlash   bool
+}
+
+// Handle call the registered handler with the provided Context.
+func (r *Route) Handle(c Context) {
+	r.handler(c)
+}
+
+// Path returns the route path.
+func (r *Route) Path() string {
+	return r.path
+}
+
+// RedirectTrailingSlashEnabled returns whether the route is configured to automatically
+// redirect requests that include or omit a trailing slash.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (r *Route) RedirectTrailingSlashEnabled() bool {
+	return r.redirectTrailingSlash
+}
+
+// IgnoreTrailingSlashEnabled returns whether the route is configured to ignore
+// trailing slashes in requests when matching routes.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (r *Route) IgnoreTrailingSlashEnabled() bool {
+	return r.ignoreTrailingSlash
+}
+
+// ClientIPStrategyEnabled returns whether the route is configured with a ClientIPStrategy.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (r *Route) ClientIPStrategyEnabled() bool {
+	_, ok := r.ipStrategy.(noClientIPStrategy)
+	return !ok
+}
+
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
@@ -91,7 +132,7 @@ type middleware struct {
 var _ http.Handler = (*Router)(nil)
 
 // New returns a ready to use instance of Fox router.
-func New(opts ...Option) *Router {
+func New(opts ...GlobalOption) *Router {
 	r := new(Router)
 
 	r.noRoute = DefaultNotFoundHandler()
@@ -100,7 +141,7 @@ func New(opts ...Option) *Router {
 	r.ipStrategy = noClientIPStrategy{}
 
 	for _, opt := range opts {
-		opt.apply(r)
+		opt.applyGlob(r)
 	}
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
@@ -190,11 +231,11 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
 // for serving requests. This function is safe for concurrent use by multiple goroutine.
 // To override an existing route, use Update.
-func (fox *Router) Handle(method, path string, handler HandlerFunc) error {
+func (fox *Router) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Handle(method, path, handler)
+	return t.Handle(method, path, handler, opts...)
 }
 
 // MustHandle registers a new handler for the given method and path. This function is a convenience
@@ -202,8 +243,8 @@ func (fox *Router) Handle(method, path string, handler HandlerFunc) error {
 // with another route. It's perfectly safe to add a new handler while the tree is in use for serving
 // requests. This function is safe for concurrent use by multiple goroutines.
 // To override an existing route, use Update.
-func (fox *Router) MustHandle(method, path string, handler HandlerFunc) {
-	if err := fox.Handle(method, path, handler); err != nil {
+func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...PathOption) {
+	if err := fox.Handle(method, path, handler, opts...); err != nil {
 		panic(err)
 	}
 }
@@ -212,11 +253,11 @@ func (fox *Router) MustHandle(method, path string, handler HandlerFunc) {
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. This function is safe for concurrent use by multiple goroutine.
 // To add new handler, use Handle method.
-func (fox *Router) Update(method, path string, handler HandlerFunc) error {
+func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Update(method, path, handler)
+	return t.Update(method, path, handler, opts...)
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
