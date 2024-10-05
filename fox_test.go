@@ -1767,6 +1767,9 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 				require.NoError(t, r.Tree().Handle(tc.method, path, func(c Context) {
 					_ = c.String(http.StatusOK, c.Path())
 				}))
+				rte := r.Tree().Route(tc.method, path)
+				require.NotNil(t, rte)
+				assert.True(t, rte.IgnoreTrailingSlashEnabled())
 			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -1784,7 +1787,11 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 	f := New(WithClientIPStrategy(ClientIPStrategyFunc(func(c Context) (*net.IPAddr, error) {
 		return c.RemoteIP(), nil
 	})))
-	require.True(t, f.ClientIPStrategyEnabled())
+	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
+	assert.True(t, f.ClientIPStrategyEnabled())
+	rte := f.Tree().Route(http.MethodGet, "/foo")
+	require.NotNil(t, rte)
+	assert.True(t, rte.ClientIPStrategyEnabled())
 }
 
 func TestRedirectTrailingSlash(t *testing.T) {
@@ -1918,6 +1925,9 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			require.True(t, r.RedirectTrailingSlashEnabled())
 			for _, path := range tc.paths {
 				require.NoError(t, r.Tree().Handle(tc.method, path, emptyHandler))
+				rte := r.Tree().Route(tc.method, path)
+				require.NotNil(t, rte)
+				assert.True(t, rte.RedirectTrailingSlashEnabled())
 			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -2535,6 +2545,73 @@ func TestWithScopedMiddleware(t *testing.T) {
 	req.URL.Path = "/foo"
 	r.ServeHTTP(w, req)
 	assert.True(t, called)
+}
+
+func TestUpdateWithMiddleware(t *testing.T) {
+	called := false
+	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			called = true
+			next(c)
+		}
+	})
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	w := httptest.NewRecorder()
+
+	// Add middleware
+	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler, WithMiddleware(m)))
+	f.ServeHTTP(w, req)
+	assert.True(t, called)
+	called = false
+
+	// Remove middleware
+	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler))
+	f.ServeHTTP(w, req)
+	assert.False(t, called)
+}
+
+func TestRouteMiddleware(t *testing.T) {
+	var c0, c1, c2 bool
+	m0 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			c0 = true
+			next(c)
+		}
+	})
+
+	m1 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			c1 = true
+			next(c)
+		}
+	})
+
+	m2 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			c2 = true
+			next(c)
+		}
+	})
+	f := New(WithMiddleware(m0))
+	f.MustHandle(http.MethodGet, "/1", emptyHandler, WithMiddleware(m1))
+	f.MustHandle(http.MethodGet, "/2", emptyHandler, WithMiddleware(m2))
+
+	req := httptest.NewRequest(http.MethodGet, "/1", nil)
+	w := httptest.NewRecorder()
+
+	f.ServeHTTP(w, req)
+	assert.True(t, c0)
+	assert.True(t, c1)
+	assert.False(t, c2)
+	c0, c1, c2 = false, false, false
+
+	req.URL.Path = "/2"
+	f.ServeHTTP(w, req)
+	assert.True(t, c0)
+	assert.False(t, c1)
+	assert.True(t, c2)
 }
 
 func TestWithNotFoundHandler(t *testing.T) {

@@ -95,24 +95,32 @@ func (t *Tree) Remove(method, path string) error {
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for concurrent
-// use by multiple goroutine and while mutation on Tree are ongoing.
+// Has allows to check if the given method and path exactly match a registered route. This function is safe for
+// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
+	return t.Route(method, path) != nil
+}
+
+// Route performs a lookup for a registered route matching the given method and path. It returns the route if a
+// match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
+// mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Route(method, path string) *Route {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return false
+		return nil
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
-	if n != nil && !tsr {
-		return n.route.path == path
+	if n != nil && !tsr && n.route.path == path {
+		return n.route
 	}
-	return false
+	return nil
 }
 
 // Match perform a reverse lookup on the tree for the given method and path and return the matching registered route if any. When

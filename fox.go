@@ -141,9 +141,9 @@ var _ http.Handler = (*Router)(nil)
 func New(opts ...GlobalOption) *Router {
 	r := new(Router)
 
-	r.noRoute = DefaultNotFoundHandler()
-	r.noMethod = DefaultMethodNotAllowedHandler()
-	r.autoOptions = DefaultOptionsHandler()
+	r.noRoute = DefaultNotFoundHandler
+	r.noMethod = DefaultMethodNotAllowedHandler
+	r.autoOptions = DefaultOptionsHandler
 	r.ipStrategy = noClientIPStrategy{}
 
 	for _, opt := range opts {
@@ -322,27 +322,21 @@ Next:
 	return nil
 }
 
-// DefaultNotFoundHandler returns a simple HandlerFunc that replies to each request
+// DefaultNotFoundHandler is a simple HandlerFunc that replies to each request
 // with a “404 page not found” reply.
-func DefaultNotFoundHandler() HandlerFunc {
-	return func(c Context) {
-		http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
-	}
+func DefaultNotFoundHandler(c Context) {
+	http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 }
 
-// DefaultMethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
+// DefaultMethodNotAllowedHandler is a simple HandlerFunc that replies to each request
 // with a “405 Method Not Allowed” reply.
-func DefaultMethodNotAllowedHandler() HandlerFunc {
-	return func(c Context) {
-		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-	}
+func DefaultMethodNotAllowedHandler(c Context) {
+	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
-// DefaultOptionsHandler returns a simple HandlerFunc that replies to each request with a "200 OK" reply.
-func DefaultOptionsHandler() HandlerFunc {
-	return func(c Context) {
-		c.Writer().WriteHeader(http.StatusOK)
-	}
+// DefaultOptionsHandler is a simple HandlerFunc that replies to each request with a "200 OK" reply.
+func DefaultOptionsHandler(c Context) {
+	c.Writer().WriteHeader(http.StatusOK)
 }
 
 func defaultRedirectTrailingSlashHandler(c Context) {
