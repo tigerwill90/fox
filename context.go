@@ -86,8 +86,8 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router instance.
 	Fox() *Router
-	// Reset resets the Context to its initial state, attaching the provided Router, ResponseWriter and http.Request.
-	Reset(fox *Router, w ResponseWriter, r *http.Request)
+	// Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
+	Reset(w ResponseWriter, r *http.Request)
 }
 
 // cTx holds request-related information and allows interaction with the ResponseWriter.
@@ -99,7 +99,8 @@ type cTx struct {
 	skipNds   *skippedNodes
 
 	// tree at allocation (read-only, no reset)
-	tree        *Tree
+	tree *Tree
+	// router at allocation (read-only, no reset)
 	fox         *Router
 	cachedQuery url.Values
 	path        string
@@ -108,27 +109,25 @@ type cTx struct {
 }
 
 // Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
-func (c *cTx) Reset(fox *Router, w ResponseWriter, r *http.Request) {
+func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
 	c.path = ""
 	c.tsr = false
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
-	c.fox = fox
 }
 
 // reset resets the Context to its initial state, attaching the provided http.ResponseWriter and http.Request.
 // Caution: You should always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
 // avoid wrapping the ResponseWriter within itself. Use wisely!
-func (c *cTx) reset(fox *Router, w http.ResponseWriter, r *http.Request) {
+func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
-	c.fox = fox
 }
 
 func (c *cTx) resetNil() {
@@ -137,7 +136,6 @@ func (c *cTx) resetNil() {
 	c.path = ""
 	c.cachedQuery = nil
 	*c.params = (*c.params)[:0]
-	c.fox = nil
 }
 
 // Request returns the *http.Request.
@@ -315,7 +313,6 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.w = w
 	cp.path = c.path
 	cp.cachedQuery = nil
-	cp.fox = c.fox
 	if cap(*c.params) > cap(*cp.params) {
 		// Grow cp.params to a least cap(c.params)
 		*cp.params = slices.Grow(*cp.params, cap(*c.params))
