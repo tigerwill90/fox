@@ -1818,7 +1818,7 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 	require.NotNil(t, rte)
 	assert.False(t, rte.ClientIPStrategyEnabled())
 
-	// On not found handler
+	// On not found handler, fallback to global ip strategy
 	req := httptest.NewRequest(http.MethodGet, "/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
