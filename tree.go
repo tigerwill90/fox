@@ -176,14 +176,14 @@ func (t *Tree) Methods(path string) []string {
 	return methods
 }
 
-// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a
+// Lookup performs a manual route lookup for a given http.Request, returning the matched Route along with a
 // ContextCloser, and a boolean indicating if the handler was matched by adding or removing a trailing slash
 // (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
 // intended for integrating the fox router into custom routing solutions or middleware. This function is safe for concurrent
 // use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,
-// Lookup always return a HandlerFunc and a ContextCloser.
+// Lookup always return a Route and a ContextCloser.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(r.Method, nds)
 
@@ -204,7 +204,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 	if n != nil {
 		c.route = n.route
 		c.tsr = tsr
-		return n.route.base, c, tsr
+		return n.route, c, tsr
 	}
 	c.Close()
 	return nil, nil, tsr

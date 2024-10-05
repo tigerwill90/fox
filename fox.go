@@ -282,11 +282,11 @@ func (fox *Router) Remove(method, path string) error {
 }
 
 // Lookup is a helper that calls Tree.Lookup. For more details, refer to Tree.Lookup.
-// It performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
+// It performs a manual route lookup for a given http.Request, returning the matched Route along with a ContextCloser,
 // and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always
 // be closed if non-nil.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
 	return tree.Lookup(w, r)
 }

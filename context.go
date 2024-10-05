@@ -186,8 +186,12 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 // worthy of panicking.
 // This api is EXPERIMENTAL and is likely to change in future release.
 func (c *cTx) ClientIP() (*net.IPAddr, error) {
-	ipStrategy := c.Fox().ipStrategy
-	return ipStrategy.ClientIP(c)
+	// We may be in a handler which does not match a route like NotFound handler.
+	if c.route == nil {
+		ipStrategy := c.fox.ipStrategy
+		return ipStrategy.ClientIP(c)
+	}
+	return c.route.ipStrategy.ClientIP(c)
 }
 
 // Params returns a Params slice containing the matched

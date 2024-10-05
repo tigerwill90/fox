@@ -2562,9 +2562,10 @@ func TestRouter_Lookup(t *testing.T) {
 
 	for _, rte := range githubAPI {
 		req := httptest.NewRequest(rte.method, rte.path, nil)
-		handler, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
+		route, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
 		require.NotNil(t, cc)
-		assert.NotNil(t, handler)
+		require.NotNil(t, route)
+		assert.Equal(t, rte.path, route.Path())
 
 		matches := rx.FindAllString(rte.path, -1)
 		for _, match := range matches {
@@ -2583,14 +2584,14 @@ func TestRouter_Lookup(t *testing.T) {
 
 	// No method match
 	req := httptest.NewRequest("ANY", "/bar", nil)
-	handler, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
-	assert.Nil(t, handler)
+	route, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
+	assert.Nil(t, route)
 	assert.Nil(t, cc)
 
 	// No path match
 	req = httptest.NewRequest(http.MethodGet, "/bar", nil)
-	handler, cc, _ = f.Lookup(newResponseWriter(mockResponseWriter{}), req)
-	assert.Nil(t, handler)
+	route, cc, _ = f.Lookup(newResponseWriter(mockResponseWriter{}), req)
+	assert.Nil(t, route)
 	assert.Nil(t, cc)
 }
 
@@ -2779,6 +2780,20 @@ func TestEncodedPath(t *testing.T) {
 
 	r.ServeHTTP(w, req)
 	assert.Equal(t, encodedPath, w.Body.String())
+}
+
+func TestTreeSwap(t *testing.T) {
+	f := New()
+	tree := f.NewTree()
+	assert.NotPanics(t, func() {
+		f.Swap(tree)
+	})
+	assert.Equal(t, tree, f.Tree())
+
+	f2 := New()
+	assert.Panics(t, func() {
+		f2.Swap(tree)
+	})
 }
 
 func TestFuzzInsertLookupParam(t *testing.T) {
@@ -3137,15 +3152,15 @@ func ExampleRouter_Lookup() {
 			target := req.URL.Path
 			cleanedPath := CleanPath(target)
 
-			// Nothing to clean, call next handler or middleware.
+			// Nothing to clean, call next handler.
 			if cleanedPath == target {
 				next(c)
 				return
 			}
 
 			req.URL.Path = cleanedPath
-			handler, cc, tsr := c.Fox().Lookup(c.Writer(), req)
-			if handler != nil {
+			route, cc, tsr := c.Fox().Lookup(c.Writer(), req)
+			if route != nil {
 				defer cc.Close()
 
 				code := http.StatusMovedPermanently
@@ -3154,7 +3169,7 @@ func ExampleRouter_Lookup() {
 				}
 
 				// Redirect the client if direct match or indirect match.
-				if !tsr || c.Fox().IgnoreTrailingSlashEnabled() {
+				if !tsr || route.IgnoreTrailingSlashEnabled() {
 					if err := c.Redirect(code, cleanedPath); err != nil {
 						// Only if not in the range 300..308, so not possible here!
 						panic(err)
@@ -3163,7 +3178,7 @@ func ExampleRouter_Lookup() {
 				}
 
 				// Add or remove an extra trailing slash and redirect the client.
-				if c.Fox().RedirectTrailingSlashEnabled() {
+				if route.RedirectTrailingSlashEnabled() {
 					if err := c.Redirect(code, fixTrailingSlash(cleanedPath)); err != nil {
 						// Only if not in the range 300..308, so not possible here
 						panic(err)
