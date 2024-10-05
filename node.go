@@ -5,7 +5,8 @@
 package fox
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -40,12 +41,8 @@ type node struct {
 }
 
 func newNode(key string, route *Route, children []*node, catchAllKey string) *node {
-	// TODO use this instead of old sort.Slice
-	/*	slices.SortFunc(children, func(a, b *node) int {
+	slices.SortFunc(children, func(a, b *node) int {
 		return cmp.Compare(a.key, b.key)
-	})*/
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].key < children[j].key
 	})
 	nds := make([]atomic.Pointer[node], len(children))
 	childKeys := make([]byte, len(children))
