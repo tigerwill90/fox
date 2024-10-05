@@ -134,6 +134,7 @@ func linearSearch(keys []byte, s byte) int {
 func binarySearch(keys []byte, s byte) int {
 	low, high := 0, len(keys)-1
 	for low <= high {
+		// nolint:gosec
 		mid := int(uint(low+high) >> 1) // avoid overflow
 		cmp := compare(keys[mid], s)
 		if cmp < 0 {

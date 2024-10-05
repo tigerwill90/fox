@@ -57,6 +57,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 		return err
 	}
 
+	// nolint:gosec
 	return t.insert(method, p, catchAllKey, uint32(n), t.newRoute(path, handler, opts...))
 }
 

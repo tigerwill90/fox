@@ -41,8 +41,10 @@ func (o globOptionFunc) applyGlob(r *Router) {
 	o(r)
 }
 
+// nolint:unused
 type pathOptionFunc func(*Route)
 
+// nolint:unused
 func (o pathOptionFunc) applyPath(r *Route) {
 	o(r)
 }
