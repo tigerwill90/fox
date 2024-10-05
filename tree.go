@@ -202,7 +202,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 
 	n, tsr := t.lookup(nds[index], target, c, false)
 	if n != nil {
-		c.path = n.route.path
+		c.route = n.route
 		c.tsr = tsr
 		return n.route.base, c, tsr
 	}

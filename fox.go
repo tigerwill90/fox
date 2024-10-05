@@ -395,7 +395,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	n, tsr = tree.lookup(nds[index], target, c, false)
 	if !tsr && n != nil {
-		c.path = n.route.path
+		c.route = n.route
 		c.tsr = tsr
 		n.route.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
@@ -408,7 +408,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
 		if n.route.ignoreTrailingSlash {
-			c.path = n.route.path
+			c.route = n.route
 			c.tsr = tsr
 			n.route.handler(c)
 			c.Close()
