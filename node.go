@@ -12,9 +12,9 @@ import (
 )
 
 type node struct {
-	// The registered handler matching the full path. Nil if the node is not a leaf.
-	// Once assigned, handler is immutable.
-	handler HandlerFunc
+	// The registered route matching the full path. Nil if the node is not a leaf.
+	// Once assigned, route is immutable.
+	route *Route
 
 	// key represent a segment of a route which share a common prefix with it parent.
 	key string
@@ -22,9 +22,6 @@ type node struct {
 	// Catch all key registered to retrieve this node parameter.
 	// Once assigned, catchAllKey is immutable.
 	catchAllKey string
-
-	// The full path when it's a leaf node
-	path string
 
 	// First char of each outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is a read only slice. It allows to lazily traverse the
@@ -42,7 +39,11 @@ type node struct {
 	paramChildIndex int
 }
 
-func newNode(key string, handler HandlerFunc, children []*node, catchAllKey string, path string) *node {
+func newNode(key string, route *Route, children []*node, catchAllKey string) *node {
+	// TODO use this instead of old sort.Slice
+	/*	slices.SortFunc(children, func(a, b *node) int {
+		return cmp.Compare(a.key, b.key)
+	})*/
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].key < children[j].key
 	})
@@ -58,24 +59,23 @@ func newNode(key string, handler HandlerFunc, children []*node, catchAllKey stri
 		}
 	}
 
-	return newNodeFromRef(key, handler, nds, childKeys, catchAllKey, childIndex, path)
+	return newNodeFromRef(key, route, nds, childKeys, catchAllKey, childIndex)
 }
 
-func newNodeFromRef(key string, handler HandlerFunc, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, childIndex int, path string) *node {
+func newNodeFromRef(key string, route *Route, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, childIndex int) *node {
 	return &node{
 		key:             key,
 		childKeys:       childKeys,
 		children:        children,
-		handler:         handler,
+		route:           route,
 		catchAllKey:     catchAllKey,
-		path:            appendCatchAll(path, catchAllKey),
 		paramChildIndex: childIndex,
 		params:          parseWildcard(key),
 	}
 }
 
 func (n *node) isLeaf() bool {
-	return n.handler != nil
+	return n.route != nil
 }
 
 func (n *node) isCatchAll() bool {
@@ -211,7 +211,7 @@ func (n *node) string(space int) string {
 	}
 	if n.isLeaf() {
 		sb.WriteString(" [leaf=")
-		sb.WriteString(n.path)
+		sb.WriteString(n.route.path)
 		sb.WriteString("]")
 	}
 	if n.hasWildcard() {

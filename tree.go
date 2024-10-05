@@ -33,7 +33,7 @@ import (
 type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
-	fox   *Router
+	fox   *Router // TODO tree should be agnostic to the router
 	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
@@ -44,7 +44,7 @@ type Tree struct {
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
 // for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To override an existing route, use Update.
-func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
+func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
 	if matched := regEnLetter.MatchString(method); !matched {
 		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
@@ -54,14 +54,14 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.insert(method, p, catchAllKey, uint32(n), applyMiddleware(RouteHandlers, t.mws, handler))
+	return t.insert(method, p, catchAllKey, uint32(n), t.newRoute(path, handler, opts...))
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To add a new handler, use Handle method.
-func (t *Tree) Update(method, path string, handler HandlerFunc) error {
+func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
@@ -71,7 +71,7 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.update(method, p, catchAllKey, applyMiddleware(RouteHandlers, t.mws, handler))
+	return t.update(method, p, catchAllKey, t.newRoute(path, handler, opts...))
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
@@ -110,7 +110,7 @@ func (t *Tree) Has(method, path string) bool {
 	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
 	if n != nil && !tsr {
-		return n.path == path
+		return n.route.path == path
 	}
 	return false
 }
@@ -131,8 +131,9 @@ func (t *Tree) Match(method, path string) string {
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
-	if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
-		return n.path
+	// TODO maybe returns tsr ???
+	if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
+		return n.route.path
 	}
 	return ""
 }
@@ -201,9 +202,9 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 
 	n, tsr := t.lookup(nds[index], target, c, false)
 	if n != nil {
-		c.path = n.path
+		c.path = n.route.path
 		c.tsr = tsr
-		return n.handler, c, tsr
+		return n.route.base, c, tsr
 	}
 	c.Close()
 	return nil, nil, tsr
@@ -211,7 +212,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
-func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc) error {
+func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	var rootNode *node
 	nds := *t.nodes.Load()
@@ -237,12 +238,12 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			if result.matched.isCatchAll() && isCatchAll {
 				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 			}
-			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
+			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.path, result.matched.route.path)
 		}
 
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex, path)
+		n := newNodeFromRef(result.matched.key, route, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex)
 
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
@@ -269,20 +270,18 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 
 		child := newNodeFromRef(
 			suffixFromExistingEdge,
-			result.matched.handler,
+			result.matched.route,
 			result.matched.children,
 			result.matched.childKeys,
 			result.matched.catchAllKey,
 			result.matched.paramChildIndex,
-			result.matched.path,
 		)
 
 		parent := newNode(
 			cPrefix,
-			handler,
+			route,
 			[]*node{child},
 			catchAllKey,
-			path,
 		)
 
 		t.updateMaxParams(paramsN)
@@ -306,15 +305,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keySuffix := path[result.charsMatched:]
 
 		// No children, so no paramChild
-		child := newNode(keySuffix, handler, nil, catchAllKey, path)
+		child := newNode(keySuffix, route, nil, catchAllKey)
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(
 			result.matched.key,
-			result.matched.handler,
+			result.matched.route,
 			edges,
 			result.matched.catchAllKey,
-			result.matched.path,
 		)
 
 		t.updateMaxDepth(result.depth + 1)
@@ -364,19 +362,18 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keySuffix := path[result.charsMatched:]
 
 		// No children, so no paramChild
-		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, -1, path) // inserted node
+		n1 := newNodeFromRef(keySuffix, route, nil, nil, catchAllKey, -1) // inserted node
 		n2 := newNodeFromRef(
 			suffixFromExistingEdge,
-			result.matched.handler,
+			result.matched.route,
 			result.matched.children,
 			result.matched.childKeys,
 			result.matched.catchAllKey,
 			result.matched.paramChildIndex,
-			result.matched.path,
 		) // previous matched node
 
 		// n3 children never start with a param
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", "") // intermediary node
+		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "") // intermediary node
 
 		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
@@ -389,7 +386,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 }
 
 // update is not safe for concurrent use.
-func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFunc) error {
+func (t *Tree) update(method string, path, catchAllKey string, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -403,7 +400,7 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 	}
 
 	if catchAllKey != result.matched.catchAllKey {
-		err := newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+		err := newConflictErr(method, path, catchAllKey, []string{result.matched.route.path})
 		err.isUpdate = true
 		return err
 	}
@@ -412,12 +409,11 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 	// the matched one with the updated/added value (handler and wildcard).
 	n := newNodeFromRef(
 		result.matched.key,
-		handler,
+		route,
 		result.matched.children,
 		result.matched.childKeys,
 		catchAllKey,
 		result.matched.paramChildIndex,
-		path,
 	)
 	result.p.updateEdge(n)
 	return nil
@@ -450,7 +446,6 @@ func (t *Tree) remove(method, path string) bool {
 			result.matched.childKeys,
 			"",
 			result.matched.paramChildIndex,
-			"",
 		)
 		result.p.updateEdge(n)
 		return true
@@ -461,12 +456,11 @@ func (t *Tree) remove(method, path string) bool {
 		mergedPath := fmt.Sprintf("%s%s", result.matched.key, child.key)
 		n := newNodeFromRef(
 			mergedPath,
-			child.handler,
+			child.route,
 			child.children,
 			child.childKeys,
 			child.catchAllKey,
 			child.paramChildIndex,
-			child.path,
 		)
 		result.p.updateEdge(n)
 		return true
@@ -490,20 +484,18 @@ func (t *Tree) remove(method, path string) bool {
 		mergedPath := fmt.Sprintf("%s%s", result.p.key, child.key)
 		parent = newNodeFromRef(
 			mergedPath,
-			child.handler,
+			child.route,
 			child.children,
 			child.childKeys,
 			child.catchAllKey,
 			child.paramChildIndex,
-			child.path,
 		)
 	} else {
 		parent = newNode(
 			result.p.key,
-			result.p.handler,
+			result.p.route,
 			parentEdges,
 			result.p.catchAllKey,
-			result.p.path,
 		)
 	}
 
@@ -931,4 +923,23 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	if max > t.maxDepth.Load() {
 		t.maxDepth.Store(max)
 	}
+}
+
+// newRoute create a new route, apply path options and apply middleware on the handler.
+func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *Route {
+	rte := &Route{
+		ipStrategy:            t.fox.ipStrategy,
+		base:                  handler,
+		path:                  path,
+		mws:                   t.mws,
+		redirectTrailingSlash: t.fox.redirectTrailingSlash,
+		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
+	}
+
+	for _, opt := range opts {
+		opt.applyPath(rte)
+	}
+	rte.handler = applyMiddleware(RouteHandlers, rte.mws, handler)
+
+	return rte
 }

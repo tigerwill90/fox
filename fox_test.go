@@ -750,8 +750,9 @@ func TestRouteWithParams(t *testing.T) {
 		c := newTestContextTree(tree)
 		n, tsr := tree.lookup(nds[0], rte, c, false)
 		require.NotNil(t, n)
+		require.NotNil(t, n.route)
 		assert.False(t, tsr)
-		assert.Equal(t, rte, n.path)
+		assert.Equal(t, rte, n.route.path)
 	}
 }
 
@@ -1196,9 +1197,9 @@ func TestOverlappingRoute(t *testing.T) {
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			require.NotNil(t, n)
-			require.NotNil(t, n.handler)
+			require.NotNil(t, n.route)
 			assert.False(t, tsr)
-			assert.Equal(t, tc.wantMatch, n.path)
+			assert.Equal(t, tc.wantMatch, n.route.path)
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, c.Params())
 			} else {
@@ -1209,10 +1210,10 @@ func TestOverlappingRoute(t *testing.T) {
 			c = newTestContextTree(tree)
 			n, tsr = tree.lookup(nds[0], tc.path, c, true)
 			require.NotNil(t, n)
-			require.NotNil(t, n.handler)
+			require.NotNil(t, n.route)
 			assert.False(t, tsr)
 			assert.Empty(t, c.Params())
-			assert.Equal(t, tc.wantMatch, n.path)
+			assert.Equal(t, tc.wantMatch, n.route.path)
 		})
 	}
 }
@@ -1643,7 +1644,7 @@ func TestTree_LookupTsr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, path := range tc.paths {
-				require.NoError(t, tree.insert(http.MethodGet, path, "", 0, emptyHandler))
+				require.NoError(t, tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler)))
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
@@ -1651,7 +1652,8 @@ func TestTree_LookupTsr(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
-				assert.Equal(t, tc.wantPath, n.path)
+				require.NotNil(t, n.route)
+				assert.Equal(t, tc.wantPath, n.route.path)
 			}
 		})
 	}
@@ -2060,7 +2062,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 			f := New(WithIgnoreTrailingSlash(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, f.Handle(http.MethodGet, rte, func(c Context) {
-					fmt.Println(c.Path(), c.Params())
 					assert.Equal(t, tc.wantPath, c.Path())
 					assert.Equal(t, tc.wantParams, c.Params())
 					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
@@ -2804,14 +2805,16 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
 			continue
 		}
-		if err := tree.insert(http.MethodGet, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), "", 3, emptyHandler); err == nil {
+		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
+		if err := tree.insert(http.MethodGet, path, "", 3, tree.newRoute(path, emptyHandler)); err == nil {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
+			require.NotNil(t, n.route)
 			assert.False(t, tsr)
-			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.path)
+			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.route.path)
 			assert.Equal(t, "xxxx", c.Param(e1))
 			assert.Equal(t, "xxxx", c.Param(e2))
 			assert.Equal(t, "xxxx", c.Param(e3))
@@ -2833,7 +2836,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, emptyHandler)
+			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, tree.newRoute(appendCatchAll(rte, catchAllKey), emptyHandler))
 		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
 	}
 }
@@ -2854,7 +2857,8 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		err := tree.insert(http.MethodGet, "/"+rte, "", 0, emptyHandler)
+		path := "/" + rte
+		err := tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler))
 		require.NoError(t, err)
 	}
 
@@ -2870,10 +2874,12 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 		c := newTestContextTree(tree)
 		n, tsr := tree.lookup(nds[0], "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
+		require.NotNilf(t, n.route, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
-		require.Equal(t, "/"+rte, n.path)
-		require.NoError(t, tree.update(http.MethodGet, "/"+rte, "", emptyHandler))
+		require.Equal(t, "/"+rte, n.route.path)
+		path := "/" + rte
+		require.NoError(t, tree.update(http.MethodGet, path, "", tree.newRoute(path, emptyHandler)))
 	}
 
 	for rte := range routes {

@@ -70,6 +70,7 @@ func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
 // Route represent a registered route in the route tree.
 type Route struct {
 	ipStrategy            ClientIPStrategy
+	base                  HandlerFunc
 	handler               HandlerFunc
 	path                  string
 	mws                   []middleware
@@ -77,8 +78,13 @@ type Route struct {
 	ignoreTrailingSlash   bool
 }
 
-// Handle call the registered handler with the provided Context.
+// Handle calls the base handler with the provided Context.
 func (r *Route) Handle(c Context) {
+	r.base(c)
+}
+
+// HandleWithMiddleware calls the handler with applied middleware using the provided Context.
+func (r *Route) HandleWithMiddleware(c Context) {
 	r.handler(c)
 }
 
@@ -298,7 +304,7 @@ Next:
 		method := nds[i].key
 		it := newRawIterator(nds[i])
 		for it.hasNext() {
-			err := fn(method, it.path, it.current.handler)
+			err := fn(method, it.path, it.current.route.handler)
 			if err != nil {
 				if errors.Is(err, SkipMethod) {
 					continue Next
@@ -384,9 +390,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	n, tsr = tree.lookup(nds[index], target, c, false)
 	if !tsr && n != nil {
-		c.path = n.path
+		c.path = n.route.path
 		c.tsr = tsr
-		n.handler(c)
+		n.route.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
 		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
@@ -397,9 +403,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
 		if fox.ignoreTrailingSlash {
-			c.path = n.path
+			c.path = n.route.path
 			c.tsr = tsr
-			n.handler(c)
+			n.route.handler(c)
 			c.Close()
 			return
 		}
@@ -645,7 +651,7 @@ func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 
 	if n.isCatchAll() {
-		routes = append(routes, n.path)
+		routes = append(routes, n.route.path)
 		return routes
 	}
 
@@ -654,7 +660,7 @@ func getRouteConflict(n *node) []string {
 	}
 	it := newRawIterator(n)
 	for it.hasNext() {
-		routes = append(routes, it.current.path)
+		routes = append(routes, it.current.route.path)
 	}
 	return routes
 }

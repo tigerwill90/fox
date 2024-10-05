@@ -167,7 +167,7 @@ func (it *Iterator) Next() {
 // Path returns the registered path for the current route.
 func (it *Iterator) Path() string {
 	if it.current != nil {
-		return it.current.path
+		return it.current.route.path
 	}
 	return ""
 }
@@ -180,7 +180,7 @@ func (it *Iterator) Method() string {
 // Handler return the registered handler for the current route.
 func (it *Iterator) Handler() HandlerFunc {
 	if it.current != nil {
-		return it.current.handler
+		return it.current.route.handler
 	}
 	return nil
 }
@@ -221,7 +221,7 @@ func (it *rawIterator) hasNext() bool {
 		it.current = elem
 
 		if it.current.isLeaf() {
-			it.path = elem.path
+			it.path = elem.route.Path()
 			return true
 		}
 	}
