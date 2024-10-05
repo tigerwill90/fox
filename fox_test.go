@@ -1799,7 +1799,13 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 	c1 := ClientIPStrategyFunc(func(c Context) (*net.IPAddr, error) {
 		return c.RemoteIP(), nil
 	})
-	f := New(WithClientIPStrategy(c1))
+	f := New(WithClientIPStrategy(c1), WithNoRouteHandler(func(c Context) {
+		assert.Empty(t, c.Path())
+		ip, err := c.ClientIP()
+		assert.NoError(t, err)
+		assert.NotNil(t, ip)
+		DefaultNotFoundHandler(c)
+	}))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
 	assert.True(t, f.ClientIPStrategyEnabled())
 
@@ -1811,6 +1817,12 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 	rte = f.Tree().Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.False(t, rte.ClientIPStrategyEnabled())
+
+	// On not found handler
+	req := httptest.NewRequest(http.MethodGet, "/bar", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestRedirectTrailingSlash(t *testing.T) {
