@@ -1796,14 +1796,21 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 }
 
 func TestRouterWithClientIPStrategy(t *testing.T) {
-	f := New(WithClientIPStrategy(ClientIPStrategyFunc(func(c Context) (*net.IPAddr, error) {
+	c1 := ClientIPStrategyFunc(func(c Context) (*net.IPAddr, error) {
 		return c.RemoteIP(), nil
-	})))
+	})
+	f := New(WithClientIPStrategy(c1))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
 	assert.True(t, f.ClientIPStrategyEnabled())
+
 	rte := f.Tree().Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.True(t, rte.ClientIPStrategyEnabled())
+
+	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPStrategy(noClientIPStrategy{})))
+	rte = f.Tree().Route(http.MethodGet, "/foo")
+	require.NotNil(t, rte)
+	assert.False(t, rte.ClientIPStrategyEnabled())
 }
 
 func TestRedirectTrailingSlash(t *testing.T) {
