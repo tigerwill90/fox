@@ -31,13 +31,15 @@ import (
 // fox.Tree().Lock()
 // defer fox.Tree().Unlock()
 type Tree struct {
-	ctx   sync.Pool
-	nodes atomic.Pointer[[]*node]
-	fox   *Router // TODO tree should be agnostic to the router
-	mws   []middleware
+	ctx        sync.Pool
+	ipStrategy ClientIPStrategy
+	nodes      atomic.Pointer[[]*node]
+	mws        []middleware
 	sync.Mutex
-	maxParams atomic.Uint32
-	maxDepth  atomic.Uint32
+	maxParams             atomic.Uint32
+	maxDepth              atomic.Uint32
+	redirectTrailingSlash bool
+	ignoreTrailingSlash   bool
 }
 
 // Handle registers a new handler for the given method and path. This function return an error if the route
@@ -162,7 +164,7 @@ func (t *Tree) Methods(path string) []string {
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c, true)
-			if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
+			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
@@ -183,7 +185,7 @@ func (t *Tree) Methods(path string) []string {
 // use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,
 // Lookup always return a HandlerFunc and a ContextCloser.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (t *Tree) Lookup(fox *Router, w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(r.Method, nds)
 
@@ -192,7 +194,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 	}
 
 	c := t.ctx.Get().(*cTx)
-	c.Reset(w, r)
+	c.Reset(fox, w, r)
 
 	target := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
@@ -858,8 +860,6 @@ func (t *Tree) allocateContext() *cTx {
 		// This is a read only value, no reset, it's always the
 		// owner of the pool.
 		tree: t,
-		// This is a read only value, no reset.
-		fox: t.fox,
 	}
 }
 
@@ -928,12 +928,12 @@ func (t *Tree) updateMaxDepth(max uint32) {
 // newRoute create a new route, apply path options and apply middleware on the handler.
 func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *Route {
 	rte := &Route{
-		ipStrategy:            t.fox.ipStrategy,
+		ipStrategy:            t.ipStrategy,
 		base:                  handler,
 		path:                  path,
 		mws:                   t.mws,
-		redirectTrailingSlash: t.fox.redirectTrailingSlash,
-		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
+		redirectTrailingSlash: t.redirectTrailingSlash,
+		ignoreTrailingSlash:   t.ignoreTrailingSlash,
 	}
 
 	for _, opt := range opts {

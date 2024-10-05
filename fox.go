@@ -201,7 +201,9 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
 	tree.mws = fox.mws
-	tree.fox = fox
+	tree.ipStrategy = fox.ipStrategy
+	tree.ignoreTrailingSlash = fox.ignoreTrailingSlash
+	tree.redirectTrailingSlash = fox.redirectTrailingSlash
 
 	// Pre instantiate nodes for common http verb
 	nds := make([]*node, len(commonVerbs))
@@ -283,7 +285,7 @@ func (fox *Router) Remove(method, path string) error {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
-	return tree.Lookup(w, r)
+	return tree.Lookup(fox, w, r)
 }
 
 // SkipMethod is used as a return value from WalkFunc to indicate that
@@ -380,7 +382,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tree := fox.tree.Load()
 	c := tree.ctx.Get().(*cTx)
-	c.reset(w, r)
+	c.reset(fox, w, r)
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
@@ -402,7 +404,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
-		if fox.ignoreTrailingSlash {
+		if n.route.ignoreTrailingSlash {
 			c.path = n.route.path
 			c.tsr = tsr
 			n.route.handler(c)
@@ -410,7 +412,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if fox.redirectTrailingSlash && target == CleanPath(target) {
+		if n.route.redirectTrailingSlash && target == CleanPath(target) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
 			c.tsr = false
@@ -442,7 +444,7 @@ NoMethodFallback:
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -462,7 +464,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
