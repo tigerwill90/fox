@@ -45,6 +45,9 @@ type Tree struct {
 // for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To override an existing route, use Update.
 func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
+	if handler == nil {
+		return fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
 	if matched := regEnLetter.MatchString(method); !matched {
 		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
@@ -62,6 +65,9 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To add a new handler, use Handle method.
 func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
+	if handler == nil {
+		return fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}

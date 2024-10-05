@@ -1379,6 +1379,18 @@ func TestUpdateConflict(t *testing.T) {
 	}
 }
 
+func TestInvalidRoute(t *testing.T) {
+	f := New()
+	// Invalid route on insert
+	assert.ErrorIs(t, f.Handle("get", "/foo", emptyHandler), ErrInvalidRoute)
+	assert.ErrorIs(t, f.Handle("", "/foo", emptyHandler), ErrInvalidRoute)
+	assert.ErrorIs(t, f.Handle(http.MethodGet, "/foo", nil), ErrInvalidRoute)
+
+	// Invalid route on update
+	assert.ErrorIs(t, f.Update("", "/foo", emptyHandler), ErrInvalidRoute)
+	assert.ErrorIs(t, f.Update(http.MethodGet, "/foo", nil), ErrInvalidRoute)
+}
+
 func TestUpdateRoute(t *testing.T) {
 	cases := []struct {
 		name   string
