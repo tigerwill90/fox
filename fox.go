@@ -228,8 +228,13 @@ func (fox *Router) Tree() *Tree {
 }
 
 // Swap atomically replaces the currently in-use routing tree with the provided new tree, and returns the previous tree.
-// This API is EXPERIMENTAL and is likely to change in future release.
+// Note that the swap will panic if the current tree belongs to a different instance of the router, preventing accidental
+// replacement of trees from different routers.
 func (fox *Router) Swap(new *Tree) (old *Tree) {
+	current := fox.tree.Load()
+	if current.fox != new.fox {
+		panic("swap failed: current and new routing trees belong to different router instances")
+	}
 	return fox.tree.Swap(new)
 }
 
@@ -402,7 +407,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
-		if fox.ignoreTrailingSlash {
+		if n.route.ignoreTrailingSlash {
 			c.path = n.route.path
 			c.tsr = tsr
 			n.route.handler(c)
@@ -410,7 +415,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if fox.redirectTrailingSlash && target == CleanPath(target) {
+		if n.route.redirectTrailingSlash && target == CleanPath(target) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
 			c.tsr = false
@@ -442,7 +447,7 @@ NoMethodFallback:
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -462,7 +467,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}

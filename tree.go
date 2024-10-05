@@ -33,7 +33,7 @@ import (
 type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
-	fox   *Router // TODO tree should be agnostic to the router
+	fox   *Router
 	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
@@ -162,7 +162,7 @@ func (t *Tree) Methods(path string) []string {
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c, true)
-			if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
+			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
