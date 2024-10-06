@@ -130,27 +130,26 @@ func (t *Tree) Route(method, path string) *Route {
 	return nil
 }
 
-// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route if any. When
-// WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled, Match will match a registered route regardless of an
-// extra or missing trailing slash. This function is safe for concurrent use by multiple goroutine and while mutation on
-// Tree are ongoing. See also Tree.Lookup as an alternative.
+// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route
+// (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action is recommended). This function is safe for concurrent use by multiple goroutine and while
+// mutation on Tree are ongoing. See also Tree.Lookup as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Match(method, path string) string {
+func (t *Tree) Match(method, path string) (route *Route, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return ""
+		return nil, false
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
-	// TODO maybe returns tsr ???
-	if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
-		return n.route.path
+	if n != nil {
+		return n.route, tsr
 	}
-	return ""
+	return nil, false
 }
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
@@ -192,7 +191,7 @@ func (t *Tree) Methods(path string) []string {
 }
 
 // Lookup performs a manual route lookup for a given http.Request, returning the matched Route along with a
-// ContextCloser, and a boolean indicating if the handler was matched by adding or removing a trailing slash
+// ContextCloser, and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
 // intended for integrating the fox router into custom routing solutions or middleware. This function is safe for concurrent
 // use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,

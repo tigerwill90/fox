@@ -2780,9 +2780,10 @@ func TestTree_Match(t *testing.T) {
 	}
 
 	cases := []struct {
-		name string
-		path string
-		want string
+		name    string
+		path    string
+		want    string
+		wantTsr bool
 	}{
 		{
 			name: "reverse static route",
@@ -2790,8 +2791,10 @@ func TestTree_Match(t *testing.T) {
 			want: "/foo/bar",
 		},
 		{
-			name: "reverse static route with tsr disable",
-			path: "/foo/bar/",
+			name:    "reverse static route with tsr disable",
+			path:    "/foo/bar/",
+			want:    "/foo/bar",
+			wantTsr: true,
 		},
 		{
 			name: "reverse params route",
@@ -2811,7 +2814,14 @@ func TestTree_Match(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, r.Tree().Match(http.MethodGet, tc.path))
+			route, tsr := r.Tree().Match(http.MethodGet, tc.path)
+			if tc.want != "" {
+				require.NotNil(t, route)
+				assert.Equal(t, tc.want, route.Path())
+				assert.Equal(t, tc.wantTsr, tsr)
+				return
+			}
+			assert.Nil(t, route)
 		})
 	}
 }
@@ -2829,9 +2839,10 @@ func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
 	}
 
 	cases := []struct {
-		name string
-		path string
-		want string
+		name    string
+		path    string
+		want    string
+		wantTsr bool
 	}{
 		{
 			name: "reverse static route",
@@ -2839,9 +2850,10 @@ func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
 			want: "/foo/bar",
 		},
 		{
-			name: "reverse static route with tsr",
-			path: "/foo/bar/",
-			want: "/foo/bar",
+			name:    "reverse static route with tsr",
+			path:    "/foo/bar/",
+			want:    "/foo/bar",
+			wantTsr: true,
 		},
 		{
 			name: "reverse params route",
@@ -2849,9 +2861,10 @@ func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
 			want: "/welcome/{name}/",
 		},
 		{
-			name: "reverse params route with tsr",
-			path: "/welcome/fox",
-			want: "/welcome/{name}/",
+			name:    "reverse params route with tsr",
+			path:    "/welcome/fox",
+			want:    "/welcome/{name}/",
+			wantTsr: true,
 		},
 		{
 			name: "reverse mid params route",
@@ -2859,9 +2872,10 @@ func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
 			want: "/users/uid_{id}",
 		},
 		{
-			name: "reverse mid params route with tsr",
-			path: "/users/uid_123/",
-			want: "/users/uid_{id}",
+			name:    "reverse mid params route with tsr",
+			path:    "/users/uid_123/",
+			want:    "/users/uid_{id}",
+			wantTsr: true,
 		},
 		{
 			name: "reverse no match",
@@ -2871,7 +2885,14 @@ func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, r.Tree().Match(http.MethodGet, tc.path))
+			route, tsr := r.Tree().Match(http.MethodGet, tc.path)
+			if tc.want != "" {
+				require.NotNil(t, route)
+				assert.Equal(t, tc.want, route.Path())
+				assert.Equal(t, tc.wantTsr, tsr)
+				return
+			}
+			assert.Nil(t, route)
 		})
 	}
 }
@@ -3324,8 +3345,8 @@ func ExampleTree_Match() {
 	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
 
 	tree := f.Tree()
-	matched := tree.Match(http.MethodGet, "/hello/fox")
-	fmt.Println(matched) // /hello/{name}
+	route, _ := tree.Match(http.MethodGet, "/hello/fox")
+	fmt.Println(route.Path()) // /hello/{name}
 }
 
 // This example demonstrates how to check if a given route is registered in the tree.
@@ -3334,6 +3355,6 @@ func ExampleTree_Has() {
 	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
 
 	tree := f.Tree()
-	exist := tree.Match(http.MethodGet, "/hello/{name}")
+	exist := tree.Has(http.MethodGet, "/hello/{name}")
 	fmt.Println(exist) // true
 }
