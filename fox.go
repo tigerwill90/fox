@@ -346,9 +346,9 @@ func defaultRedirectTrailingSlashHandler(c Context) {
 
 	var url string
 	if len(req.URL.RawPath) > 0 {
-		url = fixTrailingSlash(req.URL.RawPath)
+		url = FixTrailingSlash(req.URL.RawPath)
 	} else {
-		url = fixTrailingSlash(req.URL.Path)
+		url = FixTrailingSlash(req.URL.Path)
 	}
 
 	if url[len(url)-1] == '/' {

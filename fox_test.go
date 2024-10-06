@@ -3163,6 +3163,12 @@ func TestNode_String(t *testing.T) {
 	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
 }
 
+func TestFixTrailingSlash(t *testing.T) {
+	assert.Equal(t, "/foo/", FixTrailingSlash("/foo"))
+	assert.Equal(t, "/foo", FixTrailingSlash("/foo/"))
+	assert.Equal(t, "/", FixTrailingSlash(""))
+}
+
 // This example demonstrates how to create a simple router using the default options,
 // which include the Recovery and Logger middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.
@@ -3287,7 +3293,7 @@ func ExampleRouter_Lookup() {
 
 				// Add or remove an extra trailing slash and redirect the client.
 				if route.RedirectTrailingSlashEnabled() {
-					if err := c.Redirect(code, fixTrailingSlash(cleanedPath)); err != nil {
+					if err := c.Redirect(code, FixTrailingSlash(cleanedPath)); err != nil {
 						// Only if not in the range 300..308, so not possible here
 						panic(err)
 					}
