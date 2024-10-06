@@ -5,190 +5,8 @@
 package fox
 
 import (
-	"sort"
+	"iter"
 )
-
-type Iterator struct {
-	tree    *Tree
-	method  string
-	current *node
-	stacks  []stack
-	valid   bool
-	started bool
-}
-
-// NewIterator returns an Iterator that traverses all registered routes in lexicographic order.
-// An Iterator is safe to use when the router is serving request, when routing updates are ongoing or
-// in parallel with other Iterators. Note that changes that happen while iterating over routes may not be reflected
-// by the Iterator. This api is EXPERIMENTAL and is likely to change in future release.
-func NewIterator(t *Tree) *Iterator {
-	return &Iterator{
-		tree: t,
-	}
-}
-
-func (it *Iterator) methods() map[string]*node {
-	nds := *it.tree.nodes.Load()
-	m := make(map[string]*node, len(nds))
-	for i := range nds {
-		if len(nds[i].children) > 0 {
-			m[nds[i].key] = nds[i]
-		}
-	}
-	return m
-}
-
-// SeekPrefix reset the iterator cursor to the first route starting with key.
-// It does not keep tracking of previous seek.
-func (it *Iterator) SeekPrefix(key string) {
-	nds := it.methods()
-	keys := make([]string, 0, len(nds))
-	for method, n := range nds {
-		result := it.tree.search(n, key)
-		if result.isExactMatch() || result.isKeyMidEdge() {
-			nds[method] = result.matched
-			keys = append(keys, method)
-		}
-	}
-
-	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
-	stacks := make([]stack, 0, len(keys))
-	for _, key := range keys {
-		stacks = append(stacks, stack{
-			edges:  []*node{nds[key]},
-			method: key,
-		})
-	}
-
-	it.stacks = stacks
-}
-
-// SeekMethod reset the iterator cursor to the first route for the given method.
-// It does not keep tracking of previous seek.
-func (it *Iterator) SeekMethod(method string) {
-	nds := it.methods()
-	stacks := make([]stack, 0, 1)
-	n, ok := nds[method]
-	if ok {
-		stacks = append(stacks, stack{
-			edges:  []*node{n},
-			method: method,
-		})
-	}
-
-	it.stacks = stacks
-}
-
-// SeekMethodPrefix reset the iterator cursor to the first route starting with key for the given method.
-// It does not keep tracking of previous seek.
-func (it *Iterator) SeekMethodPrefix(method, key string) {
-	nds := it.methods()
-	stacks := make([]stack, 0, 1)
-	n, ok := nds[method]
-	if ok {
-		result := it.tree.search(n, key)
-		if result.isExactMatch() || result.isKeyMidEdge() {
-			stacks = append(stacks, stack{
-				edges:  []*node{result.matched},
-				method: method,
-			})
-		}
-	}
-
-	it.stacks = stacks
-}
-
-// Rewind reset the iterator cursor all the way to zero-th position which is the first method and route.
-// It does not keep track of whether the cursor started with SeekPrefix, SeekMethod or SeekMethodPrefix.
-func (it *Iterator) Rewind() {
-	nds := it.methods()
-	methods := make([]string, 0, len(nds))
-	for method := range nds {
-		methods = append(methods, method)
-	}
-
-	sort.Sort(sort.Reverse(sort.StringSlice(methods)))
-
-	stacks := make([]stack, 0, len(methods))
-	for _, method := range methods {
-		stacks = append(stacks, stack{
-			edges:  []*node{nds[method]},
-			method: method,
-		})
-	}
-
-	it.stacks = stacks
-}
-
-// Valid returns false when iteration is done.
-func (it *Iterator) Valid() bool {
-	if !it.started {
-		it.started = true
-		it.Next()
-		return it.valid
-	}
-	return it.valid
-}
-
-// Next advance the iterator to the next route. Always check it.Valid() after a it.Next().
-func (it *Iterator) Next() {
-	for len(it.stacks) > 0 {
-		n := len(it.stacks)
-		last := it.stacks[n-1]
-		elem := last.edges[0]
-
-		if len(last.edges) > 1 {
-			it.stacks[n-1].edges = last.edges[1:]
-		} else {
-			it.stacks = it.stacks[:n-1]
-		}
-
-		if len(elem.children) > 0 {
-			it.stacks = append(it.stacks, stack{edges: elem.getEdgesShallowCopy()})
-		}
-
-		it.current = elem
-		if last.method != "" {
-			it.method = last.method
-		}
-
-		if it.current.isLeaf() {
-			it.valid = true
-			return
-		}
-	}
-
-	it.current = nil
-	it.method = ""
-	it.valid = false
-	it.started = false
-}
-
-// Path returns the registered path for the current route.
-func (it *Iterator) Path() string {
-	if it.current != nil {
-		return it.current.route.path
-	}
-	return ""
-}
-
-// Method returns the http method for the current route.
-func (it *Iterator) Method() string {
-	return it.method
-}
-
-// Handler return the registered handler for the current route.
-func (it *Iterator) Handler() HandlerFunc {
-	if it.current != nil {
-		return it.current.route.handler
-	}
-	return nil
-}
-
-type stack struct {
-	method string
-	edges  []*node
-}
 
 func newRawIterator(n *node) *rawIterator {
 	return &rawIterator{
@@ -200,6 +18,10 @@ type rawIterator struct {
 	current *node
 	path    string
 	stack   []stack
+}
+
+type stack struct {
+	edges []*node
 }
 
 func (it *rawIterator) hasNext() bool {
@@ -229,4 +51,183 @@ func (it *rawIterator) hasNext() bool {
 	it.current = nil
 	it.path = ""
 	return false
+}
+
+type Iter struct {
+	t *Tree
+}
+
+// Methods returns a range iterator over all HTTP methods registered in the routing tree.
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (it Iter) Methods() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		nds := *it.t.nodes.Load()
+		for i := range nds {
+			if len(nds[i].children) > 0 {
+				if !yield(nds[i].key) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided path
+// for the given HTTP methods.
+//
+// This method performs a lookup for each method and the exact route associated with the provided `path`. It yields
+// a tuple containing the HTTP method and the corresponding route if the route is registered for that method and path.
+//
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (it Iter) Routes(methods iter.Seq[string], path string) iter.Seq2[string, *Route] {
+	return func(yield func(string, *Route) bool) {
+		nds := *it.t.nodes.Load()
+		c := it.t.ctx.Get().(*cTx)
+		defer c.Close()
+		for method := range methods {
+			c.resetNil()
+			index := findRootNode(method, nds)
+			if index < 0 || len(nds[index].children) == 0 {
+				continue
+			}
+
+			n, tsr := it.t.lookup(nds[index], path, c, true)
+			if n != nil && !tsr && n.route.path == path {
+				if !yield(method, n.route) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Reverse returns a range iterator over all routes registered in the routing tree that match the given path
+// for the provided HTTP methods. It performs a reverse lookup for each method and path combination,
+// yielding a tuple containing the HTTP method and the corresponding route.
+// Unlike Routes, which matches an exact route path, Reverse is used to match a path (e.g., a path from an incoming
+// request) to registered routes in the tree.
+//
+// When WithIgnoreTrailingSlash or WithRedirectTrailingSlash is enabled, Reverse will match routes regardless
+// of whether a trailing slash is present.
+//
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and may change in future releases.
+func (it Iter) Reverse(methods iter.Seq[string], path string) iter.Seq2[string, *Route] {
+	return func(yield func(string, *Route) bool) {
+		nds := *it.t.nodes.Load()
+		c := it.t.ctx.Get().(*cTx)
+		defer c.Close()
+		for method := range methods {
+			c.resetNil()
+			index := findRootNode(method, nds)
+			if index < 0 || len(nds[index].children) == 0 {
+				continue
+			}
+
+			n, tsr := it.t.lookup(nds[index], path, c, true)
+			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
+				if !yield(method, n.route) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Prefix returns a range iterator over all routes in the routing tree that match a given prefix and HTTP methods.
+//
+// This iterator traverses the routing tree for each method provided, starting from nodes that match the given prefix.
+// For each method, it yields a tuple containing the HTTP method and the corresponding route found under that prefix.
+// If no routes match the prefix, the method will not yield any results.
+//
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and may change in future releases.
+func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
+	return func(yield func(string, *Route) bool) {
+		nds := *it.t.nodes.Load()
+		stacks := make([]stack, 0, 1)
+		for method := range methods {
+			index := findRootNode(method, nds)
+			if index < 0 || len(nds[index].children) == 0 {
+				continue
+			}
+
+			result := it.t.search(nds[index], prefix)
+			if !result.isExactMatch() && !result.isKeyMidEdge() {
+				continue
+			}
+
+			stacks = append(stacks, stack{
+				edges: []*node{result.matched},
+			})
+
+			for len(stacks) > 0 {
+				n := len(stacks)
+				last := stacks[n-1]
+				elem := last.edges[0]
+
+				if len(last.edges) > 1 {
+					stacks[n-1].edges = last.edges[1:]
+				} else {
+					stacks = stacks[:n-1]
+				}
+
+				if len(elem.children) > 0 {
+					stacks = append(stacks, stack{edges: elem.getEdgesShallowCopy()})
+				}
+
+				if elem.isLeaf() {
+					if !yield(method, elem.route) {
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+// All returns a range iterator over all routes registered in the routing tree for all HTTP methods.
+// The result is an iterator that yields a tuple containing the HTTP method and the corresponding route.
+// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This API is EXPERIMENTAL and may change in future releases.
+func (it Iter) All() iter.Seq2[string, *Route] {
+	return func(yield func(string, *Route) bool) {
+		for method, route := range it.Prefix(it.Methods(), "/") {
+			if !yield(method, route) {
+				return
+			}
+		}
+	}
+}
+
+func left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {
+	return func(yield func(K) bool) {
+		for k := range seq {
+			if !yield(k) {
+				return
+			}
+		}
+	}
+}
+
+func right[K, V any](seq iter.Seq2[K, V]) iter.Seq[V] {
+	return func(yield func(V) bool) {
+		for _, v := range seq {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+func seqOf[E any](elems ...E) iter.Seq[E] {
+	return func(yield func(E) bool) {
+		for _, e := range elems {
+			if !yield(e) {
+				return
+			}
+		}
+	}
 }

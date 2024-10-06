@@ -5,7 +5,6 @@
 package fox
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -283,39 +282,16 @@ func (fox *Router) Remove(method, path string) error {
 // be closed if non-nil.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
-	tree := fox.tree.Load()
+	tree := fox.Tree()
 	return tree.Lookup(w, r)
 }
 
-// SkipMethod is used as a return value from WalkFunc to indicate that
-// the method named in the call is to be skipped.
-var SkipMethod = errors.New("skip method")
-
-// WalkFunc is the type of the function called by Walk to visit each registered routes.
-type WalkFunc func(method, path string, handler HandlerFunc) error
-
-// Walk allow to walk over all registered route in lexicographical order. If the function
-// return the special value SkipMethod, Walk skips the current method. This function is
-// safe for concurrent use by multiple goroutine and while mutation are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func Walk(tree *Tree, fn WalkFunc) error {
-	nds := *tree.nodes.Load()
-Next:
-	for i := range nds {
-		method := nds[i].key
-		it := newRawIterator(nds[i])
-		for it.hasNext() {
-			err := fn(method, it.path, it.current.route.handler)
-			if err != nil {
-				if errors.Is(err, SkipMethod) {
-					continue Next
-				}
-				return err
-			}
-		}
-
-	}
-	return nil
+// Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
+// This function is safe for concurrent use by multiple goroutines and can operate while the Tree is being modified.
+// This API is EXPERIMENTAL and may change in future releases.
+func (fox *Router) Iter() Iter {
+	tree := fox.Tree()
+	return tree.Iter()
 }
 
 // DefaultNotFoundHandler is a simple HandlerFunc that replies to each request

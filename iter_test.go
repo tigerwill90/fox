@@ -9,12 +9,34 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
+	"slices"
 	"testing"
 )
 
 var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/john/doe/*{args}", "/john/doe"}
 
-func TestIterator_Rewind(t *testing.T) {
+func TestIter_Routes(t *testing.T) {
+	tree := New().Tree()
+	for _, rte := range routesCases {
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+	}
+
+	results := make(map[string][]string)
+	it := tree.Iter()
+	for method, route := range it.Routes(it.Methods(), "/foo/bar/{baz}/{name}") {
+		assert.NotNil(t, route)
+		results[method] = append(results[method], route.Path())
+	}
+
+	want := []string{"/foo/bar/{baz}/{name}"}
+	for key := range results {
+		assert.ElementsMatch(t, want, results[key])
+	}
+}
+
+func TestIter_All(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
 		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
@@ -24,10 +46,10 @@ func TestIterator_Rewind(t *testing.T) {
 
 	results := make(map[string][]string)
 
-	it := NewIterator(tree)
-	for it.Rewind(); it.Valid(); it.Next() {
-		assert.NotNil(t, it.Handler())
-		results[it.Method()] = append(results[it.method], it.Path())
+	it := tree.Iter()
+	for method, route := range it.All() {
+		assert.NotNil(t, route)
+		results[method] = append(results[method], route.Path())
 	}
 
 	for key := range results {
@@ -35,7 +57,7 @@ func TestIterator_Rewind(t *testing.T) {
 	}
 }
 
-func TestIterator_SeekMethod(t *testing.T) {
+func TestIter_RootPrefixOneMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
 		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
@@ -44,18 +66,18 @@ func TestIterator_SeekMethod(t *testing.T) {
 	}
 
 	results := make(map[string][]string)
+	it := tree.Iter()
 
-	it := NewIterator(tree)
-	for it.SeekMethod(http.MethodHead); it.Valid(); it.Next() {
-		assert.NotNil(t, it.Handler())
-		results[it.Method()] = append(results[it.method], it.Path())
+	for method, route := range it.Prefix(seqOf(http.MethodHead), "/") {
+		assert.NotNil(t, route)
+		results[method] = append(results[method], route.Path())
 	}
 
 	assert.Len(t, results, 1)
 	assert.ElementsMatch(t, routesCases, results[http.MethodHead])
 }
 
-func TestIterator_SeekPrefix(t *testing.T) {
+func TestIter_Prefix(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
 		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
@@ -66,10 +88,10 @@ func TestIterator_SeekPrefix(t *testing.T) {
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
 	results := make(map[string][]string)
 
-	it := NewIterator(tree)
-	for it.SeekPrefix("/foo"); it.Valid(); it.Next() {
-		assert.NotNil(t, it.Handler())
-		results[it.Method()] = append(results[it.method], it.Path())
+	it := tree.Iter()
+	for method, route := range it.Prefix(it.Methods(), "/foo") {
+		assert.NotNil(t, route)
+		results[method] = append(results[method], route.Path())
 	}
 
 	for key := range results {
@@ -77,7 +99,7 @@ func TestIterator_SeekPrefix(t *testing.T) {
 	}
 }
 
-func TestIterator_SeekMethodPrefix(t *testing.T) {
+func TestIter_PrefixWithMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
 		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
@@ -88,36 +110,30 @@ func TestIterator_SeekMethodPrefix(t *testing.T) {
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
 	results := make(map[string][]string)
 
-	it := NewIterator(tree)
-	for it.SeekMethodPrefix(http.MethodHead, "/foo"); it.Valid(); it.Next() {
-		results[it.Method()] = append(results[it.method], it.Path())
+	it := tree.Iter()
+	for method, route := range it.Prefix(seqOf(http.MethodHead), "/foo") {
+		assert.NotNil(t, route)
+		results[method] = append(results[method], route.Path())
 	}
 
 	assert.Len(t, results, 1)
 	assert.ElementsMatch(t, want, results[http.MethodHead])
 }
 
-func ExampleNewIterator() {
-	r := New()
-	it := NewIterator(r.Tree())
+func ExampleIter_All() {
+	f := New()
 
-	// Iterate over all routes
-	for it.Rewind(); it.Valid(); it.Next() {
-		fmt.Println(it.Method(), it.Path())
+	it := f.Iter()
+	for method, route := range it.All() {
+		fmt.Println(method, route.Path())
 	}
+}
 
-	// Iterate over all routes for the GET method
-	for it.SeekMethod(http.MethodGet); it.Valid(); it.Next() {
-		fmt.Println(it.Method(), it.Path())
-	}
+func ExampleIter_Prefix() {
+	f := New()
 
-	// Iterate over all routes starting with /users
-	for it.SeekPrefix("/users"); it.Valid(); it.Next() {
-		fmt.Println(it.Method(), it.Path())
-	}
-
-	// Iterate over all route starting with /users for the GET method
-	for it.SeekMethodPrefix(http.MethodGet, "/user"); it.Valid(); it.Next() {
-		fmt.Println(it.Method(), it.Path())
+	it := f.Iter()
+	for method, route := range it.Prefix(slices.Values([]string{"GET", "POST"}), "/foo") {
+		fmt.Println(method, route.Path())
 	}
 }
