@@ -147,7 +147,14 @@ func (it Iter) Reverse(methods iter.Seq[string], path string) iter.Seq2[string, 
 func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		nds := *it.t.nodes.Load()
-		stacks := make([]stack, 0, 1)
+		maxDepth := it.t.maxDepth.Load()
+		var stacks []stack
+		if maxDepth < 10 {
+			stacks = make([]stack, 0, 10) // stack allocation
+		} else {
+			stacks = make([]stack, 0, maxDepth) // heap allocation
+		}
+
 		for method := range methods {
 			index := findRootNode(method, nds)
 			if index < 0 || len(nds[index].children) == 0 {
