@@ -68,6 +68,7 @@ func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
 }
 
 // Route represent a registered route in the route tree.
+// Most of the Route API is EXPERIMENTAL and is likely to change in future release.
 type Route struct {
 	ipStrategy            ClientIPStrategy
 	base                  HandlerFunc
@@ -81,11 +82,6 @@ type Route struct {
 // Handle calls the base handler with the provided Context.
 func (r *Route) Handle(c Context) {
 	r.base(c)
-}
-
-// HandleWithMiddleware calls the handler with applied middleware using the provided Context.
-func (r *Route) HandleWithMiddleware(c Context) {
-	r.handler(c)
 }
 
 // Path returns the route path.
