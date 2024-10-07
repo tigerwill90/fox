@@ -149,7 +149,10 @@ func bufApp(buf *[]byte, s string, w int, c byte) {
 	b[w] = c
 }
 
-func fixTrailingSlash(path string) string {
+// FixTrailingSlash ensures a consistent trailing slash handling for a given path.
+// If the path has more than one character and ends with a slash, it removes the trailing slash.
+// Otherwise, it adds a trailing slash to the path.
+func FixTrailingSlash(path string) string {
 	if len(path) > 1 && path[len(path)-1] == '/' {
 		return path[:len(path)-1]
 	}

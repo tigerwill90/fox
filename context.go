@@ -97,13 +97,13 @@ type cTx struct {
 	params    *Params
 	tsrParams *Params
 	skipNds   *skippedNodes
+	route     *Route
 
 	// tree at allocation (read-only, no reset)
 	tree *Tree
 	// router at allocation (read-only, no reset)
 	fox         *Router
 	cachedQuery url.Values
-	path        string
 	rec         recorder
 	tsr         bool
 }
@@ -112,9 +112,9 @@ type cTx struct {
 func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
-	c.path = ""
 	c.tsr = false
 	c.cachedQuery = nil
+	c.route = nil
 	*c.params = (*c.params)[:0]
 }
 
@@ -125,16 +125,16 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
-	c.path = ""
 	c.cachedQuery = nil
+	c.route = nil
 	*c.params = (*c.params)[:0]
 }
 
 func (c *cTx) resetNil() {
 	c.req = nil
 	c.w = nil
-	c.path = ""
 	c.cachedQuery = nil
+	c.route = nil
 	*c.params = (*c.params)[:0]
 }
 
@@ -186,8 +186,12 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 // worthy of panicking.
 // This api is EXPERIMENTAL and is likely to change in future release.
 func (c *cTx) ClientIP() (*net.IPAddr, error) {
-	ipStrategy := c.Fox().ipStrategy
-	return ipStrategy.ClientIP(c)
+	// We may be in a handler which does not match a route like NotFound handler.
+	if c.route == nil {
+		ipStrategy := c.fox.ipStrategy
+		return ipStrategy.ClientIP(c)
+	}
+	return c.route.ipStrategy.ClientIP(c)
 }
 
 // Params returns a Params slice containing the matched
@@ -235,7 +239,10 @@ func (c *cTx) Header(key string) string {
 
 // Path returns the registered path for the handler.
 func (c *cTx) Path() string {
-	return c.path
+	if c.route == nil {
+		return ""
+	}
+	return c.route.path
 }
 
 // String sends a formatted string with the specified status code.
@@ -287,10 +294,11 @@ func (c *cTx) Fox() *Router {
 // Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter.
 func (c *cTx) Clone() Context {
 	cp := cTx{
-		rec:  c.rec,
-		req:  c.req.Clone(c.req.Context()),
-		fox:  c.fox,
-		tree: c.tree,
+		rec:   c.rec,
+		req:   c.req.Clone(c.req.Context()),
+		fox:   c.fox,
+		tree:  c.tree,
+		route: c.route,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
@@ -311,7 +319,7 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp := c.tree.ctx.Get().(*cTx)
 	cp.req = r
 	cp.w = w
-	cp.path = c.path
+	cp.route = c.route
 	cp.cachedQuery = nil
 	if cap(*c.params) > cap(*cp.params) {
 		// Grow cp.params to a least cap(c.params)

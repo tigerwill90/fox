@@ -67,6 +67,49 @@ func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
 	return f(c)
 }
 
+// Route represent a registered route in the route tree.
+// Most of the Route API is EXPERIMENTAL and is likely to change in future release.
+type Route struct {
+	ipStrategy            ClientIPStrategy
+	base                  HandlerFunc
+	handler               HandlerFunc
+	path                  string
+	mws                   []middleware
+	redirectTrailingSlash bool
+	ignoreTrailingSlash   bool
+}
+
+// Handle calls the base handler with the provided Context.
+func (r *Route) Handle(c Context) {
+	r.base(c)
+}
+
+// Path returns the route path.
+func (r *Route) Path() string {
+	return r.path
+}
+
+// RedirectTrailingSlashEnabled returns whether the route is configured to automatically
+// redirect requests that include or omit a trailing slash.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (r *Route) RedirectTrailingSlashEnabled() bool {
+	return r.redirectTrailingSlash
+}
+
+// IgnoreTrailingSlashEnabled returns whether the route is configured to ignore
+// trailing slashes in requests when matching routes.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (r *Route) IgnoreTrailingSlashEnabled() bool {
+	return r.ignoreTrailingSlash
+}
+
+// ClientIPStrategyEnabled returns whether the route is configured with a ClientIPStrategy.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (r *Route) ClientIPStrategyEnabled() bool {
+	_, ok := r.ipStrategy.(noClientIPStrategy)
+	return !ok
+}
+
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
@@ -91,16 +134,16 @@ type middleware struct {
 var _ http.Handler = (*Router)(nil)
 
 // New returns a ready to use instance of Fox router.
-func New(opts ...Option) *Router {
+func New(opts ...GlobalOption) *Router {
 	r := new(Router)
 
-	r.noRoute = DefaultNotFoundHandler()
-	r.noMethod = DefaultMethodNotAllowedHandler()
-	r.autoOptions = DefaultOptionsHandler()
+	r.noRoute = DefaultNotFoundHandler
+	r.noMethod = DefaultMethodNotAllowedHandler
+	r.autoOptions = DefaultOptionsHandler
 	r.ipStrategy = noClientIPStrategy{}
 
 	for _, opt := range opts {
-		opt.apply(r)
+		opt.applyGlob(r)
 	}
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
@@ -181,8 +224,13 @@ func (fox *Router) Tree() *Tree {
 }
 
 // Swap atomically replaces the currently in-use routing tree with the provided new tree, and returns the previous tree.
-// This API is EXPERIMENTAL and is likely to change in future release.
+// Note that the swap will panic if the current tree belongs to a different instance of the router, preventing accidental
+// replacement of trees from different routers.
 func (fox *Router) Swap(new *Tree) (old *Tree) {
+	current := fox.tree.Load()
+	if current.fox != new.fox {
+		panic("swap failed: current and new routing trees belong to different router instances")
+	}
 	return fox.tree.Swap(new)
 }
 
@@ -190,11 +238,11 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
 // for serving requests. This function is safe for concurrent use by multiple goroutine.
 // To override an existing route, use Update.
-func (fox *Router) Handle(method, path string, handler HandlerFunc) error {
+func (fox *Router) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Handle(method, path, handler)
+	return t.Handle(method, path, handler, opts...)
 }
 
 // MustHandle registers a new handler for the given method and path. This function is a convenience
@@ -202,8 +250,8 @@ func (fox *Router) Handle(method, path string, handler HandlerFunc) error {
 // with another route. It's perfectly safe to add a new handler while the tree is in use for serving
 // requests. This function is safe for concurrent use by multiple goroutines.
 // To override an existing route, use Update.
-func (fox *Router) MustHandle(method, path string, handler HandlerFunc) {
-	if err := fox.Handle(method, path, handler); err != nil {
+func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...PathOption) {
+	if err := fox.Handle(method, path, handler, opts...); err != nil {
 		panic(err)
 	}
 }
@@ -212,11 +260,11 @@ func (fox *Router) MustHandle(method, path string, handler HandlerFunc) {
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. This function is safe for concurrent use by multiple goroutine.
 // To add new handler, use Handle method.
-func (fox *Router) Update(method, path string, handler HandlerFunc) error {
+func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Update(method, path, handler)
+	return t.Update(method, path, handler, opts...)
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
@@ -230,11 +278,11 @@ func (fox *Router) Remove(method, path string) error {
 }
 
 // Lookup is a helper that calls Tree.Lookup. For more details, refer to Tree.Lookup.
-// It performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a ContextCloser,
+// It performs a manual route lookup for a given http.Request, returning the matched Route along with a ContextCloser,
 // and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always
 // be closed if non-nil.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.tree.Load()
 	return tree.Lookup(w, r)
 }
@@ -257,7 +305,7 @@ Next:
 		method := nds[i].key
 		it := newRawIterator(nds[i])
 		for it.hasNext() {
-			err := fn(method, it.path, it.current.handler)
+			err := fn(method, it.path, it.current.route.handler)
 			if err != nil {
 				if errors.Is(err, SkipMethod) {
 					continue Next
@@ -270,27 +318,21 @@ Next:
 	return nil
 }
 
-// DefaultNotFoundHandler returns a simple HandlerFunc that replies to each request
+// DefaultNotFoundHandler is a simple HandlerFunc that replies to each request
 // with a “404 page not found” reply.
-func DefaultNotFoundHandler() HandlerFunc {
-	return func(c Context) {
-		http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
-	}
+func DefaultNotFoundHandler(c Context) {
+	http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 }
 
-// DefaultMethodNotAllowedHandler returns a simple HandlerFunc that replies to each request
+// DefaultMethodNotAllowedHandler is a simple HandlerFunc that replies to each request
 // with a “405 Method Not Allowed” reply.
-func DefaultMethodNotAllowedHandler() HandlerFunc {
-	return func(c Context) {
-		http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-	}
+func DefaultMethodNotAllowedHandler(c Context) {
+	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
-// DefaultOptionsHandler returns a simple HandlerFunc that replies to each request with a "200 OK" reply.
-func DefaultOptionsHandler() HandlerFunc {
-	return func(c Context) {
-		c.Writer().WriteHeader(http.StatusOK)
-	}
+// DefaultOptionsHandler is a simple HandlerFunc that replies to each request with a "200 OK" reply.
+func DefaultOptionsHandler(c Context) {
+	c.Writer().WriteHeader(http.StatusOK)
 }
 
 func defaultRedirectTrailingSlashHandler(c Context) {
@@ -304,9 +346,9 @@ func defaultRedirectTrailingSlashHandler(c Context) {
 
 	var url string
 	if len(req.URL.RawPath) > 0 {
-		url = fixTrailingSlash(req.URL.RawPath)
+		url = FixTrailingSlash(req.URL.RawPath)
 	} else {
-		url = fixTrailingSlash(req.URL.Path)
+		url = FixTrailingSlash(req.URL.Path)
 	}
 
 	if url[len(url)-1] == '/' {
@@ -343,9 +385,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	n, tsr = tree.lookup(nds[index], target, c, false)
 	if !tsr && n != nil {
-		c.path = n.path
+		c.route = n.route
 		c.tsr = tsr
-		n.handler(c)
+		n.route.handler(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
 		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
@@ -355,15 +397,15 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
-		if fox.ignoreTrailingSlash {
-			c.path = n.path
+		if n.route.ignoreTrailingSlash {
+			c.route = n.route
 			c.tsr = tsr
-			n.handler(c)
+			n.route.handler(c)
 			c.Close()
 			return
 		}
 
-		if fox.redirectTrailingSlash && target == CleanPath(target) {
+		if n.route.redirectTrailingSlash && target == CleanPath(target) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
 			c.tsr = false
@@ -395,7 +437,7 @@ NoMethodFallback:
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -415,7 +457,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || fox.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -604,7 +646,7 @@ func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 
 	if n.isCatchAll() {
-		routes = append(routes, n.path)
+		routes = append(routes, n.route.path)
 		return routes
 	}
 
@@ -613,7 +655,7 @@ func getRouteConflict(n *node) []string {
 	}
 	it := newRawIterator(n)
 	for it.hasNext() {
-		routes = append(routes, it.current.path)
+		routes = append(routes, it.current.route.path)
 	}
 	return routes
 }

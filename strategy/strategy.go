@@ -292,8 +292,8 @@ func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 // attacker creates a CF distribution that points at your origin server. The attacker uses Lambda@Edge to spoof the Host
 // and X-Forwarded-For headers. Now your "trusted" reverse proxy is no longer trustworthy.
 type RightmostTrustedRange struct {
-	headerName string
 	resolver   TrustedIPRange
+	headerName string
 }
 
 // NewRightmostTrustedRange creates a RightmostTrustedRange strategy. headerName must be "X-Forwarded-For"

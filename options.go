@@ -23,19 +23,46 @@ const (
 )
 
 type Option interface {
-	apply(*Router)
+	GlobalOption
+	PathOption
 }
 
-type optionFunc func(*Router)
+type GlobalOption interface {
+	applyGlob(*Router)
+}
 
-func (o optionFunc) apply(r *Router) {
+type PathOption interface {
+	applyPath(*Route)
+}
+
+type globOptionFunc func(*Router)
+
+func (o globOptionFunc) applyGlob(r *Router) {
 	o(r)
+}
+
+// nolint:unused
+type pathOptionFunc func(*Route)
+
+// nolint:unused
+func (o pathOptionFunc) applyPath(r *Route) {
+	o(r)
+}
+
+type optionFunc func(*Router, *Route)
+
+func (o optionFunc) applyGlob(r *Router) {
+	o(r, nil)
+}
+
+func (o optionFunc) applyPath(r *Route) {
+	o(nil, r)
 }
 
 // WithNoRouteHandler register an HandlerFunc which is called when no matching route is found.
 // By default, the DefaultNotFoundHandler is used.
-func WithNoRouteHandler(handler HandlerFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		if handler != nil {
 			r.noRoute = handler
 		}
@@ -46,8 +73,8 @@ func WithNoRouteHandler(handler HandlerFunc) Option {
 // but the same route exist for other methods. The "Allow" header it automatically set before calling the
 // handler. By default, the DefaultMethodNotAllowedHandler is used. Note that this option automatically
 // enable WithNoMethod.
-func WithNoMethodHandler(handler HandlerFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		if handler != nil {
 			r.noMethod = handler
 			r.handleMethodNotAllowed = true
@@ -59,9 +86,8 @@ func WithNoMethodHandler(handler HandlerFunc) Option {
 // respond with a 200 OK status code. The "Allow" header it automatically set before calling the handler. Note that custom OPTIONS
 // handler take priority over automatic replies. By default, DefaultOptionsHandler is used. Note that this option
 // automatically enable WithAutoOptions.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func WithOptionsHandler(handler HandlerFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithOptionsHandler(handler HandlerFunc) GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		if handler != nil {
 			r.autoOptions = handler
 			r.handleOptions = true
@@ -69,20 +95,37 @@ func WithOptionsHandler(handler HandlerFunc) Option {
 	})
 }
 
-// WithMiddleware attaches a global middleware to the router. Middlewares provided will be chained
-// in the order they were added. Note that this option apply middleware to all handler, including NotFound,
-// MethodNotAllowed and the internal redirect handler.
+// WithMiddleware attaches middleware to the router or to a specific route. The middlewares are executed
+// in the order they are added. When applied globally, the middleware affects all handlers, including special handlers
+// such as NotFound, MethodNotAllowed, AutoOption, and the internal redirect handler.
+//
+// This option can be applied on a per-route basis or globally:
+// - If applied globally, the middleware will be applied to all routes and handlers by default.
+// - If applied to a specific route, the middleware will only apply to that route and will be chained after any global middleware.
+//
+// Route-specific middleware must be explicitly reapplied when updating a route. If not, any middleware will be removed,
+// and the route will fall back to using only global middleware (if any).
 func WithMiddleware(m ...MiddlewareFunc) Option {
-	return WithMiddlewareFor(AllHandlers, m...)
+	return optionFunc(func(router *Router, route *Route) {
+		if router != nil {
+			for i := range m {
+				router.mws = append(router.mws, middleware{m[i], AllHandlers})
+			}
+		}
+		if route != nil {
+			for i := range m {
+				route.mws = append(route.mws, middleware{m[i], RouteHandlers})
+			}
+		}
+	})
 }
 
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
 // Possible scopes include RouteHandlers (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler, OptionsHandler,
 // and any combination of these. Use this option when you need fine-grained control over where the middleware is applied.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {
-	return optionFunc(func(r *Router) {
+func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		for i := range m {
 			r.mws = append(r.mws, middleware{m[i], scope})
 		}
@@ -93,8 +136,8 @@ func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) Option {
 // when the route exist for another http verb. The "Allow" header it automatically set before calling the
 // handler. Note that this option is automatically enabled when providing a custom handler with the
 // option WithNoMethodHandler.
-func WithNoMethod(enable bool) Option {
-	return optionFunc(func(r *Router) {
+func WithNoMethod(enable bool) GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		r.handleMethodNotAllowed = enable
 	})
 }
@@ -103,9 +146,9 @@ func WithNoMethod(enable bool) Option {
 // Use the WithOptionsHandler option to customize the response. When this option is enabled, the router automatically
 // determines the "Allow" header value based on the methods registered for the given route. Note that custom OPTIONS
 // handler take priority over automatic replies. This option is automatically enabled when providing a custom handler with
-// the option WithOptionsHandler. This api is EXPERIMENTAL and is likely to change in future release.
-func WithAutoOptions(enable bool) Option {
-	return optionFunc(func(r *Router) {
+// the option WithOptionsHandler.
+func WithAutoOptions(enable bool) GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		r.handleOptions = enable
 	})
 }
@@ -113,22 +156,59 @@ func WithAutoOptions(enable bool) Option {
 // WithRedirectTrailingSlash enable automatic redirection fallback when the current request does not match but
 // another handler is found with/without an additional trailing slash. E.g. /foo/bar/ request does not match
 // but /foo/bar would match. The client is redirected with a http status code 301 for GET requests and 308 for
-// all other methods. Note that this option is mutually exclusive with WithIgnoreTrailingSlash, and if both are
-// enabled, WithIgnoreTrailingSlash takes precedence.
+// all other methods.
+//
+// This option can be applied on a per-route basis or globally:
+//   - If applied globally, it affects all routes by default.
+//   - If applied to a specific route, it will override the global setting for that route.
+//   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
+//     to the global configuration for trailing slash behavior.
+//
+// Note that this option is mutually exclusive with WithIgnoreTrailingSlash, and if enabled will
+// automatically deactivate WithIgnoreTrailingSlash.
 func WithRedirectTrailingSlash(enable bool) Option {
-	return optionFunc(func(r *Router) {
-		r.redirectTrailingSlash = enable
+	return optionFunc(func(router *Router, route *Route) {
+		if router != nil {
+			router.redirectTrailingSlash = enable
+			if enable {
+				router.ignoreTrailingSlash = false
+			}
+		}
+		if route != nil {
+			route.redirectTrailingSlash = enable
+			if enable {
+				route.ignoreTrailingSlash = false
+			}
+		}
 	})
 }
 
 // WithIgnoreTrailingSlash allows the router to match routes regardless of whether a trailing slash is present or not.
 // E.g. /foo/bar/ and /foo/bar would both match the same handler. This option prevents the router from issuing
-// a redirect and instead matches the request directly. Note that this option is mutually exclusive with
-// WithRedirectTrailingSlash, and if both are enabled, WithIgnoreTrailingSlash takes precedence.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// a redirect and instead matches the request directly.
+//
+// This option can be applied on a per-route basis or globally:
+//   - If applied globally, it affects all routes by default.
+//   - If applied to a specific route, it will override the global setting for that route.
+//   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
+//     to the global configuration for trailing slash behavior.
+//
+// Note that this option is mutually exclusive with
+// WithRedirectTrailingSlash, and if enabled will automatically deactivate WithRedirectTrailingSlash.
 func WithIgnoreTrailingSlash(enable bool) Option {
-	return optionFunc(func(r *Router) {
-		r.ignoreTrailingSlash = enable
+	return optionFunc(func(router *Router, route *Route) {
+		if router != nil {
+			router.ignoreTrailingSlash = enable
+			if enable {
+				router.redirectTrailingSlash = false
+			}
+		}
+		if route != nil {
+			route.ignoreTrailingSlash = enable
+			if enable {
+				route.redirectTrailingSlash = false
+			}
+		}
 	})
 }
 
@@ -137,11 +217,21 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 // configuration to ensure it never returns an error -- i.e., never fails to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even worthy of panicking.
 // There is no sane default, so if no strategy is configured, Context.ClientIP returns ErrNoClientIPStrategy.
-// This API is EXPERIMENTAL and is likely to change in future releases.
+//
+// This option can be applied on a per-route basis or globally:
+//   - If applied globally, it affects all routes by default.
+//   - If applied to a specific route, it will override the global setting for that route.
+//   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
+//     to the global client IP strategy (if one is configured).
 func WithClientIPStrategy(strategy ClientIPStrategy) Option {
-	return optionFunc(func(r *Router) {
+	return optionFunc(func(router *Router, route *Route) {
 		if strategy != nil {
-			r.ipStrategy = strategy
+			if router != nil {
+				router.ipStrategy = strategy
+			}
+			if route != nil {
+				route.ipStrategy = strategy
+			}
 		}
 	})
 }
@@ -149,8 +239,8 @@ func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 // DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope, the Logger middleware
 // for AllHandlers scope and enable automatic OPTIONS response. Note that DefaultOptions push the Recovery and Logger middleware
 // respectively to the first and second position of the middleware chains.
-func DefaultOptions() Option {
-	return optionFunc(func(r *Router) {
+func DefaultOptions() GlobalOption {
+	return globOptionFunc(func(r *Router) {
 		r.mws = append([]middleware{
 			{Recovery(), RouteHandlers},
 			{Logger(), AllHandlers},

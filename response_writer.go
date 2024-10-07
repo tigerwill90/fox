@@ -162,7 +162,7 @@ func (r *recorder) FlushError() error {
 		flusher.Flush()
 		return nil
 	default:
-		return errNotSupported()
+		return ErrNotSupported()
 	}
 }
 
@@ -181,7 +181,7 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hijacker, ok := r.ResponseWriter.(http.Hijacker); ok {
 		return hijacker.Hijack()
 	}
-	return nil, nil, errNotSupported()
+	return nil, nil, ErrNotSupported()
 }
 
 type noUnwrap struct {
@@ -225,6 +225,7 @@ func relevantCaller() runtime.Frame {
 	return frame
 }
 
-func errNotSupported() error {
+// ErrNotSupported returns an error that Is ErrNotSupported, but is not == to it.
+func ErrNotSupported() error {
 	return fmt.Errorf("%w", http.ErrNotSupported)
 }

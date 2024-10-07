@@ -78,7 +78,7 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 		}
 
 		sb.WriteString("Stack:\n")
-		sb.WriteString(stacktrace(4, 6))
+		sb.WriteString(stacktrace(3, 6))
 
 		params := c.Params()
 		attrs := make([]any, 0, len(params))

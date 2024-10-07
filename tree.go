@@ -44,7 +44,10 @@ type Tree struct {
 // is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
 // for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To override an existing route, use Update.
-func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
+func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
+	if handler == nil {
+		return fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
 	if matched := regEnLetter.MatchString(method); !matched {
 		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
@@ -54,14 +57,18 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.insert(method, p, catchAllKey, uint32(n), applyMiddleware(RouteHandlers, t.mws, handler))
+	// nolint:gosec
+	return t.insert(method, p, catchAllKey, uint32(n), t.newRoute(path, handler, opts...))
 }
 
 // Update override an existing handler for the given method and path. If the route does not exist,
 // the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
 // serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
 // Tree APIs that perform write operations. To add a new handler, use Handle method.
-func (t *Tree) Update(method, path string, handler HandlerFunc) error {
+func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
+	if handler == nil {
+		return fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
@@ -71,7 +78,7 @@ func (t *Tree) Update(method, path string, handler HandlerFunc) error {
 		return err
 	}
 
-	return t.update(method, p, catchAllKey, applyMiddleware(RouteHandlers, t.mws, handler))
+	return t.update(method, p, catchAllKey, t.newRoute(path, handler, opts...))
 }
 
 // Remove delete an existing handler for the given method and path. If the route does not exist, the function
@@ -95,46 +102,54 @@ func (t *Tree) Remove(method, path string) error {
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for concurrent
-// use by multiple goroutine and while mutation on Tree are ongoing.
+// Has allows to check if the given method and path exactly match a registered route. This function is safe for
+// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
-	nds := *t.nodes.Load()
-	index := findRootNode(method, nds)
-	if index < 0 {
-		return false
-	}
-
-	c := t.ctx.Get().(*cTx)
-	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c, true)
-	c.Close()
-	if n != nil && !tsr {
-		return n.path == path
-	}
-	return false
+	return t.Route(method, path) != nil
 }
 
-// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route if any. When
-// WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled, Match will match a registered route regardless of an
-// extra or missing trailing slash. This function is safe for concurrent use by multiple goroutine and while mutation on
-// Tree are ongoing. See also Tree.Lookup as an alternative.
+// Route performs a lookup for a registered route matching the given method and path. It returns the route if a
+// match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
+// mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Match(method, path string) string {
+func (t *Tree) Route(method, path string) *Route {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return ""
+		return nil
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 	n, tsr := t.lookup(nds[index], path, c, true)
 	c.Close()
-	if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
-		return n.path
+	if n != nil && !tsr && n.route.path == path {
+		return n.route
 	}
-	return ""
+	return nil
+}
+
+// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route
+// (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action is recommended). This function is safe for concurrent use by multiple goroutine and while
+// mutation on Tree are ongoing. See also Tree.Lookup as an alternative.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (t *Tree) Match(method, path string) (route *Route, tsr bool) {
+	nds := *t.nodes.Load()
+	index := findRootNode(method, nds)
+	if index < 0 {
+		return nil, false
+	}
+
+	c := t.ctx.Get().(*cTx)
+	c.resetNil()
+	n, tsr := t.lookup(nds[index], path, c, true)
+	c.Close()
+	if n != nil {
+		return n.route, tsr
+	}
+	return nil, false
 }
 
 // Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
@@ -161,7 +176,7 @@ func (t *Tree) Methods(path string) []string {
 		c.resetNil()
 		for i := range nds {
 			n, tsr := t.lookup(nds[i], path, c, true)
-			if n != nil && (!tsr || t.fox.redirectTrailingSlash || t.fox.ignoreTrailingSlash) {
+			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if methods == nil {
 					methods = make([]string, 0)
 				}
@@ -175,14 +190,14 @@ func (t *Tree) Methods(path string) []string {
 	return methods
 }
 
-// Lookup performs a manual route lookup for a given http.Request, returning the matched HandlerFunc along with a
-// ContextCloser, and a boolean indicating if the handler was matched by adding or removing a trailing slash
+// Lookup performs a manual route lookup for a given http.Request, returning the matched Route along with a
+// ContextCloser, and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
 // intended for integrating the fox router into custom routing solutions or middleware. This function is safe for concurrent
 // use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,
-// Lookup always return a HandlerFunc and a ContextCloser.
+// Lookup always return a Route and a ContextCloser.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, cc ContextCloser, tsr bool) {
+func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(r.Method, nds)
 
@@ -201,9 +216,9 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 
 	n, tsr := t.lookup(nds[index], target, c, false)
 	if n != nil {
-		c.path = n.path
+		c.route = n.route
 		c.tsr = tsr
-		return n.handler, c, tsr
+		return n.route, c, tsr
 	}
 	c.Close()
 	return nil, nil, tsr
@@ -211,7 +226,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (handler HandlerFunc, c
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
-func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler HandlerFunc) error {
+func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	var rootNode *node
 	nds := *t.nodes.Load()
@@ -237,12 +252,12 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 			if result.matched.isCatchAll() && isCatchAll {
 				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
 			}
-			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, appendCatchAll(path, catchAllKey), result.matched.path)
+			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.path, result.matched.route.path)
 		}
 
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.key, handler, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex, path)
+		n := newNodeFromRef(result.matched.key, route, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex)
 
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
@@ -269,20 +284,18 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 
 		child := newNodeFromRef(
 			suffixFromExistingEdge,
-			result.matched.handler,
+			result.matched.route,
 			result.matched.children,
 			result.matched.childKeys,
 			result.matched.catchAllKey,
 			result.matched.paramChildIndex,
-			result.matched.path,
 		)
 
 		parent := newNode(
 			cPrefix,
-			handler,
+			route,
 			[]*node{child},
 			catchAllKey,
-			path,
 		)
 
 		t.updateMaxParams(paramsN)
@@ -306,15 +319,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keySuffix := path[result.charsMatched:]
 
 		// No children, so no paramChild
-		child := newNode(keySuffix, handler, nil, catchAllKey, path)
+		child := newNode(keySuffix, route, nil, catchAllKey)
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(
 			result.matched.key,
-			result.matched.handler,
+			result.matched.route,
 			edges,
 			result.matched.catchAllKey,
-			result.matched.path,
 		)
 
 		t.updateMaxDepth(result.depth + 1)
@@ -364,19 +376,18 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 		keySuffix := path[result.charsMatched:]
 
 		// No children, so no paramChild
-		n1 := newNodeFromRef(keySuffix, handler, nil, nil, catchAllKey, -1, path) // inserted node
+		n1 := newNodeFromRef(keySuffix, route, nil, nil, catchAllKey, -1) // inserted node
 		n2 := newNodeFromRef(
 			suffixFromExistingEdge,
-			result.matched.handler,
+			result.matched.route,
 			result.matched.children,
 			result.matched.childKeys,
 			result.matched.catchAllKey,
 			result.matched.paramChildIndex,
-			result.matched.path,
 		) // previous matched node
 
 		// n3 children never start with a param
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "", "") // intermediary node
+		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "") // intermediary node
 
 		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
@@ -389,7 +400,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, handler 
 }
 
 // update is not safe for concurrent use.
-func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFunc) error {
+func (t *Tree) update(method string, path, catchAllKey string, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -403,7 +414,7 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 	}
 
 	if catchAllKey != result.matched.catchAllKey {
-		err := newConflictErr(method, path, catchAllKey, []string{result.matched.path})
+		err := newConflictErr(method, path, catchAllKey, []string{result.matched.route.path})
 		err.isUpdate = true
 		return err
 	}
@@ -412,12 +423,11 @@ func (t *Tree) update(method string, path, catchAllKey string, handler HandlerFu
 	// the matched one with the updated/added value (handler and wildcard).
 	n := newNodeFromRef(
 		result.matched.key,
-		handler,
+		route,
 		result.matched.children,
 		result.matched.childKeys,
 		catchAllKey,
 		result.matched.paramChildIndex,
-		path,
 	)
 	result.p.updateEdge(n)
 	return nil
@@ -450,7 +460,6 @@ func (t *Tree) remove(method, path string) bool {
 			result.matched.childKeys,
 			"",
 			result.matched.paramChildIndex,
-			"",
 		)
 		result.p.updateEdge(n)
 		return true
@@ -461,12 +470,11 @@ func (t *Tree) remove(method, path string) bool {
 		mergedPath := fmt.Sprintf("%s%s", result.matched.key, child.key)
 		n := newNodeFromRef(
 			mergedPath,
-			child.handler,
+			child.route,
 			child.children,
 			child.childKeys,
 			child.catchAllKey,
 			child.paramChildIndex,
-			child.path,
 		)
 		result.p.updateEdge(n)
 		return true
@@ -490,20 +498,18 @@ func (t *Tree) remove(method, path string) bool {
 		mergedPath := fmt.Sprintf("%s%s", result.p.key, child.key)
 		parent = newNodeFromRef(
 			mergedPath,
-			child.handler,
+			child.route,
 			child.children,
 			child.childKeys,
 			child.catchAllKey,
 			child.paramChildIndex,
-			child.path,
 		)
 	} else {
 		parent = newNode(
 			result.p.key,
-			result.p.handler,
+			result.p.route,
 			parentEdges,
 			result.p.catchAllKey,
-			result.p.path,
 		)
 	}
 
@@ -931,4 +937,23 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	if max > t.maxDepth.Load() {
 		t.maxDepth.Store(max)
 	}
+}
+
+// newRoute create a new route, apply path options and apply middleware on the handler.
+func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *Route {
+	rte := &Route{
+		ipStrategy:            t.fox.ipStrategy,
+		base:                  handler,
+		path:                  path,
+		mws:                   t.mws,
+		redirectTrailingSlash: t.fox.redirectTrailingSlash,
+		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
+	}
+
+	for _, opt := range opts {
+		opt.applyPath(rte)
+	}
+	rte.handler = applyMiddleware(RouteHandlers, rte.mws, handler)
+
+	return rte
 }
