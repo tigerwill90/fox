@@ -57,6 +57,28 @@ func TestIter_All(t *testing.T) {
 	}
 }
 
+func TestIter_AllBreak(t *testing.T) {
+	tree := New().Tree()
+	for _, rte := range routesCases {
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+	}
+
+	var (
+		lastMethod string
+		lastRoute  *Route
+	)
+	it := tree.Iter()
+	for method, route := range it.All() {
+		lastMethod = method
+		lastRoute = route
+		break
+	}
+	assert.Equal(t, "GET", lastMethod)
+	assert.Equal(t, "/foo/bar/{baz}", lastRoute.Path())
+}
+
 func TestIter_RootPrefixOneMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
@@ -97,6 +119,18 @@ func TestIter_Prefix(t *testing.T) {
 	for key := range results {
 		assert.ElementsMatch(t, want, results[key])
 	}
+}
+
+func TestIter_EdgeCase(t *testing.T) {
+	tree := New().Tree()
+	it := tree.Iter()
+
+	assert.Empty(t, slices.Collect(left(it.Prefix(seqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(left(it.Prefix(seqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(left(it.Reverse(seqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(left(it.Reverse(seqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(left(it.Routes(seqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(left(it.Routes(seqOf("CONNECT"), "/"))))
 }
 
 func TestIter_PrefixWithMethod(t *testing.T) {
