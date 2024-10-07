@@ -20,6 +20,8 @@ type rawIterator struct {
 	stack   []stack
 }
 
+const stackSizeThreshold = 15
+
 type stack struct {
 	edges []*node
 }
@@ -149,8 +151,8 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 		nds := *it.t.nodes.Load()
 		maxDepth := it.t.maxDepth.Load()
 		var stacks []stack
-		if maxDepth < 10 {
-			stacks = make([]stack, 0, 10) // stack allocation
+		if maxDepth < stackSizeThreshold {
+			stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
 		} else {
 			stacks = make([]stack, 0, maxDepth) // heap allocation
 		}

@@ -198,18 +198,92 @@ func TestIter_PrefixWithMethod(t *testing.T) {
 	assert.ElementsMatch(t, want, results[http.MethodHead])
 }
 
+func BenchmarkIter_Methods(b *testing.B) {
+	f := New()
+	for _, route := range staticRoutes {
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+	it := f.Iter()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for _ = range it.Methods() {
+
+		}
+	}
+}
+
+func BenchmarkIter_Reverse(b *testing.B) {
+	f := New()
+	for _, route := range githubAPI {
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+	it := f.Iter()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for _, _ = range it.Reverse(it.Methods(), "/user/subscriptions/fox/fox") {
+
+		}
+	}
+}
+
+func BenchmarkIter_Route(b *testing.B) {
+	f := New()
+	for _, route := range githubAPI {
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+	it := f.Iter()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for _, _ = range it.Reverse(it.Methods(), "/user/subscriptions/{owner}/{repo}") {
+
+		}
+	}
+}
+
+func BenchmarkIter_Prefix(b *testing.B) {
+	f := New()
+	for _, route := range githubAPI {
+		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+	}
+	it := f.Iter()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for _, _ = range it.Prefix(it.Methods(), "/") {
+
+		}
+	}
+}
+
 func ExampleIter_All() {
 	f := New()
-
 	it := f.Iter()
 	for method, route := range it.All() {
 		fmt.Println(method, route.Path())
 	}
 }
 
+func ExampleIter_Methods() {
+	f := New()
+	it := f.Iter()
+	for method := range it.Methods() {
+		fmt.Println(method)
+	}
+}
+
 func ExampleIter_Prefix() {
 	f := New()
-
 	it := f.Iter()
 	for method, route := range it.Prefix(slices.Values([]string{"GET", "POST"}), "/foo") {
 		fmt.Println(method, route.Path())
