@@ -114,7 +114,7 @@ func TestIter_RouteBreak(t *testing.T) {
 		lastRoute  *Route
 	)
 	it := tree.Iter()
-	for method, route := range it.Reverse(it.Methods(), "/john/doe/*{args}") {
+	for method, route := range it.Routes(it.Methods(), "/john/doe/*{args}") {
 		lastMethod = method
 		lastRoute = route
 		break
