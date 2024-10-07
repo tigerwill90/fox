@@ -79,6 +79,50 @@ func TestIter_AllBreak(t *testing.T) {
 	assert.Equal(t, "/foo/bar/{baz}", lastRoute.Path())
 }
 
+func TestIter_ReverseBreak(t *testing.T) {
+	tree := New().Tree()
+	for _, rte := range routesCases {
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+	}
+
+	var (
+		lastMethod string
+		lastRoute  *Route
+	)
+	it := tree.Iter()
+	for method, route := range it.Reverse(it.Methods(), "/john/doe/1/2/3") {
+		lastMethod = method
+		lastRoute = route
+		break
+	}
+	assert.Equal(t, "GET", lastMethod)
+	assert.Equal(t, "/john/doe/*{args}", lastRoute.Path())
+}
+
+func TestIter_RouteBreak(t *testing.T) {
+	tree := New().Tree()
+	for _, rte := range routesCases {
+		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
+		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+	}
+
+	var (
+		lastMethod string
+		lastRoute  *Route
+	)
+	it := tree.Iter()
+	for method, route := range it.Reverse(it.Methods(), "/john/doe/*{args}") {
+		lastMethod = method
+		lastRoute = route
+		break
+	}
+	assert.Equal(t, "GET", lastMethod)
+	assert.Equal(t, "/john/doe/*{args}", lastRoute.Path())
+}
+
 func TestIter_RootPrefixOneMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
