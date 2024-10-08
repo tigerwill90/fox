@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 var _ ResponseWriter = (*recorder)(nil)
@@ -53,6 +54,16 @@ type ResponseWriter interface {
 	// Push initiates an HTTP/2 server push. Push returns http.ErrNotSupported if the client has disabled push or if push
 	// is not supported on the underlying connection. See http.Pusher for more details.
 	Push(target string, opts *http.PushOptions) error
+	// SetReadDeadline sets the deadline for reading the entire request, including the body. Reads from the request
+	// body after the deadline has been exceeded will return an error. A zero value means no deadline. Setting the read
+	// deadline after it has been exceeded will not extend it. If SetReadDeadline is not supported, it returns
+	// an error matching http.ErrNotSupported.
+	SetReadDeadline(deadline time.Time) error
+	// SetWriteDeadline sets the deadline for writing the response. Writes to the response body after the deadline has
+	// been exceeded will not block, but may succeed if the data has been buffered. A zero value means no deadline.
+	// Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
+	// it returns an error matching http.ErrNotSupported.
+	SetWriteDeadline(deadline time.Time) error
 }
 
 const notWritten = -1
@@ -182,6 +193,28 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return hijacker.Hijack()
 	}
 	return nil, nil, ErrNotSupported()
+}
+
+// SetReadDeadline sets the deadline for reading the entire request, including the body. Reads from the request
+// body after the deadline has been exceeded will return an error. A zero value means no deadline. Setting the read
+// deadline after it has been exceeded will not extend it. If SetReadDeadline is not supported, it returns
+// an error matching http.ErrNotSupported.
+func (r *recorder) SetReadDeadline(deadline time.Time) error {
+	if w, ok := r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return w.SetReadDeadline(deadline)
+	}
+	return ErrNotSupported()
+}
+
+// SetWriteDeadline sets the deadline for writing the response. Writes to the response body after the deadline has
+// been exceeded will not block, but may succeed if the data has been buffered. A zero value means no deadline.
+// Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
+// it returns an error matching http.ErrNotSupported.
+func (r *recorder) SetWriteDeadline(deadline time.Time) error {
+	if w, ok := r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		return w.SetWriteDeadline(deadline)
+	}
+	return ErrNotSupported()
 }
 
 type noUnwrap struct {
