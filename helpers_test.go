@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,5 +37,11 @@ func TestNewTestContext(t *testing.T) {
 	assert.ErrorIs(t, err, http.ErrNotSupported)
 
 	err = c.Writer().Push("foo", nil)
+	assert.ErrorIs(t, err, http.ErrNotSupported)
+
+	err = c.Writer().SetReadDeadline(time.Time{})
+	assert.ErrorIs(t, err, http.ErrNotSupported)
+
+	err = c.Writer().SetWriteDeadline(time.Time{})
 	assert.ErrorIs(t, err, http.ErrNotSupported)
 }
