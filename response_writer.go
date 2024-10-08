@@ -195,6 +195,10 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, ErrNotSupported()
 }
 
+// SetReadDeadline sets the deadline for reading the entire request, including the body. Reads from the request
+// body after the deadline has been exceeded will return an error. A zero value means no deadline. Setting the read
+// deadline after it has been exceeded will not extend it. If SetReadDeadline is not supported, it returns
+// an error matching http.ErrNotSupported.
 func (r *recorder) SetReadDeadline(deadline time.Time) error {
 	if w, ok := r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }); ok {
 		return w.SetReadDeadline(deadline)
@@ -202,6 +206,10 @@ func (r *recorder) SetReadDeadline(deadline time.Time) error {
 	return ErrNotSupported()
 }
 
+// SetWriteDeadline sets the deadline for writing the response. Writes to the response body after the deadline has
+// been exceeded will not block, but may succeed if the data has been buffered. A zero value means no deadline.
+// Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
+// it returns an error matching http.ErrNotSupported.
 func (r *recorder) SetWriteDeadline(deadline time.Time) error {
 	if w, ok := r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		return w.SetWriteDeadline(deadline)
