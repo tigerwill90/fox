@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -130,12 +129,12 @@ func (t *Tree) Route(method, path string) *Route {
 	return nil
 }
 
-// Match perform a reverse lookup on the tree for the given method and path and return the matching registered route
+// Reverse perform a reverse lookup on the tree for the given method and path and return the matching registered route
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
-// (trailing slash action is recommended). This function is safe for concurrent use by multiple goroutine and while
+// (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
 // mutation on Tree are ongoing. See also Tree.Lookup as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Match(method, path string) (route *Route, tsr bool) {
+func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -152,47 +151,9 @@ func (t *Tree) Match(method, path string) (route *Route, tsr bool) {
 	return nil, false
 }
 
-// Methods returns a sorted list of HTTP methods associated with a given path in the routing tree. If the path is "*",
-// it returns all HTTP methods that have at least one route registered in the tree. For a specific path, it returns the
-// methods that can route requests to that path. When WithIgnoreTrailingSlash or WithRedirectTrailingSlash are enabled,
-// Methods will match a registered route regardless of an extra or missing trailing slash. This function is safe for
-// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Methods(path string) []string {
-	var methods []string
-	nds := *t.nodes.Load()
-
-	if path == "*" {
-		for i := range nds {
-			if len(nds[i].children) > 0 {
-				if methods == nil {
-					methods = make([]string, 0)
-				}
-				methods = append(methods, nds[i].key)
-			}
-		}
-	} else {
-		c := t.ctx.Get().(*cTx)
-		c.resetNil()
-		for i := range nds {
-			n, tsr := t.lookup(nds[i], path, c, true)
-			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
-				if methods == nil {
-					methods = make([]string, 0)
-				}
-				methods = append(methods, nds[i].key)
-			}
-		}
-		c.Close()
-	}
-
-	sort.Strings(methods)
-	return methods
-}
-
 // Lookup performs a manual route lookup for a given http.Request, returning the matched Route along with a
 // ContextCloser, and a boolean indicating if the route was matched by adding or removing a trailing slash
-// (trailing slash action is recommended). The ContextCloser should always be closed if non-nil. This method is primarily
+// (trailing slash action recommended). The ContextCloser should always be closed if non-nil. This method is primarily
 // intended for integrating the fox router into custom routing solutions or middleware. This function is safe for concurrent
 // use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,
 // Lookup always return a Route and a ContextCloser.
@@ -222,6 +183,13 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 	}
 	c.Close()
 	return nil, nil, tsr
+}
+
+// Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
+// This function is safe for concurrent use by multiple goroutines and can operate while the Tree is being modified.
+// This API is EXPERIMENTAL and may change in future releases.
+func (t *Tree) Iter() Iter {
+	return Iter{t: t}
 }
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
