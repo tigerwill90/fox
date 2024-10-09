@@ -460,6 +460,7 @@ f := fox.New(
 	fox.WithMiddleware(fox.Logger()),
 )
 f.MustHandle("GET", "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
+f.MustHandle("GET", "/foo", SomeOtherHandler)
 ````
 
 ### Official middlewares
