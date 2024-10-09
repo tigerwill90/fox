@@ -446,10 +446,20 @@ only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regul
 
 ````go
 f := fox.New(
-    fox.WithMethodNotAllowed(true),
-    fox.WithMiddlewareFor(fox.RouteHandlers, fox.Recovery(fox.DefaultHandleRecovery), Logger),
-    fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
+   fox.WithNoMethod(true),
+   fox.WithMiddlewareFor(fox.RouteHandlers, fox.Recovery(), Logger),
+   fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
 )
+````
+
+Finally, it's also possible to attaches middleware on a per-route basis. Note that route-specific middleware must be explicitly reapplied 
+when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
+
+````
+f := fox.New(
+	fox.WithMiddleware(fox.Logger()),
+)
+f.MustHandle("GET", "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
 ````
 
 ### Official middlewares
@@ -457,6 +467,7 @@ f := fox.New(
 * [tigerwill90/foxdump](https://github.com/tigerwill90/foxdump): Body dump middleware for capturing requests and responses payload.
 * [tigerwill90/foxtimeout](https://github.com/tigerwill90/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
 * [tigerwill90/foxwaf](https://github.com/tigerwill90/foxwaf): Coraza WAF middleware (experimental).
+* [tigerwill90/foxgeoip](https://github.com/tigerwill90/foxgeoip): Block requests using GeoIP data based on client IP (experimental).
 
 ## Handling OPTIONS Requests and CORS Automatically
 The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 
