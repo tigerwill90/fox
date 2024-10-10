@@ -4,23 +4,7 @@
 
 package fox
 
-// MiddlewareScope is a type that represents different scopes for applying middleware.
-type MiddlewareScope uint8
-
-const (
-	// RouteHandlers scope applies middleware only to regular routes registered in the router.
-	RouteHandlers MiddlewareScope = 1 << (8 - 1 - iota)
-	// NoRouteHandler scope applies middleware to the NoRoute handler.
-	NoRouteHandler
-	// NoMethodHandler scope applies middleware to the NoMethod handler.
-	NoMethodHandler
-	// RedirectHandler scope applies middleware to the internal redirect trailing slash handler.
-	RedirectHandler
-	// OptionsHandler scope applies middleware to the automatic OPTIONS handler.
-	OptionsHandler
-	// AllHandlers is a combination of all the above scopes, which means the middleware will be applied to all types of handlers.
-	AllHandlers = RouteHandlers | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
-)
+import "cmp"
 
 type Option interface {
 	GlobalOption
@@ -109,12 +93,12 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 	return optionFunc(func(router *Router, route *Route) {
 		if router != nil {
 			for i := range m {
-				router.mws = append(router.mws, middleware{m[i], AllHandlers})
+				router.mws = append(router.mws, middleware{m[i], AllHandlers, true})
 			}
 		}
 		if route != nil {
 			for i := range m {
-				route.mws = append(route.mws, middleware{m[i], RouteHandlers})
+				route.mws = append(route.mws, middleware{m[i], RouteHandler, false})
 			}
 		}
 	})
@@ -122,12 +106,12 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
-// Possible scopes include RouteHandlers (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler, OptionsHandler,
+// Possible scopes include RouteHandler (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler, OptionsHandler,
 // and any combination of these. Use this option when you need fine-grained control over where the middleware is applied.
-func WithMiddlewareFor(scope MiddlewareScope, m ...MiddlewareFunc) GlobalOption {
+func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		for i := range m {
-			r.mws = append(r.mws, middleware{m[i], scope})
+			r.mws = append(r.mws, middleware{m[i], scope, true})
 		}
 	})
 }
@@ -223,27 +207,27 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 //   - If applied to a specific route, it will override the global setting for that route.
 //   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
 //     to the global client IP strategy (if one is configured).
+//   - Setting the strategy to nil is equivalent to no strategy configured.
 func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 	return optionFunc(func(router *Router, route *Route) {
-		if strategy != nil {
-			if router != nil {
-				router.ipStrategy = strategy
-			}
-			if route != nil {
-				route.ipStrategy = strategy
-			}
+		if router != nil {
+			router.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
+		}
+
+		if route != nil {
+			route.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
 		}
 	})
 }
 
-// DefaultOptions configure the router to use the Recovery middleware for the RouteHandlers scope, the Logger middleware
+// DefaultOptions configure the router to use the Recovery middleware for the RouteHandler scope, the Logger middleware
 // for AllHandlers scope and enable automatic OPTIONS response. Note that DefaultOptions push the Recovery and Logger middleware
 // respectively to the first and second position of the middleware chains.
 func DefaultOptions() GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		r.mws = append([]middleware{
-			{Recovery(), RouteHandlers},
-			{Logger(), AllHandlers},
+			{Recovery(), RouteHandler, true},
+			{Logger(), AllHandlers, true},
 		}, r.mws...)
 		r.handleOptions = true
 	})

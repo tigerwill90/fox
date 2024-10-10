@@ -210,33 +210,3 @@ func (it Iter) All() iter.Seq2[string, *Route] {
 		}
 	}
 }
-
-func left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {
-	return func(yield func(K) bool) {
-		for k := range seq {
-			if !yield(k) {
-				return
-			}
-		}
-	}
-}
-
-func right[K, V any](seq iter.Seq2[K, V]) iter.Seq[V] {
-	return func(yield func(V) bool) {
-		for _, v := range seq {
-			if !yield(v) {
-				return
-			}
-		}
-	}
-}
-
-func seqOf[E any](elems ...E) iter.Seq[E] {
-	return func(yield func(E) bool) {
-		for _, e := range elems {
-			if !yield(e) {
-				return
-			}
-		}
-	}
-}
