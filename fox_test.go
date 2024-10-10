@@ -1833,7 +1833,7 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 	require.NotNil(t, rte)
 	assert.True(t, rte.ClientIPStrategyEnabled())
 
-	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPStrategy(noClientIPStrategy{})))
+	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPStrategy(nil)))
 	rte = f.Tree().Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.False(t, rte.ClientIPStrategyEnabled())
