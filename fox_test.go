@@ -2603,7 +2603,7 @@ func TestUpdateWithMiddleware(t *testing.T) {
 			next(c)
 		}
 	})
-	f := New()
+	f := New(WithMiddleware(Recovery()))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 	w := httptest.NewRecorder()
@@ -2614,9 +2614,28 @@ func TestUpdateWithMiddleware(t *testing.T) {
 	assert.True(t, called)
 	called = false
 
+	rte := f.Tree().Route(http.MethodGet, "/foo")
+	rte.Handle(newTestContextTree(f.Tree()))
+	assert.False(t, called)
+	called = false
+
+	rte.HandleMiddleware(newTestContextTree(f.Tree()))
+	assert.True(t, called)
+	called = false
+
 	// Remove middleware
 	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler))
 	f.ServeHTTP(w, req)
+	assert.False(t, called)
+	called = false
+
+	rte = f.Tree().Route(http.MethodGet, "/foo")
+	rte.Handle(newTestContextTree(f.Tree()))
+	assert.False(t, called)
+	called = false
+
+	rte = f.Tree().Route(http.MethodGet, "/foo")
+	rte.HandleMiddleware(newTestContextTree(f.Tree()))
 	assert.False(t, called)
 }
 
@@ -2658,6 +2677,28 @@ func TestRouteMiddleware(t *testing.T) {
 	req.URL.Path = "/2"
 	f.ServeHTTP(w, req)
 	assert.True(t, c0)
+	assert.False(t, c1)
+	assert.True(t, c2)
+
+	c0, c1, c2 = false, false, false
+	rte1 := f.Tree().Route(http.MethodGet, "/1")
+	require.NotNil(t, rte1)
+	rte1.Handle(newTestContextTree(f.Tree()))
+	assert.False(t, c0)
+	assert.False(t, c1)
+	assert.False(t, c2)
+	c0, c1, c2 = false, false, false
+
+	rte1.HandleMiddleware(newTestContextTree(f.Tree()))
+	assert.False(t, c0)
+	assert.True(t, c1)
+	assert.False(t, c2)
+	c0, c1, c2 = false, false, false
+
+	rte2 := f.Tree().Route(http.MethodGet, "/2")
+	require.NotNil(t, rte2)
+	rte2.HandleMiddleware(newTestContextTree(f.Tree()))
+	assert.False(t, c0)
 	assert.False(t, c1)
 	assert.True(t, c2)
 }
