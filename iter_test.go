@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tigerwill90/fox/internal/iterutil"
 	"net/http"
 	"slices"
 	"testing"
@@ -134,7 +135,7 @@ func TestIter_RootPrefixOneMethod(t *testing.T) {
 	results := make(map[string][]string)
 	it := tree.Iter()
 
-	for method, route := range it.Prefix(seqOf(http.MethodHead), "/") {
+	for method, route := range it.Prefix(iterutil.SeqOf(http.MethodHead), "/") {
 		assert.NotNil(t, route)
 		results[method] = append(results[method], route.Path())
 	}
@@ -169,12 +170,12 @@ func TestIter_EdgeCase(t *testing.T) {
 	tree := New().Tree()
 	it := tree.Iter()
 
-	assert.Empty(t, slices.Collect(left(it.Prefix(seqOf("GET"), "/"))))
-	assert.Empty(t, slices.Collect(left(it.Prefix(seqOf("CONNECT"), "/"))))
-	assert.Empty(t, slices.Collect(left(it.Reverse(seqOf("GET"), "/"))))
-	assert.Empty(t, slices.Collect(left(it.Reverse(seqOf("CONNECT"), "/"))))
-	assert.Empty(t, slices.Collect(left(it.Routes(seqOf("GET"), "/"))))
-	assert.Empty(t, slices.Collect(left(it.Routes(seqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("CONNECT"), "/"))))
 }
 
 func TestIter_PrefixWithMethod(t *testing.T) {
@@ -189,7 +190,7 @@ func TestIter_PrefixWithMethod(t *testing.T) {
 	results := make(map[string][]string)
 
 	it := tree.Iter()
-	for method, route := range it.Prefix(seqOf(http.MethodHead), "/foo") {
+	for method, route := range it.Prefix(iterutil.SeqOf(http.MethodHead), "/foo") {
 		assert.NotNil(t, route)
 		results[method] = append(results[method], route.Path())
 	}

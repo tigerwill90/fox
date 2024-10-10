@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"github.com/tigerwill90/fox/internal/iterutil"
 	"log"
 	"math/rand"
 	"net"
@@ -638,6 +639,24 @@ func TestStaticRouteMalloc(t *testing.T) {
 		req := httptest.NewRequest(route.method, route.path, nil)
 		w := httptest.NewRecorder()
 		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+	}
+}
+
+func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
+	f := New()
+	for _, rte := range githubAPI {
+		require.NoError(t, f.Tree().Handle(rte.method, rte.path, emptyHandler))
+	}
+
+	for _, rte := range githubAPI {
+		req := httptest.NewRequest(rte.method, rte.path, nil)
+		w := httptest.NewRecorder()
+		r, c, _ := f.Lookup(&recorder{ResponseWriter: w}, req)
+		allocs := testing.AllocsPerRun(100, func() {
+			r.HandleMiddleware(c)
+		})
+		c.Close()
 		assert.Equal(t, float64(0), allocs)
 	}
 }
@@ -1814,7 +1833,7 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 	require.NotNil(t, rte)
 	assert.True(t, rte.ClientIPStrategyEnabled())
 
-	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPStrategy(noClientIPStrategy{})))
+	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPStrategy(nil)))
 	rte = f.Tree().Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.False(t, rte.ClientIPStrategyEnabled())
@@ -2134,7 +2153,7 @@ func TestTree_Remove(t *testing.T) {
 	}
 
 	it := tree.Iter()
-	cnt := len(slices.Collect(right(it.All())))
+	cnt := len(slices.Collect(iterutil.Right(it.All())))
 
 	assert.Equal(t, 0, cnt)
 	assert.Equal(t, 4, len(*tree.nodes.Load()))
@@ -2153,14 +2172,14 @@ func TestTree_Methods(t *testing.T) {
 		require.NoError(t, f.Handle(rte.method, rte.path, emptyHandler))
 	}
 
-	methods := slices.Sorted(left(f.Iter().Reverse(f.Iter().Methods(), "/gists/123/star")))
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/gists/123/star")))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
 	methods = slices.Sorted(f.Iter().Methods())
 	assert.Equal(t, []string{"DELETE", "GET", "POST", "PUT"}, methods)
 
 	// Ignore trailing slash disable
-	methods = slices.Sorted(left(f.Iter().Reverse(f.Iter().Methods(), "/gists/123/star/")))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/gists/123/star/")))
 	assert.Empty(t, methods)
 }
 
@@ -2171,13 +2190,13 @@ func TestTree_MethodsWithIgnoreTsEnable(t *testing.T) {
 		require.NoError(t, f.Handle(method, "/john/doe/", emptyHandler))
 	}
 
-	methods := slices.Sorted(left(f.Iter().Reverse(f.Iter().Methods(), "/foo/bar/")))
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/foo/bar/")))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
-	methods = slices.Sorted(left(f.Iter().Reverse(f.Iter().Methods(), "/john/doe")))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/john/doe")))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
-	methods = slices.Sorted(left(f.Iter().Reverse(f.Iter().Methods(), "/foo/bar/baz")))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/foo/bar/baz")))
 	assert.Empty(t, methods)
 }
 
@@ -2391,7 +2410,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				}))
 			}
@@ -2467,7 +2486,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				}))
 			}
@@ -2512,7 +2531,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				}))
 			}
@@ -2584,7 +2603,7 @@ func TestUpdateWithMiddleware(t *testing.T) {
 			next(c)
 		}
 	})
-	f := New()
+	f := New(WithMiddleware(Recovery()))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 	w := httptest.NewRecorder()
@@ -2595,9 +2614,28 @@ func TestUpdateWithMiddleware(t *testing.T) {
 	assert.True(t, called)
 	called = false
 
+	rte := f.Tree().Route(http.MethodGet, "/foo")
+	rte.Handle(newTestContextTree(f.Tree()))
+	assert.False(t, called)
+	called = false
+
+	rte.HandleMiddleware(newTestContextTree(f.Tree()))
+	assert.True(t, called)
+	called = false
+
 	// Remove middleware
 	require.NoError(t, f.Update(http.MethodGet, "/foo", emptyHandler))
 	f.ServeHTTP(w, req)
+	assert.False(t, called)
+	called = false
+
+	rte = f.Tree().Route(http.MethodGet, "/foo")
+	rte.Handle(newTestContextTree(f.Tree()))
+	assert.False(t, called)
+	called = false
+
+	rte = f.Tree().Route(http.MethodGet, "/foo")
+	rte.HandleMiddleware(newTestContextTree(f.Tree()))
 	assert.False(t, called)
 }
 
@@ -2639,6 +2677,28 @@ func TestRouteMiddleware(t *testing.T) {
 	req.URL.Path = "/2"
 	f.ServeHTTP(w, req)
 	assert.True(t, c0)
+	assert.False(t, c1)
+	assert.True(t, c2)
+
+	c0, c1, c2 = false, false, false
+	rte1 := f.Tree().Route(http.MethodGet, "/1")
+	require.NotNil(t, rte1)
+	rte1.Handle(newTestContextTree(f.Tree()))
+	assert.False(t, c0)
+	assert.False(t, c1)
+	assert.False(t, c2)
+	c0, c1, c2 = false, false, false
+
+	rte1.HandleMiddleware(newTestContextTree(f.Tree()))
+	assert.False(t, c0)
+	assert.True(t, c1)
+	assert.False(t, c2)
+	c0, c1, c2 = false, false, false
+
+	rte2 := f.Tree().Route(http.MethodGet, "/2")
+	require.NotNil(t, rte2)
+	rte2.HandleMiddleware(newTestContextTree(f.Tree()))
+	assert.False(t, c0)
 	assert.False(t, c1)
 	assert.True(t, c2)
 }
@@ -3005,7 +3065,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	it := tree.Iter()
-	countPath := len(slices.Collect(right(it.All())))
+	countPath := len(slices.Collect(iterutil.Right(it.All())))
 	assert.Equal(t, len(routes), countPath)
 
 	for rte := range routes {
@@ -3027,7 +3087,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	it = tree.Iter()
-	countPath = len(slices.Collect(right(it.All())))
+	countPath = len(slices.Collect(iterutil.Right(it.All())))
 	assert.Equal(t, 0, countPath)
 }
 

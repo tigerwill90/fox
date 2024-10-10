@@ -66,21 +66,48 @@ func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
 	return f(c)
 }
 
+// HandlerScope represents different scopes where a handler may be called. It also allows for fine-grained control
+// over where middleware is applied.
+type HandlerScope uint8
+
+const (
+	// RouteHandler scope applies to regular routes registered in the router.
+	RouteHandler HandlerScope = 1 << (8 - 1 - iota)
+	// NoRouteHandler scope applies to the NoRoute handler, which is invoked when no route matches the request.
+	NoRouteHandler
+	// NoMethodHandler scope applies to the NoMethod handler, which is invoked when a route exists, but the method is not allowed.
+	NoMethodHandler
+	// RedirectHandler scope applies to the internal redirect handler, used for handling requests with trailing slashes.
+	RedirectHandler
+	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
+	OptionsHandler
+	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
+	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
+)
+
 // Route represent a registered route in the route tree.
 // Most of the Route API is EXPERIMENTAL and is likely to change in future release.
 type Route struct {
 	ipStrategy            ClientIPStrategy
-	base                  HandlerFunc
-	handler               HandlerFunc
+	hbase                 HandlerFunc
+	hself                 HandlerFunc
+	hall                  HandlerFunc
 	path                  string
 	mws                   []middleware
 	redirectTrailingSlash bool
 	ignoreTrailingSlash   bool
 }
 
-// Handle calls the base handler with the provided Context.
+// Handle calls the handler with the provided Context. See also HandleMiddleware.
 func (r *Route) Handle(c Context) {
-	r.base(c)
+	r.hbase(c)
+}
+
+// HandleMiddleware calls the handler with route-specific middleware applied, using the provided Context.
+func (r *Route) HandleMiddleware(c Context, _ ...struct{}) {
+	// The variadic parameter is intentionally added to prevent this method from having the same signature as HandlerFunc.
+	// This avoids accidental use of HandleMiddleware where a HandlerFunc is required.
+	r.hself(c)
 }
 
 // Path returns the route path.
@@ -127,7 +154,8 @@ type Router struct {
 
 type middleware struct {
 	m     MiddlewareFunc
-	scope MiddlewareScope
+	scope HandlerScope
+	g     bool
 }
 
 var _ http.Handler = (*Router)(nil)
@@ -363,7 +391,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !tsr && n != nil {
 		c.route = n.route
 		c.tsr = tsr
-		n.route.handler(c)
+		n.route.hall(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
 		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
@@ -376,7 +404,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if n.route.ignoreTrailingSlash {
 			c.route = n.route
 			c.tsr = tsr
-			n.route.handler(c)
+			n.route.hall(c)
 			c.Close()
 			return
 		}
@@ -385,6 +413,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
 			c.tsr = false
+			c.scope = RedirectHandler
 			fox.tsrRedirect(c)
 			c.Close()
 			return
@@ -425,6 +454,7 @@ NoMethodFallback:
 			sb.WriteString(", ")
 			sb.WriteString(http.MethodOptions)
 			w.Header().Set(HeaderAllow, sb.String())
+			c.scope = OptionsHandler
 			fox.autoOptions(c)
 			c.Close()
 			return
@@ -443,12 +473,14 @@ NoMethodFallback:
 		}
 		if sb.Len() > 0 {
 			w.Header().Set(HeaderAllow, sb.String())
+			c.scope = NoMethodHandler
 			fox.noMethod(c)
 			c.Close()
 			return
 		}
 	}
 
+	c.scope = NoRouteHandler
 	fox.noRoute(c)
 	c.Close()
 }
@@ -645,7 +677,7 @@ func isRemovable(method string) bool {
 	return true
 }
 
-func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) HandlerFunc {
+func applyMiddleware(scope HandlerScope, mws []middleware, h HandlerFunc) HandlerFunc {
 	m := h
 	for i := len(mws) - 1; i >= 0; i-- {
 		if mws[i].scope&scope != 0 {
@@ -653,6 +685,21 @@ func applyMiddleware(scope MiddlewareScope, mws []middleware, h HandlerFunc) Han
 		}
 	}
 	return m
+}
+
+func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, HandlerFunc) {
+	rte := base
+	all := base
+	for i := len(mws) - 1; i >= 0; i-- {
+		if mws[i].scope&RouteHandler != 0 {
+			all = mws[i].m(all)
+			// route specific only
+			if !mws[i].g {
+				rte = mws[i].m(rte)
+			}
+		}
+	}
+	return rte, all
 }
 
 // localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths
