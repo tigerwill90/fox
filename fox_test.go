@@ -3128,6 +3128,20 @@ func TestRouteTagMalloc(t *testing.T) {
 
 }
 
+func TestRouteTagsMalloc(t *testing.T) {
+	rte := &Route{
+		tags: []string{"foo:bar:baz", "bar", "boom"},
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		for tag := range rte.Tags() {
+			_ = tag
+		}
+	})
+
+	assert.Equal(t, float64(0), allocs)
+}
+
 func TestFuzzRouteTag(t *testing.T) {
 	rte := &Route{
 		tags: make([]string, 1),

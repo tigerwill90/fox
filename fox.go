@@ -120,7 +120,13 @@ func (r *Route) Path() string {
 
 // Tags returns a range iterator over the tags associated with the route.
 func (r *Route) Tags() iter.Seq[string] {
-	return slices.Values(r.tags)
+	return func(yield func(string) bool) {
+		for _, tag := range r.tags {
+			if !yield(tag) {
+				return
+			}
+		}
+	}
 }
 
 // Tag checks if the specified query exists among the route's tags. It handles multiple wildcards (*) at any position.

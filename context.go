@@ -203,10 +203,21 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 
 // Params returns an iterator over the matched wildcard parameters for the current route.
 func (c *cTx) Params() iter.Seq[Param] {
-	if c.tsr {
-		return slices.Values(*c.tsrParams)
+	return func(yield func(Param) bool) {
+		if c.tsr {
+			for _, p := range *c.tsrParams {
+				if !yield(p) {
+					return
+				}
+			}
+			return
+		}
+		for _, p := range *c.params {
+			if !yield(p) {
+				return
+			}
+		}
 	}
-	return slices.Values(*c.params)
 }
 
 // Param retrieve a matching wildcard segment by name.
