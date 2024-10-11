@@ -1575,6 +1575,12 @@ func TestParseRoute(t *testing.T) {
 			wantN:   -1,
 		},
 		{
+			name:    "unexpected character in param",
+			path:    "/foo/{*bar}",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
 			name:    "in flight catch-all after param in one route segment",
 			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,

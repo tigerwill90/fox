@@ -6,6 +6,7 @@ package fox
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -489,4 +490,11 @@ func TestWrapH(t *testing.T) {
 			assert.Equal(t, "fox", w.Body.String())
 		})
 	}
+}
+
+func TestHydrateParams(t *testing.T) {
+
+	params := make(Params, 0)
+	fmt.Println(hydrateParams("/foo/ab:1/baz/123/y/bo/lo", "/foo/ab:{bar}/baz/{x}/{y}/*{zo}", &params))
+	fmt.Println(params)
 }
