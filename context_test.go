@@ -153,7 +153,7 @@ func TestContext_CloneWith(t *testing.T) {
 	cp := c.CloneWith(c.Writer(), c.Request())
 	cc := unwrapContext(t, cp)
 
-	assert.Equal(t, c.Params(), cp.Params())
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Path(), cp.Path())
@@ -420,7 +420,7 @@ func TestWrapF(t *testing.T) {
 
 			params := make(Params, 0)
 			if tc.params != nil {
-				params = tc.params.Clone()
+				params = tc.params.clone()
 				c.(*cTx).params = &params
 			}
 
@@ -480,7 +480,7 @@ func TestWrapH(t *testing.T) {
 
 			params := make(Params, 0)
 			if tc.params != nil {
-				params = tc.params.Clone()
+				params = tc.params.clone()
 				c.(*cTx).params = &params
 			}
 

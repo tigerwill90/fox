@@ -4,7 +4,9 @@
 
 package fox
 
-import "cmp"
+import (
+	"cmp"
+)
 
 type Option interface {
 	GlobalOption

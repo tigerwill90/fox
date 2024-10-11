@@ -7,7 +7,9 @@ package fox
 import (
 	"errors"
 	"fmt"
+	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/slogpretty"
+	"iter"
 	"log/slog"
 	"net"
 	"net/http"
@@ -79,17 +81,12 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 
 		sb.WriteString("Stack:\n")
 		sb.WriteString(stacktrace(3, 6))
-
-		params := c.Params()
-		attrs := make([]any, 0, len(params))
-		for _, param := range params {
-			attrs = append(attrs, slog.String(param.Key, param.Value))
-		}
+		params := slices.Collect(mapParamsToAttr(c.Params()))
 
 		logger.Error(
 			sb.String(),
 			slog.String("path", c.Path()),
-			slog.Group("param", attrs...),
+			slog.Group("param", params...),
 			slog.Any("error", err),
 		)
 
@@ -136,4 +133,10 @@ func stacktrace(skip, nFrames int) string {
 		}
 	}
 	return b.String()
+}
+
+func mapParamsToAttr(params iter.Seq[Param]) iter.Seq[any] {
+	return iterutil.Map(params, func(a Param) any {
+		return slog.String(a.Key, a.Value)
+	})
 }

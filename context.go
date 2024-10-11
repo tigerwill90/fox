@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,9 +57,8 @@ type Context interface {
 	Path() string
 	// Route returns the registered route or nil if the handler is called in a scope other than RouteHandler.
 	Route() *Route
-	// Params returns a Params slice containing the matched
-	// wildcard parameters.
-	Params() Params
+	// Params returns a range iterator over the matched wildcard parameters for the current route.
+	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
 	// QueryParams parses the Request RawQuery and returns the corresponding values.
@@ -201,20 +201,18 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 	return c.route.ipStrategy.ClientIP(c)
 }
 
-// Params returns a Params slice containing the matched
-// wildcard parameters.
-// TODO this should returns an iterator!!!
-func (c *cTx) Params() Params {
+// Params returns an iterator over the matched wildcard parameters for the current route.
+func (c *cTx) Params() iter.Seq[Param] {
 	if c.tsr {
-		return *c.tsrParams
+		return slices.Values(*c.tsrParams)
 	}
-	return *c.params
+	return slices.Values(*c.params)
 }
 
 // Param retrieve a matching wildcard segment by name.
 // It's a helper for c.Params.Get(name).
 func (c *cTx) Param(name string) string {
-	for _, p := range c.Params() {
+	for p := range c.Params() {
 		if p.Key == name {
 			return p.Value
 		}
@@ -378,8 +376,9 @@ func (c *cTx) getQueries() url.Values {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {
-		if len(c.Params()) > 0 {
-			ctx := context.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
+		var params Params = slices.Collect(c.Params())
+		if len(params) > 0 {
+			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}
@@ -392,8 +391,9 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
 	return func(c Context) {
-		if len(c.Params()) > 0 {
-			ctx := context.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
+		var params Params = slices.Collect(c.Params())
+		if len(params) > 0 {
+			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}

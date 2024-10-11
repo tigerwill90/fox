@@ -810,7 +810,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			assert.Nil(t, n)
-			assert.Empty(t, c.Params())
+			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
 		})
 	}
@@ -1221,9 +1221,10 @@ func TestOverlappingRoute(t *testing.T) {
 			assert.False(t, tsr)
 			assert.Equal(t, tc.wantMatch, n.route.path)
 			if len(tc.wantParams) == 0 {
-				assert.Empty(t, c.Params())
+				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
-				assert.Equal(t, tc.wantParams, c.Params())
+				var params Params = slices.Collect(c.Params())
+				assert.Equal(t, tc.wantParams, params)
 			}
 
 			// Test with lazy
@@ -1232,7 +1233,7 @@ func TestOverlappingRoute(t *testing.T) {
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
-			assert.Empty(t, c.Params())
+			assert.Empty(t, slices.Collect(c.Params()))
 			assert.Equal(t, tc.wantMatch, n.route.path)
 		})
 	}
@@ -2112,7 +2113,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 			name:       "current not a leaf, should empty params",
 			routes:     []string{"/{a}", "/foo", "/foo/x/", "/foo/y/"},
 			target:     "/foo/",
-			wantParams: Params{},
+			wantParams: Params(nil),
 			wantPath:   "/foo",
 			wantTsr:    true,
 		},
@@ -2124,7 +2125,8 @@ func TestRouterWithTsrParams(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, f.Handle(http.MethodGet, rte, func(c Context) {
 					assert.Equal(t, tc.wantPath, c.Path())
-					assert.Equal(t, tc.wantParams, c.Params())
+					var params Params = slices.Collect(c.Params())
+					assert.Equal(t, tc.wantParams, params)
 					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
 				}))
 			}
@@ -2548,7 +2550,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 func TestRouterWithOptionsHandler(t *testing.T) {
 	f := New(WithOptionsHandler(func(c Context) {
 		assert.Equal(t, "", c.Path())
-		assert.Empty(t, c.Params())
+		assert.Empty(t, slices.Collect(c.Params()))
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
 
