@@ -455,7 +455,7 @@ f := fox.New(
 Finally, it's also possible to attaches middleware on a per-route basis. Note that route-specific middleware must be explicitly reapplied 
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
-````
+````go
 f := fox.New(
 	fox.WithMiddleware(fox.Logger()),
 )

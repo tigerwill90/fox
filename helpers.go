@@ -27,6 +27,7 @@ func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cT
 	c.req = r
 	c.rec.reset(w)
 	c.w = &c.rec
+	c.scope = AllHandlers
 	return c
 }
 

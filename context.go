@@ -52,8 +52,10 @@ type Context interface {
 	//
 	// This api is EXPERIMENTAL and is likely to change in future release.
 	ClientIP() (*net.IPAddr, error)
-	// Path returns the registered path for the handler.
+	// Path returns the registered path or an empty string if the handler is called in a scope other than RouteHandler.
 	Path() string
+	// Route returns the registered route or nil if the handler is called in a scope other than RouteHandler.
+	Route() *Route
 	// Params returns a Params slice containing the matched
 	// wildcard parameters.
 	Params() Params
@@ -201,6 +203,7 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 
 // Params returns a Params slice containing the matched
 // wildcard parameters.
+// TODO this should returns an iterator!!!
 func (c *cTx) Params() Params {
 	if c.tsr {
 		return *c.tsrParams
@@ -242,12 +245,17 @@ func (c *cTx) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
-// Path returns the registered path for the handler.
+// Path returns the registered path or an empty string if the handler is called in a scope other than RouteHandler.
 func (c *cTx) Path() string {
 	if c.route == nil {
 		return ""
 	}
 	return c.route.path
+}
+
+// Route returns the registered route or nil if the handler is called in a scope other than RouteHandler.
+func (c *cTx) Route() *Route {
+	return c.route
 }
 
 // String sends a formatted string with the specified status code.

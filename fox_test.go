@@ -2825,7 +2825,7 @@ func TestTree_Has(t *testing.T) {
 	}
 }
 
-func TestTree_Match(t *testing.T) {
+func TestTree_Route(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}",
@@ -2884,7 +2884,7 @@ func TestTree_Match(t *testing.T) {
 	}
 }
 
-func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
+func TestTree_RouteWithIgnoreTrailingSlashEnable(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}/",
@@ -2981,6 +2981,192 @@ func TestTreeSwap(t *testing.T) {
 	assert.Panics(t, func() {
 		f2.Swap(tree)
 	})
+}
+
+// Rules
+func TestRoute_WildcardTag(t *testing.T) {
+	// TODO empty match should returns false
+	cases := []struct {
+		query string
+		tag   string
+		want  bool
+	}{
+		{
+			query: "*bar",
+			tag:   "john",
+			want:  false,
+		},
+		{
+			query: "barx",
+			tag:   "bary",
+			want:  false,
+		},
+		{
+			query: "*foo:*",
+			tag:   "foo:foo",
+			want:  false,
+		},
+		{
+			query: "*foo:*:bar",
+			tag:   "foo:foo:bar",
+			want:  false,
+		},
+		{
+			query: "*foo:*:bar",
+			tag:   "fo:foo:bam:bar",
+			want:  true,
+		},
+		{
+			query: "***:bar:*",
+			tag:   "foo:bar:baz",
+			want:  true,
+		},
+		{
+			query: "*foo",
+			tag:   "foo",
+			want:  false,
+		},
+		{
+			query: "****foo",
+			tag:   "foo",
+			want:  false,
+		},
+		{
+			query: "****foo",
+			tag:   "ffoo",
+			want:  true,
+		},
+		{
+			query: "foo*",
+			tag:   "foo",
+			want:  false,
+		},
+		{
+			query: "foo****",
+			tag:   "foo",
+			want:  false,
+		},
+		{
+			query: "foo***",
+			tag:   "foofoo",
+			want:  true,
+		},
+		{
+			query: "foo*",
+			tag:   "foofoo",
+			want:  true,
+		},
+		{
+			query: "foo*baz",
+			tag:   "foo:bar:baz",
+			want:  true,
+		},
+		{
+			query: "foo***baz",
+			tag:   "foo:bar:baz",
+			want:  true,
+		},
+		{
+			query: "foo***baz",
+			tag:   "foobaz",
+			want:  false,
+		},
+		{
+			query: "*o*baz*",
+			tag:   "foo:bar:baz:bill",
+			want:  true,
+		},
+		{
+			query: "group:*",
+			tag:   "group:read",
+			want:  true,
+		},
+		{
+			query: "*:read",
+			tag:   "group:read",
+			want:  true,
+		},
+		{
+			query: "group:*:read",
+			tag:   "group:fox:read",
+			want:  true,
+		},
+		{
+			query: "*",
+			tag:   "group:fox:read",
+			want:  true,
+		},
+		{
+			query: "****",
+			tag:   "group:fox:read",
+			want:  true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.query, func(t *testing.T) {
+			assert.Equal(t, tc.want, matchWildcard(tc.query, tc.tag))
+		})
+	}
+}
+
+func TestRouteTagMalloc(t *testing.T) {
+	rte := &Route{
+		tags: []string{"foo:bar:baz"},
+	}
+
+	for _, query := range []string{"*:bar:*", "*bar:baz", "foo:bar:baz", "***:bar:*"} {
+		var res bool
+		allocs := testing.AllocsPerRun(100, func() {
+			res = rte.Tag(query)
+		})
+		assert.True(t, res)
+		assert.Equal(t, float64(0), allocs)
+	}
+
+}
+
+func TestFuzzRouteTag(t *testing.T) {
+	rte := &Route{
+		tags: make([]string, 1),
+	}
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x04FF},
+	}
+
+	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	for range 5000 {
+		var tag string
+		f.Fuzz(&tag)
+		rte.tags[0] = tag
+		query := injectWildcards(tag)
+		assert.NotPanicsf(t, func() {
+			rte.Tag(query)
+		}, fmt.Sprintf("query: %s, tag: %s", query, tag))
+	}
+}
+
+// injectWildcards adds a random number of '*' wildcards at random positions in the query.
+func injectWildcards(query string) string {
+	numWildcards := rand.Intn(4)
+
+	if numWildcards == 0 {
+		return query
+	}
+
+	var sb strings.Builder
+	for _, char := range query {
+		if rand.Float32() < 0.2 {
+			sb.WriteRune('*')
+		}
+		sb.WriteRune(char)
+	}
+
+	for i := 0; i < numWildcards; i++ {
+		sb.WriteRune('*')
+	}
+
+	return sb.String()
 }
 
 func TestFuzzInsertLookupParam(t *testing.T) {

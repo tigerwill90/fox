@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"testing"
 )
 
@@ -80,6 +82,42 @@ func TestContext_QueryParam(t *testing.T) {
 	assert.Equal(t, "b", c.QueryParam("a"))
 	assert.Equal(t, "d", c.QueryParam("c"))
 	assert.Equal(t, wantValues, c.cachedQuery)
+}
+
+func TestContext_Route(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		require.NotNil(t, c.Route())
+		_, _ = io.WriteString(c.Writer(), c.Route().Path())
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	f.ServeHTTP(w, r)
+	assert.Equal(t, "/foo", w.Body.String())
+}
+
+func TestContext_Tags(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", emptyHandler, WithTags("foo", "bar", "baz"))
+	rte := f.Tree().Route(http.MethodGet, "/foo")
+	require.NotNil(t, rte)
+	assert.Equal(t, []string{"foo", "bar", "baz"}, slices.Collect(rte.Tags()))
+}
+
+func TestContext_Tag(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", emptyHandler, WithTags("foo", "bar", "baz"))
+	rte := f.Tree().Route(http.MethodGet, "/foo")
+	require.NotNil(t, rte)
+	assert.True(t, rte.Tag("foo"))
+	assert.True(t, rte.Tag("bar"))
+	assert.True(t, rte.Tag("baz"))
+	assert.True(t, rte.Tag("ba*"))
+	assert.False(t, rte.Tag("boulou"))
 }
 
 func TestContext_Clone(t *testing.T) {
