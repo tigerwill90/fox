@@ -7,7 +7,6 @@ package fox
 import (
 	"errors"
 	"fmt"
-	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/slogpretty"
 	"iter"
 	"log/slog"
@@ -136,7 +135,11 @@ func stacktrace(skip, nFrames int) string {
 }
 
 func mapParamsToAttr(params iter.Seq[Param]) iter.Seq[any] {
-	return iterutil.Map(params, func(a Param) any {
-		return slog.String(a.Key, a.Value)
-	})
+	return func(yield func(any) bool) {
+		for p := range params {
+			if !yield(slog.String(p.Key, p.Value)) {
+				break
+			}
+		}
+	}
 }

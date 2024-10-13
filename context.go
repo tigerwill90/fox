@@ -92,10 +92,14 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the Router instance.
 	Fox() *Router
-	// Rehydrate try to rehydrate the Context with the providing ResponseWriter, http.Request and route which is then suitable
-	// to use for calling the handler of the provided route. The state of the context is only updated if it succeed.
-	// TODO improve documentation
-	Rehydrate(w ResponseWriter, r *http.Request, route *Route) bool
+	// Rehydrate updates the current Context to serve the provided Route, bypassing the need for a full tree lookup.
+	// It succeeds only if the Request's URL path strictly matches the given Route. If successful, the internal state
+	// of the context is updated, allowing the context to serve the route directly, regardless of whether the route
+	// still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
+	// modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
+	// or tree lookups. Note that the context's state is only mutated if the rehydration is successful.
+	// This api is EXPERIMENTAL and is likely to change in future release.
+	Rehydrate(route *Route) bool
 }
 
 // cTx holds request-related information and allows interaction with the ResponseWriter.
@@ -128,123 +132,40 @@ func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	*c.params = (*c.params)[:0]
 }
 
-func (c *cTx) Rehydrate(w ResponseWriter, r *http.Request, route *Route) bool {
+// Rehydrate updates the current Context to serve the provided Route, bypassing the need for a full tree lookup.
+// It succeeds only if the Request's URL path strictly matches the given Route. If successful, the internal state
+// of the context is updated, allowing the context to serve the route directly, regardless of whether the route
+// still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
+// modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
+// or tree lookups. Note that the context's state is only mutated if the rehydration is successful.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (c *cTx) Rehydrate(route *Route) bool {
 
-	target := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
+	target := c.req.URL.Path
+	if len(c.req.URL.RawPath) > 0 {
 		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = r.URL.RawPath
+		target = c.req.URL.RawPath
 	}
 
-	// This was a static route, too easy.
-	if target == route.path {
-		c.req = r
-		c.w = w
-		c.tsr = false
-		c.cachedQuery = nil
-		c.route = route
-		c.scope = RouteHandler
+	var params *Params
+	if c.tsr {
 		*c.params = (*c.params)[:0]
-
-		return true
-	}
-
-	var params Params
-	maxParams := c.tree.maxParams.Load()
-	if len(*c.params) == 0 {
-		params = *c.params
-	} else if len(*c.tsrParams) == 0 {
-		params = *c.tsrParams
-	} else if maxParams < 10 {
-		params = make(Params, 0, 10) // stack allocation
+		params = c.params
 	} else {
-		params = make(Params, 0, maxParams)
+		*c.tsrParams = (*c.tsrParams)[:0]
+		params = c.tsrParams
 	}
-	_ = params
+
+	if !route.hydrateParams(target, params) {
+		return false
+	}
+
+	*c.params, *c.tsrParams = *c.tsrParams, *c.params
+	c.cachedQuery = nil
+	c.route = route
+	c.scope = RouteHandler
 
 	return true
-}
-
-func hydrateParams(path string, route string, params *Params) bool {
-	// Note that we assume that this is a valid route (validated with parseRoute).
-	rLen := len(route)
-	pLen := len(path)
-	var i, j int
-	state := stateDefault
-
-OUTER:
-	for i < rLen && j < pLen {
-		switch state {
-		case stateParam:
-
-			ri := string(route[i])
-			_ = ri
-			pj := string(path[j])
-			_ = pj
-
-			startPath := j
-			idx := strings.IndexByte(path[j:], slashDelim)
-			if idx > 0 {
-				j += idx
-			} else if idx < 0 {
-				j += len(path[j:])
-			} else {
-				// segment is empty
-				return false
-			}
-
-			startRoute := i
-			idx = strings.IndexByte(route[i:], slashDelim)
-			if idx >= 0 {
-				i += idx
-			} else {
-				i += len(route[i:])
-			}
-
-			*params = append(*params, Param{
-				Key:   route[startRoute : i-1],
-				Value: path[startPath:j],
-			})
-
-			state = stateDefault
-
-		default:
-
-			ri := string(route[i])
-			_ = ri
-			pj := string(path[j])
-			_ = pj
-
-			if route[i] == path[j] {
-				i++
-				j++
-				continue
-			}
-
-			if route[i] == '{' {
-				i++
-				state = stateParam
-				continue
-			}
-
-			if route[i] == '*' {
-				state = stateCatchAll
-				break OUTER
-			}
-
-			return false
-		}
-	}
-
-	if state == stateCatchAll || route[i] == '*' {
-		*params = append(*params, Param{
-			Key:   route[i+2 : rLen-1],
-			Value: path[j:],
-		})
-		return true
-	}
-
-	return i == rLen && j == pLen
 }
 
 // reset resets the Context to its initial state, attaching the provided http.ResponseWriter and http.Request.

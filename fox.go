@@ -6,12 +6,10 @@ package fox
 
 import (
 	"fmt"
-	"iter"
 	"net"
 	"net/http"
 	"path"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,87 +84,6 @@ const (
 	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
 	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
 )
-
-// Route represent a registered route in the route tree.
-// Most of the Route API is EXPERIMENTAL and is likely to change in future release.
-type Route struct {
-	ipStrategy            ClientIPStrategy
-	hbase                 HandlerFunc
-	hself                 HandlerFunc
-	hall                  HandlerFunc
-	path                  string
-	mws                   []middleware
-	tags                  []string
-	redirectTrailingSlash bool
-	ignoreTrailingSlash   bool
-}
-
-// Handle calls the handler with the provided Context. See also HandleMiddleware.
-func (r *Route) Handle(c Context) {
-	r.hbase(c)
-}
-
-// HandleMiddleware calls the handler with route-specific middleware applied, using the provided Context.
-func (r *Route) HandleMiddleware(c Context, _ ...struct{}) {
-	// The variadic parameter is intentionally added to prevent this method from having the same signature as HandlerFunc.
-	// This avoids accidental use of HandleMiddleware where a HandlerFunc is required.
-	r.hself(c)
-}
-
-// Path returns the route path.
-func (r *Route) Path() string {
-	return r.path
-}
-
-// Tags returns a range iterator over the tags associated with the route.
-func (r *Route) Tags() iter.Seq[string] {
-	return func(yield func(string) bool) {
-		for _, tag := range r.tags {
-			if !yield(tag) {
-				return
-			}
-		}
-	}
-}
-
-// Tag checks if the specified query exists among the route's tags. It handles multiple wildcards (*) at any position.
-// Matching Rules:
-//   - Empty matches are not allowed: wildcards must match at least one character.
-//   - Prefix wildcard: Matches any sequence of characters before the first occurrence of the following static segment (e.g., *metrics matches group:metrics).
-//   - Infix wildcard: Matches any sequence of characters between two static segments (e.g., group:*:ro matches group:fox:ro).
-//   - Suffix wildcard: Matches any sequence of characters following the last static segment (e.g., group* matches group:metrics).
-func (r *Route) Tag(query string) bool {
-	if strings.Contains(query, "*") {
-		for tag := range r.Tags() {
-			if matchWildcard(query, tag) {
-				return true
-			}
-		}
-		return false
-	}
-	return slices.Contains(r.tags, query)
-}
-
-// RedirectTrailingSlashEnabled returns whether the route is configured to automatically
-// redirect requests that include or omit a trailing slash.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func (r *Route) RedirectTrailingSlashEnabled() bool {
-	return r.redirectTrailingSlash
-}
-
-// IgnoreTrailingSlashEnabled returns whether the route is configured to ignore
-// trailing slashes in requests when matching routes.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func (r *Route) IgnoreTrailingSlashEnabled() bool {
-	return r.ignoreTrailingSlash
-}
-
-// ClientIPStrategyEnabled returns whether the route is configured with a ClientIPStrategy.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func (r *Route) ClientIPStrategyEnabled() bool {
-	_, ok := r.ipStrategy.(noClientIPStrategy)
-	return !ok
-}
 
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
@@ -810,85 +727,4 @@ type noClientIPStrategy struct{}
 
 func (s noClientIPStrategy) ClientIP(_ Context) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPStrategy
-}
-
-// matchWildcard matches a query with wildcards against a tag.
-// It handles wildcards (*) at any position in the query without allocation.
-// Matching Rules:
-//   - Empty matches are not allowed: wildcards must match at least one character.
-//   - Prefix wildcard: Matches any sequence of characters before the first occurrence of the following static segment (e.g., *foo matches barfoo).
-//   - Infix wildcard: Matches any sequence of characters between two static segments (e.g., foo*bar matches fooxbar).
-//   - Suffix wildcard: Matches any sequence of characters following the last static segment (e.g., foo* matches foobar).
-func matchWildcard(query, tag string) bool {
-	if query == "*" {
-		return true
-	}
-
-	tLen := len(tag)
-	var i, j, pi int
-	state := stateDefault
-	previous := state
-
-	for i < len(query) && j < tLen {
-		switch state {
-		case stateCatchAll:
-			// skip consecutive wildcard
-			if query[i] == '*' {
-				// clean consecutive leading '*'
-				if i == 1 {
-					query = query[i:]
-				} else {
-					// clean infix or suffix '*'
-					// foo*** or foo***bar
-					query = query[:i] + query[i+1:]
-				}
-
-				continue
-			}
-
-			// try to match the next part
-			for j < tLen && tag[j] != query[i] {
-				j++
-			}
-
-			if j == tLen {
-				return false
-			}
-
-			previous = state
-			pi = i
-			state = stateDefault
-		default:
-			if query[i] == tag[j] {
-				i++
-				j++
-				continue
-			}
-
-			if query[i] == '*' {
-				if j < i {
-					return false
-				}
-				i++
-				previous = state
-				state = stateCatchAll
-				continue
-			}
-
-			if previous == stateCatchAll {
-				state = stateCatchAll
-				i = pi
-				continue
-			}
-
-			return false
-		}
-	}
-
-	// ending with a wildcard, match the rest of the tag
-	if i == len(query) && state == stateCatchAll {
-		return true
-	}
-
-	return i == len(query) && j == tLen && j >= i
 }
