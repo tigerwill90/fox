@@ -240,16 +240,21 @@ func TestContext_CloneWith(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	c := newTextContextOnly(New(), w, req)
+	*c.params = Params{{Key: "foo", Value: "bar"}}
 
 	cp := c.CloneWith(c.Writer(), c.Request())
 	cc := unwrapContext(t, cp)
-
 	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Path(), cp.Path())
 	assert.Equal(t, c.Fox(), cp.Fox())
 	assert.Nil(t, cc.cachedQuery)
+
+	c.tsr = true
+	*c.tsrParams = Params{{Key: "john", Value: "doe"}}
+	cp = c.CloneWith(c.Writer(), c.Request())
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 }
 
 func TestContext_Redirect(t *testing.T) {
