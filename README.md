@@ -175,7 +175,7 @@ func Hello(c fox.Context) {
     cc := c.Clone()
     go func() {
         time.Sleep(2 * time.Second)
-        log.Println(c.Param("name")) // Safe
+        log.Println(cc.Param("name")) // Safe
     }()
     _ = c.String(http.StatusOK, "Hello %s\n", c.Param("name"))
 }
