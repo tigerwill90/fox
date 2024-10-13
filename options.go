@@ -223,9 +223,19 @@ func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 	})
 }
 
-func WithTags(tags ...string) PathOption {
+// WithAnnotations attach arbitrary metadata to routes. Annotations are key-value pairs that allow middleware, handler or
+// any other components to modify behavior based on the attached metadata. Annotations must be explicitly reapplied when
+// updating a route.
+func WithAnnotations(annotations ...Annotation) PathOption {
 	return pathOptionFunc(func(route *Route) {
-		route.tags = tags
+		route.annots = append(route.annots, annotations...)
+	})
+}
+
+// WithAnnotation attaches a single key-value annotation to a route. See also [WithAnnotations] and [Annotation] for more details.
+func WithAnnotation(key string, value any) PathOption {
+	return pathOptionFunc(func(route *Route) {
+		route.annots = append(route.annots, Annotation{key, value})
 	})
 }
 

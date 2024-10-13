@@ -38,11 +38,6 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 				ipStr = "unknown"
 			}
 
-			var tags []string
-			if route := c.Route(); route != nil {
-				tags = route.tags
-			}
-
 			if location == "" {
 				log.LogAttrs(
 					req.Context(),
@@ -52,7 +47,6 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					slog.String("method", req.Method),
 					slog.String("path", c.Request().URL.String()),
 					slog.Duration("latency", roundLatency(latency)),
-					slog.Any("tags", tags),
 				)
 			} else {
 				log.LogAttrs(
@@ -63,7 +57,6 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					slog.String("method", req.Method),
 					slog.String("path", c.Request().URL.String()),
 					slog.Duration("latency", roundLatency(latency)),
-					slog.Any("tags", tags),
 					slog.String("location", location),
 				)
 			}

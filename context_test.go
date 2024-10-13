@@ -202,13 +202,19 @@ func TestContext_Route(t *testing.T) {
 	assert.Equal(t, "/foo", w.Body.String())
 }
 
-func TestContext_Tags(t *testing.T) {
+func TestContext_Annotations(t *testing.T) {
 	t.Parallel()
 	f := New()
-	f.MustHandle(http.MethodGet, "/foo", emptyHandler, WithTags("foo", "bar", "baz"))
+	f.MustHandle(
+		http.MethodGet,
+		"/foo",
+		emptyHandler,
+		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
+		WithAnnotation("john", 1),
+	)
 	rte := f.Tree().Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.Equal(t, []string{"foo", "bar", "baz"}, slices.Collect(rte.Tags()))
+	assert.Equal(t, []Annotation{{"foo", "bar"}, {"foo", "baz"}, {"john", 1}}, slices.Collect(rte.Annotations()))
 }
 
 func TestContext_Clone(t *testing.T) {

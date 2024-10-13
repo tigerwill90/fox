@@ -80,12 +80,18 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 
 		sb.WriteString("Stack:\n")
 		sb.WriteString(stacktrace(3, 6))
+
 		params := slices.Collect(mapParamsToAttr(c.Params()))
+		var annotations []any
+		if route := c.Route(); route != nil {
+			annotations = slices.Collect(mapAnnotationsToAttr(route.Annotations()))
+		}
 
 		logger.Error(
 			sb.String(),
 			slog.String("path", c.Path()),
-			slog.Group("param", params...),
+			slog.Group("params", params...),
+			slog.Group("annotations", annotations...),
 			slog.Any("error", err),
 		)
 
@@ -138,6 +144,16 @@ func mapParamsToAttr(params iter.Seq[Param]) iter.Seq[any] {
 	return func(yield func(any) bool) {
 		for p := range params {
 			if !yield(slog.String(p.Key, p.Value)) {
+				break
+			}
+		}
+	}
+}
+
+func mapAnnotationsToAttr(annotations iter.Seq[Annotation]) iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for a := range annotations {
+			if !yield(slog.Any(a.Key, a.Value)) {
 				break
 			}
 		}
