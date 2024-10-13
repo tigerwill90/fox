@@ -212,11 +212,12 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 //   - Setting the strategy to nil is equivalent to no strategy configured.
 func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 	return optionFunc(func(router *Router, route *Route) {
-		if router != nil {
-			router.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
+		if router != nil && strategy != nil {
+			router.ipStrategy = strategy
 		}
 
 		if route != nil {
+			// Apply no strategy if nil provided.
 			route.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
 		}
 	})

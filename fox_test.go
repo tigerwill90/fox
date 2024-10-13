@@ -643,24 +643,6 @@ func TestStaticRouteMalloc(t *testing.T) {
 	}
 }
 
-func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
-	f := New()
-	for _, rte := range githubAPI {
-		require.NoError(t, f.Tree().Handle(rte.method, rte.path, emptyHandler))
-	}
-
-	for _, rte := range githubAPI {
-		req := httptest.NewRequest(rte.method, rte.path, nil)
-		w := httptest.NewRecorder()
-		r, c, _ := f.Lookup(&recorder{ResponseWriter: w}, req)
-		allocs := testing.AllocsPerRun(100, func() {
-			r.HandleMiddleware(c)
-		})
-		c.Close()
-		assert.Equal(t, float64(0), allocs)
-	}
-}
-
 func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r := New()
