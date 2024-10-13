@@ -221,6 +221,7 @@ func TestContext_Clone(t *testing.T) {
 	req.URL.RawQuery = wantValues.Encode()
 
 	c := newTextContextOnly(New(), httptest.NewRecorder(), req)
+	*c.params = Params{{Key: "foo", Value: "bar"}}
 
 	buf := []byte("foo bar")
 	_, err := c.w.Write(buf)
@@ -228,11 +229,17 @@ func TestContext_Clone(t *testing.T) {
 
 	cc := c.Clone()
 	assert.Equal(t, http.StatusOK, cc.Writer().Status())
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 	assert.Equal(t, len(buf), cc.Writer().Size())
 	assert.Equal(t, wantValues, c.QueryParams())
 	assert.Panics(t, func() {
 		_, _ = cc.Writer().Write([]byte("invalid"))
 	})
+
+	c.tsr = true
+	*c.tsrParams = Params{{Key: "john", Value: "doe"}}
+	cc = c.Clone()
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 }
 
 func TestContext_CloneWith(t *testing.T) {
