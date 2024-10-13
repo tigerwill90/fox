@@ -265,6 +265,75 @@ func TestContext_Tree(t *testing.T) {
 	f.ServeHTTP(w, req)
 }
 
+func TestContext_Scope(t *testing.T) {
+	t.Parallel()
+
+	f := New(
+		WithRedirectTrailingSlash(true),
+		WithMiddlewareFor(RedirectHandler, func(next HandlerFunc) HandlerFunc {
+			return func(c Context) {
+				assert.Equal(t, RedirectHandler, c.Scope())
+				next(c)
+			}
+		}),
+		WithNoRouteHandler(func(c Context) {
+			assert.Equal(t, NoRouteHandler, c.Scope())
+		}),
+		WithNoMethodHandler(func(c Context) {
+			assert.Equal(t, NoMethodHandler, c.Scope())
+		}),
+		WithOptionsHandler(func(c Context) {
+			assert.Equal(t, OptionsHandler, c.Scope())
+		}),
+	)
+	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+		assert.Equal(t, RouteHandler, c.Scope())
+	}))
+
+	cases := []struct {
+		name string
+		req  *http.Request
+		w    http.ResponseWriter
+	}{
+		{
+			name: "route handler scope",
+			req:  httptest.NewRequest(http.MethodGet, "/foo", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "redirect handler scope",
+			req:  httptest.NewRequest(http.MethodGet, "/foo/", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "no method handler scope",
+			req:  httptest.NewRequest(http.MethodPost, "/foo", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "options handler scope",
+			req:  httptest.NewRequest(http.MethodOptions, "/foo", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "options handler scope",
+			req:  httptest.NewRequest(http.MethodOptions, "/foo", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "no route handler scope",
+			req:  httptest.NewRequest(http.MethodOptions, "/bar", nil),
+			w:    httptest.NewRecorder(),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f.ServeHTTP(tc.w, tc.req)
+		})
+	}
+}
+
 func TestWrapF(t *testing.T) {
 	t.Parallel()
 

@@ -911,7 +911,7 @@ func (t *Tree) updateMaxDepth(max uint32) {
 func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *Route {
 	rte := &Route{
 		ipStrategy:            t.fox.ipStrategy,
-		base:                  handler,
+		hbase:                 handler,
 		path:                  path,
 		mws:                   t.mws,
 		redirectTrailingSlash: t.fox.redirectTrailingSlash,
@@ -921,7 +921,7 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 	for _, opt := range opts {
 		opt.applyPath(rte)
 	}
-	rte.handler = applyMiddleware(RouteHandlers, rte.mws, handler)
+	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte
 }

@@ -19,6 +19,7 @@ import (
 // to release resources after use.
 type ContextCloser interface {
 	Context
+	// Close releases the context to be reused later.
 	Close()
 }
 
@@ -82,12 +83,13 @@ type Context interface {
 	// This functionality is particularly beneficial for middlewares that need to wrap
 	// their custom ResponseWriter while preserving the state of the original Context.
 	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
+	// Scope returns the HandlerScope associated with the current Context.
+	// This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
+	Scope() HandlerScope
 	// Tree is a local copy of the Tree in use to serve the request.
 	Tree() *Tree
 	// Fox returns the Router instance.
 	Fox() *Router
-	// Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
-	Reset(w ResponseWriter, r *http.Request)
 }
 
 // cTx holds request-related information and allows interaction with the ResponseWriter.
@@ -105,6 +107,7 @@ type cTx struct {
 	fox         *Router
 	cachedQuery url.Values
 	rec         recorder
+	scope       HandlerScope
 	tsr         bool
 }
 
@@ -115,11 +118,12 @@ func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	c.tsr = false
 	c.cachedQuery = nil
 	c.route = nil
+	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 }
 
 // reset resets the Context to its initial state, attaching the provided http.ResponseWriter and http.Request.
-// Caution: You should always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
+// Caution: always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
 // avoid wrapping the ResponseWriter within itself. Use wisely!
 func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
@@ -127,6 +131,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.w = &c.rec
 	c.cachedQuery = nil
 	c.route = nil
+	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 }
 
@@ -299,6 +304,7 @@ func (c *cTx) Clone() Context {
 		fox:   c.fox,
 		tree:  c.tree,
 		route: c.route,
+		scope: c.scope,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
@@ -320,6 +326,7 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
+	cp.scope = c.scope
 	cp.cachedQuery = nil
 	if cap(*c.params) > cap(*cp.params) {
 		// Grow cp.params to a least cap(c.params)
@@ -330,6 +337,12 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	*cp.params = (*cp.params)[:len(*c.params):cap(*c.params)]
 	copy(*cp.params, *c.params)
 	return cp
+}
+
+// Scope returns the HandlerScope associated with the current Context.
+// This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
+func (c *cTx) Scope() HandlerScope {
+	return c.scope
 }
 
 // Close releases the context to be reused later.
