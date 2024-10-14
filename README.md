@@ -53,33 +53,22 @@ go get -u github.com/tigerwill90/fox
 package main
 
 import (
+	"errors"
 	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
 )
 
-type Greeting struct {
-	Say string
-}
-
-func (h *Greeting) Greet(c fox.Context) {
-	_ = c.String(http.StatusOK, "%s %s\n", h.Say, c.Param("name"))
-}
-
 func main() {
 	f := fox.New(fox.DefaultOptions())
 
-	err := f.Handle(http.MethodGet, "/", func(c fox.Context) {
-		_ = c.String(http.StatusOK, "Welcome\n")
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c fox.Context) {
+		_ = c.String(http.StatusOK, "hello %s\n", c.Param("name"))
 	})
-	if err != nil {
-		panic(err)
+
+	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalln(err)
 	}
-
-	h := Greeting{Say: "Hello"}
-	f.MustHandle(http.MethodGet, "/hello/{name}", h.Greet)
-
-	log.Fatalln(http.ListenAndServe(":8080", f))
 }
 ````
 #### Error handling
@@ -109,10 +98,10 @@ to retrieve directly the value of a parameter using the placeholder name.
 ````
 Pattern /avengers/{name}
 
-/avengers/ironman       match
-/avengers/thor          match
-/avengers/hulk/angry    no match
-/avengers/              no match
+/avengers/ironman           match
+/avengers/thor              match
+/avengers/hulk/angry        no match
+/avengers/                  no match
 
 Pattern /users/uuid:{id}
 
@@ -214,6 +203,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox"
 	"log"
@@ -241,11 +231,11 @@ func Action(c fox.Context) {
 	action := c.Param("action")
 	switch action {
 	case "add":
-		err = c.Fox().Handle(method, path, func(c fox.Context) {
+		_, err = c.Fox().Handle(method, path, func(c fox.Context) {
 			_ = c.String(http.StatusOK, text)
 		})
 	case "update":
-		err = c.Fox().Update(method, path, func(c fox.Context) {
+		_, err = c.Fox().Update(method, path, func(c fox.Context) {
 			_ = c.String(http.StatusOK, text)
 		})
 	case "delete":
@@ -263,9 +253,12 @@ func Action(c fox.Context) {
 }
 
 func main() {
-	f := fox.New()
+	f := fox.New(fox.DefaultOptions())
 	f.MustHandle(http.MethodPost, "/routes/{action}", Action)
-	log.Fatalln(http.ListenAndServe(":8080", f))
+	
+	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalln(err)
+	}
 }
 ````
 
@@ -277,48 +270,36 @@ Note that router's options apply automatically on the new tree.
 package main
 
 import (
-	"fox-by-example/db"
+	"errors"
 	"github.com/tigerwill90/fox"
-	"html/template"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
-type HtmlRenderer struct {
-	Template template.HTML
-}
-
-func (h *HtmlRenderer) Render(c fox.Context) {
-	log.Printf("matched handler path: %s", c.Path())
-	_ = c.Stream(
-		http.StatusOK,
-		fox.MIMETextHTMLCharsetUTF8,
-		strings.NewReader(string(h.Template)),
-	)
-}
-
-func main() {
-	f := fox.New()
-	go Reload(f)
-	log.Fatalln(http.ListenAndServe(":8080", f))
-}
-
 func Reload(r *fox.Router) {
 	for ; true; <-time.Tick(10 * time.Second) {
-		routes := db.GetRoutes()
+		routes := GetRoutes()
 		tree := r.NewTree()
 		for _, rte := range routes {
-			h := HtmlRenderer{Template: rte.Template}
-			if err := tree.Handle(rte.Method, rte.Path, h.Render); err != nil {
-				log.Printf("error reloading route: %s\n", err)
+			if _, err := tree.Handle(rte.Method, rte.Path, rte.Handler); err != nil {
+				log.Printf("failed to register route: %s\n", err)
 				continue
 			}
 		}
 		// Swap the currently in-use routing tree with the new provided.
 		r.Swap(tree)
-		log.Println("route reloaded")
+		log.Println("route reloaded!")
+	}
+}
+
+func main() {
+	f := fox.New(fox.DefaultOptions())
+
+	go Reload(f)
+
+	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalln(err)
 	}
 }
 ````
@@ -333,7 +314,7 @@ is already registered for the provided method and path. By locking the `Tree`, t
 atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
 Note that all read operation on the tree remain lock-free.
 ````go
-func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) error {
+func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) (*fox.Route, error) {
     t.Lock()
     defer t.Unlock()
     if t.Has(method, path) {
@@ -446,9 +427,9 @@ only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regul
 
 ````go
 f := fox.New(
-   fox.WithNoMethod(true),
-   fox.WithMiddlewareFor(fox.RouteHandlers, fox.Recovery(), Logger),
-   fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
+    fox.WithNoMethod(true),
+    fox.WithMiddlewareFor(fox.RouteHandler, fox.Recovery(), Logger),
+    fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
 )
 ````
 
