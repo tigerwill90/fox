@@ -4,7 +4,9 @@
 
 package fox
 
-import "cmp"
+import (
+	"cmp"
+)
 
 type Option interface {
 	GlobalOption
@@ -210,13 +212,31 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 //   - Setting the strategy to nil is equivalent to no strategy configured.
 func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 	return optionFunc(func(router *Router, route *Route) {
-		if router != nil {
-			router.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
+		if router != nil && strategy != nil {
+			router.ipStrategy = strategy
 		}
 
 		if route != nil {
+			// Apply no strategy if nil provided.
 			route.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
 		}
+	})
+}
+
+// WithAnnotations attach arbitrary metadata to routes. Annotations are key-value pairs that allow middleware, handler or
+// any other components to modify behavior based on the attached metadata. Unlike context-based metadata, which is tied to
+// the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
+// Annotations must be explicitly reapplied when updating a route.
+func WithAnnotations(annotations ...Annotation) PathOption {
+	return pathOptionFunc(func(route *Route) {
+		route.annots = append(route.annots, annotations...)
+	})
+}
+
+// WithAnnotation attaches a single key-value annotation to a route. See also [WithAnnotations] and [Annotation] for more details.
+func WithAnnotation(key string, value any) PathOption {
+	return pathOptionFunc(func(route *Route) {
+		route.annots = append(route.annots, Annotation{key, value})
 	})
 }
 

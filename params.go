@@ -39,8 +39,8 @@ func (p Params) Has(name string) bool {
 	return false
 }
 
-// Clone make a copy of Params.
-func (p Params) Clone() Params {
+// clone make a copy of Params.
+func (p Params) clone() Params {
 	cloned := make(Params, len(p))
 	copy(cloned, p)
 	return cloned

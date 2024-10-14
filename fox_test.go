@@ -643,24 +643,6 @@ func TestStaticRouteMalloc(t *testing.T) {
 	}
 }
 
-func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
-	f := New()
-	for _, rte := range githubAPI {
-		require.NoError(t, f.Tree().Handle(rte.method, rte.path, emptyHandler))
-	}
-
-	for _, rte := range githubAPI {
-		req := httptest.NewRequest(rte.method, rte.path, nil)
-		w := httptest.NewRecorder()
-		r, c, _ := f.Lookup(&recorder{ResponseWriter: w}, req)
-		allocs := testing.AllocsPerRun(100, func() {
-			r.HandleMiddleware(c)
-		})
-		c.Close()
-		assert.Equal(t, float64(0), allocs)
-	}
-}
-
 func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r := New()
@@ -810,7 +792,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookup(nds[0], tc.path, c, false)
 			assert.Nil(t, n)
-			assert.Empty(t, c.Params())
+			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
 		})
 	}
@@ -1204,6 +1186,53 @@ func TestOverlappingRoute(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "param at index 1 with 2 nodes",
+			path: "/foo/[barr]",
+			routes: []string{
+				"/foo/{bar}",
+				"/foo/[bar]",
+			},
+			wantMatch: "/foo/{bar}",
+			wantParams: Params{
+				{
+					Key:   "bar",
+					Value: "[barr]",
+				},
+			},
+		},
+		{
+			name: "param at index 1 with 3 nodes",
+			path: "/foo/|barr|",
+			routes: []string{
+				"/foo/{bar}",
+				"/foo/[bar]",
+				"/foo/|bar|",
+			},
+			wantMatch: "/foo/{bar}",
+			wantParams: Params{
+				{
+					Key:   "bar",
+					Value: "|barr|",
+				},
+			},
+		},
+		{
+			name: "param at index 0 with 3 nodes",
+			path: "/foo/~barr~",
+			routes: []string{
+				"/foo/{bar}",
+				"/foo/~bar~",
+				"/foo/|bar|",
+			},
+			wantMatch: "/foo/{bar}",
+			wantParams: Params{
+				{
+					Key:   "bar",
+					Value: "~barr~",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -1221,9 +1250,10 @@ func TestOverlappingRoute(t *testing.T) {
 			assert.False(t, tsr)
 			assert.Equal(t, tc.wantMatch, n.route.path)
 			if len(tc.wantParams) == 0 {
-				assert.Empty(t, c.Params())
+				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
-				assert.Equal(t, tc.wantParams, c.Params())
+				var params Params = slices.Collect(c.Params())
+				assert.Equal(t, tc.wantParams, params)
 			}
 
 			// Test with lazy
@@ -1232,7 +1262,7 @@ func TestOverlappingRoute(t *testing.T) {
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
-			assert.Empty(t, c.Params())
+			assert.Empty(t, slices.Collect(c.Params()))
 			assert.Equal(t, tc.wantMatch, n.route.path)
 		})
 	}
@@ -1570,6 +1600,12 @@ func TestParseRoute(t *testing.T) {
 		{
 			name:    "unexpected character in param",
 			path:    "/foo/{{bar}",
+			wantErr: ErrInvalidRoute,
+			wantN:   -1,
+		},
+		{
+			name:    "unexpected character in param",
+			path:    "/foo/{*bar}",
 			wantErr: ErrInvalidRoute,
 			wantN:   -1,
 		},
@@ -2112,7 +2148,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 			name:       "current not a leaf, should empty params",
 			routes:     []string{"/{a}", "/foo", "/foo/x/", "/foo/y/"},
 			target:     "/foo/",
-			wantParams: Params{},
+			wantParams: Params(nil),
 			wantPath:   "/foo",
 			wantTsr:    true,
 		},
@@ -2124,7 +2160,8 @@ func TestRouterWithTsrParams(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, f.Handle(http.MethodGet, rte, func(c Context) {
 					assert.Equal(t, tc.wantPath, c.Path())
-					assert.Equal(t, tc.wantParams, c.Params())
+					var params Params = slices.Collect(c.Params())
+					assert.Equal(t, tc.wantParams, params)
 					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
 				}))
 			}
@@ -2548,7 +2585,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 func TestRouterWithOptionsHandler(t *testing.T) {
 	f := New(WithOptionsHandler(func(c Context) {
 		assert.Equal(t, "", c.Path())
-		assert.Empty(t, c.Params())
+		assert.Empty(t, slices.Collect(c.Params()))
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
 
@@ -2825,7 +2862,7 @@ func TestTree_Has(t *testing.T) {
 	}
 }
 
-func TestTree_Match(t *testing.T) {
+func TestTree_Route(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}",
@@ -2884,7 +2921,7 @@ func TestTree_Match(t *testing.T) {
 	}
 }
 
-func TestTree_MatchWithIgnoreTrailingSlashEnable(t *testing.T) {
+func TestTree_RouteWithIgnoreTrailingSlashEnable(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}/",

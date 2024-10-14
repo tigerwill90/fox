@@ -8,11 +8,117 @@ import (
 	"bytes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"testing"
 )
+
+func TestContext_Rehydrate(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo/bar/baz", nil)
+	w := httptest.NewRecorder()
+
+	c := NewTestContextOnly(New(), w, req)
+	cTx := unwrapContext(t, c)
+
+	cases := []struct {
+		name       string
+		route      *Route
+		tsr        bool
+		want       bool
+		wantParams Params
+	}{
+		{
+			name: "succeed using tsr params",
+			route: &Route{
+				path: "/foo/{$1}/{$2}",
+			},
+			tsr:  false,
+			want: true,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "bar",
+				},
+				{
+					Key:   "$2",
+					Value: "baz",
+				},
+			},
+		},
+		{
+			name: "succeed using params",
+			route: &Route{
+				path: "/foo/{$1}/{$2}",
+			},
+			tsr:  true,
+			want: true,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "bar",
+				},
+				{
+					Key:   "$2",
+					Value: "baz",
+				},
+			},
+		},
+		{
+			name: "fail using tsr params",
+			route: &Route{
+				path: "/foo/{$1}/bili",
+			},
+			tsr:  false,
+			want: false,
+			wantParams: Params{
+				{
+					Key:   "old",
+					Value: "params",
+				},
+			},
+		},
+		{
+			name: "fail using params",
+			route: &Route{
+				path: "/foo/{$1}/bili",
+			},
+			tsr:  true,
+			want: false,
+			wantParams: Params{
+				{
+					Key:   "old",
+					Value: "tsrParams",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			*cTx.params = Params{{Key: "old", Value: "params"}}
+			*cTx.tsrParams = Params{{Key: "old", Value: "tsrParams"}}
+			cTx.tsr = tc.tsr
+			cTx.cachedQuery = url.Values{"old": []string{"old"}}
+			cTx.route = nil
+			cTx.scope = NoRouteHandler
+			got := c.Rehydrate(tc.route)
+			require.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantParams, Params(slices.Collect(c.Params())))
+			if got {
+				assert.Equal(t, RouteHandler, c.Scope())
+				assert.Equal(t, tc.route, c.Route())
+				assert.Nil(t, cTx.cachedQuery)
+			} else {
+				assert.Equal(t, NoRouteHandler, c.Scope())
+				assert.Nil(t, c.Route())
+				assert.Equal(t, url.Values{"old": []string{"old"}}, cTx.cachedQuery)
+			}
+		})
+	}
+}
 
 func TestContext_Writer_ReadFrom(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
@@ -82,6 +188,35 @@ func TestContext_QueryParam(t *testing.T) {
 	assert.Equal(t, wantValues, c.cachedQuery)
 }
 
+func TestContext_Route(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		require.NotNil(t, c.Route())
+		_, _ = io.WriteString(c.Writer(), c.Route().Path())
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	f.ServeHTTP(w, r)
+	assert.Equal(t, "/foo", w.Body.String())
+}
+
+func TestContext_Annotations(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(
+		http.MethodGet,
+		"/foo",
+		emptyHandler,
+		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
+		WithAnnotation("john", 1),
+	)
+	rte := f.Tree().Route(http.MethodGet, "/foo")
+	require.NotNil(t, rte)
+	assert.Equal(t, []Annotation{{"foo", "bar"}, {"foo", "baz"}, {"john", 1}}, slices.Collect(rte.Annotations()))
+}
+
 func TestContext_Clone(t *testing.T) {
 	t.Parallel()
 	wantValues := url.Values{
@@ -92,6 +227,7 @@ func TestContext_Clone(t *testing.T) {
 	req.URL.RawQuery = wantValues.Encode()
 
 	c := newTextContextOnly(New(), httptest.NewRecorder(), req)
+	*c.params = Params{{Key: "foo", Value: "bar"}}
 
 	buf := []byte("foo bar")
 	_, err := c.w.Write(buf)
@@ -99,11 +235,17 @@ func TestContext_Clone(t *testing.T) {
 
 	cc := c.Clone()
 	assert.Equal(t, http.StatusOK, cc.Writer().Status())
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 	assert.Equal(t, len(buf), cc.Writer().Size())
 	assert.Equal(t, wantValues, c.QueryParams())
 	assert.Panics(t, func() {
 		_, _ = cc.Writer().Write([]byte("invalid"))
 	})
+
+	c.tsr = true
+	*c.tsrParams = Params{{Key: "john", Value: "doe"}}
+	cc = c.Clone()
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 }
 
 func TestContext_CloneWith(t *testing.T) {
@@ -111,16 +253,21 @@ func TestContext_CloneWith(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	c := newTextContextOnly(New(), w, req)
+	*c.params = Params{{Key: "foo", Value: "bar"}}
 
 	cp := c.CloneWith(c.Writer(), c.Request())
 	cc := unwrapContext(t, cp)
-
-	assert.Equal(t, c.Params(), cp.Params())
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Path(), cp.Path())
 	assert.Equal(t, c.Fox(), cp.Fox())
 	assert.Nil(t, cc.cachedQuery)
+
+	c.tsr = true
+	*c.tsrParams = Params{{Key: "john", Value: "doe"}}
+	cp = c.CloneWith(c.Writer(), c.Request())
+	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 }
 
 func TestContext_Redirect(t *testing.T) {
@@ -382,7 +529,7 @@ func TestWrapF(t *testing.T) {
 
 			params := make(Params, 0)
 			if tc.params != nil {
-				params = tc.params.Clone()
+				params = tc.params.clone()
 				c.(*cTx).params = &params
 			}
 
@@ -442,7 +589,7 @@ func TestWrapH(t *testing.T) {
 
 			params := make(Params, 0)
 			if tc.params != nil {
-				params = tc.params.Clone()
+				params = tc.params.clone()
 				c.(*cTx).params = &params
 			}
 
@@ -450,5 +597,22 @@ func TestWrapH(t *testing.T) {
 
 			assert.Equal(t, "fox", w.Body.String())
 		})
+	}
+}
+
+func BenchmarkContext_Rehydrate(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "/foo/ab:1/baz/123/y/bo/lo", nil)
+	w := httptest.NewRecorder()
+
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo/ab:{bar}/baz/{x}/{y}/*{zo}", emptyHandler)
+	rte, c, _ := f.Lookup(&recorder{ResponseWriter: w}, req)
+	defer c.Close()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		c.Rehydrate(rte)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox/internal/slogpretty"
+	"iter"
 	"log/slog"
 	"net"
 	"net/http"
@@ -80,16 +81,17 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 		sb.WriteString("Stack:\n")
 		sb.WriteString(stacktrace(3, 6))
 
-		params := c.Params()
-		attrs := make([]any, 0, len(params))
-		for _, param := range params {
-			attrs = append(attrs, slog.String(param.Key, param.Value))
+		params := slices.Collect(mapParamsToAttr(c.Params()))
+		var annotations []any
+		if route := c.Route(); route != nil {
+			annotations = slices.Collect(mapAnnotationsToAttr(route.Annotations()))
 		}
 
 		logger.Error(
 			sb.String(),
 			slog.String("path", c.Path()),
-			slog.Group("param", attrs...),
+			slog.Group("params", params...),
+			slog.Group("annotations", annotations...),
 			slog.Any("error", err),
 		)
 
@@ -136,4 +138,24 @@ func stacktrace(skip, nFrames int) string {
 		}
 	}
 	return b.String()
+}
+
+func mapParamsToAttr(params iter.Seq[Param]) iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for p := range params {
+			if !yield(slog.String(p.Key, p.Value)) {
+				break
+			}
+		}
+	}
+}
+
+func mapAnnotationsToAttr(annotations iter.Seq[Annotation]) iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for a := range annotations {
+			if !yield(slog.Any(a.Key, a.Value)) {
+				break
+			}
+		}
+	}
 }

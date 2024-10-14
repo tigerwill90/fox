@@ -60,7 +60,6 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					slog.String("location", location),
 				)
 			}
-
 		}
 	}
 }

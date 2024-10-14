@@ -102,8 +102,9 @@ if errors.Is(err, fox.ErrRouteConflict) {
 ```
 
 #### Named parameters
-A route can be defined using placeholder (e.g `{name}`). The matching segment are recorder into the `fox.Params` slice accessible 
-via `fox.Context`. The `Param` and `Get` methods are helpers to retrieve the value using the placeholder name.
+A route can be defined using placeholder (e.g `{name}`). The matching segment are recorder into `fox.Param` accessible 
+via `fox.Context`. `fox.Context.Params` provide an iterator to range over `fox.Param` and `fox.Context.Param` allow
+to retrieve directly the value of a parameter using the placeholder name.
 
 ````
 Pattern /avengers/{name}
@@ -168,11 +169,10 @@ GET /fs/*{filepath}     #3 => match /fs/avengers/ironman.txt
 
 #### Warning about context
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
-If you need to retain `fox.Context` or `fox.Params` beyond the scope of the handler, use the `Clone` methods.
+If you need to retain `fox.Context` beyond the scope of the handler, use the `fox.Context.Clone` methods.
 ````go
 func Hello(c fox.Context) {
     cc := c.Clone()
-    // cp := c.Params().Clone()
     go func() {
         time.Sleep(2 * time.Second)
         log.Println(cc.Param("name")) // Safe
@@ -455,7 +455,7 @@ f := fox.New(
 Finally, it's also possible to attaches middleware on a per-route basis. Note that route-specific middleware must be explicitly reapplied 
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
-````
+````go
 f := fox.New(
 	fox.WithMiddleware(fox.Logger()),
 )

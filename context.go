@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iter"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,7 +16,7 @@ import (
 	"strings"
 )
 
-// ContextCloser extends Context for manually created instances, adding a Close method
+// ContextCloser extends [Context] for manually created instances, adding a Close method
 // to release resources after use.
 type ContextCloser interface {
 	Context
@@ -25,41 +26,42 @@ type ContextCloser interface {
 
 // Context represents the context of the current HTTP request. It provides methods to access request data and
 // to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
-// duration of the HandlerFunc execution, as the underlying implementation may be reused a soon as the handler return.
-// (see Clone method).
+// duration of the [HandlerFunc] execution, as the underlying implementation may be reused a soon as the handler return.
+// (see [Context.Clone] method).
 type Context interface {
-	// Request returns the current *http.Request.
+	// Request returns the current [http.Request].
 	Request() *http.Request
-	// SetRequest sets the *http.Request.
+	// SetRequest sets the [*http.Request].
 	SetRequest(r *http.Request)
-	// Writer method returns a custom ResponseWriter implementation.
+	// Writer method returns a custom [ResponseWriter] implementation.
 	Writer() ResponseWriter
-	// SetWriter sets the ResponseWriter.
+	// SetWriter sets the [ResponseWriter].
 	SetWriter(w ResponseWriter)
-	// RemoteIP parses the IP from Request.RemoteAddr, normalizes it, and returns an IP address. The returned *net.IPAddr
+	// RemoteIP parses the IP from [http.Request.RemoteAddr], normalizes it, and returns an IP address. The returned [net.IPAddr]
 	// may contain a zone identifier. RemoteIP never returns nil, even if parsing the IP fails.
 	RemoteIP() *net.IPAddr
-	// ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
-	// The strategy is set using the WithClientIPStrategy option. There is no sane default, so if no strategy is configured,
-	// the method returns ErrNoClientIPStrategy.
+	// ClientIP returns the "real" client IP address based on the configured [ClientIPStrategy].
+	// The strategy is set using the [WithClientIPStrategy] option. There is no sane default, so if no strategy is configured,
+	// the method returns [ErrNoClientIPStrategy].
 	//
 	// The strategy used must be chosen and tuned for your network configuration. This should result
 	// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
 	// Consequently, getting an error result should be treated as an application error, perhaps even
 	// worthy of panicking.
 	//
-	// The returned *net.IPAddr may contain a zone identifier.
+	// The returned [net.IPAddr] may contain a zone identifier.
 	//
 	// This api is EXPERIMENTAL and is likely to change in future release.
 	ClientIP() (*net.IPAddr, error)
-	// Path returns the registered path for the handler.
+	// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
 	Path() string
-	// Params returns a Params slice containing the matched
-	// wildcard parameters.
-	Params() Params
+	// Route returns the registered route or nil if the handler is called in a scope other than [RouteHandler].
+	Route() *Route
+	// Params returns a range iterator over the matched wildcard parameters for the current route.
+	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
-	// QueryParams parses the Request RawQuery and returns the corresponding values.
+	// QueryParams parses the [http.Request] raw query and returns the corresponding values.
 	QueryParams() url.Values
 	// QueryParam returns the first query value associated with the given key.
 	QueryParam(name string) string
@@ -71,25 +73,32 @@ type Context interface {
 	String(code int, format string, values ...any) error
 	// Blob sends a byte slice with the specified status code and content type.
 	Blob(code int, contentType string, buf []byte) error
-	// Stream sends data from an io.Reader with the specified status code and content type.
+	// Stream sends data from an [io.Reader] with the specified status code and content type.
 	Stream(code int, contentType string, r io.Reader) error
 	// Redirect sends an HTTP redirect response with the given status code and URL.
 	Redirect(code int, url string) error
-	// Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
+	// Clone returns a copy of the [Context] that is safe to use after the [HandlerFunc] returns.
 	Clone() Context
-	// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
-	// http.Request with the provided ones. The method is designed for zero allocation during the
-	// copy process. The returned ContextCloser must be closed once no longer needed.
-	// This functionality is particularly beneficial for middlewares that need to wrap
-	// their custom ResponseWriter while preserving the state of the original Context.
+	// CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request]
+	// with the provided ones. The method is designed for zero allocation during the copy process. The returned
+	// [ContextCloser] must be closed once no longer needed. This functionality is particularly beneficial for
+	// middlewares that need to wrap their custom [ResponseWriter] while preserving the state of the original [Context].
 	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
-	// Scope returns the HandlerScope associated with the current Context.
-	// This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
+	// Scope returns the [HandlerScope] associated with the current [Context].
+	// This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
 	Scope() HandlerScope
-	// Tree is a local copy of the Tree in use to serve the request.
+	// Tree is a local copy of the [Tree] in use to serve the request.
 	Tree() *Tree
-	// Fox returns the Router instance.
+	// Fox returns the [Router] instance.
 	Fox() *Router
+	// Rehydrate updates the current [Context] to serve the provided [Route], bypassing the need for a full tree lookup.
+	// It succeeds only if the [http.Request]'s URL path strictly matches the given [Route]. If successful, the internal state
+	// of the context is updated, allowing the context to serve the route directly, regardless of whether the route
+	// still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
+	// modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
+	// or tree lookups. Note that the context's state is only mutated if the rehydration is successful.
+	// This api is EXPERIMENTAL and is likely to change in future release.
+	Rehydrate(route *Route) bool
 }
 
 // cTx holds request-related information and allows interaction with the ResponseWriter.
@@ -120,6 +129,42 @@ func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	c.route = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+}
+
+// Rehydrate updates the current Context to serve the provided Route, bypassing the need for a full tree lookup.
+// It succeeds only if the Request's URL path strictly matches the given Route. If successful, the internal state
+// of the context is updated, allowing the context to serve the route directly, regardless of whether the route
+// still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
+// modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
+// or tree lookups. Note that the context's state is only mutated if the rehydration is successful.
+// This api is EXPERIMENTAL and is likely to change in future release.
+func (c *cTx) Rehydrate(route *Route) bool {
+
+	target := c.req.URL.Path
+	if len(c.req.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		target = c.req.URL.RawPath
+	}
+
+	var params *Params
+	if c.tsr {
+		*c.params = (*c.params)[:0]
+		params = c.params
+	} else {
+		*c.tsrParams = (*c.tsrParams)[:0]
+		params = c.tsrParams
+	}
+
+	if !route.hydrateParams(target, params) {
+		return false
+	}
+
+	*c.params, *c.tsrParams = *c.tsrParams, *c.params
+	c.cachedQuery = nil
+	c.route = route
+	c.scope = RouteHandler
+
+	return true
 }
 
 // reset resets the Context to its initial state, attaching the provided http.ResponseWriter and http.Request.
@@ -199,19 +244,29 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 	return c.route.ipStrategy.ClientIP(c)
 }
 
-// Params returns a Params slice containing the matched
-// wildcard parameters.
-func (c *cTx) Params() Params {
-	if c.tsr {
-		return *c.tsrParams
+// Params returns an iterator over the matched wildcard parameters for the current route.
+func (c *cTx) Params() iter.Seq[Param] {
+	return func(yield func(Param) bool) {
+		if c.tsr {
+			for _, p := range *c.tsrParams {
+				if !yield(p) {
+					return
+				}
+			}
+			return
+		}
+		for _, p := range *c.params {
+			if !yield(p) {
+				return
+			}
+		}
 	}
-	return *c.params
 }
 
 // Param retrieve a matching wildcard segment by name.
 // It's a helper for c.Params.Get(name).
 func (c *cTx) Param(name string) string {
-	for _, p := range c.Params() {
+	for p := range c.Params() {
 		if p.Key == name {
 			return p.Value
 		}
@@ -242,12 +297,17 @@ func (c *cTx) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
-// Path returns the registered path for the handler.
+// Path returns the registered path or an empty string if the handler is called in a scope other than RouteHandler.
 func (c *cTx) Path() string {
 	if c.route == nil {
 		return ""
 	}
 	return c.route.path
+}
+
+// Route returns the registered route or nil if the handler is called in a scope other than RouteHandler.
+func (c *cTx) Route() *Route {
+	return c.route
 }
 
 // String sends a formatted string with the specified status code.
@@ -295,8 +355,8 @@ func (c *cTx) Fox() *Router {
 	return c.fox
 }
 
-// Clone returns a copy of the Context that is safe to use after the HandlerFunc returns.
-// Any attempt to write on the ResponseWriter will panic with the error ErrDiscardedResponseWriter.
+// Clone returns a deep copy of the [Context] that is safe to use after the [HandlerFunc] returns.
+// Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
 func (c *cTx) Clone() Context {
 	cp := cTx{
 		rec:   c.rec,
@@ -305,22 +365,29 @@ func (c *cTx) Clone() Context {
 		tree:  c.tree,
 		route: c.route,
 		scope: c.scope,
+		tsr:   c.tsr,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
 	cp.w = noUnwrap{&cp.rec}
-	params := make(Params, len(*c.params))
-	copy(params, *c.params)
-	cp.params = &params
+	if !c.tsr {
+		params := make(Params, len(*c.params))
+		copy(params, *c.params)
+		cp.params = &params
+	} else {
+		tsrParams := make(Params, len(*c.tsrParams))
+		copy(tsrParams, *c.tsrParams)
+		cp.tsrParams = &tsrParams
+	}
+
 	cp.cachedQuery = nil
 	return &cp
 }
 
-// CloneWith returns a copy of the current Context, substituting its ResponseWriter and
-// http.Request with the provided ones. The method is designed for zero allocation during the
-// copy process. The returned ContextCloser must be closed once no longer needed.
-// This functionality is particularly beneficial for middlewares that need to wrap
-// their custom ResponseWriter while preserving the state of the original Context.
+// CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request] with the
+// provided ones. The method is designed for zero allocation during the copy process. The returned [ContextCloser] must
+// be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
+// their custom [ResponseWriter] while preserving the state of the original [Context].
 func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp := c.tree.ctx.Get().(*cTx)
 	cp.req = r
@@ -328,15 +395,26 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.route = c.route
 	cp.scope = c.scope
 	cp.cachedQuery = nil
-	if cap(*c.params) > cap(*cp.params) {
-		// Grow cp.params to a least cap(c.params)
-		*cp.params = slices.Grow(*cp.params, cap(*c.params))
+	cp.tsr = c.tsr
+
+	if !c.tsr {
+		copyParams(c.params, cp.params)
+	} else {
+		copyParams(c.tsrParams, cp.tsrParams)
 	}
-	// cap(cp.params) >= cap(c.params)
-	// now constraint into len(c.params) & cap(c.params)
-	*cp.params = (*cp.params)[:len(*c.params):cap(*c.params)]
-	copy(*cp.params, *c.params)
+
 	return cp
+}
+
+func copyParams(src, dst *Params) {
+	if cap(*src) > cap(*dst) {
+		// Grow dst to a least cap(src)
+		*dst = slices.Grow(*dst, cap(*src))
+	}
+	// cap(dst) >= cap(src)
+	// now constraint into len(src) & cap(src)
+	*dst = (*dst)[:len(*src):cap(*src)]
+	copy(*dst, *src)
 }
 
 // Scope returns the HandlerScope associated with the current Context.
@@ -370,8 +448,9 @@ func (c *cTx) getQueries() url.Values {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {
-		if len(c.Params()) > 0 {
-			ctx := context.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
+		var params Params = slices.Collect(c.Params())
+		if len(params) > 0 {
+			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}
@@ -384,8 +463,9 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
 	return func(c Context) {
-		if len(c.Params()) > 0 {
-			ctx := context.WithValue(c.Request().Context(), paramsKey, c.Params().Clone())
+		var params Params = slices.Collect(c.Params())
+		if len(params) > 0 {
+			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
 		}

@@ -39,7 +39,7 @@ func TestParams_Clone(t *testing.T) {
 			Value: "doe",
 		},
 	)
-	assert.Equal(t, params, params.Clone())
+	assert.Equal(t, params, params.clone())
 }
 
 func TestParams_Has(t *testing.T) {
