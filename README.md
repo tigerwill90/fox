@@ -17,7 +17,7 @@ routing structure based on user input, configuration changes, or other runtime e
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
-**Runtime updates:** Register, update and remove route handler safely at any time without impact on performance. Fox never block while serving
+**Runtime updates:** Register, update and delete route handler safely at any time without impact on performance. Fox never block while serving
 request!
 
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
@@ -206,7 +206,7 @@ As such threads that route requests should never encounter latency due to ongoin
 
 ### Managing routes a runtime
 #### Routing mutation
-In this example, the handler for `routes/{action}` allow to dynamically register, update and remove handler for the
+In this example, the handler for `routes/{action}` allow to dynamically register, update and delete handler for the
 given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
 ````go
@@ -249,7 +249,7 @@ func Action(c fox.Context) {
 			_ = c.String(http.StatusOK, text)
 		})
 	case "delete":
-		err = c.Fox().Remove(method, path)
+		err = c.Fox().Delete(method, path)
 	default:
 		http.Error(c.Writer(), fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
 		return

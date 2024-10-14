@@ -27,20 +27,20 @@ var (
 )
 
 // HandlerFunc is a function type that responds to an HTTP request.
-// It enforces the same contract as http.Handler but provides additional feature
-// like matched wildcard route segments via the Context type. The Context is freed once
+// It enforces the same contract as [http.Handler] but provides additional feature
+// like matched wildcard route segments via the [Context] type. The [Context] is freed once
 // the HandlerFunc returns and may be reused later to save resources. If you need
-// to hold the context longer, you have to copy it (see Clone method).
+// to hold the context longer, you have to copy it (see [Context.Clone] method).
 //
-// Similar to http.Handler, to abort a HandlerFunc so the client sees an interrupted
-// response, panic with the value http.ErrAbortHandler.
+// Similar to [http.Handler], to abort a HandlerFunc so the client sees an interrupted
+// response, panic with the value [http.ErrAbortHandler].
 //
 // HandlerFunc functions should be thread-safe, as they will be called concurrently.
 type HandlerFunc func(c Context)
 
-// MiddlewareFunc is a function type for implementing HandlerFunc middleware.
-// The returned HandlerFunc usually wraps the input HandlerFunc, allowing you to perform operations
-// before and/or after the wrapped HandlerFunc is executed. MiddlewareFunc functions should
+// MiddlewareFunc is a function type for implementing [HandlerFunc] middleware.
+// The returned [HandlerFunc] usually wraps the input [HandlerFunc], allowing you to perform operations
+// before and/or after the wrapped [HandlerFunc] is executed. MiddlewareFunc functions should
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
@@ -57,8 +57,8 @@ type ClientIPStrategy interface {
 	ClientIP(c Context) (*net.IPAddr, error)
 }
 
-// The ClientIPStrategyFunc type is an adapter to allow the use of ordinary functions as ClientIPStrategy. If f is a function
-// with the appropriate signature, ClientIPStrategyFunc(f) is a ClientIPStrategyFunc that calls f.
+// The ClientIPStrategyFunc type is an adapter to allow the use of ordinary functions as [ClientIPStrategy]. If f is a
+// function with the appropriate signature, ClientIPStrategyFunc(f) is a ClientIPStrategyFunc that calls f.
 type ClientIPStrategyFunc func(c Context) (*net.IPAddr, error)
 
 // ClientIP calls f(c).
@@ -166,9 +166,9 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 	return !ok
 }
 
-// NewTree returns a fresh routing Tree that inherits all registered router options. It's safe to create multiple Tree
+// NewTree returns a fresh routing [Tree] that inherits all registered router options. It's safe to create multiple [Tree]
 // concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
-// serially. Note that a Tree give direct access to the underlying sync.Mutex.
+// serially. Note that a [Tree] give direct access to the underlying [sync.Mutex].
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
@@ -210,53 +210,65 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 	return fox.tree.Swap(new)
 }
 
-// Handle registers a new handler for the given method and path. This function return an error if the route
-// is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
-// for serving requests. This function is safe for concurrent use by multiple goroutine.
-// To override an existing route, use Update.
-func (fox *Router) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
+// Handle registers a new handler for the given method and path. On success, it returns the newly registered [Route].
+// If an error occurs, it returns one of the following:
+//   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteConflict]: If the route conflicts with another.
+//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//
+// It's safe to add a new handler while the tree is in use for serving requests. This function is safe for concurrent
+// use by multiple goroutine. To override an existing route, use [Router.Update].
+func (fox *Router) Handle(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
 	return t.Handle(method, path, handler, opts...)
 }
 
-// MustHandle registers a new handler for the given method and path. This function is a convenience
-// wrapper for the Handle function. It will panic if the route is already registered or conflicts
-// with another route. It's perfectly safe to add a new handler while the tree is in use for serving
-// requests. This function is safe for concurrent use by multiple goroutines.
-// To override an existing route, use Update.
-func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...PathOption) {
-	if err := fox.Handle(method, path, handler, opts...); err != nil {
+// MustHandle registers a new handler for the given method and path. On success, it returns the newly registered [Route]
+// This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
+// add a new handler while the tree is in use for serving requests. This function is safe for concurrent use by multiple
+// goroutines. To override an existing route, use [Router.Update].
+func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...PathOption) *Route {
+	rte, err := fox.Handle(method, path, handler, opts...)
+	if err != nil {
 		panic(err)
 	}
+	return rte
 }
 
-// Update override an existing handler for the given method and path. If the route does not exist,
-// the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
-// serving requests. This function is safe for concurrent use by multiple goroutine.
-// To add new handler, use Handle method.
-func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
+// Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
+// If an error occurs, it returns one of the following:
+// - [ErrRouteNotFound]: if the route does not exist.
+// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//
+// It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
+// use by multiple goroutine. To add new handler, use [Router.Handle] method.
+func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
 	return t.Update(method, path, handler, opts...)
 }
 
-// Remove delete an existing handler for the given method and path. If the route does not exist, the function
-// return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
-// This function is safe for concurrent use by multiple goroutine.
-func (fox *Router) Remove(method, path string) error {
+// Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
+// - [ErrRouteNotFound]: if the route does not exist.
+// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//
+// It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
+// use by multiple goroutine.
+func (fox *Router) Delete(method, path string) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Remove(method, path)
+	return t.Delete(method, path)
 }
 
-// Lookup is a helper that calls Tree.Lookup. For more details, refer to Tree.Lookup.
-// It performs a manual route lookup for a given http.Request, returning the matched Route along with a ContextCloser,
-// and a boolean indicating if a trailing slash action (e.g. redirect) is recommended (tsr). The ContextCloser should always
-// be closed if non-nil.
+// Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
+// [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
+// [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
+// concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Reverse] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.Tree()
@@ -264,26 +276,26 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 }
 
 // Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
-// This function is safe for concurrent use by multiple goroutines and can operate while the Tree is being modified.
+// This function is safe for concurrent use by multiple goroutines and can operate while the [Tree] is being modified.
 // This API is EXPERIMENTAL and may change in future releases.
 func (fox *Router) Iter() Iter {
 	tree := fox.Tree()
 	return tree.Iter()
 }
 
-// DefaultNotFoundHandler is a simple HandlerFunc that replies to each request
+// DefaultNotFoundHandler is a simple [HandlerFunc] that replies to each request
 // with a “404 page not found” reply.
 func DefaultNotFoundHandler(c Context) {
 	http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 }
 
-// DefaultMethodNotAllowedHandler is a simple HandlerFunc that replies to each request
+// DefaultMethodNotAllowedHandler is a simple [HandlerFunc] that replies to each request
 // with a “405 Method Not Allowed” reply.
 func DefaultMethodNotAllowedHandler(c Context) {
 	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
-// DefaultOptionsHandler is a simple HandlerFunc that replies to each request with a "200 OK" reply.
+// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
 func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
