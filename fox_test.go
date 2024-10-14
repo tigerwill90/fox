@@ -5,6 +5,7 @@
 package fox
 
 import (
+	"context"
 	"fmt"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"log"
@@ -1718,7 +1719,7 @@ func TestTree_LookupTsr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, path := range tc.paths {
-				require.NoError(t, tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler)))
+				require.NoError(t, tree.insert(context.Background(), http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler)))
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
@@ -3051,7 +3052,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			continue
 		}
 		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
-		if err := tree.insert(http.MethodGet, path, "", 3, tree.newRoute(path, emptyHandler)); err == nil {
+		if err := tree.insert(context.Background(), http.MethodGet, path, "", 3, tree.newRoute(path, emptyHandler)); err == nil {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
@@ -3081,7 +3082,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, tree.newRoute(appendCatchAll(rte, catchAllKey), emptyHandler))
+			_ = tree.insert(context.Background(), http.MethodGet, rte, catchAllKey, 0, tree.newRoute(appendCatchAll(rte, catchAllKey), emptyHandler))
 		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
 	}
 }
@@ -3103,7 +3104,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 
 	for rte := range routes {
 		path := "/" + rte
-		err := tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler))
+		err := tree.insert(context.Background(), http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler))
 		require.NoError(t, err)
 	}
 
@@ -3121,12 +3122,11 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.route.path)
 		path := "/" + rte
-		require.NoError(t, tree.update(http.MethodGet, path, "", tree.newRoute(path, emptyHandler)))
+		require.NoError(t, tree.update(context.Background(), http.MethodGet, path, "", tree.newRoute(path, emptyHandler)))
 	}
 
 	for rte := range routes {
-		deleted := tree.remove(http.MethodGet, "/"+rte)
-		require.True(t, deleted)
+		require.NoError(t, tree.remove(context.Background(), http.MethodGet, "/"+rte, "", &Route{}))
 	}
 
 	it = tree.Iter()
@@ -3141,7 +3141,12 @@ func TestDataRace(t *testing.T) {
 	h := HandlerFunc(func(c Context) {})
 	newH := HandlerFunc(func(c Context) {})
 
-	r := New()
+	r := New(WithMiddleware(Recovery()))
+	noopMw := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			next(c)
+		}
+	})
 
 	w := new(mockResponseWriter)
 
@@ -3154,10 +3159,10 @@ func TestDataRace(t *testing.T) {
 			tree.Lock()
 			defer tree.Unlock()
 			if tree.Has(method, route) {
-				assert.NoError(t, onlyError(tree.Update(method, route, h)))
+				assert.NoError(t, onlyError(tree.Update(method, route, h, WithMiddleware(noopMw, noopMw))))
 				return
 			}
-			assert.NoError(t, onlyError(tree.Handle(method, route, h)))
+			assert.NoError(t, onlyError(tree.Handle(method, route, h, WithMiddleware(noopMw, noopMw))))
 			// assert.NoError(t, r.Handle("PING", route, h))
 		}(rte.method, rte.path)
 
@@ -3171,7 +3176,7 @@ func TestDataRace(t *testing.T) {
 				assert.NoError(t, tree.Delete(method, route))
 				return
 			}
-			assert.NoError(t, onlyError(tree.Handle(method, route, newH)))
+			assert.NoError(t, onlyError(tree.Handle(method, route, newH, WithMiddleware(noopMw))))
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
@@ -3456,4 +3461,12 @@ func ExampleTree_Has() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
+}
+
+func TestX(t *testing.T) {
+
+	f := New()
+	f.MustHandle(http.MethodConnect, "/foo/*{args}", emptyHandler, WithAdmissionContext(context.Background()))
+	fmt.Println(f.Delete(http.MethodConnect, "/foo/", WithAdmissionContext(context.Background())))
+
 }

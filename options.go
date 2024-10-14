@@ -6,6 +6,7 @@ package fox
 
 import (
 	"cmp"
+	"context"
 )
 
 type Option interface {
@@ -18,7 +19,12 @@ type GlobalOption interface {
 }
 
 type PathOption interface {
+	AdmissionOption
 	applyPath(*Route)
+}
+
+type AdmissionOption interface {
+	applyHook(*hook)
 }
 
 type globOptionFunc func(*Router)
@@ -27,12 +33,14 @@ func (o globOptionFunc) applyGlob(r *Router) {
 	o(r)
 }
 
-// nolint:unused
-type pathOptionFunc func(*Route)
+type pathOptionFunc func(*Route, *hook)
 
-// nolint:unused
 func (o pathOptionFunc) applyPath(r *Route) {
-	o(r)
+	o(r, nil)
+}
+
+func (o pathOptionFunc) applyHook(h *hook) {
+	o(nil, h)
 }
 
 type optionFunc func(*Router, *Route)
@@ -43,6 +51,22 @@ func (o optionFunc) applyGlob(r *Router) {
 
 func (o optionFunc) applyPath(r *Route) {
 	o(nil, r)
+}
+
+func (o optionFunc) applyHook(h *hook) { /* NoOp*/ }
+
+func WithAdmissionController(controllers ...AdmissionController) GlobalOption {
+	return globOptionFunc(func(router *Router) {
+		router.ctrls = append(router.ctrls, controllers...)
+	})
+}
+
+func WithAdmissionContext(ctx context.Context) PathOption {
+	return pathOptionFunc(func(_ *Route, hook *hook) {
+		if hook != nil {
+			hook.ctx = ctx
+		}
+	})
 }
 
 // WithNoRouteHandler register an HandlerFunc which is called when no matching route is found.
@@ -228,15 +252,19 @@ func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
 // Annotations must be explicitly reapplied when updating a route.
 func WithAnnotations(annotations ...Annotation) PathOption {
-	return pathOptionFunc(func(route *Route) {
-		route.annots = append(route.annots, annotations...)
+	return pathOptionFunc(func(route *Route, _ *hook) {
+		if route != nil {
+			route.annots = append(route.annots, annotations...)
+		}
 	})
 }
 
 // WithAnnotation attaches a single key-value annotation to a route. See also [WithAnnotations] and [Annotation] for more details.
 func WithAnnotation(key string, value any) PathOption {
-	return pathOptionFunc(func(route *Route) {
-		route.annots = append(route.annots, Annotation{key, value})
+	return pathOptionFunc(func(route *Route, _ *hook) {
+		if route != nil {
+			route.annots = append(route.annots, Annotation{Key: key, Value: value})
+		}
 	})
 }
 

@@ -5,7 +5,10 @@
 package fox
 
 import (
+	"context"
 	"fmt"
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"iter"
 	"math"
 	"net/http"
 	"slices"
@@ -34,7 +37,6 @@ type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
 	fox   *Router
-	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
@@ -50,6 +52,14 @@ type Tree struct {
 // thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
 // To override an existing route, use [Tree.Update].
 func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+
+	rte := t.newRoute(path, handler, opts...)
+	ctx := t.newAdmissionContext(iterutil.Map(slices.Values(opts), routeOptsToAdmissionOpts))
+
+	if err := t.runAdmitSequence(ctx, Insert, mutationRoute{rte}); err != nil {
+		return nil, err
+	}
+
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
@@ -57,7 +67,7 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, n, err := parseRoute(path)
+	p, catchAllKey, n, err := parseRoute(rte.path)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +76,8 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("params count overflows (%d)", n)
 	}
 
-	rte := t.newRoute(path, handler, opts...)
-
 	// nolint:gosec
-	if err = t.insert(method, p, catchAllKey, uint32(n), rte); err != nil {
+	if err = t.insert(ctx, method, p, catchAllKey, uint32(n), rte); err != nil {
 		return nil, err
 	}
 	return rte, nil
@@ -84,6 +92,14 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 // and should be run serially, along with all other [Tree] APIs that perform write operations. To add a new handler,
 // use [Tree.Handle] method.
 func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+
+	rte := t.newRoute(path, handler, opts...)
+	ctx := t.newAdmissionContext(iterutil.Map(slices.Values(opts), routeOptsToAdmissionOpts))
+
+	if err := t.runAdmitSequence(ctx, Update, mutationRoute{rte}); err != nil {
+		return nil, err
+	}
+
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
@@ -91,13 +107,12 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, _, err := parseRoute(path)
+	p, catchAllKey, _, err := parseRoute(rte.path)
 	if err != nil {
 		return nil, err
 	}
 
-	rte := t.newRoute(path, handler, opts...)
-	if err = t.update(method, p, catchAllKey, rte); err != nil {
+	if err = t.update(ctx, method, p, catchAllKey, rte); err != nil {
 		return nil, err
 	}
 
@@ -109,18 +124,25 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 // - [ErrInvalidRoute]: If the provided method or path is invalid.
 // It's safe to delete a handler while the tree is in use for serving requests. However, this function is NOT
 // thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
-func (t *Tree) Delete(method, path string) error {
+func (t *Tree) Delete(method, path string, opts ...AdmissionOption) error {
+
+	rte := t.newRoute(path, nil)
+	ctx := t.newAdmissionContext(slices.Values(opts))
+	if err := t.runAdmitSequence(ctx, Update, mutationRoute{rte}); err != nil {
+		return err
+	}
+
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	path, _, _, err := parseRoute(path)
+	p, catchAllKey, _, err := parseRoute(rte.path)
 	if err != nil {
 		return err
 	}
 
-	if !t.remove(method, path) {
-		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
+	if err = t.remove(ctx, method, p, catchAllKey, rte); err != nil {
+		return fmt.Errorf("%w: route %s %s is not registered", err, method, rte.path)
 	}
 
 	return nil
@@ -218,7 +240,7 @@ func (t *Tree) Iter() Iter {
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
-func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *Route) error {
+func (t *Tree) insert(ctx context.Context, method, path, catchAllKey string, paramsN uint32, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	var rootNode *node
 	nds := *t.nodes.Load()
@@ -250,6 +272,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
 		n := newNodeFromRef(result.matched.key, route, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex)
+
+		// Run validate hook
+		if err := t.runValidateSequence(ctx, Insert, route); err != nil {
+			return err
+		}
 
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
@@ -290,6 +317,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 			catchAllKey,
 		)
 
+		// Run validate hook
+		if err := t.runValidateSequence(ctx, Insert, route); err != nil {
+			return err
+		}
+
 		t.updateMaxParams(paramsN)
 		t.updateMaxDepth(result.depth + 1)
 		result.p.updateEdge(parent)
@@ -320,6 +352,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 			edges,
 			result.matched.catchAllKey,
 		)
+
+		// Run validate hook
+		if err := t.runValidateSequence(ctx, Insert, route); err != nil {
+			return err
+		}
 
 		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
@@ -381,6 +418,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 		// n3 children never start with a param
 		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "") // intermediary node
 
+		// Run validate hook
+		if err := t.runValidateSequence(ctx, Insert, route); err != nil {
+			return err
+		}
+
 		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n3)
@@ -392,7 +434,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 }
 
 // update is not safe for concurrent use.
-func (t *Tree) update(method string, path, catchAllKey string, route *Route) error {
+func (t *Tree) update(ctx context.Context, method string, path, catchAllKey string, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -421,27 +463,33 @@ func (t *Tree) update(method string, path, catchAllKey string, route *Route) err
 		catchAllKey,
 		result.matched.paramChildIndex,
 	)
+
+	// Run validate hook
+	if err := t.runValidateSequence(ctx, Update, route); err != nil {
+		return err
+	}
+
 	result.p.updateEdge(n)
 	return nil
 }
 
 // remove is not safe for concurrent use.
-func (t *Tree) remove(method, path string) bool {
+func (t *Tree) remove(ctx context.Context, method, path, catchAllKey string, route *Route) error {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		return false
+		return ErrRouteNotFound
 	}
 
 	result := t.search(nds[index], path)
-	if result.classify() != exactMatch {
-		return false
+	if result.classify() != exactMatch || catchAllKey != result.matched.catchAllKey {
+		return ErrRouteNotFound
 	}
 
 	// This node was created after a split (KEY_END_MID_EGGE operation), therefore we cannot delete
 	// this node.
 	if !result.matched.isLeaf() {
-		return false
+		return ErrRouteNotFound
 	}
 
 	if len(result.matched.children) > 1 {
@@ -453,8 +501,14 @@ func (t *Tree) remove(method, path string) bool {
 			"",
 			result.matched.paramChildIndex,
 		)
+
+		// Run validate hook
+		if err := t.runValidateSequence(ctx, Delete, route); err != nil {
+			return err
+		}
+
 		result.p.updateEdge(n)
-		return true
+		return nil
 	}
 
 	if len(result.matched.children) == 1 {
@@ -468,8 +522,14 @@ func (t *Tree) remove(method, path string) bool {
 			child.catchAllKey,
 			child.paramChildIndex,
 		)
+
+		// Run validate hook
+		if err := t.runValidateSequence(ctx, Delete, route); err != nil {
+			return err
+		}
+
 		result.p.updateEdge(n)
-		return true
+		return nil
 	}
 
 	// recreate the parent edges without the removed node
@@ -505,18 +565,25 @@ func (t *Tree) remove(method, path string) bool {
 		)
 	}
 
+	// Run validate hook
+	if err := t.runValidateSequence(ctx, Delete, route); err != nil {
+		return err
+	}
+
 	if parentIsRoot {
 		if len(parent.children) == 0 && isRemovable(method) {
-			return t.removeRoot(method)
+			// Since parent is root, we are guaranteed to succeed.
+			t.removeRoot(method)
+			return nil
 		}
 		parent.key = method
 		parent.paramChildIndex = -1
 		t.updateRoot(parent)
-		return true
+		return nil
 	}
 
 	result.pp.updateEdge(parent)
-	return true
+	return nil
 }
 
 const (
@@ -931,13 +998,36 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	}
 }
 
+func (t *Tree) runAdmitSequence(ctx context.Context, operation Operation, route MutationRoute) (err error) {
+	for ctrl := range t.fox.admissionSequence(operation) {
+		if err = ctrl.Admit(ctx, t, route); err != nil {
+			return err
+		}
+	}
+	return err
+}
+
+func (t *Tree) runValidateSequence(ctx context.Context, operation Operation, route ValidationRoute) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = fmt.Errorf("%v", v)
+		}
+	}()
+	for ctrl := range t.fox.admissionSequence(operation) {
+		if err = ctrl.Validate(ctx, t, route); err != nil {
+			return err
+		}
+	}
+	return err
+}
+
 // newRoute create a new route, apply path options and apply middleware on the handler.
 func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *Route {
 	rte := &Route{
 		ipStrategy:            t.fox.ipStrategy,
 		hbase:                 handler,
 		path:                  path,
-		mws:                   t.mws,
+		mws:                   t.fox.mws,
 		redirectTrailingSlash: t.fox.redirectTrailingSlash,
 		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
 	}
@@ -948,4 +1038,19 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte
+}
+
+func (t *Tree) newAdmissionContext(opts iter.Seq[AdmissionOption]) context.Context {
+	h := new(hook)
+	for opt := range opts {
+		opt.applyHook(h)
+	}
+	if h.ctx != nil {
+		return h.ctx
+	}
+	return context.Background()
+}
+
+func routeOptsToAdmissionOpts(o PathOption) AdmissionOption {
+	return o
 }

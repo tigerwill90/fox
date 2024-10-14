@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"iter"
 	"net"
 	"net/http"
 	"path"
@@ -95,6 +96,7 @@ type Router struct {
 	tree                   atomic.Pointer[Tree]
 	ipStrategy             ClientIPStrategy
 	mws                    []middleware
+	ctrls                  []AdmissionController
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
@@ -172,7 +174,6 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
-	tree.mws = fox.mws
 	tree.fox = fox
 
 	// Pre instantiate nodes for common http verb
@@ -257,11 +258,11 @@ func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...Path
 //
 // It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine.
-func (fox *Router) Delete(method, path string) error {
+func (fox *Router) Delete(method, path string, opts ...AdmissionOption) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Delete(method, path)
+	return t.Delete(method, path, opts...)
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -444,6 +445,18 @@ NoMethodFallback:
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 	c.Close()
+}
+
+func (fox *Router) admissionSequence(operation Operation) iter.Seq[AdmissionController] {
+	return func(yield func(AdmissionController) bool) {
+		for _, ctrl := range fox.ctrls {
+			if ctrl.Handles(operation) {
+				if !yield(ctrl) {
+					break
+				}
+			}
+		}
+	}
 }
 
 type resultType int

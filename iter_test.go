@@ -244,7 +244,7 @@ func BenchmarkIter_Route(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _, _ = range it.Reverse(it.Methods(), "/user/subscriptions/{owner}/{repo}") {
+		for _, _ = range it.Routes(it.Methods(), "/user/subscriptions/{owner}/{repo}") {
 
 		}
 	}
