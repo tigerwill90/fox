@@ -27,7 +27,7 @@ func TestAbortHandler(t *testing.T) {
 		_ = c.String(200, "foo")
 	}
 
-	require.NoError(t, r.Tree().Handle(http.MethodPost, "/{foo}", h))
+	require.NoError(t, onlyError(r.Tree().Handle(http.MethodPost, "/{foo}", h)))
 	req := httptest.NewRequest(http.MethodPost, "/foo", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
 	w := httptest.NewRecorder()
@@ -63,7 +63,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		_ = c.String(200, "foo")
 	}
 
-	require.NoError(t, r.Tree().Handle(http.MethodPost, "/", h))
+	require.NoError(t, onlyError(r.Tree().Handle(http.MethodPost, "/", h)))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
 	w := httptest.NewRecorder()
@@ -94,10 +94,10 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 					http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				}
 			})))
-			require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+			require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
 				e := &net.OpError{Err: &os.SyscallError{Err: errno}}
 				panic(e)
-			}))
+			})))
 
 			req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 			w := httptest.NewRecorder()

@@ -27,12 +27,12 @@ func TestLoggerWithHandler(t *testing.T) {
 			},
 		}))),
 	)
-	require.NoError(t, f.Handle(http.MethodGet, "/success", func(c Context) {
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/success", func(c Context) {
 		c.Writer().WriteHeader(http.StatusOK)
-	}))
-	require.NoError(t, f.Handle(http.MethodGet, "/failure", func(c Context) {
+	})))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/failure", func(c Context) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
-	}))
+	})))
 
 	cases := []struct {
 		name string

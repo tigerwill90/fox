@@ -19,9 +19,9 @@ var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{nam
 func TestIter_Routes(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -40,9 +40,9 @@ func TestIter_Routes(t *testing.T) {
 func TestIter_All(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -61,9 +61,9 @@ func TestIter_All(t *testing.T) {
 func TestIter_AllBreak(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	var (
@@ -83,9 +83,9 @@ func TestIter_AllBreak(t *testing.T) {
 func TestIter_ReverseBreak(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	var (
@@ -105,9 +105,9 @@ func TestIter_ReverseBreak(t *testing.T) {
 func TestIter_RouteBreak(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	var (
@@ -127,9 +127,9 @@ func TestIter_RouteBreak(t *testing.T) {
 func TestIter_RootPrefixOneMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -147,9 +147,9 @@ func TestIter_RootPrefixOneMethod(t *testing.T) {
 func TestIter_Prefix(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
@@ -181,9 +181,9 @@ func TestIter_EdgeCase(t *testing.T) {
 func TestIter_PrefixWithMethod(t *testing.T) {
 	tree := New().Tree()
 	for _, rte := range routesCases {
-		require.NoError(t, tree.Handle(http.MethodGet, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodPost, rte, emptyHandler))
-		require.NoError(t, tree.Handle(http.MethodHead, rte, emptyHandler))
+		require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(tree.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
@@ -202,7 +202,7 @@ func TestIter_PrefixWithMethod(t *testing.T) {
 func BenchmarkIter_Methods(b *testing.B) {
 	f := New()
 	for _, route := range staticRoutes {
-		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, onlyError(f.Tree().Handle(route.method, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -219,7 +219,7 @@ func BenchmarkIter_Methods(b *testing.B) {
 func BenchmarkIter_Reverse(b *testing.B) {
 	f := New()
 	for _, route := range githubAPI {
-		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, onlyError(f.Tree().Handle(route.method, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -236,7 +236,7 @@ func BenchmarkIter_Reverse(b *testing.B) {
 func BenchmarkIter_Route(b *testing.B) {
 	f := New()
 	for _, route := range githubAPI {
-		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, onlyError(f.Tree().Handle(route.method, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -253,7 +253,7 @@ func BenchmarkIter_Route(b *testing.B) {
 func BenchmarkIter_Prefix(b *testing.B) {
 	f := New()
 	for _, route := range githubAPI {
-		require.NoError(b, f.Tree().Handle(route.method, route.path, emptyHandler))
+		require.NoError(b, onlyError(f.Tree().Handle(route.method, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 

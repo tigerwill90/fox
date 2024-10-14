@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -18,8 +19,8 @@ import (
 //
 // IMPORTANT:
 // Each tree as its own sync.Mutex that may be used to serialize write. Since the router tree may be swapped at any
-// given time, you MUST always copy the pointer locally to avoid inadvertently causing a deadlock by locking/unlocking
-// the wrong Tree.
+// given time (see [Router.Swap]), you MUST always copy the pointer locally to avoid inadvertently causing a deadlock
+// by locking/unlocking the wrong Tree.
 //
 // Good:
 // t := fox.Tree()
@@ -39,52 +40,76 @@ type Tree struct {
 	maxDepth  atomic.Uint32
 }
 
-// Handle registers a new handler for the given method and path. This function return an error if the route
-// is already registered or conflict with another. It's perfectly safe to add a new handler while the tree is in use
-// for serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
-// Tree APIs that perform write operations. To override an existing route, use Update.
-func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) error {
+// Handle registers a new handler for the given method and path. On success, it returns the newly registered [Route].
+// If an error occurs, it returns one of the following:
+//   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteConflict]: If the route conflicts with another.
+//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//
+// It's safe to add a new handler while the tree is in use for serving requests. However, this function is NOT
+// thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
+// To override an existing route, use [Tree.Update].
+func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	if handler == nil {
-		return fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
 	if matched := regEnLetter.MatchString(method); !matched {
-		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
 	p, catchAllKey, n, err := parseRoute(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	if n < 0 || n > math.MaxUint32 {
+		return nil, fmt.Errorf("params count overflows (%d)", n)
+	}
+
+	rte := t.newRoute(path, handler, opts...)
 
 	// nolint:gosec
-	return t.insert(method, p, catchAllKey, uint32(n), t.newRoute(path, handler, opts...))
+	if err = t.insert(method, p, catchAllKey, uint32(n), rte); err != nil {
+		return nil, err
+	}
+	return rte, nil
 }
 
-// Update override an existing handler for the given method and path. If the route does not exist,
-// the function return an ErrRouteNotFound. It's perfectly safe to update a handler while the tree is in use for
-// serving requests. However, this function is NOT thread-safe and should be run serially, along with all other
-// Tree APIs that perform write operations. To add a new handler, use Handle method.
-func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) error {
+// Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
+// If an error occurs, it returns one of the following:
+// - [ErrRouteNotFound]: if the route does not exist.
+// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//
+// It's safe to update a handler while the tree is in use for serving requests. However, this function is NOT thread-safe
+// and should be run serially, along with all other [Tree] APIs that perform write operations. To add a new handler,
+// use [Tree.Handle] method.
+func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	if handler == nil {
-		return fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
 	if method == "" {
-		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
 	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return t.update(method, p, catchAllKey, t.newRoute(path, handler, opts...))
+	rte := t.newRoute(path, handler, opts...)
+	if err = t.update(method, p, catchAllKey, rte); err != nil {
+		return nil, err
+	}
+
+	return rte, nil
 }
 
-// Remove delete an existing handler for the given method and path. If the route does not exist, the function
-// return an ErrRouteNotFound. It's perfectly safe to remove a handler while the tree is in use for serving requests.
-// However, this function is NOT thread-safe and should be run serially, along with all other Tree APIs that perform
-// write operations.
-func (t *Tree) Remove(method, path string) error {
+// Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
+// - [ErrRouteNotFound]: if the route does not exist.
+// - [ErrInvalidRoute]: If the provided method or path is invalid.
+// It's safe to delete a handler while the tree is in use for serving requests. However, this function is NOT
+// thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
+func (t *Tree) Delete(method, path string) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
@@ -102,15 +127,15 @@ func (t *Tree) Remove(method, path string) error {
 }
 
 // Has allows to check if the given method and path exactly match a registered route. This function is safe for
-// concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Route] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Has(method, path string) bool {
 	return t.Route(method, path) != nil
 }
 
-// Route performs a lookup for a registered route matching the given method and path. It returns the route if a
+// Route performs a lookup for a registered route matching the given method and path. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
-// mutation on Tree are ongoing.
+// mutation on [Tree] are ongoing. See also [Tree.Has] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Route(method, path string) *Route {
 	nds := *t.nodes.Load()
@@ -129,10 +154,10 @@ func (t *Tree) Route(method, path string) *Route {
 	return nil
 }
 
-// Reverse perform a reverse lookup on the tree for the given method and path and return the matching registered route
+// Reverse perform a reverse lookup on the tree for the given method and path and return the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
-// mutation on Tree are ongoing. See also Tree.Lookup as an alternative.
+// mutation on [Tree] are ongoing. See also [Tree.Lookup] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 	nds := *t.nodes.Load()
@@ -151,12 +176,11 @@ func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 	return nil, false
 }
 
-// Lookup performs a manual route lookup for a given http.Request, returning the matched Route along with a
-// ContextCloser, and a boolean indicating if the route was matched by adding or removing a trailing slash
-// (trailing slash action recommended). The ContextCloser should always be closed if non-nil. This method is primarily
-// intended for integrating the fox router into custom routing solutions or middleware. This function is safe for concurrent
-// use by multiple goroutine and while mutation on Tree are ongoing. If there is a direct match or a tsr is possible,
-// Lookup always return a Route and a ContextCloser.
+// Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
+// [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
+// [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
+// concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Reverse] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
@@ -186,7 +210,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 }
 
 // Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
-// This function is safe for concurrent use by multiple goroutines and can operate while the Tree is being modified.
+// This function is safe for concurrent use by multiple goroutine and while mutation on [Tree] are ongoing.
 // This API is EXPERIMENTAL and may change in future releases.
 func (t *Tree) Iter() Iter {
 	return Iter{t: t}

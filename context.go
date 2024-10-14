@@ -55,7 +55,7 @@ type Context interface {
 	ClientIP() (*net.IPAddr, error)
 	// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
 	Path() string
-	// Route returns the registered route or nil if the handler is called in a scope other than [RouteHandler].
+	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
 	Route() *Route
 	// Params returns a range iterator over the matched wildcard parameters for the current route.
 	Params() iter.Seq[Param]
@@ -101,7 +101,7 @@ type Context interface {
 	Rehydrate(route *Route) bool
 }
 
-// cTx holds request-related information and allows interaction with the ResponseWriter.
+// cTx holds request-related information and allows interaction with the [ResponseWriter].
 type cTx struct {
 	w         ResponseWriter
 	req       *http.Request
@@ -120,7 +120,7 @@ type cTx struct {
 	tsr         bool
 }
 
-// Reset resets the Context to its initial state, attaching the provided ResponseWriter and http.Request.
+// Reset resets the [Context] to its initial state, attaching the provided [ResponseWriter] and [http.Request].
 func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
@@ -131,8 +131,8 @@ func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
 	*c.params = (*c.params)[:0]
 }
 
-// Rehydrate updates the current Context to serve the provided Route, bypassing the need for a full tree lookup.
-// It succeeds only if the Request's URL path strictly matches the given Route. If successful, the internal state
+// Rehydrate updates the current [Context] to serve the provided [Route], bypassing the need for a full tree lookup.
+// It succeeds only if the [http.Request]'s URL path strictly matches the given [Route]. If successful, the internal state
 // of the context is updated, allowing the context to serve the route directly, regardless of whether the route
 // still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
 // modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
@@ -167,9 +167,9 @@ func (c *cTx) Rehydrate(route *Route) bool {
 	return true
 }
 
-// reset resets the Context to its initial state, attaching the provided http.ResponseWriter and http.Request.
-// Caution: always pass the original http.ResponseWriter to this method, not the ResponseWriter itself, to
-// avoid wrapping the ResponseWriter within itself. Use wisely!
+// reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].
+// Caution: always pass the original [http.ResponseWriter] to this method, not the [ResponseWriter] itself, to
+// avoid wrapping the [ResponseWriter] within itself. Use wisely!
 func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
@@ -188,27 +188,27 @@ func (c *cTx) resetNil() {
 	*c.params = (*c.params)[:0]
 }
 
-// Request returns the *http.Request.
+// Request returns the [http.Request].
 func (c *cTx) Request() *http.Request {
 	return c.req
 }
 
-// SetRequest sets the *http.Request.
+// SetRequest sets the [http.Request].
 func (c *cTx) SetRequest(r *http.Request) {
 	c.req = r
 }
 
-// Writer returns the ResponseWriter.
+// Writer returns the [ResponseWriter].
 func (c *cTx) Writer() ResponseWriter {
 	return c.w
 }
 
-// SetWriter sets the ResponseWriter.
+// SetWriter sets the [ResponseWriter].
 func (c *cTx) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
-// RemoteIP parses the IP from Request.RemoteAddr, normalizes it, and returns a *net.IPAddr.
+// RemoteIP parses the IP from [http.Request.RemoteAddr], normalizes it, and returns a [net.IPAddr].
 // It never returns nil, even if parsing the IP fails.
 func (c *cTx) RemoteIP() *net.IPAddr {
 	ipStr, _, _ := net.SplitHostPort(c.req.RemoteAddr)
@@ -226,9 +226,9 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 	return ipAddr
 }
 
-// ClientIP returns the "real" client IP address based on the configured ClientIPStrategy.
-// The strategy is set using the WithClientIPStrategy option. If no strategy is configured,
-// the method returns error ErrNoClientIPStrategy.
+// ClientIP returns the "real" client IP address based on the configured [ClientIPStrategy].
+// The strategy is set using the [WithClientIPStrategy] option. If no strategy is configured,
+// the method returns error [ErrNoClientIPStrategy].
 //
 // The strategy used must be chosen and tuned for your network configuration. This should result
 // in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
@@ -264,7 +264,6 @@ func (c *cTx) Params() iter.Seq[Param] {
 }
 
 // Param retrieve a matching wildcard segment by name.
-// It's a helper for c.Params.Get(name).
 func (c *cTx) Param(name string) string {
 	for p := range c.Params() {
 		if p.Key == name {
@@ -274,15 +273,12 @@ func (c *cTx) Param(name string) string {
 	return ""
 }
 
-// QueryParams parses RawQuery and returns the corresponding values.
-// It's a helper for c.Request.URL.Query(). Note that the parsed
-// result is cached.
+// QueryParams parses the [http.Request] raw query and returns the corresponding values.
 func (c *cTx) QueryParams() url.Values {
 	return c.getQueries()
 }
 
 // QueryParam returns the first value associated with the given key.
-// It's a helper for c.QueryParams().Get(name).
 func (c *cTx) QueryParam(name string) string {
 	return c.getQueries().Get(name)
 }
@@ -297,7 +293,7 @@ func (c *cTx) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
-// Path returns the registered path or an empty string if the handler is called in a scope other than RouteHandler.
+// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
 func (c *cTx) Path() string {
 	if c.route == nil {
 		return ""
@@ -305,7 +301,7 @@ func (c *cTx) Path() string {
 	return c.route.path
 }
 
-// Route returns the registered route or nil if the handler is called in a scope other than RouteHandler.
+// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
 func (c *cTx) Route() *Route {
 	return c.route
 }
@@ -328,7 +324,7 @@ func (c *cTx) Blob(code int, contentType string, buf []byte) (err error) {
 	return
 }
 
-// Stream sends data from an io.Reader with the specified status code and content type.
+// Stream sends data from an [io.Reader] with the specified status code and content type.
 func (c *cTx) Stream(code int, contentType string, r io.Reader) (err error) {
 	c.w.Header().Set(HeaderContentType, contentType)
 	c.w.WriteHeader(code)
@@ -345,12 +341,12 @@ func (c *cTx) Redirect(code int, url string) error {
 	return nil
 }
 
-// Tree is a local copy of the Tree in use to serve the request.
+// Tree is a local copy of the [Tree] in use to serve the request.
 func (c *cTx) Tree() *Tree {
 	return c.tree
 }
 
-// Fox returns the Router instance.
+// Fox returns the [Router] instance.
 func (c *cTx) Fox() *Router {
 	return c.fox
 }

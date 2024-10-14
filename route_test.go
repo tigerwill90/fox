@@ -196,7 +196,7 @@ func TestRoute_HydrateParams(t *testing.T) {
 func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
 	f := New()
 	for _, rte := range githubAPI {
-		require.NoError(t, f.Tree().Handle(rte.method, rte.path, emptyHandler))
+		require.NoError(t, onlyError(f.Tree().Handle(rte.method, rte.path, emptyHandler)))
 	}
 
 	for _, rte := range githubAPI {

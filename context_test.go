@@ -392,9 +392,9 @@ func TestContext_Fox(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
 	f := New()
-	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
 		assert.NotNil(t, c.Fox())
-	}))
+	})))
 
 	f.ServeHTTP(w, req)
 }
@@ -405,9 +405,9 @@ func TestContext_Tree(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
 	f := New()
-	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
 		assert.NotNil(t, c.Tree())
-	}))
+	})))
 
 	f.ServeHTTP(w, req)
 }
@@ -433,9 +433,11 @@ func TestContext_Scope(t *testing.T) {
 			assert.Equal(t, OptionsHandler, c.Scope())
 		}),
 	)
-	require.NoError(t, f.Handle(http.MethodGet, "/foo", func(c Context) {
+
+	_, err := f.Handle(http.MethodGet, "/foo", func(c Context) {
 		assert.Equal(t, RouteHandler, c.Scope())
-	}))
+	})
+	require.NoError(t, err)
 
 	cases := []struct {
 		name string
