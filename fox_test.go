@@ -3196,6 +3196,58 @@ func TestDataRace(t *testing.T) {
 	wg.Wait()
 }
 
+func TestTree_RaceDetector(t *testing.T) {
+	var wg sync.WaitGroup
+	start, wait := atomicSync()
+	var raceCount atomic.Uint32
+
+	tree := New().Tree()
+
+	wg.Add(len(staticRoutes) * 3)
+	for _, rte := range staticRoutes {
+		go func() {
+			wait()
+			defer func() {
+				if v := recover(); v != nil {
+					raceCount.Add(1)
+					assert.ErrorIs(t, v.(error), ErrConcurrentAccess)
+				}
+				wg.Done()
+			}()
+			tree.insert(rte.method, rte.path, "", 0, &Route{path: rte.path})
+		}()
+
+		go func() {
+			wait()
+			defer func() {
+				if v := recover(); v != nil {
+					raceCount.Add(1)
+					assert.ErrorIs(t, v.(error), ErrConcurrentAccess)
+				}
+				wg.Done()
+			}()
+			tree.update(rte.method, rte.path, "", &Route{path: rte.path})
+		}()
+
+		go func() {
+			wait()
+			defer func() {
+				if v := recover(); v != nil {
+					raceCount.Add(1)
+					assert.ErrorIs(t, v.(error), ErrConcurrentAccess)
+				}
+				wg.Done()
+			}()
+			tree.remove(rte.method, rte.path, "")
+		}()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	start()
+	wg.Wait()
+	assert.GreaterOrEqual(t, raceCount.Load(), uint32(1))
+}
+
 func TestConcurrentRequestHandling(t *testing.T) {
 	r := New()
 
