@@ -114,12 +114,12 @@ func (t *Tree) Delete(method, path string) error {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	path, _, _, err := parseRoute(path)
+	p, catchAllKey, _, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	if !t.remove(method, path) {
+	if !t.remove(method, p, catchAllKey) {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
@@ -426,7 +426,7 @@ func (t *Tree) update(method string, path, catchAllKey string, route *Route) err
 }
 
 // remove is not safe for concurrent use.
-func (t *Tree) remove(method, path string) bool {
+func (t *Tree) remove(method, path, catchAllKey string) bool {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -434,7 +434,7 @@ func (t *Tree) remove(method, path string) bool {
 	}
 
 	result := t.search(nds[index], path)
-	if result.classify() != exactMatch {
+	if result.classify() != exactMatch || catchAllKey != result.matched.catchAllKey {
 		return false
 	}
 
