@@ -2209,6 +2209,15 @@ func TestTree_DeleteRoot(t *testing.T) {
 	assert.Equal(t, 4, len(*tree.nodes.Load()))
 }
 
+func TestTree_DeleteWildcard(t *testing.T) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo/*{args}", emptyHandler)
+	assert.ErrorIs(t, f.Delete(http.MethodGet, "/foo"), ErrRouteNotFound)
+	f.MustHandle(http.MethodGet, "/foo/{bar}", emptyHandler)
+	assert.NoError(t, f.Delete(http.MethodGet, "/foo/{bar}"))
+	assert.True(t, f.Tree().Has(http.MethodGet, "/foo/*{args}"))
+}
+
 func TestTree_Methods(t *testing.T) {
 	f := New()
 	for _, rte := range githubAPI {
@@ -3125,7 +3134,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	for rte := range routes {
-		deleted := tree.remove(http.MethodGet, "/"+rte)
+		deleted := tree.remove(http.MethodGet, "/"+rte, "")
 		require.True(t, deleted)
 	}
 
