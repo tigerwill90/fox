@@ -120,17 +120,6 @@ type cTx struct {
 	tsr         bool
 }
 
-// Reset resets the [Context] to its initial state, attaching the provided [ResponseWriter] and [http.Request].
-func (c *cTx) Reset(w ResponseWriter, r *http.Request) {
-	c.req = r
-	c.w = w
-	c.tsr = false
-	c.cachedQuery = nil
-	c.route = nil
-	c.scope = RouteHandler
-	*c.params = (*c.params)[:0]
-}
-
 // Rehydrate updates the current [Context] to serve the provided [Route], bypassing the need for a full tree lookup.
 // It succeeds only if the [http.Request]'s URL path strictly matches the given [Route]. If successful, the internal state
 // of the context is updated, allowing the context to serve the route directly, regardless of whether the route
@@ -169,13 +158,13 @@ func (c *cTx) Rehydrate(route *Route) bool {
 
 // reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].
 // Caution: always pass the original [http.ResponseWriter] to this method, not the [ResponseWriter] itself, to
-// avoid wrapping the [ResponseWriter] within itself. Use wisely!
+// avoid wrapping the [ResponseWriter] within itself. Use wisely! Note that ServeHTTP is managing the reset of
+// c.route and c.tsr.
 func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
 	c.cachedQuery = nil
-	c.route = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 }
@@ -185,6 +174,17 @@ func (c *cTx) resetNil() {
 	c.w = nil
 	c.cachedQuery = nil
 	c.route = nil
+	*c.params = (*c.params)[:0]
+}
+
+// resetWithWriter resets the [Context] to its initial state, attaching the provided [ResponseWriter] and [http.Request].
+func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
+	c.req = r
+	c.w = w
+	c.tsr = false
+	c.cachedQuery = nil
+	c.route = nil
+	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 }
 

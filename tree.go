@@ -191,7 +191,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 	}
 
 	c := t.ctx.Get().(*cTx)
-	c.Reset(w, r)
+	c.resetWithWriter(w, r)
 
 	target := r.URL.Path
 	if len(r.URL.RawPath) > 0 {

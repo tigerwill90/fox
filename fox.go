@@ -373,6 +373,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if n.route.redirectTrailingSlash && target == CleanPath(target) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
+			c.route = nil
 			c.tsr = false
 			c.scope = RedirectHandler
 			fox.tsrRedirect(c)
@@ -384,6 +385,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
 	// automatic option handler or middleware)
 	*c.params = (*c.params)[:0]
+	c.route = nil
 	c.tsr = false
 
 NoMethodFallback:
