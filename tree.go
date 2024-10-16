@@ -38,6 +38,7 @@ type Tree struct {
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
+	race      atomic.Uint32
 }
 
 // Handle registers a new handler for the given method and path. On success, it returns the newly registered [Route].
@@ -220,6 +221,11 @@ func (t *Tree) Iter() Iter {
 // parseRoute before.
 func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
+	if !t.race.CompareAndSwap(0, 1) {
+		panic(ErrConcurrentAccess)
+	}
+	defer t.race.Store(0)
+
 	var rootNode *node
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -394,6 +400,11 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 // update is not safe for concurrent use.
 func (t *Tree) update(method string, path, catchAllKey string, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
+	if !t.race.CompareAndSwap(0, 1) {
+		panic(ErrConcurrentAccess)
+	}
+	defer t.race.Store(0)
+
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
@@ -427,6 +438,12 @@ func (t *Tree) update(method string, path, catchAllKey string, route *Route) err
 
 // remove is not safe for concurrent use.
 func (t *Tree) remove(method, path, catchAllKey string) bool {
+	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
+	if !t.race.CompareAndSwap(0, 1) {
+		panic(ErrConcurrentAccess)
+	}
+	defer t.race.Store(0)
+
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
