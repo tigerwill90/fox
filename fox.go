@@ -172,7 +172,6 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) NewTree() *Tree {
 	tree := new(Tree)
-	tree.mws = fox.mws
 	tree.fox = fox
 
 	// Pre instantiate nodes for common http verb

@@ -34,7 +34,6 @@ type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
 	fox   *Router
-	mws   []middleware
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
@@ -954,7 +953,7 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 		ipStrategy:            t.fox.ipStrategy,
 		hbase:                 handler,
 		path:                  path,
-		mws:                   t.mws,
+		mws:                   t.fox.mws,
 		redirectTrailingSlash: t.fox.redirectTrailingSlash,
 		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
 	}
