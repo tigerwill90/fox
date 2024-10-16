@@ -2755,6 +2755,13 @@ func TestRouteMiddleware(t *testing.T) {
 	assert.True(t, c2)
 }
 
+func TestMiddlewareLength(t *testing.T) {
+	f := New(DefaultOptions())
+	r := f.MustHandle(http.MethodGet, "/", emptyHandler, WithMiddleware(Recovery(), Logger()))
+	assert.Len(t, f.mws, 2)
+	assert.Len(t, r.mws, 4)
+}
+
 func TestWithNotFoundHandler(t *testing.T) {
 	notFound := func(c Context) {
 		_ = c.String(http.StatusNotFound, "NOT FOUND\n")
