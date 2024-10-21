@@ -238,16 +238,6 @@ type skippedNode struct {
 	childIndex int
 }
 
-func appendCatchAll(path, catchAllKey string) string {
-	if catchAllKey != "" {
-		suffix := "*{" + catchAllKey + "}"
-		if !strings.HasSuffix(path, suffix) {
-			return path + suffix
-		}
-	}
-	return path
-}
-
 // param represents a parsed parameter and its end position in the path.
 type param struct {
 	key string
