@@ -188,6 +188,9 @@ func (fox *Router) NewTree() *Tree {
 			return tree.allocateContext()
 		},
 	}
+	tree.np = sync.Pool{
+		New: func() any { return tree.allocateNode() },
+	}
 
 	return tree
 }
@@ -343,11 +346,11 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	nds := *tree.nodes.Load()
 	index := findRootNode(r.Method, nds)
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], target, c, false)
+	n, tsr = tree.lookup(nds[index].children[0].Load(), target, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
 		c.tsr = tsr
@@ -404,11 +407,13 @@ NoMethodFallback:
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
+				if len(nds[i].children) > 0 {
+					if n, tsr := tree.lookup(nds[i].children[0].Load(), target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+						if sb.Len() > 0 {
+							sb.WriteString(", ")
+						}
+						sb.WriteString(nds[i].key)
 					}
-					sb.WriteString(nds[i].key)
 				}
 			}
 		}
@@ -425,15 +430,18 @@ NoMethodFallback:
 		var sb strings.Builder
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
-				if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
+				if len(nds[i].children) > 0 {
+					if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+						if sb.Len() > 0 {
+							sb.WriteString(", ")
+						}
+						sb.WriteString(nds[i].key)
 					}
-					sb.WriteString(nds[i].key)
 				}
 			}
 		}
 		if sb.Len() > 0 {
+			// TODO maybe should add OPTIONS ?
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
 			fox.noMethod(c)
@@ -615,6 +623,7 @@ func parseRoute(path string) (string, string, int, error) {
 func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 
+	// TODO, we have to revise that
 	if n.isCatchAll() {
 		routes = append(routes, n.route.path)
 		return routes

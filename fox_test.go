@@ -3525,3 +3525,25 @@ func ExampleTree_Has() {
 func onlyError[T any](_ T, err error) error {
 	return err
 }
+
+func TestX(t *testing.T) {
+	f := New(WithIgnoreTrailingSlash(true))
+	tree := f.Tree()
+	// require.NoError(t, tree.insert("GET", "/foo/*{args}", "args", 1, &Route{path: "/foo/*{args}"}))
+	// require.NoError(t, tree.insert("GET", "/foo/", "", 1, &Route{path: "/foo/"}))
+	require.NoError(t, tree.insert("GET", "/foo/*{args}", "", 1, &Route{path: "/foo/*{args}"}))
+	// require.NoError(t, tree.insert("GET", "/{x}/a/b/c/trackk", "", 1, &Route{path: "/{x}/a/b/c/trackk"}))
+
+	nds := *tree.nodes.Load()
+	fmt.Println(nds[0])
+	c := newTestContextTree(tree)
+	n, tsr := tree.lookup(nds[0].children[0].Load(), "/foo/", c, false)
+	fmt.Println("yolo", n, tsr, c.params)
+	// TODO tests
+	// - tsr priority rollback
+	// - wildcard suffix & wildcard infix
+	// - named parameter & wildcard infix
+	// - static & wildcard infix
+	// - empty infix wildcard
+	// current.key[current.params[paramKeyCnt].end:] (OK)
+}
