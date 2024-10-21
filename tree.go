@@ -531,11 +531,7 @@ const (
 	bracketDelim = '{'
 )
 
-func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
-	/*	if len(rootNode.children) == 0 {
-		return nil, false
-	}*/
-
+func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
@@ -544,8 +540,7 @@ func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, 
 		parent                  *node
 	)
 
-	// current := rootNode.children[0].Load()
-	current := rootNode
+	current := target
 	*c.skipNds = (*c.skipNds)[:0]
 
 Walk:
@@ -556,10 +551,10 @@ Walk:
 				break
 			}
 
-			x := string(current.key[i])
-			y := string(path[charsMatched])
-			_ = x
-			_ = y
+			/*			x := string(current.key[i])
+						y := string(path[charsMatched])
+						_ = x
+						_ = y*/
 
 			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == '*' {
 				if current.key[i] == '{' {
@@ -642,16 +637,16 @@ Walk:
 
 					newCtx := t.ctx.Get().(*cTx)
 					startPath := charsMatched
-					y := path[charsMatched:]
-					_ = y
+					/*					y := path[charsMatched:]
+										_ = y*/
 					for {
 						idx := strings.IndexByte(path[charsMatched:], slashDelim)
 						// idx >= 0, we have a next segment with at least one char
 						if idx > 0 {
 							*newCtx.params = (*newCtx.params)[:0]
 							charsMatched += idx
-							x := path[charsMatched:]
-							_ = x
+							/*							x := path[charsMatched:]
+														_ = x*/
 							newNode, newTsr := t.lookup(interNode, path[charsMatched:], newCtx, false)
 							if newNode != nil {
 								t.np.Put(interNode)
@@ -689,8 +684,8 @@ Walk:
 						// char matched need to be re ajusted with probabley len(path
 						charsMatched += len(path[charsMatched:])
 						// and this point len(path) == charsMatched
-						ctrl := len(path) == charsMatched
-						_ = ctrl
+						/*						ctrl := len(path) == charsMatched
+												_ = ctrl*/
 
 						break Walk
 					}
