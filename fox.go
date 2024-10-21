@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"path"
@@ -431,7 +432,7 @@ NoMethodFallback:
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i], target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := tree.lookup(nds[i].children[0].Load(), target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}
@@ -544,16 +545,16 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func parseRoute(path string) (string, string, int, error) {
+func parseRoute(path string) (uint32, error) {
 
 	if !strings.HasPrefix(path, "/") {
-		return "", "", -1, fmt.Errorf("%w: path must start with '/'", ErrInvalidRoute)
+		return 0, fmt.Errorf("%w: path must start with '/'", ErrInvalidRoute)
 	}
 
 	state := stateDefault
 	previous := stateDefault
-	startCatchAll := 0
-	paramCnt := 0
+	paramCnt := uint32(0)
+	countStatic := 0
 	inParam := false
 
 	i := 0
@@ -562,76 +563,87 @@ func parseRoute(path string) (string, string, int, error) {
 		case stateParam:
 			if path[i] == '}' {
 				if !inParam {
-					return "", "", -1, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
+					return 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
-				if previous != stateCatchAll {
-					if i+1 < len(path) && path[i+1] != '/' {
-						return "", "", -1, fmt.Errorf("%w: unexpected character after '{param}'", ErrInvalidRoute)
-					}
-				} else {
-					if i+1 != len(path) {
-						return "", "", -1, fmt.Errorf("%w: catch-all '*{params}' are allowed only at the end of a route", ErrInvalidRoute)
-					}
+				if i+1 < len(path) && path[i+1] != '/' {
+					return 0, fmt.Errorf("%w: unexpected character after '{param}'", ErrInvalidRoute)
 				}
+
+				countStatic = 0
+				previous = state
 				state = stateDefault
 				i++
 				continue
 			}
 
 			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
-				return "", "", -1, fmt.Errorf("%w: unexpected character in '{params}'", ErrInvalidRoute)
+				return 0, fmt.Errorf("%w: unexpected character in '{params}'", ErrInvalidRoute)
 			}
 			inParam = true
 			i++
-
 		case stateCatchAll:
-			if path[i] != '{' {
-				return "", "", -1, fmt.Errorf("%w: unexpected character after '*' catch-all delimiter", ErrInvalidRoute)
-			}
-			startCatchAll = i
-			previous = state
-			state = stateParam
-			i++
+			if path[i] == '}' {
+				if !inParam {
+					return 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
+				}
+				inParam = false
+				if i+1 < len(path) && path[i+1] != '/' {
+					return 0, fmt.Errorf("%w: unexpected character after '*{param}'", ErrInvalidRoute)
+				}
 
+				if previous == stateCatchAll && countStatic <= 1 {
+					return 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
+				}
+
+				countStatic = 0
+				previous = state
+				state = stateDefault
+				i++
+				continue
+			}
+
+			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
+				return 0, fmt.Errorf("%w: unexpected character in '*{params}'", ErrInvalidRoute)
+			}
+			inParam = true
+			i++
 		default:
 			if path[i] == '{' {
 				state = stateParam
 				paramCnt++
 			} else if path[i] == '*' {
 				state = stateCatchAll
+				i++
 				paramCnt++
+			} else {
+				countStatic++
 			}
+
+			if paramCnt > math.MaxUint16 {
+				return 0, fmt.Errorf("%w: too many params (%d)", ErrInvalidRoute, paramCnt)
+			}
+
 			i++
 		}
 	}
 
 	if state == stateParam {
-		return "", "", -1, fmt.Errorf("%w: unclosed '{params}'", ErrInvalidRoute)
+		return 0, fmt.Errorf("%w: unclosed '{params}'", ErrInvalidRoute)
 	}
+
 	if state == stateCatchAll {
-		return "", "", -1, fmt.Errorf("%w: missing '{params}' after '*' catch-all delimiter", ErrInvalidRoute)
+		if path[len(path)-1] == '*' {
+			return 0, fmt.Errorf("%w: missing '{params}' after '*' catch-all delimiter", ErrInvalidRoute)
+		}
+		return 0, fmt.Errorf("%w: unclosed '*{params}'", ErrInvalidRoute)
 	}
 
-	if startCatchAll > 0 {
-		return path[:startCatchAll-1], path[startCatchAll+1 : len(path)-1], paramCnt, nil
-	}
-
-	return path, "", paramCnt, nil
+	return paramCnt, nil
 }
 
 func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
-
-	// TODO, we have to revise that
-	if n.isCatchAll() {
-		routes = append(routes, n.route.path)
-		return routes
-	}
-
-	if n.paramChildIndex >= 0 {
-		n = n.children[n.paramChildIndex].Load()
-	}
 	it := newRawIterator(n)
 	for it.hasNext() {
 		routes = append(routes, it.current.route.path)

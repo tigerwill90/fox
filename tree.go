@@ -6,7 +6,6 @@ package fox
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -58,19 +57,14 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, n, err := parseRoute(path)
+	n, err := parseRoute(path)
 	if err != nil {
 		return nil, err
 	}
 
-	if n < 0 || n > math.MaxUint32 {
-		return nil, fmt.Errorf("params count overflows (%d)", n)
-	}
-
 	rte := t.newRoute(path, handler, opts...)
 
-	// nolint:gosec
-	if err = t.insert(method, p, catchAllKey, uint32(n), rte); err != nil {
+	if err = t.insert(method, rte, n); err != nil {
 		return nil, err
 	}
 	return rte, nil
@@ -92,13 +86,13 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, _, err := parseRoute(path)
+	_, err := parseRoute(path)
 	if err != nil {
 		return nil, err
 	}
 
 	rte := t.newRoute(path, handler, opts...)
-	if err = t.update(method, p, catchAllKey, rte); err != nil {
+	if err = t.update(method, rte); err != nil {
 		return nil, err
 	}
 
@@ -115,12 +109,12 @@ func (t *Tree) Delete(method, path string) error {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, _, err := parseRoute(path)
+	_, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	if !t.remove(method, p, catchAllKey) {
+	if !t.remove(method, path) {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
@@ -141,13 +135,13 @@ func (t *Tree) Has(method, path string) bool {
 func (t *Tree) Route(method, path string) *Route {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		return nil
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c, true)
+	n, tsr := t.lookup(nds[index].children[0].Load(), path, c, true)
 	c.Close()
 	if n != nil && !tsr && n.route.path == path {
 		return n.route
@@ -163,13 +157,13 @@ func (t *Tree) Route(method, path string) *Route {
 func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		return nil, false
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c, true)
+	n, tsr := t.lookup(nds[index].children[0].Load(), path, c, true)
 	c.Close()
 	if n != nil {
 		return n.route, tsr
@@ -186,8 +180,7 @@ func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(r.Method, nds)
-
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		return
 	}
 
@@ -200,7 +193,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 		target = r.URL.RawPath
 	}
 
-	n, tsr := t.lookup(nds[index], target, c, false)
+	n, tsr := t.lookup(nds[index].children[0].Load(), target, c, false)
 	if n != nil {
 		c.route = n.route
 		c.tsr = tsr
@@ -219,7 +212,7 @@ func (t *Tree) Iter() Iter {
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
-func (t *Tree) insert(method, path, _ string, paramsN uint32, route *Route) error {
+func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if !t.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
@@ -236,7 +229,7 @@ func (t *Tree) insert(method, path, _ string, paramsN uint32, route *Route) erro
 		rootNode = nds[index]
 	}
 
-	// isCatchAll := catchAllKey != ""
+	path := route.path
 
 	result := t.search(rootNode, path)
 	switch result.classify() {
@@ -247,10 +240,6 @@ func (t *Tree) insert(method, path, _ string, paramsN uint32, route *Route) erro
 		// └── am
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
-			// TODO it's probably no needed anymore since node key contain now also the catch-all part
-			/*			if result.matched.isCatchAll() && isCatchAll {
-						return newConflictErr(method, path, getRouteConflict(result.matched))
-					}*/
 			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.path, result.matched.route.path)
 		}
 
@@ -404,12 +393,14 @@ func (t *Tree) insert(method, path, _ string, paramsN uint32, route *Route) erro
 }
 
 // update is not safe for concurrent use.
-func (t *Tree) update(method string, path, _ string, route *Route) error {
+func (t *Tree) update(method string, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if !t.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
 	}
 	defer t.race.Store(0)
+
+	path := route.path
 
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -421,13 +412,6 @@ func (t *Tree) update(method string, path, _ string, route *Route) error {
 	if !result.isExactMatch() || !result.matched.isLeaf() {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
-
-	// TODO this is probably not needed any more
-	/*	if catchAllKey != result.matched.catchAllKey {
-		err := newConflictErr(method, path, catchAllKey, []string{result.matched.route.path})
-		err.isUpdate = true
-		return err
-	}*/
 
 	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
 	// the matched one with the updated/added value (handler and wildcard).
@@ -444,7 +428,7 @@ func (t *Tree) update(method string, path, _ string, route *Route) error {
 }
 
 // remove is not safe for concurrent use.
-func (t *Tree) remove(method, path, _ string) bool {
+func (t *Tree) remove(method, path string) bool {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if !t.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
@@ -458,7 +442,7 @@ func (t *Tree) remove(method, path, _ string) bool {
 	}
 
 	result := t.search(nds[index], path)
-	if result.classify() != exactMatch /*|| (TODO probably not needed anymore) catchAllKey != result.matched.catchAllKey */ {
+	if result.classify() != exactMatch {
 		return false
 	}
 
@@ -658,10 +642,12 @@ Walk:
 
 					newCtx := t.ctx.Get().(*cTx)
 					startPath := charsMatched
+					y := path[charsMatched:]
+					_ = y
 					for {
 						idx := strings.IndexByte(path[charsMatched:], slashDelim)
-						// idx >= 0, we have a next segment to evaluate
-						if idx >= 0 {
+						// idx >= 0, we have a next segment with at least one char
+						if idx > 0 {
 							*newCtx.params = (*newCtx.params)[:0]
 							charsMatched += idx
 							x := path[charsMatched:]
@@ -757,11 +743,11 @@ Walk:
 			}
 
 			// Here we have a next static segment and possibly wildcard children, so we save them for late evaluation if needed.
-			if current.paramChildIndex >= 0 {
-				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.paramChildIndex})
-			}
 			if current.wildcardChildIndex >= 0 {
 				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
+			}
+			if current.paramChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.paramChildIndex})
 			}
 
 			parent = current
@@ -812,22 +798,11 @@ Walk:
 	// From here we are always in a leaf
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
-			// Exact match, note that if we match a catch-all node
-			/*			if !lazy && current.catchAllKey != "" {
-						*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
-						// Exact match, tsr is always false
-						return current, false
-					}*/
 			// Exact match, tsr is always false
 			return current, false
 		}
 		if charsMatchedInNodeFound < len(current.key) {
 			// Key end mid-edge
-			if !lazy && current.params[paramKeyCnt].catchAll {
-				*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[charsMatched:]})
-				// Exact match, tsr is always false
-				return current, false
-			}
 			if !tsr {
 				if strings.HasSuffix(path, "/") {
 					// Tsr recommendation: remove the extra trailing slash (got an exact match)
@@ -878,16 +853,6 @@ Walk:
 
 	// Incomplete match to end of edge
 	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
-		/*		if current.catchAllKey != "" {
-					if !lazy {
-						*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
-						// Same as exact match, no tsr recommendation
-						return current, false
-					}
-					// Same as exact match, no tsr recommendation
-					return current, false
-				}
-		*/
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		if !tsr {
 			remainingKeySuffix := path[charsMatched:]
@@ -919,27 +884,6 @@ Walk:
 Backtrack:
 	if hasSkpNds {
 		skipped := c.skipNds.pop()
-		/*		if skipped.n.paramChildIndex < 0 || skipped.seen {
-				// skipped is catch all
-				current = skipped.n
-				*c.params = (*c.params)[:skipped.paramCnt]
-
-				if !lazy {
-					*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
-					// Same as exact match, no tsr recommendation
-					return current, false
-				}
-				// Same as exact match, no tsr recommendation
-				return current, false
-			}*/
-
-		/*		// Could be a catch-all node with child param
-				// /foo/*{any}
-				// /foo/{bar}
-				// In this case we evaluate first the child param node and fall back to the catch-all.
-				if skipped.n.catchAllKey != "" {
-					*c.skipNds = append(*c.skipNds, skippedNode{skipped.n, skipped.pathIndex, skipped.paramCnt, true})
-				}*/
 
 		parent = skipped.n
 		current = skipped.n.children[skipped.childIndex].Load()

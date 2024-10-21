@@ -708,7 +708,7 @@ func TestRouterWildcard(t *testing.T) {
 	}{
 		{"/github.com/etf1/*{repo}", "/github.com/etf1/mux"},
 		{"/github.com/johndoe/*{repo}", "/github.com/johndoe/buzz"},
-		{"/foo/bar/*{args}", "/foo/bar/"},
+		{"/foo/bar/*{args}", "/foo/bar/baz"},
 		{"/filepath/path=*{path}", "/filepath/path=/file.txt"},
 	}
 
@@ -720,7 +720,7 @@ func TestRouterWildcard(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, route.key, nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
-		require.Equalf(t, http.StatusOK, w.Code, "route: key: %s, path: %s", route.path)
+		require.Equalf(t, http.StatusOK, w.Code, "route: key: %s, path: %s", route.key, route.path)
 		assert.Equal(t, route.key, w.Body.String())
 	}
 }
@@ -750,9 +750,9 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], rte, c, false)
-		require.NotNil(t, n)
-		require.NotNil(t, n.route)
+		n, tsr := tree.lookup(nds[0].children[0].Load(), rte, c, false)
+		require.NotNilf(t, n, "route: %s", rte)
+		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
 		assert.Equal(t, rte, n.route.path)
 	}
@@ -790,7 +790,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c, false)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
@@ -1168,7 +1168,7 @@ func TestOverlappingRoute(t *testing.T) {
 		},
 		{
 			name: "backtrack to most specific catch-all with an exact match",
-			path: "/foo/bar/",
+			path: "/foo/bar/x/y/z",
 			routes: []string{
 				"/foo/{id_1}/abc",
 				"/foo/{id_1}/*{args}",
@@ -1182,7 +1182,25 @@ func TestOverlappingRoute(t *testing.T) {
 					Value: "bar",
 				},
 				{
-					Key: "args",
+					Key:   "args",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "backtrack to most specific catch-all with an exact match",
+			path: "/foo/bar/",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/*{args}",
+				"/foo/{id_1}/{id_2}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bar/",
 				},
 			},
 		},
@@ -1244,7 +1262,7 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c, false)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -1258,7 +1276,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, tsr = tree.lookup(nds[0], tc.path, c, true)
+			n, tsr = tree.lookup(nds[0].children[0].Load(), tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -1286,7 +1304,7 @@ func TestInsertConflict(t *testing.T) {
 			}{
 				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
 				{path: "/john/*{y}", wantErr: ErrRouteConflict, wantMatch: []string{"/john/*{x}"}},
-				{path: "/john/", wantErr: ErrRouteExist, wantMatch: nil},
+				{path: "/john/", wantErr: nil, wantMatch: nil},
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
@@ -1296,7 +1314,7 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/fox/", wantErr: nil, wantMatch: nil},
-				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: nil},
+				{path: "/fox/*{args}", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
@@ -1341,12 +1359,18 @@ func TestInsertConflict(t *testing.T) {
 			}{
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/gchq/*{id}", wantErr: nil, wantMatch: nil},
+				{path: "/gchq/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/gchq/*{id}"}},
 				{path: "/foo{id}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/a{id}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/baz", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
+				{path: "/ironman/*{id}/bar", wantErr: nil, wantMatch: nil},
+				{path: "/ironman/*{id}/baz", wantErr: nil, wantMatch: nil},
+				{path: "/ironman/*{id}", wantErr: nil, wantMatch: nil},
+				{path: "/ironman/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
 			},
 		},
 	}
@@ -1359,7 +1383,7 @@ func TestInsertConflict(t *testing.T) {
 				if err != nil {
 					assert.Nil(t, r)
 				}
-				assert.ErrorIs(t, err, rte.wantErr)
+				assert.ErrorIsf(t, err, rte.wantErr, "route: %s", rte.path)
 				if cErr, ok := err.(*RouteConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.Matched)
 				}
@@ -1398,21 +1422,21 @@ func TestUpdateConflict(t *testing.T) {
 			name:      "wildcard have different name",
 			routes:    []string{"/foo/bar", "/foo/*{args}"},
 			update:    "/foo/*{all}",
-			wantErr:   ErrRouteConflict,
+			wantErr:   ErrRouteNotFound,
 			wantMatch: []string{"/foo/*{args}"},
 		},
 		{
 			name:      "replacing non wildcard by wildcard",
 			routes:    []string{"/foo/bar", "/foo/"},
 			update:    "/foo/*{all}",
-			wantErr:   ErrRouteConflict,
+			wantErr:   ErrRouteNotFound,
 			wantMatch: []string{"/foo/"},
 		},
 		{
 			name:      "replacing wildcard by non wildcard",
 			routes:    []string{"/foo/bar", "/foo/*{args}"},
 			update:    "/foo/",
-			wantErr:   ErrRouteConflict,
+			wantErr:   ErrRouteNotFound,
 			wantMatch: []string{"/foo/*{args}"},
 		},
 	}
@@ -1428,9 +1452,6 @@ func TestUpdateConflict(t *testing.T) {
 				assert.Nil(t, r)
 			}
 			assert.ErrorIs(t, err, tc.wantErr)
-			if cErr, ok := err.(*RouteConflictError); ok {
-				assert.Equal(t, tc.wantMatch, cErr.Matched)
-			}
 		})
 	}
 }
@@ -1503,145 +1524,172 @@ func TestUpdateRoute(t *testing.T) {
 
 func TestParseRoute(t *testing.T) {
 	cases := []struct {
-		wantErr         error
-		name            string
-		path            string
-		wantCatchAllKey string
-		wantPath        string
-		wantN           int
+		wantErr error
+		name    string
+		path    string
+		wantN   uint32
 	}{
 		{
-			name:     "valid static route",
-			path:     "/foo/bar",
-			wantPath: "/foo/bar",
+			name: "valid static route",
+			path: "/foo/bar",
 		},
 		{
-			name:            "valid catch all route",
-			path:            "/foo/bar/*{arg}",
-			wantN:           1,
-			wantCatchAllKey: "arg",
-			wantPath:        "/foo/bar/",
+			name:  "valid catch all route",
+			path:  "/foo/bar/*{arg}",
+			wantN: 1,
 		},
 		{
-			name:     "valid param route",
-			path:     "/foo/bar/{baz}",
-			wantN:    1,
-			wantPath: "/foo/bar/{baz}",
+			name:  "valid param route",
+			path:  "/foo/bar/{baz}",
+			wantN: 1,
 		},
 		{
-			name:     "valid multi params route",
-			path:     "/foo/{bar}/{baz}",
-			wantN:    2,
-			wantPath: "/foo/{bar}/{baz}",
+			name:  "valid multi params route",
+			path:  "/foo/{bar}/{baz}",
+			wantN: 2,
 		},
 		{
-			name:     "valid same params route",
-			path:     "/foo/{bar}/{bar}",
-			wantN:    2,
-			wantPath: "/foo/{bar}/{bar}",
+			name:  "valid same params route",
+			path:  "/foo/{bar}/{bar}",
+			wantN: 2,
 		},
 		{
-			name:            "valid multi params and catch all route",
-			path:            "/foo/{bar}/{baz}/*{arg}",
-			wantN:           3,
-			wantCatchAllKey: "arg",
-			wantPath:        "/foo/{bar}/{baz}/",
+			name:  "valid multi params and catch all route",
+			path:  "/foo/{bar}/{baz}/*{arg}",
+			wantN: 3,
 		},
 		{
-			name:     "valid inflight param",
-			path:     "/foo/xyz:{bar}",
-			wantN:    1,
-			wantPath: "/foo/xyz:{bar}",
+			name:  "valid inflight param",
+			path:  "/foo/xyz:{bar}",
+			wantN: 1,
 		},
 		{
-			name:            "valid inflight catchall",
-			path:            "/foo/xyz:*{bar}",
-			wantN:           1,
-			wantPath:        "/foo/xyz:",
-			wantCatchAllKey: "bar",
+			name:  "valid inflight catchall",
+			path:  "/foo/xyz:*{bar}",
+			wantN: 1,
 		},
 		{
-			name:            "valid multi inflight param and catch all",
-			path:            "/foo/xyz:{bar}/abc:{bar}/*{arg}",
-			wantN:           3,
-			wantCatchAllKey: "arg",
-			wantPath:        "/foo/xyz:{bar}/abc:{bar}/",
+			name:  "valid multi inflight param and catch all",
+			path:  "/foo/xyz:{bar}/abc:{bar}/*{arg}",
+			wantN: 3,
+		},
+		{
+			name:  "catch all with arg in the middle of the route",
+			path:  "/foo/bar/*{bar}/baz",
+			wantN: 1,
+		},
+		{
+			name:  "multiple catch all suffix and inflight with arg in the middle of the route",
+			path:  "/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
+			wantN: 4,
+		},
+		{
+			name:  "inflight catch all with arg in the middle of the route",
+			path:  "/foo/bar/damn*{bar}/baz",
+			wantN: 1,
+		},
+		{
+			name:  "catch all with arg in the middle of the route and param after",
+			path:  "/foo/bar/*{bar}/{baz}",
+			wantN: 2,
 		},
 		{
 			name:    "missing prefix slash",
 			path:    "foo/bar",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "empty parameter",
 			path:    "/foo/bar{}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "missing arguments name after catch all",
 			path:    "/foo/bar/*",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "missing arguments name after param",
 			path:    "/foo/bar/{",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "catch all in the middle of the route",
 			path:    "/foo/bar/*/baz",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
-		},
-		{
-			name:    "catch all with arg in the middle of the route",
-			path:    "/foo/bar/*{bar}/baz",
-			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "unexpected character in param",
 			path:    "/foo/{{bar}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "unexpected character in param",
 			path:    "/foo/{*bar}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "in flight catch-all after param in one route segment",
 			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "multiple param in one route segment",
 			path:    "/foo/{bar}{baz}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "in flight param after catch all",
 			path:    "/foo/*{args}{param}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive catch all with no slash",
+			path:    "/foo/*{args}*{param}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive catch all",
+			path:    "/foo/*{args}/*{param}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive catch all with inflight",
+			path:    "/foo/ab*{args}/*{param}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected char after inflight catch all",
+			path:    "/foo/ab*{args}a",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected char after catch all",
+			path:    "/foo/*{args}a",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path, key, n, err := parseRoute(tc.path)
+			n, err := parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
-			assert.Equal(t, tc.wantCatchAllKey, key)
-			assert.Equal(t, tc.wantPath, path)
 		})
 	}
 }
@@ -1718,11 +1766,11 @@ func TestTree_LookupTsr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, path := range tc.paths {
-				require.NoError(t, tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler)))
+				require.NoError(t, tree.insert(http.MethodGet, tree.newRoute(path, emptyHandler), 0))
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, got := tree.lookup(nds[0], tc.key, c, true)
+			n, got := tree.lookup(nds[0].children[0].Load(), tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -3067,11 +3115,11 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			continue
 		}
 		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
-		if err := tree.insert(http.MethodGet, path, "", 3, tree.newRoute(path, emptyHandler)); err == nil {
+		if err := tree.insert(http.MethodGet, tree.newRoute(path, emptyHandler), 3); err == nil {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -3091,14 +3139,12 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		var catchAllKey string
-		f.Fuzz(&catchAllKey)
 		if rte == "" {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, tree.newRoute(appendCatchAll(rte, catchAllKey), emptyHandler))
-		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
+			_ = tree.insert(http.MethodGet, tree.newRoute(rte, emptyHandler), 0)
+		}, fmt.Sprintf("rte: %s", rte))
 	}
 }
 
@@ -3119,7 +3165,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 
 	for rte := range routes {
 		path := "/" + rte
-		err := tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler))
+		err := tree.insert(http.MethodGet, tree.newRoute(path, emptyHandler), 0)
 		require.NoError(t, err)
 	}
 
@@ -3130,18 +3176,18 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], "/"+rte, c, true)
+		n, tsr := tree.lookup(nds[0].children[0].Load(), "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.NotNilf(t, n.route, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.route.path)
 		path := "/" + rte
-		require.NoError(t, tree.update(http.MethodGet, path, "", tree.newRoute(path, emptyHandler)))
+		require.NoError(t, tree.update(http.MethodGet, tree.newRoute(path, emptyHandler)))
 	}
 
 	for rte := range routes {
-		deleted := tree.remove(http.MethodGet, "/"+rte, "")
+		deleted := tree.remove(http.MethodGet, "/"+rte)
 		require.True(t, deleted)
 	}
 
@@ -3221,7 +3267,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.insert(rte.method, rte.path, "", 0, &Route{path: rte.path})
+			_ = tree.insert(rte.method, &Route{path: rte.path}, 0)
 		}()
 
 		go func() {
@@ -3233,7 +3279,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.update(rte.method, rte.path, "", &Route{path: rte.path})
+			_ = tree.update(rte.method, &Route{path: rte.path})
 		}()
 
 		go func() {
@@ -3245,7 +3291,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.remove(rte.method, rte.path, "")
+			tree.remove(rte.method, rte.path)
 		}()
 	}
 
@@ -3343,7 +3389,7 @@ func TestNode_String(t *testing.T) {
 	nds := *tree.nodes.Load()
 
 	want := `path: GET
-      path: /foo/{bar}/ [catchAll] [leaf=/foo/{bar}/*{baz}] [bar (10)]`
+      path: /foo/{bar}/*{baz} [leaf=/foo/{bar}/*{baz}] [bar (10), baz (-1)]`
 	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
 }
 
@@ -3529,16 +3575,23 @@ func onlyError[T any](_ T, err error) error {
 func TestX(t *testing.T) {
 	f := New(WithIgnoreTrailingSlash(true))
 	tree := f.Tree()
-	// require.NoError(t, tree.insert("GET", "/foo/*{args}", "args", 1, &Route{path: "/foo/*{args}"}))
+
+	require.NoError(t, tree.insert("GET", &Route{path: "/foo/"}, 0))
+	require.NoError(t, tree.insert("GET", &Route{path: "/foo/*{args}"}, 1))
+	require.NoError(t, tree.insert("GET", &Route{path: "/foo/*{args}/bat"}, 1))
+	require.NoError(t, tree.insert("GET", &Route{path: "/foo/{ab}"}, 1))
+
 	// require.NoError(t, tree.insert("GET", "/foo/", "", 1, &Route{path: "/foo/"}))
-	require.NoError(t, tree.insert("GET", "/foo/*{args}", "", 1, &Route{path: "/foo/*{args}"}))
+	// require.NoError(t, tree.insert("GET", "/foo/*{args}", "", 1, &Route{path: "/foo/*{args}"}))
 	// require.NoError(t, tree.insert("GET", "/{x}/a/b/c/trackk", "", 1, &Route{path: "/{x}/a/b/c/trackk"}))
+
+	// require.NoError(t, tree.insert("GET", &Route{path: "/foo/*{args}/bam"}, 1))
 
 	nds := *tree.nodes.Load()
 	fmt.Println(nds[0])
-	c := newTestContextTree(tree)
-	n, tsr := tree.lookup(nds[0].children[0].Load(), "/foo/", c, false)
-	fmt.Println("yolo", n, tsr, c.params)
+	/*	c := newTestContextTree(tree)
+		n, tsr := tree.lookup(nds[0].children[0].Load(), "/foo/a/b/c/baz", c, false)
+		fmt.Println("yolo", n, tsr, c.params)*/
 	// TODO tests
 	// - tsr priority rollback
 	// - wildcard suffix & wildcard infix

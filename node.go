@@ -78,10 +78,6 @@ func (n *node) isLeaf() bool {
 	return n.route != nil
 }
 
-func (n *node) isCatchAll() bool {
-	return n.wildcardChildIndex >= 0
-}
-
 func (n *node) hasWildcard() bool {
 	return len(n.params) > 0
 }
@@ -191,26 +187,14 @@ func (n *node) string(space int) string {
 		sb.WriteString(" [paramIdx=")
 		sb.WriteString(strconv.Itoa(n.paramChildIndex))
 		sb.WriteByte(']')
-		if n.hasWildcard() {
-			sb.WriteString(" [")
-			for i, param := range n.params {
-				if i > 0 {
-					sb.WriteByte(',')
-				}
-				sb.WriteString(param.key)
-				sb.WriteString(" (")
-				sb.WriteString(strconv.Itoa(param.end))
-				sb.WriteString(")")
-			}
-			sb.WriteString("]")
-		}
-
 	}
 
-	// TODO we have to revise that
-	if n.isCatchAll() {
-		sb.WriteString(" [catchAll]")
+	if n.wildcardChildIndex >= 0 {
+		sb.WriteString(" [wildcardIdx=")
+		sb.WriteString(strconv.Itoa(n.wildcardChildIndex))
+		sb.WriteByte(']')
 	}
+
 	if n.isLeaf() {
 		sb.WriteString(" [leaf=")
 		sb.WriteString(n.route.path)
@@ -220,7 +204,7 @@ func (n *node) string(space int) string {
 		sb.WriteString(" [")
 		for i, param := range n.params {
 			if i > 0 {
-				sb.WriteByte(',')
+				sb.WriteString(", ")
 			}
 			sb.WriteString(param.key)
 			sb.WriteString(" (")
