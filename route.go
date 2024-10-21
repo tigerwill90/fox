@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// Annotations is a collection of Annotation key-value pairs that can be attached to routes.
-type Annotations []Annotation
-
 // Annotation represents a single key-value pair that provides metadata for a route.
 // Annotations are typically used to store information that can be leveraged by middleware, handlers, or external
 // libraries to modify or customize route behavior.
@@ -25,7 +22,7 @@ type Route struct {
 	hall                  HandlerFunc
 	path                  string
 	mws                   []middleware
-	annots                Annotations
+	annots                []Annotation
 	redirectTrailingSlash bool
 	ignoreTrailingSlash   bool
 }
