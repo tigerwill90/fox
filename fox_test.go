@@ -509,6 +509,21 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	}
 }
 
+func BenchmarkInfixCatchAll(b *testing.B) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo/*{bar}/baz", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/a1/b22/c333/baz", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkLongParam(b *testing.B) {
 	r := New()
 	r.MustHandle(http.MethodGet, "/foo/{very_very_very_very_very_long_param}", emptyHandler)

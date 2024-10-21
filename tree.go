@@ -597,20 +597,14 @@ Walk:
 					idx := current.params[paramKeyCnt].end - charsMatchedInNodeFound
 					var interNode *node
 					if idx >= 0 {
-						// -1 since on the next incrementation, if any, 'i' are going to be incremented
-						// i += idx - 1
-						charsMatchedInNodeFound += idx
-
 						interNode = t.np.Get().(*node)
 						interNode.params = interNode.params[:0]
-						interNode = &node{
-							route:              current.route,
-							key:                current.key[current.params[paramKeyCnt].end:],
-							childKeys:          current.childKeys,
-							children:           current.children,
-							paramChildIndex:    current.paramChildIndex,
-							wildcardChildIndex: current.wildcardChildIndex,
-						}
+						interNode.route = current.route
+						interNode.key = current.key[current.params[paramKeyCnt].end:]
+						interNode.childKeys = current.childKeys
+						interNode.children = current.children
+						interNode.paramChildIndex = current.paramChildIndex
+						interNode.wildcardChildIndex = current.wildcardChildIndex
 						for _, ps := range current.params[paramKeyCnt+1:] { // paramKeyCnt+1 is safe since we have at least the current infix wildcard in params
 							interNode.params = append(interNode.params, param{
 								key: ps.key,
@@ -621,11 +615,11 @@ Walk:
 							})
 						}
 
+						charsMatchedInNodeFound += idx
+
 					} else if len(current.children) > 0 {
 						// Infix catch all
 						interNode = current.get(0)
-						// -1 since on the next incrementation, if any, 'i' are going to be incremented
-						// i += len(current.key[charsMatchedInNodeFound:]) - 1
 						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
 					} else {
 						// We are in an ending catch all node with no child, so it's a direct match
