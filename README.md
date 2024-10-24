@@ -110,7 +110,7 @@ Pattern /users/uuid:{id}
 ````
 
 #### Catch all parameter
-Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more non-empty path segments, 
+Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** path segments, 
 including slashes. They can be placed anywhere in the route path but **cannot be consecutive**. The matching segment are also 
 accessible via `fox.Context`
 
