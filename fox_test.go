@@ -2803,6 +2803,18 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:    "empty infix catch all",
+			path:    "/foo/bar/*{}/baz",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "empty ending catch all",
+			path:    "/foo/bar/baz/*{}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "unexpected character in param",
 			path:    "/foo/{{bar}",
 			wantErr: ErrInvalidRoute,
