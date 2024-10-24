@@ -402,17 +402,6 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	return cp
 }
 
-func copyParams(src, dst *Params) {
-	if cap(*src) > cap(*dst) {
-		// Grow dst to a least cap(src)
-		*dst = slices.Grow(*dst, cap(*src))
-	}
-	// cap(dst) >= cap(src)
-	// now constraint into len(src) & cap(src)
-	*dst = (*dst)[:len(*src):cap(*src)]
-	copy(*dst, *src)
-}
-
 // Scope returns the HandlerScope associated with the current Context.
 // This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
 func (c *cTx) Scope() HandlerScope {

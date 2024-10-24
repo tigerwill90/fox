@@ -210,11 +210,11 @@ func TestContext_Annotations(t *testing.T) {
 		"/foo",
 		emptyHandler,
 		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
-		WithAnnotation("john", 1),
+		WithAnnotations(Annotation{Key: "john", Value: 1}),
 	)
 	rte := f.Tree().Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.Equal(t, []Annotation{{"foo", "bar"}, {"foo", "baz"}, {"john", 1}}, slices.Collect(rte.Annotations()))
+	assert.Equal(t, []Annotation{{Key: "foo", Value: "bar"}, {Key: "foo", Value: "baz"}, {Key: "john", Value: 1}}, slices.Collect(rte.Annotations()))
 }
 
 func TestContext_Clone(t *testing.T) {

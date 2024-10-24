@@ -91,39 +91,57 @@ if errors.Is(err, fox.ErrRouteConflict) {
 ```
 
 #### Named parameters
-A route can be defined using placeholder (e.g `{name}`). The matching segment are recorder into `fox.Param` accessible 
-via `fox.Context`. `fox.Context.Params` provide an iterator to range over `fox.Param` and `fox.Context.Param` allow
-to retrieve directly the value of a parameter using the placeholder name.
+Routes can include named parameters using curly braces `{}` to match exactly one non-empty path segment. The matching 
+segment are recorder into `fox.Param` accessible via `fox.Context`. `fox.Context.Params` provide an iterator to range 
+over `fox.Param` and `fox.Context.Param` allow to retrieve directly the value of a parameter using the placeholder name.
 
 ````
 Pattern /avengers/{name}
 
-/avengers/ironman           match
-/avengers/thor              match
-/avengers/hulk/angry        no match
-/avengers/                  no match
+/avengers/ironman           matches
+/avengers/thor              matches
+/avengers/hulk/angry        no matches
+/avengers/                  no matches
 
 Pattern /users/uuid:{id}
 
-/users/uuid:123             match
-/users/uuid                 no match
+/users/uuid:123             matches
+/users/uuid                 no matches
 ````
 
 #### Catch all parameter
-Catch-all parameters can be used to match everything at the end of a route. The placeholder start with `*` followed by a regular
-named parameter (e.g. `*{name}`).
+Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** path segments, 
+including slashes. They can be placed anywhere in the route path but **cannot be consecutive**. The matching segment are also 
+accessible via `fox.Context`
+
+**Example with ending catch all**
 ````
 Pattern /src/*{filepath}
 
-/src/                       match
-/src/conf.txt               match
-/src/dir/config.txt         match
+/src/conf.txt               matches
+/src/dir/config.txt         matches
+/src/                       no matches
 
-Patter /src/file=*{path}
+Pattern /src/file=*{path}
 
-/src/file=                  match
-/src/file=config.txt        match
-/src/file=/dir/config.txt   match
+/src/file=config.txt        matches
+/src/file=/dir/config.txt   matches
+/src/file=                  no matches
+````
+
+**Example with infix catch all**
+````
+Pattern: /assets/*{path}/thumbnail
+
+/assets/images/thumbnail            matches
+/assets/photos/2021/thumbnail       matches
+/assets/thumbnail                   no matches
+
+Pattern: /assets/path:*{path}/thumbnail
+
+/assets/path:images/thumbnail       matches
+/assets/path:photos/2021/thumbnail  matches
+/assets/path:thumbnail              no matches
 ````
 
 #### Priority rules
@@ -151,9 +169,17 @@ POST /users/{name}/emails
 
 Additionally, let's consider an example to illustrate the prioritization:
 ````
-GET /fs/avengers.txt    #1 => match /fs/avengers.txt
-GET /fs/{filename}      #2 => match /fs/ironman.txt
-GET /fs/*{filepath}     #3 => match /fs/avengers/ironman.txt
+Route Definitions:
+
+1. GET /fs/avengers.txt          # Highest priority (static)
+2. GET /fs/{filename}            # Next priority (named parameter)
+3. GET /fs/*{filepath}           # Lowest priority (catch-all parameter)
+
+Request Matching:
+
+- /fs/avengers.txt              matches Route 1
+- /fs/ironman.txt               matches Route 2
+- /fs/avengers/ironman.txt      matches Route 3
 ````
 
 #### Warning about context

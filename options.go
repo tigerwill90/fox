@@ -233,13 +233,6 @@ func WithAnnotations(annotations ...Annotation) PathOption {
 	})
 }
 
-// WithAnnotation attaches a single key-value annotation to a route. See also [WithAnnotations] and [Annotation] for more details.
-func WithAnnotation(key string, value any) PathOption {
-	return pathOptionFunc(func(route *Route) {
-		route.annots = append(route.annots, Annotation{key, value})
-	})
-}
-
 // DefaultOptions configure the router to use the Recovery middleware for the RouteHandler scope, the Logger middleware
 // for AllHandlers scope and enable automatic OPTIONS response. Note that DefaultOptions push the Recovery and Logger middleware
 // respectively to the first and second position of the middleware chains.
