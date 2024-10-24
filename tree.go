@@ -530,8 +530,6 @@ const (
 	bracketDelim = '{'
 )
 
-var depth int
-
 func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
@@ -679,7 +677,6 @@ Walk:
 						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
 						if !lazy {
 							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
-							paramCnt++
 						}
 
 						// We are also in an ending catch all, and this is the most specific path
@@ -688,9 +685,6 @@ Walk:
 						}
 
 						charsMatched += len(path[charsMatched:])
-						// and this point len(path) == charsMatched
-						ctrl := len(path) == charsMatched
-						_ = ctrl
 
 						break Walk
 					}
