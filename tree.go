@@ -528,6 +528,7 @@ func (t *Tree) remove(method, path string) bool {
 const (
 	slashDelim   = '/'
 	bracketDelim = '{'
+	starDelim    = '*'
 )
 
 func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
@@ -550,8 +551,8 @@ Walk:
 				break
 			}
 
-			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == '*' {
-				if current.key[i] == '{' {
+			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == starDelim {
+				if current.key[i] == bracketDelim {
 					startPath := charsMatched
 					idx := strings.IndexByte(path[charsMatched:], slashDelim)
 					if idx > 0 {
@@ -584,7 +585,7 @@ Walk:
 					continue
 				}
 
-				if current.key[i] == '*' {
+				if current.key[i] == starDelim {
 					//                | current.params[paramKeyCnt].end (10)
 					// key: foo/*{bar}/                                      => 10 - 5 = 5 => i+=idx set i to '/'
 					//          | charsMatchedInNodeFound (5)
