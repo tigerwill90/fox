@@ -189,9 +189,6 @@ func (fox *Router) NewTree() *Tree {
 			return tree.allocateContext()
 		},
 	}
-	tree.np = sync.Pool{
-		New: func() any { return tree.allocateNode() },
-	}
 
 	return tree
 }

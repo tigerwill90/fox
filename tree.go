@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,7 +31,6 @@ import (
 // defer fox.Tree().Unlock()
 type Tree struct {
 	ctx   sync.Pool
-	np    sync.Pool
 	nodes atomic.Pointer[[]*node]
 	fox   *Router
 	sync.Mutex
@@ -554,11 +552,6 @@ Walk:
 				break
 			}
 
-			x := string(current.key[i])
-			y := string(path[charsMatched])
-			_ = x
-			_ = y
-
 			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == '*' {
 				if current.key[i] == '{' {
 					startPath := charsMatched
@@ -600,14 +593,19 @@ Walk:
 					idx := current.params[paramKeyCnt].end - charsMatchedInNodeFound
 					var interNode *node
 					if idx >= 0 {
-						interNode = t.np.Get().(*node)
-						interNode.params = interNode.params[:0]
-						interNode.route = current.route
-						interNode.key = current.key[current.params[paramKeyCnt].end:]
-						interNode.childKeys = current.childKeys
-						interNode.children = current.children
-						interNode.paramChildIndex = current.paramChildIndex
-						interNode.wildcardChildIndex = current.wildcardChildIndex
+						// Unfortunately, we cannot use object pooling here because we need to keep a reference to this
+						// interNode object until the lookup function returns, especially when TSR (Trailing Slash Redirect)
+						// is enabled. The interNode may be referenced by subNode and 'n'.
+						interNode = &node{
+							route:     current.route,
+							key:       current.key[current.params[paramKeyCnt].end:],
+							childKeys: current.childKeys,
+							children:  current.children,
+							// len(current.params)-1 is safe since we have at least the current infix wildcard in params
+							params:             make([]param, 0, len(current.params)-1),
+							paramChildIndex:    current.paramChildIndex,
+							wildcardChildIndex: current.wildcardChildIndex,
+						}
 						for _, ps := range current.params[paramKeyCnt+1:] { // paramKeyCnt+1 is safe since we have at least the current infix wildcard in params
 							interNode.params = append(interNode.params, param{
 								key: ps.key,
@@ -633,21 +631,13 @@ Walk:
 
 					subCtx := t.ctx.Get().(*cTx)
 					startPath := charsMatched
-					y := path[charsMatched:]
-					_ = y
 					for {
 						idx := strings.IndexByte(path[charsMatched:], slashDelim)
 						// idx >= 0, we have a next segment with at least one char
 						if idx > 0 {
 							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
-							x := path[charsMatched:]
-							_ = x
-							a := strconv.Itoa(depth)
-							_ = a
-							depth++
 							subNode, subTsr := t.lookup(interNode, path[charsMatched:], subCtx, false)
-							depth--
 							if subNode == nil {
 								// Try with next segment
 								charsMatched++
@@ -659,15 +649,6 @@ Walk:
 								// Only if no previous tsr
 								if !tsr {
 									tsr = true
-									/*								nodeCopy := &node{
-																	route:              subNode.route,
-																	key:                subNode.key,
-																	childKeys:          subNode.childKeys,
-																	children:           subNode.children,
-																	params:             subNode.params,
-																	paramChildIndex:    subNode.paramChildIndex,
-																	wildcardChildIndex: subNode.wildcardChildIndex,
-																}*/
 									n = subNode
 									if !lazy {
 										*c.tsrParams = (*c.tsrParams)[:0]
@@ -687,13 +668,11 @@ Walk:
 								*c.params = append(*c.params, *subCtx.params...)
 							}
 
-							t.np.Put(interNode)
 							t.ctx.Put(subCtx)
 							return subNode, subTsr
 						}
 
 						t.ctx.Put(subCtx)
-						// t.np.Put(interNode)
 
 						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
 						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
@@ -776,9 +755,6 @@ Walk:
 			paramKeyCnt = 0
 		}
 	}
-
-	a := strconv.Itoa(depth)
-	_ = a
 
 	paramCnt = 0
 	paramKeyCnt = 0
@@ -982,14 +958,6 @@ func (t *Tree) allocateContext() *cTx {
 		tree: t,
 		// This is a read only value, no reset.
 		fox: t.fox,
-	}
-}
-
-// allocateNode is only used on the lookup phase when we have to dynamically create an intermediary node
-// to recursively call Tree.lookup with a subtree.
-func (t *Tree) allocateNode() *node {
-	return &node{
-		params: make([]param, 0, t.maxParams.Load()),
 	}
 }
 
