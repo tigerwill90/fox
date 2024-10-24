@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -531,6 +532,8 @@ const (
 	bracketDelim = '{'
 )
 
+var depth int
+
 func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
@@ -551,10 +554,10 @@ Walk:
 				break
 			}
 
-			/*			x := string(current.key[i])
-						y := string(path[charsMatched])
-						_ = x
-						_ = y*/
+			x := string(current.key[i])
+			y := string(path[charsMatched])
+			_ = x
+			_ = y
 
 			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == '*' {
 				if current.key[i] == '{' {
@@ -618,7 +621,6 @@ Walk:
 						charsMatchedInNodeFound += idx
 
 					} else if len(current.children) > 0 {
-						// Infix catch all
 						interNode = current.get(0)
 						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
 					} else {
@@ -629,57 +631,87 @@ Walk:
 						return current, false
 					}
 
-					newCtx := t.ctx.Get().(*cTx)
+					subCtx := t.ctx.Get().(*cTx)
 					startPath := charsMatched
-					/*					y := path[charsMatched:]
-										_ = y*/
+					y := path[charsMatched:]
+					_ = y
 					for {
 						idx := strings.IndexByte(path[charsMatched:], slashDelim)
 						// idx >= 0, we have a next segment with at least one char
 						if idx > 0 {
-							*newCtx.params = (*newCtx.params)[:0]
+							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
-							/*							x := path[charsMatched:]
-														_ = x*/
-							newNode, newTsr := t.lookup(interNode, path[charsMatched:], newCtx, false)
-							if newNode != nil {
-								t.np.Put(interNode)
-								// Reminder: we have to deal with tsrParams
-								if tsr && newTsr {
-									// TODO we have tsr match, and lookup return node with tsr, caller win because most specific
-									// We need to test tsr behaviour extensively
-									t.ctx.Put(newCtx)
-									break
+							x := path[charsMatched:]
+							_ = x
+							a := strconv.Itoa(depth)
+							_ = a
+							depth++
+							subNode, subTsr := t.lookup(interNode, path[charsMatched:], subCtx, false)
+							depth--
+							if subNode == nil {
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							// We have a tsr opportunity
+							if subTsr {
+								// Only if no previous tsr
+								if !tsr {
+									tsr = true
+									/*								nodeCopy := &node{
+																	route:              subNode.route,
+																	key:                subNode.key,
+																	childKeys:          subNode.childKeys,
+																	children:           subNode.children,
+																	params:             subNode.params,
+																	paramChildIndex:    subNode.paramChildIndex,
+																	wildcardChildIndex: subNode.wildcardChildIndex,
+																}*/
+									n = subNode
+									if !lazy {
+										*c.tsrParams = (*c.tsrParams)[:0]
+										*c.tsrParams = append(*c.tsrParams, *c.params...)
+										*c.tsrParams = append(*c.tsrParams, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+										*c.tsrParams = append(*c.tsrParams, *subCtx.tsrParams...)
+									}
 								}
 
-								if !lazy {
-									*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
-									*c.params = append(*c.params, *newCtx.params...)
-								}
-								t.ctx.Put(newCtx)
-								return newNode, newTsr
+								// Try with next segment
+								charsMatched++
+								continue
 							}
-							charsMatched++
-							// Try with next segment
-							continue
+
+							if !lazy {
+								*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+								*c.params = append(*c.params, *subCtx.params...)
+							}
+
+							t.np.Put(interNode)
+							t.ctx.Put(subCtx)
+							return subNode, subTsr
 						}
 
-						t.ctx.Put(newCtx)
-						t.np.Put(interNode)
+						t.ctx.Put(subCtx)
+						// t.np.Put(interNode)
+
+						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
+						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
+						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
+							paramCnt++
+						}
 
 						// We are also in an ending catch all, and this is the most specific path
 						if current.params[paramKeyCnt].end == -1 {
-							if !lazy {
-								*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
-							}
 							return current, false
 						}
 
-						// char matched need to be re ajusted with probabley len(path
 						charsMatched += len(path[charsMatched:])
 						// and this point len(path) == charsMatched
-						/*						ctrl := len(path) == charsMatched
-												_ = ctrl*/
+						ctrl := len(path) == charsMatched
+						_ = ctrl
 
 						break Walk
 					}
@@ -744,6 +776,9 @@ Walk:
 			paramKeyCnt = 0
 		}
 	}
+
+	a := strconv.Itoa(depth)
+	_ = a
 
 	paramCnt = 0
 	paramKeyCnt = 0
@@ -1037,4 +1072,15 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte
+}
+
+func copyParams(src, dst *Params) {
+	if cap(*src) > cap(*dst) {
+		// Grow dst to a least cap(src)
+		*dst = slices.Grow(*dst, cap(*src))
+	}
+	// cap(dst) >= cap(src)
+	// now constraint into len(src) & cap(src)
+	*dst = (*dst)[:len(*src):cap(*src)]
+	copy(*dst, *src)
 }
