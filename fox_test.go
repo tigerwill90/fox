@@ -1421,6 +1421,32 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix wildcard",
+			routes:   []string{"/foo/*{args}/bar"},
+			path:     "/foo/a/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "static with infix wildcard child",
+			routes:   []string{"/foo/", "/foo/*{args}/baz"},
+			path:     "/foo/bar/baz",
+			wantPath: "/foo/*{args}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bar",
+				},
+			},
+		},
+		{
 			name:     "simple infix wildcard with route char",
 			routes:   []string{"/foo/*{args}/bar"},
 			path:     "/foo/*{args}/bar",
@@ -2103,8 +2129,6 @@ func TestInfixWildcard(t *testing.T) {
 			assert.Equal(t, tc.wantTsr, tsr)
 			c.tsr = tsr
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
-
-			fmt.Println(n)
 		})
 	}
 
