@@ -737,7 +737,7 @@ Walk:
 				break
 			}
 
-			// Here we have a next static segment and possibly wildcard children, so we save them for late evaluation if needed.
+			// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
 			if current.wildcardChildIndex >= 0 {
 				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
 			}
