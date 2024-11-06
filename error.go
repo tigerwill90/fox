@@ -32,10 +32,7 @@ type RouteConflictError struct {
 	isUpdate bool
 }
 
-func newConflictErr(method, path, catchAllKey string, matched []string) *RouteConflictError {
-	if catchAllKey != "" {
-		path += "*{" + catchAllKey + "}"
-	}
+func newConflictErr(method, path string, matched []string) *RouteConflictError {
 	return &RouteConflictError{
 		Method:  method,
 		Path:    path,

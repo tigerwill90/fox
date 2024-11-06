@@ -6,7 +6,6 @@ package fox
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -57,19 +56,14 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, n, err := parseRoute(path)
+	n, err := parseRoute(path)
 	if err != nil {
 		return nil, err
 	}
 
-	if n < 0 || n > math.MaxUint32 {
-		return nil, fmt.Errorf("params count overflows (%d)", n)
-	}
-
 	rte := t.newRoute(path, handler, opts...)
 
-	// nolint:gosec
-	if err = t.insert(method, p, catchAllKey, uint32(n), rte); err != nil {
+	if err = t.insert(method, rte, n); err != nil {
 		return nil, err
 	}
 	return rte, nil
@@ -91,13 +85,13 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, _, err := parseRoute(path)
+	_, err := parseRoute(path)
 	if err != nil {
 		return nil, err
 	}
 
 	rte := t.newRoute(path, handler, opts...)
-	if err = t.update(method, p, catchAllKey, rte); err != nil {
+	if err = t.update(method, rte); err != nil {
 		return nil, err
 	}
 
@@ -114,12 +108,12 @@ func (t *Tree) Delete(method, path string) error {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	p, catchAllKey, _, err := parseRoute(path)
+	_, err := parseRoute(path)
 	if err != nil {
 		return err
 	}
 
-	if !t.remove(method, p, catchAllKey) {
+	if !t.remove(method, path) {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
@@ -140,13 +134,13 @@ func (t *Tree) Has(method, path string) bool {
 func (t *Tree) Route(method, path string) *Route {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		return nil
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c, true)
+	n, tsr := t.lookup(nds[index].children[0].Load(), path, c, true)
 	c.Close()
 	if n != nil && !tsr && n.route.path == path {
 		return n.route
@@ -162,13 +156,13 @@ func (t *Tree) Route(method, path string) *Route {
 func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		return nil, false
 	}
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index], path, c, true)
+	n, tsr := t.lookup(nds[index].children[0].Load(), path, c, true)
 	c.Close()
 	if n != nil {
 		return n.route, tsr
@@ -185,8 +179,7 @@ func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(r.Method, nds)
-
-	if index < 0 {
+	if index < 0 || len(nds[index].children) == 0 {
 		return
 	}
 
@@ -199,7 +192,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 		target = r.URL.RawPath
 	}
 
-	n, tsr := t.lookup(nds[index], target, c, false)
+	n, tsr := t.lookup(nds[index].children[0].Load(), target, c, false)
 	if n != nil {
 		c.route = n.route
 		c.tsr = tsr
@@ -218,7 +211,7 @@ func (t *Tree) Iter() Iter {
 
 // Insert is not safe for concurrent use. The path must start by '/' and it's not validated. Use
 // parseRoute before.
-func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *Route) error {
+func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if !t.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
@@ -235,7 +228,7 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 		rootNode = nds[index]
 	}
 
-	isCatchAll := catchAllKey != ""
+	path := route.path
 
 	result := t.search(rootNode, path)
 	switch result.classify() {
@@ -246,15 +239,19 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 		// └── am
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
-			if result.matched.isCatchAll() && isCatchAll {
-				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
-			}
 			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.path, result.matched.route.path)
 		}
 
 		// We are updating an existing node. We only need to create a new node from
 		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(result.matched.key, route, result.matched.children, result.matched.childKeys, catchAllKey, result.matched.paramChildIndex)
+		n := newNodeFromRef(
+			result.matched.key,
+			route,
+			result.matched.children,
+			result.matched.childKeys,
+			result.matched.paramChildIndex,
+			result.matched.wildcardChildIndex,
+		)
 
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
@@ -284,15 +281,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 			result.matched.route,
 			result.matched.children,
 			result.matched.childKeys,
-			result.matched.catchAllKey,
 			result.matched.paramChildIndex,
+			result.matched.wildcardChildIndex,
 		)
 
 		parent := newNode(
 			cPrefix,
 			route,
 			[]*node{child},
-			catchAllKey,
 		)
 
 		t.updateMaxParams(paramsN)
@@ -316,14 +312,13 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 		keySuffix := path[result.charsMatched:]
 
 		// No children, so no paramChild
-		child := newNode(keySuffix, route, nil, catchAllKey)
+		child := newNode(keySuffix, route, nil)
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(
 			result.matched.key,
 			result.matched.route,
 			edges,
-			result.matched.catchAllKey,
 		)
 
 		t.updateMaxDepth(result.depth + 1)
@@ -359,32 +354,32 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
 
-		// Rule: a node with {param} has no child or has a separator before the end of the key
+		// Rule: a node with {param} or *{wildcard} has no child or has a separator before the end of the key
 		for i := len(cPrefix) - 1; i >= 0; i-- {
 			if cPrefix[i] == '/' {
 				break
 			}
-			if cPrefix[i] == '{' {
-				return newConflictErr(method, path, catchAllKey, getRouteConflict(result.matched))
+			if cPrefix[i] == '{' || cPrefix[i] == '*' {
+				return newConflictErr(method, path, getRouteConflict(result.matched))
 			}
 		}
 
 		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
 		keySuffix := path[result.charsMatched:]
 
-		// No children, so no paramChild
-		n1 := newNodeFromRef(keySuffix, route, nil, nil, catchAllKey, -1) // inserted node
+		// No children, so no paramChild or wildcardChild
+		n1 := newNodeFromRef(keySuffix, route, nil, nil, -1, -1) // inserted node
 		n2 := newNodeFromRef(
 			suffixFromExistingEdge,
 			result.matched.route,
 			result.matched.children,
 			result.matched.childKeys,
-			result.matched.catchAllKey,
 			result.matched.paramChildIndex,
+			result.matched.wildcardChildIndex,
 		) // previous matched node
 
 		// n3 children never start with a param
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}, "") // intermediary node
+		n3 := newNode(cPrefix, nil, []*node{n1, n2}) // intermediary node
 
 		t.updateMaxDepth(result.depth + 1)
 		t.updateMaxParams(paramsN)
@@ -397,12 +392,14 @@ func (t *Tree) insert(method, path, catchAllKey string, paramsN uint32, route *R
 }
 
 // update is not safe for concurrent use.
-func (t *Tree) update(method string, path, catchAllKey string, route *Route) error {
+func (t *Tree) update(method string, route *Route) error {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if !t.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
 	}
 	defer t.race.Store(0)
+
+	path := route.path
 
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -415,12 +412,6 @@ func (t *Tree) update(method string, path, catchAllKey string, route *Route) err
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
-	if catchAllKey != result.matched.catchAllKey {
-		err := newConflictErr(method, path, catchAllKey, []string{result.matched.route.path})
-		err.isUpdate = true
-		return err
-	}
-
 	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
 	// the matched one with the updated/added value (handler and wildcard).
 	n := newNodeFromRef(
@@ -428,15 +419,15 @@ func (t *Tree) update(method string, path, catchAllKey string, route *Route) err
 		route,
 		result.matched.children,
 		result.matched.childKeys,
-		catchAllKey,
 		result.matched.paramChildIndex,
+		result.matched.wildcardChildIndex,
 	)
 	result.p.updateEdge(n)
 	return nil
 }
 
 // remove is not safe for concurrent use.
-func (t *Tree) remove(method, path, catchAllKey string) bool {
+func (t *Tree) remove(method, path string) bool {
 	// Note that we need a consistent view of the tree during the patching so search must imperatively be locked.
 	if !t.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
@@ -450,7 +441,7 @@ func (t *Tree) remove(method, path, catchAllKey string) bool {
 	}
 
 	result := t.search(nds[index], path)
-	if result.classify() != exactMatch || catchAllKey != result.matched.catchAllKey {
+	if result.classify() != exactMatch {
 		return false
 	}
 
@@ -466,8 +457,8 @@ func (t *Tree) remove(method, path, catchAllKey string) bool {
 			nil,
 			result.matched.children,
 			result.matched.childKeys,
-			"",
 			result.matched.paramChildIndex,
+			result.matched.wildcardChildIndex,
 		)
 		result.p.updateEdge(n)
 		return true
@@ -481,8 +472,8 @@ func (t *Tree) remove(method, path, catchAllKey string) bool {
 			child.route,
 			child.children,
 			child.childKeys,
-			child.catchAllKey,
 			child.paramChildIndex,
+			child.wildcardChildIndex,
 		)
 		result.p.updateEdge(n)
 		return true
@@ -509,15 +500,14 @@ func (t *Tree) remove(method, path, catchAllKey string) bool {
 			child.route,
 			child.children,
 			child.childKeys,
-			child.catchAllKey,
 			child.paramChildIndex,
+			child.wildcardChildIndex,
 		)
 	} else {
 		parent = newNode(
 			result.p.key,
 			result.p.route,
 			parentEdges,
-			result.p.catchAllKey,
 		)
 	}
 
@@ -538,13 +528,10 @@ func (t *Tree) remove(method, path, catchAllKey string) bool {
 const (
 	slashDelim   = '/'
 	bracketDelim = '{'
+	starDelim    = '*'
 )
 
-func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
-	if len(rootNode.children) == 0 {
-		return nil, false
-	}
-
+func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
@@ -553,7 +540,7 @@ func (t *Tree) lookup(rootNode *node, path string, c *cTx, lazy bool) (n *node, 
 		parent                  *node
 	)
 
-	current := rootNode.children[0].Load()
+	current := target
 	*c.skipNds = (*c.skipNds)[:0]
 
 Walk:
@@ -564,8 +551,8 @@ Walk:
 				break
 			}
 
-			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim {
-				if current.key[i] == '{' {
+			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == starDelim {
+				if current.key[i] == bracketDelim {
 					startPath := charsMatched
 					idx := strings.IndexByte(path[charsMatched:], slashDelim)
 					if idx > 0 {
@@ -598,6 +585,112 @@ Walk:
 					continue
 				}
 
+				if current.key[i] == starDelim {
+					//                | current.params[paramKeyCnt].end (10)
+					// key: foo/*{bar}/                                      => 10 - 5 = 5 => i+=idx set i to '/'
+					//          | charsMatchedInNodeFound (5)
+					idx := current.params[paramKeyCnt].end - charsMatchedInNodeFound
+					var interNode *node
+					if idx >= 0 {
+						// Unfortunately, we cannot use object pooling here because we need to keep a reference to this
+						// interNode object until the lookup function returns, especially when TSR (Trailing Slash Redirect)
+						// is enabled. The interNode may be referenced by subNode and 'n'.
+						interNode = &node{
+							route:     current.route,
+							key:       current.key[current.params[paramKeyCnt].end:],
+							childKeys: current.childKeys,
+							children:  current.children,
+							// len(current.params)-1 is safe since we have at least the current infix wildcard in params
+							params:             make([]param, 0, len(current.params)-1),
+							paramChildIndex:    current.paramChildIndex,
+							wildcardChildIndex: current.wildcardChildIndex,
+						}
+						for _, ps := range current.params[paramKeyCnt+1:] { // paramKeyCnt+1 is safe since we have at least the current infix wildcard in params
+							interNode.params = append(interNode.params, param{
+								key: ps.key,
+								// end is relative to the original key, so we need to adjust the position relative to
+								// the new intermediary node.
+								end:      ps.end - current.params[paramKeyCnt].end,
+								catchAll: ps.catchAll,
+							})
+						}
+
+						charsMatchedInNodeFound += idx
+
+					} else if len(current.children) > 0 {
+						interNode = current.get(0)
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					} else {
+						// We are in an ending catch all node with no child, so it's a direct match
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[charsMatched:]})
+						}
+						return current, false
+					}
+
+					subCtx := t.ctx.Get().(*cTx)
+					startPath := charsMatched
+					for {
+						idx := strings.IndexByte(path[charsMatched:], slashDelim)
+						// idx >= 0, we have a next segment with at least one char
+						if idx > 0 {
+							*subCtx.params = (*subCtx.params)[:0]
+							charsMatched += idx
+							subNode, subTsr := t.lookup(interNode, path[charsMatched:], subCtx, false)
+							if subNode == nil {
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							// We have a tsr opportunity
+							if subTsr {
+								// Only if no previous tsr
+								if !tsr {
+									tsr = true
+									n = subNode
+									if !lazy {
+										*c.tsrParams = (*c.tsrParams)[:0]
+										*c.tsrParams = append(*c.tsrParams, *c.params...)
+										*c.tsrParams = append(*c.tsrParams, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+										*c.tsrParams = append(*c.tsrParams, *subCtx.tsrParams...)
+									}
+								}
+
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							if !lazy {
+								*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+								*c.params = append(*c.params, *subCtx.params...)
+							}
+
+							t.ctx.Put(subCtx)
+							return subNode, subTsr
+						}
+
+						t.ctx.Put(subCtx)
+
+						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
+						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
+						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
+						}
+
+						// We are also in an ending catch all, and this is the most specific path
+						if current.params[paramKeyCnt].end == -1 {
+							return current, false
+						}
+
+						charsMatched += len(path[charsMatched:])
+
+						break Walk
+					}
+				}
+
 				break Walk
 			}
 
@@ -615,28 +708,43 @@ Walk:
 				}
 			}
 
-			// Only one node which is a child param, load it directly and go deeper
+			// No next static segment found, but maybe some params or wildcard child
 			if idx < 0 {
-				if current.paramChildIndex < 0 {
-					break
+				// We have at least a param child which is has higher priority that catch-all
+				if current.paramChildIndex >= 0 {
+					// We have also a wildcard child, save it for later evaluation
+					if current.wildcardChildIndex >= 0 {
+						*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
+					}
+
+					// Go deeper
+					idx = current.paramChildIndex
+					parent = current
+					current = current.children[idx].Load()
+					paramKeyCnt = 0
+					continue
+				}
+				if current.wildcardChildIndex >= 0 {
+					// We have a wildcard child, go deeper
+					idx = current.wildcardChildIndex
+					parent = current
+					current = current.children[idx].Load()
+					paramKeyCnt = 0
+					continue
 				}
 
-				// The node is also a catch-all, save it as the last fallback.
-				if current.catchAllKey != "" {
-					*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, true})
-				}
-
-				idx = current.paramChildIndex
-				parent = current
-				current = current.children[idx].Load()
-				paramKeyCnt = 0
-				continue
+				// We have nothing more to evaluate
+				break
 			}
 
-			// Save the node if we need to evaluate the child param or catch-all later
-			if current.paramChildIndex >= 0 || current.catchAllKey != "" {
-				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, false})
+			// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
+			if current.wildcardChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
 			}
+			if current.paramChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.paramChildIndex})
+			}
+
 			parent = current
 			current = current.children[idx].Load()
 			paramKeyCnt = 0
@@ -685,12 +793,6 @@ Walk:
 	// From here we are always in a leaf
 	if charsMatched == len(path) {
 		if charsMatchedInNodeFound == len(current.key) {
-			// Exact match, note that if we match a catch-all node
-			if !lazy && current.catchAllKey != "" {
-				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
-				// Exact match, tsr is always false
-				return current, false
-			}
 			// Exact match, tsr is always false
 			return current, false
 		}
@@ -746,16 +848,6 @@ Walk:
 
 	// Incomplete match to end of edge
 	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
-		if current.catchAllKey != "" {
-			if !lazy {
-				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[charsMatched:]})
-				// Same as exact match, no tsr recommendation
-				return current, false
-			}
-			// Same as exact match, no tsr recommendation
-			return current, false
-		}
-
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		if !tsr {
 			remainingKeySuffix := path[charsMatched:]
@@ -787,30 +879,9 @@ Walk:
 Backtrack:
 	if hasSkpNds {
 		skipped := c.skipNds.pop()
-		if skipped.n.paramChildIndex < 0 || skipped.seen {
-			// skipped is catch all
-			current = skipped.n
-			*c.params = (*c.params)[:skipped.paramCnt]
-
-			if !lazy {
-				*c.params = append(*c.params, Param{Key: current.catchAllKey, Value: path[skipped.pathIndex:]})
-				// Same as exact match, no tsr recommendation
-				return current, false
-			}
-			// Same as exact match, no tsr recommendation
-			return current, false
-		}
-
-		// Could be a catch-all node with child param
-		// /foo/*{any}
-		// /foo/{bar}
-		// In this case we evaluate first the child param node and fall back to the catch-all.
-		if skipped.n.catchAllKey != "" {
-			*c.skipNds = append(*c.skipNds, skippedNode{skipped.n, skipped.pathIndex, skipped.paramCnt, true})
-		}
 
 		parent = skipped.n
-		current = skipped.n.children[skipped.n.paramChildIndex].Load()
+		current = skipped.n.children[skipped.childIndex].Load()
 
 		*c.params = (*c.params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
@@ -964,4 +1035,15 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte
+}
+
+func copyParams(src, dst *Params) {
+	if cap(*src) > cap(*dst) {
+		// Grow dst to a least cap(src)
+		*dst = slices.Grow(*dst, cap(*src))
+	}
+	// cap(dst) >= cap(src)
+	// now constraint into len(src) & cap(src)
+	*dst = (*dst)[:len(*src):cap(*src)]
+	copy(*dst, *src)
 }

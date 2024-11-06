@@ -95,7 +95,7 @@ func (it Iter) Routes(methods iter.Seq[string], path string) iter.Seq2[string, *
 				continue
 			}
 
-			n, tsr := it.t.lookup(nds[index], path, c, true)
+			n, tsr := it.t.lookup(nds[index].children[0].Load(), path, c, true)
 			if n != nil && !tsr && n.route.path == path {
 				if !yield(method, n.route) {
 					return
@@ -128,7 +128,7 @@ func (it Iter) Reverse(methods iter.Seq[string], path string) iter.Seq2[string, 
 				continue
 			}
 
-			n, tsr := it.t.lookup(nds[index], path, c, true)
+			n, tsr := it.t.lookup(nds[index].children[0].Load(), path, c, true)
 			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if !yield(method, n.route) {
 					return
