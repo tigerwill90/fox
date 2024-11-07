@@ -18,11 +18,8 @@ type node struct {
 	route *Route
 
 	// key represent a segment of a route which share a common prefix with it parent.
+	// Once assigned, key is immutable.
 	key string
-
-	// Catch all key registered to retrieve this node parameter.
-	// Once assigned, catchAllKey is immutable.
-	catchAllKey string
 
 	// First char of each outgoing edges from this node sorted in ascending order.
 	// Once assigned, this is a read only slice. It allows to lazily traverse the
@@ -37,46 +34,48 @@ type node struct {
 	params []param
 
 	// The index of a paramChild if any, -1 if none (per rules, only one paramChildren is allowed).
-	paramChildIndex int
+	// Once assigned, paramChildIndex is immutable.
+	paramChildIndex int // TODO uint32
+	// The index of a wildcardChild if any, -1 if none (per rules, only one wildcardChild is allowed).
+	// Once assigned, wildcardChildIndex is immutable.
+	wildcardChildIndex int
 }
 
-func newNode(key string, route *Route, children []*node, catchAllKey string) *node {
+func newNode(key string, route *Route, children []*node) *node {
 	slices.SortFunc(children, func(a, b *node) int {
 		return cmp.Compare(a.key, b.key)
 	})
 	nds := make([]atomic.Pointer[node], len(children))
 	childKeys := make([]byte, len(children))
-	childIndex := -1
+	paramChildIndex := -1
+	wildcardChildIndex := -1
 	for i := range children {
 		assertNotNil(children[i])
 		childKeys[i] = children[i].key[0]
 		nds[i].Store(children[i])
 		if strings.HasPrefix(children[i].key, "{") {
-			childIndex = i
+			paramChildIndex = i
+		} else if strings.HasPrefix(children[i].key, "*") {
+			wildcardChildIndex = i
 		}
 	}
-
-	return newNodeFromRef(key, route, nds, childKeys, catchAllKey, childIndex)
+	return newNodeFromRef(key, route, nds, childKeys, paramChildIndex, wildcardChildIndex)
 }
 
-func newNodeFromRef(key string, route *Route, children []atomic.Pointer[node], childKeys []byte, catchAllKey string, childIndex int) *node {
+func newNodeFromRef(key string, route *Route, children []atomic.Pointer[node], childKeys []byte, paramChildIndex, wildcardChildIndex int) *node {
 	return &node{
-		key:             key,
-		childKeys:       childKeys,
-		children:        children,
-		route:           route,
-		catchAllKey:     catchAllKey,
-		paramChildIndex: childIndex,
-		params:          parseWildcard(key),
+		key:                key,
+		childKeys:          childKeys,
+		children:           children,
+		route:              route,
+		paramChildIndex:    paramChildIndex,
+		wildcardChildIndex: wildcardChildIndex,
+		params:             parseWildcard(key),
 	}
 }
 
 func (n *node) isLeaf() bool {
 	return n.route != nil
-}
-
-func (n *node) isCatchAll() bool {
-	return n.catchAllKey != ""
 }
 
 func (n *node) hasWildcard() bool {
@@ -188,25 +187,14 @@ func (n *node) string(space int) string {
 		sb.WriteString(" [paramIdx=")
 		sb.WriteString(strconv.Itoa(n.paramChildIndex))
 		sb.WriteByte(']')
-		if n.hasWildcard() {
-			sb.WriteString(" [")
-			for i, param := range n.params {
-				if i > 0 {
-					sb.WriteByte(',')
-				}
-				sb.WriteString(param.key)
-				sb.WriteString(" (")
-				sb.WriteString(strconv.Itoa(param.end))
-				sb.WriteString(")")
-			}
-			sb.WriteString("]")
-		}
-
 	}
 
-	if n.isCatchAll() {
-		sb.WriteString(" [catchAll]")
+	if n.wildcardChildIndex >= 0 {
+		sb.WriteString(" [wildcardIdx=")
+		sb.WriteString(strconv.Itoa(n.wildcardChildIndex))
+		sb.WriteByte(']')
 	}
+
 	if n.isLeaf() {
 		sb.WriteString(" [leaf=")
 		sb.WriteString(n.route.path)
@@ -216,7 +204,7 @@ func (n *node) string(space int) string {
 		sb.WriteString(" [")
 		for i, param := range n.params {
 			if i > 0 {
-				sb.WriteByte(',')
+				sb.WriteString(", ")
 			}
 			sb.WriteString(param.key)
 			sb.WriteString(" (")
@@ -244,27 +232,19 @@ func (n *skippedNodes) pop() skippedNode {
 }
 
 type skippedNode struct {
-	n         *node
-	pathIndex int
-	paramCnt  uint32
-	seen      bool
-}
-
-func appendCatchAll(path, catchAllKey string) string {
-	if catchAllKey != "" {
-		suffix := "*{" + catchAllKey + "}"
-		if !strings.HasSuffix(path, suffix) {
-			return path + suffix
-		}
-	}
-	return path
+	n          *node
+	pathIndex  int
+	paramCnt   uint32
+	childIndex int
 }
 
 // param represents a parsed parameter and its end position in the path.
 type param struct {
 	key string
-	end int // -1 if end with {a}, else pos of the next char
-	// catchAll bool
+	// -1 if end with {a}, else pos of the next char. Note that since infix wildcard are always followed
+	// by a static segment, pos should be always > 0
+	end      int
+	catchAll bool
 }
 
 func parseWildcard(segment string) []param {
@@ -289,28 +269,28 @@ func parseWildcard(segment string) []param {
 				state = stateDefault
 			}
 			i++
-			//case stateCatchAll:
-			//if segment[i] == '}' {
-			//	end := -1
-			//	if len(segment[i+1:]) > 0 {
-			//		end = i + 1
-			//	}
-			//	params = append(params, param{
-			//		key:      segment[start:i],
-			//		end:      end,
-			//		catchAll: true,
-			//	})
-			//	start = 0
-			//	state = stateDefault
-			//}
-			//i++
+		case stateCatchAll:
+			if segment[i] == '}' {
+				end := -1
+				if len(segment[i+1:]) > 0 {
+					end = i + 1
+				}
+				params = append(params, param{
+					key:      segment[start:i],
+					end:      end,
+					catchAll: true,
+				})
+				start = 0
+				state = stateDefault
+			}
+			i++
 		default:
-			//	if segment[i] == '*' {
-			//	state = stateCatchAll
-			//	i += 2
-			//	start = i
-			//	continue
-			//}
+			if segment[i] == '*' {
+				state = stateCatchAll
+				i += 2
+				start = i
+				continue
+			}
 
 			if segment[i] == '{' {
 				state = stateParam

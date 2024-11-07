@@ -509,6 +509,21 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	}
 }
 
+func BenchmarkInfixCatchAll(b *testing.B) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo/*{bar}/baz", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/a1/b22/c333/baz", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkLongParam(b *testing.B) {
 	r := New()
 	r.MustHandle(http.MethodGet, "/foo/{very_very_very_very_very_long_param}", emptyHandler)
@@ -708,7 +723,7 @@ func TestRouterWildcard(t *testing.T) {
 	}{
 		{"/github.com/etf1/*{repo}", "/github.com/etf1/mux"},
 		{"/github.com/johndoe/*{repo}", "/github.com/johndoe/buzz"},
-		{"/foo/bar/*{args}", "/foo/bar/"},
+		{"/foo/bar/*{args}", "/foo/bar/baz"},
 		{"/filepath/path=*{path}", "/filepath/path=/file.txt"},
 	}
 
@@ -720,9 +735,106 @@ func TestRouterWildcard(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, route.key, nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
-		require.Equalf(t, http.StatusOK, w.Code, "route: key: %s, path: %s", route.path)
+		require.Equalf(t, http.StatusOK, w.Code, "route: key: %s, path: %s", route.key, route.path)
 		assert.Equal(t, route.key, w.Body.String())
 	}
+}
+
+func TestEmptyCatchAll(t *testing.T) {
+
+	cases := []struct {
+		name   string
+		routes []string
+		path   string
+	}{
+		{
+			name:   "infix wildcard",
+			routes: []string{"/foo/*{args}/bar"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard with children",
+			routes: []string{"/foo/*{args}/bar", "/foo/*{args}/caz"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard with static edge",
+			routes: []string{"/foo/*{args}/bar", "/foo/baz"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard and suffix wildcard",
+			routes: []string{"/foo/*{args}/bar", "/foo/*{args}"},
+			path:   "/foo/",
+		},
+		//
+		{
+			name:   "infix inflight wildcard",
+			routes: []string{"/foo/abc*{args}/bar"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard with children",
+			routes: []string{"/foo/abc*{args}/bar", "/foo/abc*{args}/caz"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard with static edge",
+			routes: []string{"/foo/abc*{args}/bar", "/foo/abc/baz"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard and suffix wildcard",
+			routes: []string{"/foo/abc*{args}/bar", "/foo/abc*{args}"},
+			path:   "/foo/abc",
+		},
+		{
+			name:   "suffix wildcard wildcard with param edge",
+			routes: []string{"/foo/*{args}", "/foo/{param}"},
+			path:   "/foo/",
+		},
+		{
+			name:   "suffix inflight wildcard wildcard with param edge",
+			routes: []string{"/foo/abc*{args}", "/foo/abc{param}"},
+			path:   "/foo/abc",
+		},
+		{
+			name:   "infix wildcard wildcard with param edge",
+			routes: []string{"/foo/*{args}/bar", "/foo/{param}/bar"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix inflight wildcard wildcard with param edge",
+			routes: []string{"/foo/abc*{args}/bar", "/foo/abc{param}/bar"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix wildcard wildcard with trailing slash",
+			routes: []string{"/foo/*{args}/"},
+			path:   "/foo//",
+		},
+		{
+			name:   "infix inflight wildcard wildcard with trailing slash",
+			routes: []string{"/foo/abc*{args}/"},
+			path:   "/foo/abc/",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			tree := f.Tree()
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+			}
+			nds := *tree.nodes.Load()
+			c := newTestContextTree(tree)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			require.False(t, tsr)
+			require.Nil(t, n)
+		})
+	}
+
 }
 
 func TestRouteWithParams(t *testing.T) {
@@ -750,9 +862,9 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], rte, c, false)
-		require.NotNil(t, n)
-		require.NotNil(t, n.route)
+		n, tsr := tree.lookup(nds[0].children[0].Load(), rte, c, false)
+		require.NotNilf(t, n, "route: %s", rte)
+		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
 		assert.Equal(t, rte, n.route.path)
 	}
@@ -790,7 +902,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c, false)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
@@ -1168,7 +1280,7 @@ func TestOverlappingRoute(t *testing.T) {
 		},
 		{
 			name: "backtrack to most specific catch-all with an exact match",
-			path: "/foo/bar/",
+			path: "/foo/bar/x/y/z",
 			routes: []string{
 				"/foo/{id_1}/abc",
 				"/foo/{id_1}/*{args}",
@@ -1182,7 +1294,25 @@ func TestOverlappingRoute(t *testing.T) {
 					Value: "bar",
 				},
 				{
-					Key: "args",
+					Key:   "args",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "backtrack to most specific catch-all with an exact match",
+			path: "/foo/bar/",
+			routes: []string{
+				"/foo/{id_1}/abc",
+				"/foo/{id_1}/*{args}",
+				"/foo/{id_1}/{id_2}",
+				"/foo/*{args}",
+			},
+			wantMatch: "/foo/*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bar/",
 				},
 			},
 		},
@@ -1244,7 +1374,7 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], tc.path, c, false)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -1258,12 +1388,1069 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, tsr = tree.lookup(nds[0], tc.path, c, true)
+			n, tsr = tree.lookup(nds[0].children[0].Load(), tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.Equal(t, tc.wantMatch, n.route.path)
+		})
+	}
+}
+
+func TestInfixWildcard(t *testing.T) {
+	cases := []struct {
+		name       string
+		routes     []string
+		path       string
+		wantPath   string
+		wantTsr    bool
+		wantParams []Param
+	}{
+		{
+			name:     "simple infix wildcard",
+			routes:   []string{"/foo/*{args}/bar"},
+			path:     "/foo/a/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "simple infix wildcard",
+			routes:   []string{"/foo/*{args}/bar"},
+			path:     "/foo/a/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "static with infix wildcard child",
+			routes:   []string{"/foo/", "/foo/*{args}/baz"},
+			path:     "/foo/bar/baz",
+			wantPath: "/foo/*{args}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name:     "simple infix wildcard with route char",
+			routes:   []string{"/foo/*{args}/bar"},
+			path:     "/foo/*{args}/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args}",
+				},
+			},
+		},
+		{
+			name:     "simple infix wildcard with multi segment and route char",
+			routes:   []string{"/foo/*{args}/bar"},
+			path:     "/foo/*{args}/b/c/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args}/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard",
+			routes:   []string{"/foo/z*{args}/bar"},
+			path:     "/foo/za/bar",
+			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard with route char",
+			routes:   []string{"/foo/z*{args}/bar"},
+			path:     "/foo/z*{args}/bar",
+			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args}",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard with multi segment",
+			routes:   []string{"/foo/z*{args}/bar"},
+			path:     "/foo/za/b/c/bar",
+			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard with multi segment and route char",
+			routes:   []string{"/foo/z*{args}/bar"},
+			path:     "/foo/z*{args}/b/c/bar",
+			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args}/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard long",
+			routes:   []string{"/foo/xyz*{args}/bar"},
+			path:     "/foo/xyza/bar",
+			wantPath: "/foo/xyz*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard with multi segment long",
+			routes:   []string{"/foo/xyz*{args}/bar"},
+			path:     "/foo/xyza/b/c/bar",
+			wantPath: "/foo/xyz*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix and suffix wildcard match infix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
+			path:     "/foo/a/b/c/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix and suffix wildcard match suffix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
+			path:     "/foo/a/b/c/baz",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c/baz",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix and suffix wildcard match suffix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
+			path:     "/foo/a/b/c/barito",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c/barito",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match infix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/bar"},
+			path:     "/foo/a/b/c/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match suffix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/bar"},
+			path:     "/foo/a/b/c/bili",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c/bili",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match infix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}"},
+			path:     "/foo/a/bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match param",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/bar"},
+			path:     "/foo/a/bar",
+			wantPath: "/foo/{ps}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match suffix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}"},
+			path:     "/foo/a/bili",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/bili",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match param",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}"},
+			path:     "/foo/a",
+			wantPath: "/foo/{ps}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match param with ts",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/"},
+			path:     "/foo/a/",
+			wantPath: "/foo/{ps}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match suffix without ts",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/"},
+			path:     "/foo/a",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match suffix without ts",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}"},
+			path:     "/foo/a/",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix inflight suffix wildcard and param match param",
+			routes:   []string{"/foo/123*{args}", "/foo/123*{args}/bar", "/foo/123{ps}/bar"},
+			path:     "/foo/123a/bar",
+			wantPath: "/foo/123{ps}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix inflight suffix wildcard and param match suffix",
+			routes:   []string{"/foo/123*{args}", "/foo/123*{args}/bar", "/foo/123{ps}"},
+			path:     "/foo/123a/bili",
+			wantPath: "/foo/123*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/bili",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix inflight suffix wildcard and param match param",
+			routes:   []string{"/foo/123*{args}", "/foo/123*{args}/bar", "/foo/123{ps}"},
+			path:     "/foo/123a",
+			wantPath: "/foo/123{ps}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "infix segment followed by param",
+			routes:   []string{"/foo/*{a}/{b}"},
+			path:     "/foo/a/b/c/d",
+			wantPath: "/foo/*{a}/{b}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a/b/c",
+				},
+				{
+					Key:   "b",
+					Value: "d",
+				},
+			},
+		},
+		{
+			name:     "infix segment followed by two params",
+			routes:   []string{"/foo/*{a}/{b}/{c}"},
+			path:     "/foo/a/b/c/d",
+			wantPath: "/foo/*{a}/{b}/{c}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a/b",
+				},
+				{
+					Key:   "b",
+					Value: "c",
+				},
+				{
+					Key:   "c",
+					Value: "d",
+				},
+			},
+		},
+		{
+			name:     "infix segment followed by one param and one wildcard",
+			routes:   []string{"/foo/*{a}/{b}/*{c}"},
+			path:     "/foo/a/b/c/d",
+			wantPath: "/foo/*{a}/{b}/*{c}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "c",
+					Value: "c/d",
+				},
+			},
+		},
+		{
+			name:     "param followed by suffix wildcard",
+			routes:   []string{"/foo/{a}/*{b}"},
+			path:     "/foo/a/b/c/d",
+			wantPath: "/foo/{a}/*{b}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "b",
+					Value: "b/c/d",
+				},
+			},
+		},
+		{
+			name:     "infix inflight segment followed by param",
+			routes:   []string{"/foo/123*{a}/{b}"},
+			path:     "/foo/123a/b/c/d",
+			wantPath: "/foo/123*{a}/{b}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a/b/c",
+				},
+				{
+					Key:   "b",
+					Value: "d",
+				},
+			},
+		},
+		{
+			name:     "inflight param followed by suffix wildcard",
+			routes:   []string{"/foo/123{a}/*{b}"},
+			path:     "/foo/123a/b/c/d",
+			wantPath: "/foo/123{a}/*{b}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "b",
+					Value: "b/c/d",
+				},
+			},
+		},
+		{
+			name:     "multi infix segment simple",
+			routes:   []string{"/foo/*{$1}/bar/*{$2}/baz"},
+			path:     "/foo/a/bar/b/c/d/baz",
+			wantPath: "/foo/*{$1}/bar/*{$2}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "a",
+				},
+				{
+					Key:   "$2",
+					Value: "b/c/d",
+				},
+			},
+		},
+		{
+			name:     "multi inflight segment simple",
+			routes:   []string{"/foo/123*{$1}/bar/456*{$2}/baz"},
+			path:     "/foo/123a/bar/456b/c/d/baz",
+			wantPath: "/foo/123*{$1}/bar/456*{$2}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "a",
+				},
+				{
+					Key:   "$2",
+					Value: "b/c/d",
+				},
+			},
+		},
+		{
+			name:     "static priority",
+			routes:   []string{"/foo/bar/baz", "/foo/{ps}/baz", "/foo/*{any}/baz"},
+			path:     "/foo/bar/baz",
+			wantPath: "/foo/bar/baz",
+			wantTsr:  false,
+		},
+		{
+			name:     "param priority",
+			routes:   []string{"/foo/bar/baz", "/foo/{ps}/baz", "/foo/*{any}/baz"},
+			path:     "/foo/buzz/baz",
+			wantPath: "/foo/{ps}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "buzz",
+				},
+			},
+		},
+		{
+			name:     "fallback catch all",
+			routes:   []string{"/foo/bar/baz", "/foo/{ps}/baz", "/foo/*{any}/baz"},
+			path:     "/foo/a/b/baz",
+			wantPath: "/foo/*{any}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b",
+				},
+			},
+		},
+		{
+			name: "complex overlapping route with static priority",
+			routes: []string{
+				"/foo/bar/baz/{$1}/jo",
+				"/foo/*{any}/baz/{$1}/jo",
+				"/foo/{ps}/baz/{$1}/jo",
+			},
+			path:     "/foo/bar/baz/1/jo",
+			wantPath: "/foo/bar/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "complex overlapping route with param priority",
+			routes: []string{
+				"/foo/bar/baz/{$1}/jo",
+				"/foo/*{any}/baz/{$1}/jo",
+				"/foo/{ps}/baz/{$1}/jo",
+			},
+			path:     "/foo/bam/baz/1/jo",
+			wantPath: "/foo/{ps}/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "bam",
+				},
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "complex overlapping route with catch all fallback",
+			routes: []string{
+				"/foo/bar/baz/{$1}/jo",
+				"/foo/*{any}/baz/{$1}/jo",
+				"/foo/{ps}/baz/{$1}/jo",
+			},
+			path:     "/foo/a/b/c/baz/1/jo",
+			wantPath: "/foo/*{any}/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "complex overlapping route with catch all fallback",
+			routes: []string{
+				"/foo/bar/baz/{$1}/jo",
+				"/foo/*{any}/baz/{$1}/john",
+				"/foo/{ps}/baz/{$1}/johnny",
+			},
+			path:     "/foo/a/baz/1/john",
+			wantPath: "/foo/*{any}/baz/{$1}/john",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a",
+				},
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "overlapping static and infix",
+			routes: []string{
+				"/foo/*{any}/baz",
+				"/foo/a/b/baz",
+			},
+			path:     "/foo/a/b/baz",
+			wantPath: "/foo/a/b/baz",
+			wantTsr:  false,
+		},
+		{
+			name: "overlapping static and infix with catch all fallback",
+			routes: []string{
+				"/foo/*{any}/baz",
+				"/foo/a/b/baz",
+			},
+			path:     "/foo/a/b/c/baz",
+			wantPath: "/foo/*{any}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash",
+			routes: []string{
+				"/foo/*{any}/",
+			},
+			path:     "/foo/a/b/c/",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "overlapping static and infix with most specific",
+			routes: []string{
+				"/foo/*{any}/{a}/ddd/",
+				"/foo/*{any}/bbb/{d}",
+			},
+			path:     "/foo/a/b/c/bbb/ddd/",
+			wantPath: "/foo/*{any}/{a}/ddd/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+				{
+					Key:   "a",
+					Value: "bbb",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash",
+			routes: []string{
+				"/foo/*{any}",
+				"/foo/*{any}/b/",
+				"/foo/*{any}/c/",
+			},
+			path:     "/foo/x/y/z/",
+			wantPath: "/foo/*{any}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z/",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash most specific",
+			routes: []string{
+				"/foo/*{any}",
+				"/foo/*{any}/",
+			},
+			path:     "/foo/x/y/z/",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash most specific",
+			routes: []string{
+				"/foo/*{any}",
+				"/foo/*{any}/",
+			},
+			path:     "/foo/x/y/z",
+			wantPath: "/foo/*{any}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			tree := f.Tree()
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+			}
+			nds := *tree.nodes.Load()
+			c := newTestContextTree(tree)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			require.NotNil(t, n)
+			assert.Equal(t, tc.wantPath, n.route.path)
+			assert.Equal(t, tc.wantTsr, tsr)
+			c.tsr = tsr
+			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
+		})
+	}
+
+}
+
+func TestInfixWildcardTsr(t *testing.T) {
+	cases := []struct {
+		name       string
+		routes     []string
+		path       string
+		wantPath   string
+		wantTsr    bool
+		wantParams []Param
+	}{
+		{
+			name: "infix wildcard with trailing slash and tsr add",
+			routes: []string{
+				"/foo/*{any}/",
+			},
+			path:     "/foo/a/b/c",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with tsr but skipped node match",
+			routes: []string{
+				"/foo/*{any}/",
+				"/{x}/a/b/c",
+			},
+			path:     "/foo/a/b/c",
+			wantPath: "/{x}/a/b/c",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "x",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with tsr but skipped node does not match",
+			routes: []string{
+				"/foo/*{any}/",
+				"/{x}/a/b/x",
+			},
+			path:     "/foo/a/b/c",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash and tsr add",
+			routes: []string{
+				"/foo/*{any}/",
+				"/foo/*{any}/abc",
+				"/foo/*{any}/bcd",
+			},
+			path:     "/foo/a/b/c/abd",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c/abd",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with sub-node tsr add fallback",
+			routes: []string{
+				"/foo/*{any}/{a}/ddd/",
+				"/foo/*{any}/bbb/{d}/foo",
+			},
+			path:     "/foo/a/b/c/bbb/ddd",
+			wantPath: "/foo/*{any}/{a}/ddd/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+				{
+					Key:   "a",
+					Value: "bbb",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with sub-node tsr at depth 1 but direct match",
+			routes: []string{
+				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbb",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/*{any}/bbb",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with sub-node tsr at depth 1 and 2 but direct match",
+			routes: []string{
+				"/foo/*{any}/b/c/bbb/",
+				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbb",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/*{any}/bbb",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with sub-node tsr at depth 1 and 2 but fallback first tsr",
+			routes: []string{
+				"/foo/*{any}/b/c/bbb/",
+				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbx",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/*{any}/b/c/bbb/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with sub-node tsr at depth 1 and 2 but fallback first tsr",
+			routes: []string{
+				"/foo/*{any}/",
+				"/foo/*{any}/b/c/bbb/",
+				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbx",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/*{any}/b/c/bbb/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with depth 0 tsr and sub-node tsr at depth 1 fallback first tsr",
+			routes: []string{
+				"/foo/a/b/c/bbb/",
+				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbx",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/a/b/c/bbb/",
+			wantTsr:  true,
+		},
+		{
+			name: "infix wildcard with depth 0 tsr and sub-node tsr at depth 1 fallback first tsr",
+			routes: []string{
+				"/foo/{first}/b/c/bbb/",
+				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbx",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/{first}/b/c/bbb/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "first",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name: "multi infix wildcard with sub-node tsr at depth 1 but direct match",
+			routes: []string{
+				"/foo/*{any1}/b/c/*{any2}/d/",
+				"/foo/*{any1}/c/*{any2}/d",
+			},
+			path:     "/foo/a/b/c/x/y/z/d",
+			wantPath: "/foo/*{any1}/c/*{any2}/d",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any1",
+					Value: "a/b",
+				},
+				{
+					Key:   "any2",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "multi infix wildcard with sub-node tsr at depth 1 and fallback first",
+			routes: []string{
+				"/foo/*{any1}/b/c/*{any2}/d/",
+				"/foo/*{any1}/c/*{any2}/x",
+			},
+			path:     "/foo/a/b/c/x/y/z/d",
+			wantPath: "/foo/*{any1}/b/c/*{any2}/d/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any1",
+					Value: "a",
+				},
+				{
+					Key:   "any2",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "multi infix wildcard with sub-node tsr and skipped nodes at depth 1 and fallback first",
+			routes: []string{
+				"/foo/*{any1}/b/c/*{any2}/{a}/",
+				"/foo/*{any1}/b/c/*{any2}/d{a}/",
+				"/foo/*{any1}/b/c/*{any2}/dd/",
+				"/foo/*{any1}/c/*{any2}/x",
+			},
+			path:     "/foo/a/b/c/x/y/z/dd",
+			wantPath: "/foo/*{any1}/b/c/*{any2}/dd/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any1",
+					Value: "a",
+				},
+				{
+					Key:   "any2",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "multi infix wildcard with sub-node tsr and skipped nodes at depth 1 and direct match",
+			routes: []string{
+				"/foo/*{any1}/b/c/*{any2}/{a}/",
+				"/foo/*{any1}/b/c/*{any2}/d{a}/",
+				"/foo/*{any1}/b/c/*{any2}/dd/",
+				"/foo/*{any1}/c/*{any2}/x",
+			},
+			path:     "/foo/a/b/c/x/y/z/xd/",
+			wantPath: "/foo/*{any1}/b/c/*{any2}/{a}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any1",
+					Value: "a",
+				},
+				{
+					Key:   "any2",
+					Value: "x/y/z",
+				},
+				{
+					Key:   "a",
+					Value: "xd",
+				},
+			},
+		},
+		{
+			name: "multi infix wildcard with sub-node tsr and skipped nodes at depth 1 with direct match depth 0",
+			routes: []string{
+				"/foo/*{any1}/b/c/*{any2}/{a}/",
+				"/foo/*{any1}/b/c/*{any2}/d{a}/",
+				"/foo/*{any1}/b/c/*{any2}/dd/",
+				"/foo/*{any1}/c/*{any2}/x",
+				"/{a}/*{any1}/c/x/y/z/dd",
+			},
+			path:     "/foo/a/b/c/x/y/z/dd",
+			wantPath: "/{a}/*{any1}/c/x/y/z/dd",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "any1",
+					Value: "a/b",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			tree := f.Tree()
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+			}
+			nds := *tree.nodes.Load()
+			c := newTestContextTree(tree)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			require.NotNil(t, n)
+			assert.Equal(t, tc.wantPath, n.route.path)
+			assert.Equal(t, tc.wantTsr, tsr)
+			c.tsr = tsr
+			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
 }
@@ -1286,7 +2473,7 @@ func TestInsertConflict(t *testing.T) {
 			}{
 				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
 				{path: "/john/*{y}", wantErr: ErrRouteConflict, wantMatch: []string{"/john/*{x}"}},
-				{path: "/john/", wantErr: ErrRouteExist, wantMatch: nil},
+				{path: "/john/", wantErr: nil, wantMatch: nil},
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
@@ -1296,7 +2483,7 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/fox/", wantErr: nil, wantMatch: nil},
-				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: nil},
+				{path: "/fox/*{args}", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
@@ -1341,12 +2528,18 @@ func TestInsertConflict(t *testing.T) {
 			}{
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/gchq/*{id}", wantErr: nil, wantMatch: nil},
+				{path: "/gchq/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/gchq/*{id}"}},
 				{path: "/foo{id}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/a{id}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/baz", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
+				{path: "/ironman/*{id}/bar", wantErr: nil, wantMatch: nil},
+				{path: "/ironman/*{id}/baz", wantErr: nil, wantMatch: nil},
+				{path: "/ironman/*{id}", wantErr: nil, wantMatch: nil},
+				{path: "/ironman/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
 			},
 		},
 	}
@@ -1359,7 +2552,7 @@ func TestInsertConflict(t *testing.T) {
 				if err != nil {
 					assert.Nil(t, r)
 				}
-				assert.ErrorIs(t, err, rte.wantErr)
+				assert.ErrorIsf(t, err, rte.wantErr, "route: %s", rte.path)
 				if cErr, ok := err.(*RouteConflictError); ok {
 					assert.Equal(t, rte.wantMatch, cErr.Matched)
 				}
@@ -1398,21 +2591,21 @@ func TestUpdateConflict(t *testing.T) {
 			name:      "wildcard have different name",
 			routes:    []string{"/foo/bar", "/foo/*{args}"},
 			update:    "/foo/*{all}",
-			wantErr:   ErrRouteConflict,
+			wantErr:   ErrRouteNotFound,
 			wantMatch: []string{"/foo/*{args}"},
 		},
 		{
 			name:      "replacing non wildcard by wildcard",
 			routes:    []string{"/foo/bar", "/foo/"},
 			update:    "/foo/*{all}",
-			wantErr:   ErrRouteConflict,
+			wantErr:   ErrRouteNotFound,
 			wantMatch: []string{"/foo/"},
 		},
 		{
 			name:      "replacing wildcard by non wildcard",
 			routes:    []string{"/foo/bar", "/foo/*{args}"},
 			update:    "/foo/",
-			wantErr:   ErrRouteConflict,
+			wantErr:   ErrRouteNotFound,
 			wantMatch: []string{"/foo/*{args}"},
 		},
 	}
@@ -1428,9 +2621,6 @@ func TestUpdateConflict(t *testing.T) {
 				assert.Nil(t, r)
 			}
 			assert.ErrorIs(t, err, tc.wantErr)
-			if cErr, ok := err.(*RouteConflictError); ok {
-				assert.Equal(t, tc.wantMatch, cErr.Matched)
-			}
 		})
 	}
 }
@@ -1488,6 +2678,16 @@ func TestUpdateRoute(t *testing.T) {
 			routes: []string{"/foo/*{bar}", "/foo", "/foo/bar"},
 			update: "/foo/*{bar}",
 		},
+		{
+			name:   "replacing infix catch all node",
+			routes: []string{"/foo/*{bar}/baz", "/foo", "/foo/bar"},
+			update: "/foo/*{bar}/baz",
+		},
+		{
+			name:   "replacing infix inflight catch all node",
+			routes: []string{"/foo/abc*{bar}/baz", "/foo", "/foo/abc{bar}"},
+			update: "/foo/abc*{bar}/baz",
+		},
 	}
 
 	for _, tc := range cases {
@@ -1503,145 +2703,184 @@ func TestUpdateRoute(t *testing.T) {
 
 func TestParseRoute(t *testing.T) {
 	cases := []struct {
-		wantErr         error
-		name            string
-		path            string
-		wantCatchAllKey string
-		wantPath        string
-		wantN           int
+		wantErr error
+		name    string
+		path    string
+		wantN   uint32
 	}{
 		{
-			name:     "valid static route",
-			path:     "/foo/bar",
-			wantPath: "/foo/bar",
+			name: "valid static route",
+			path: "/foo/bar",
 		},
 		{
-			name:            "valid catch all route",
-			path:            "/foo/bar/*{arg}",
-			wantN:           1,
-			wantCatchAllKey: "arg",
-			wantPath:        "/foo/bar/",
+			name:  "valid catch all route",
+			path:  "/foo/bar/*{arg}",
+			wantN: 1,
 		},
 		{
-			name:     "valid param route",
-			path:     "/foo/bar/{baz}",
-			wantN:    1,
-			wantPath: "/foo/bar/{baz}",
+			name:  "valid param route",
+			path:  "/foo/bar/{baz}",
+			wantN: 1,
 		},
 		{
-			name:     "valid multi params route",
-			path:     "/foo/{bar}/{baz}",
-			wantN:    2,
-			wantPath: "/foo/{bar}/{baz}",
+			name:  "valid multi params route",
+			path:  "/foo/{bar}/{baz}",
+			wantN: 2,
 		},
 		{
-			name:     "valid same params route",
-			path:     "/foo/{bar}/{bar}",
-			wantN:    2,
-			wantPath: "/foo/{bar}/{bar}",
+			name:  "valid same params route",
+			path:  "/foo/{bar}/{bar}",
+			wantN: 2,
 		},
 		{
-			name:            "valid multi params and catch all route",
-			path:            "/foo/{bar}/{baz}/*{arg}",
-			wantN:           3,
-			wantCatchAllKey: "arg",
-			wantPath:        "/foo/{bar}/{baz}/",
+			name:  "valid multi params and catch all route",
+			path:  "/foo/{bar}/{baz}/*{arg}",
+			wantN: 3,
 		},
 		{
-			name:     "valid inflight param",
-			path:     "/foo/xyz:{bar}",
-			wantN:    1,
-			wantPath: "/foo/xyz:{bar}",
+			name:  "valid inflight param",
+			path:  "/foo/xyz:{bar}",
+			wantN: 1,
 		},
 		{
-			name:            "valid inflight catchall",
-			path:            "/foo/xyz:*{bar}",
-			wantN:           1,
-			wantPath:        "/foo/xyz:",
-			wantCatchAllKey: "bar",
+			name:  "valid inflight catchall",
+			path:  "/foo/xyz:*{bar}",
+			wantN: 1,
 		},
 		{
-			name:            "valid multi inflight param and catch all",
-			path:            "/foo/xyz:{bar}/abc:{bar}/*{arg}",
-			wantN:           3,
-			wantCatchAllKey: "arg",
-			wantPath:        "/foo/xyz:{bar}/abc:{bar}/",
+			name:  "valid multi inflight param and catch all",
+			path:  "/foo/xyz:{bar}/abc:{bar}/*{arg}",
+			wantN: 3,
+		},
+		{
+			name:  "catch all with arg in the middle of the route",
+			path:  "/foo/bar/*{bar}/baz",
+			wantN: 1,
+		},
+		{
+			name:  "multiple catch all suffix and inflight with arg in the middle of the route",
+			path:  "/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
+			wantN: 4,
+		},
+		{
+			name:  "inflight catch all with arg in the middle of the route",
+			path:  "/foo/bar/damn*{bar}/baz",
+			wantN: 1,
+		},
+		{
+			name:  "catch all with arg in the middle of the route and param after",
+			path:  "/foo/bar/*{bar}/{baz}",
+			wantN: 2,
 		},
 		{
 			name:    "missing prefix slash",
 			path:    "foo/bar",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "empty parameter",
 			path:    "/foo/bar{}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "missing arguments name after catch all",
 			path:    "/foo/bar/*",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "missing arguments name after param",
 			path:    "/foo/bar/{",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "catch all in the middle of the route",
 			path:    "/foo/bar/*/baz",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
-			name:    "catch all with arg in the middle of the route",
-			path:    "/foo/bar/*{bar}/baz",
+			name:    "empty infix catch all",
+			path:    "/foo/bar/*{}/baz",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
+		},
+		{
+			name:    "empty ending catch all",
+			path:    "/foo/bar/baz/*{}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
 		},
 		{
 			name:    "unexpected character in param",
 			path:    "/foo/{{bar}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "unexpected character in param",
 			path:    "/foo/{*bar}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "in flight catch-all after param in one route segment",
 			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "multiple param in one route segment",
 			path:    "/foo/{bar}{baz}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
 		},
 		{
 			name:    "in flight param after catch all",
 			path:    "/foo/*{args}{param}",
 			wantErr: ErrInvalidRoute,
-			wantN:   -1,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive catch all with no slash",
+			path:    "/foo/*{args}*{param}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive catch all",
+			path:    "/foo/*{args}/*{param}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive catch all with inflight",
+			path:    "/foo/ab*{args}/*{param}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected char after inflight catch all",
+			path:    "/foo/ab*{args}a",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected char after catch all",
+			path:    "/foo/*{args}a",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path, key, n, err := parseRoute(tc.path)
+			n, err := parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
-			assert.Equal(t, tc.wantCatchAllKey, key)
-			assert.Equal(t, tc.wantPath, path)
 		})
 	}
 }
@@ -1718,11 +2957,11 @@ func TestTree_LookupTsr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := New().Tree()
 			for _, path := range tc.paths {
-				require.NoError(t, tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler)))
+				require.NoError(t, tree.insert(http.MethodGet, tree.newRoute(path, emptyHandler), 0))
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, got := tree.lookup(nds[0], tc.key, c, true)
+			n, got := tree.lookup(nds[0].children[0].Load(), tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -3067,11 +4306,11 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			continue
 		}
 		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
-		if err := tree.insert(http.MethodGet, path, "", 3, tree.newRoute(path, emptyHandler)); err == nil {
+		if err := tree.insert(http.MethodGet, tree.newRoute(path, emptyHandler), 3); err == nil {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
+			n, tsr := tree.lookup(nds[0].children[0].Load(), fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -3091,14 +4330,12 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 	f.Fuzz(&routes)
 
 	for rte := range routes {
-		var catchAllKey string
-		f.Fuzz(&catchAllKey)
 		if rte == "" {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = tree.insert(http.MethodGet, rte, catchAllKey, 0, tree.newRoute(appendCatchAll(rte, catchAllKey), emptyHandler))
-		}, fmt.Sprintf("rte: %s, catch all: %s", rte, catchAllKey))
+			_ = tree.insert(http.MethodGet, tree.newRoute(rte, emptyHandler), 0)
+		}, fmt.Sprintf("rte: %s", rte))
 	}
 }
 
@@ -3119,7 +4356,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 
 	for rte := range routes {
 		path := "/" + rte
-		err := tree.insert(http.MethodGet, path, "", 0, tree.newRoute(path, emptyHandler))
+		err := tree.insert(http.MethodGet, tree.newRoute(path, emptyHandler), 0)
 		require.NoError(t, err)
 	}
 
@@ -3130,18 +4367,18 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0], "/"+rte, c, true)
+		n, tsr := tree.lookup(nds[0].children[0].Load(), "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.NotNilf(t, n.route, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.route.path)
 		path := "/" + rte
-		require.NoError(t, tree.update(http.MethodGet, path, "", tree.newRoute(path, emptyHandler)))
+		require.NoError(t, tree.update(http.MethodGet, tree.newRoute(path, emptyHandler)))
 	}
 
 	for rte := range routes {
-		deleted := tree.remove(http.MethodGet, "/"+rte, "")
+		deleted := tree.remove(http.MethodGet, "/"+rte)
 		require.True(t, deleted)
 	}
 
@@ -3221,7 +4458,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.insert(rte.method, rte.path, "", 0, &Route{path: rte.path})
+			_ = tree.insert(rte.method, &Route{path: rte.path}, 0)
 		}()
 
 		go func() {
@@ -3233,7 +4470,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.update(rte.method, rte.path, "", &Route{path: rte.path})
+			_ = tree.update(rte.method, &Route{path: rte.path})
 		}()
 
 		go func() {
@@ -3245,7 +4482,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.remove(rte.method, rte.path, "")
+			tree.remove(rte.method, rte.path)
 		}()
 	}
 
@@ -3343,7 +4580,7 @@ func TestNode_String(t *testing.T) {
 	nds := *tree.nodes.Load()
 
 	want := `path: GET
-      path: /foo/{bar}/ [catchAll] [leaf=/foo/{bar}/*{baz}] [bar (10)]`
+      path: /foo/{bar}/*{baz} [leaf=/foo/{bar}/*{baz}] [bar (10), baz (-1)]`
 	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
 }
 
