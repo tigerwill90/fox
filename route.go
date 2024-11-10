@@ -2,7 +2,6 @@ package fox
 
 import (
 	"iter"
-	"strings"
 )
 
 // Annotation represents a single key-value pair that provides metadata for a route.
@@ -74,78 +73,4 @@ func (r *Route) IgnoreTrailingSlashEnabled() bool {
 func (r *Route) ClientIPStrategyEnabled() bool {
 	_, ok := r.ipStrategy.(noClientIPStrategy)
 	return !ok
-}
-
-func (r *Route) hydrateParams(path string, params *Params) bool {
-	rLen := len(r.path)
-	pLen := len(path)
-	var i, j int
-	state := stateDefault
-
-	// Note that we assume that this is a valid route (validated with parseRoute).
-OUTER:
-	for i < rLen && j < pLen {
-		switch state {
-		case stateParam:
-			startPath := j
-			idx := strings.IndexByte(path[j:], slashDelim)
-			if idx > 0 {
-				j += idx
-			} else if idx < 0 {
-				j += len(path[j:])
-			} else {
-				// segment is empty
-				return false
-			}
-
-			startRoute := i
-			idx = strings.IndexByte(r.path[i:], slashDelim)
-			if idx >= 0 {
-				i += idx
-			} else {
-				i += len(r.path[i:])
-			}
-
-			*params = append(*params, Param{
-				Key:   r.path[startRoute : i-1],
-				Value: path[startPath:j],
-			})
-
-			state = stateDefault
-
-		default:
-			if r.path[i] == '{' {
-				i++
-				state = stateParam
-				continue
-			}
-
-			if r.path[i] == '*' {
-				state = stateCatchAll
-				break OUTER
-			}
-
-			if r.path[i] == path[j] {
-				i++
-				j++
-				continue
-			}
-
-			return false
-		}
-	}
-
-	if state == stateCatchAll || (i < rLen && r.path[i] == '*') {
-		*params = append(*params, Param{
-			Key:   r.path[i+2 : rLen-1],
-			Value: path[j:],
-		})
-		return true
-	}
-
-	if i == rLen && j == pLen {
-		return true
-	}
-
-	return false
 }
