@@ -1,6 +1,6 @@
 module github.com/tigerwill90/fox
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/google/gofuzz v1.2.0
