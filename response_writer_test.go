@@ -351,3 +351,28 @@ func TestRecorderWriteAfterHijack(t *testing.T) {
 	_, err = client.Do(req)
 	require.Error(t, err)
 }
+
+func TestInformationalHeader(t *testing.T) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		c.SetHeader("Link", "</style.css>; rel=preload; as=style")
+		c.Writer().WriteHeader(http.StatusEarlyHints)
+		_, err := c.Writer().WriteString("final response")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, c.Writer().Status())
+	})
+
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+	require.NoError(t, err)
+	client := srv.Client()
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	linkHeader := resp.Header.Get("Link")
+	expectedLink := "</style.css>; rel=preload; as=style"
+	assert.Equal(t, expectedLink, linkHeader)
+}
