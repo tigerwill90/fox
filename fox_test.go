@@ -4762,3 +4762,21 @@ func ExampleTree_Has() {
 func onlyError[T any](_ T, err error) error {
 	return err
 }
+
+func BenchmarkStripHostPort(b *testing.B) {
+	host := "[2001:db8::1]:8080"
+	path := "/foo/bar/baz"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for range b.N {
+		bufp := buf1k.Get().(*[]byte)
+		buf := *bufp
+		_ = joinHostPath(buf, host, path)
+		buf1k.Put(bufp)
+	}
+}
+
+func TestJoinHostPort(t *testing.T) {
+	buf := make([]byte, 1024)
+	fmt.Println(joinHostPath(buf, "[2001:db8::1]:8080", "/foo/bar/baz"))
+}

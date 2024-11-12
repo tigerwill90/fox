@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"github.com/tigerwill90/fox/internal/unsafe"
 	"math"
 	"net"
 	"net/http"
@@ -348,6 +349,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
+	// if len(nds[index].children == 1) => ignore domain
+	// if len(nds[index].children > 1) => search node linearSearch(nds[index].childKeys, c.Request().Host[0])
+
 	n, tsr = tree.lookup(nds[index].children[0].Load(), target, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
@@ -680,6 +684,42 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 		}
 	}
 	return rte, all
+}
+
+const size1k = 1024
+
+var buf1k = sync.Pool{
+	New: func() any {
+		buf := make([]byte, size1k)
+		return &buf
+	},
+}
+
+func joinHostPath(buf []byte, host, path string) string {
+	host = stripHostPort(host)
+	if len(host) < size1k {
+		n := copy(buf, host)
+		buf = buf[:n]
+		buf = append(buf, path...)
+	} else {
+		buf = buf[:0]
+		buf = append(buf, host...)
+		buf = append(buf, path...)
+	}
+	return unsafe.String(buf)
+}
+
+// stripHostPort returns h without any trailing ":<port>".
+func stripHostPort(h string) string {
+	// If no port on host, return unchanged
+	if !strings.Contains(h, ":") {
+		return h
+	}
+	host, _, err := net.SplitHostPort(h)
+	if err != nil {
+		return h // on error, return unchanged
+	}
+	return host
 }
 
 // localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths
