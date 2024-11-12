@@ -91,14 +91,6 @@ type Context interface {
 	Tree() *Tree
 	// Fox returns the [Router] instance.
 	Fox() *Router
-	// Rehydrate updates the current [Context] to serve the provided [Route], bypassing the need for a full tree lookup.
-	// It succeeds only if the [http.Request]'s URL path strictly matches the given [Route]. If successful, the internal state
-	// of the context is updated, allowing the context to serve the route directly, regardless of whether the route
-	// still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
-	// modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
-	// or tree lookups. Note that the context's state is only mutated if the rehydration is successful.
-	// This api is EXPERIMENTAL and is likely to change in future release.
-	Rehydrate(route *Route) bool
 }
 
 // cTx holds request-related information and allows interaction with the [ResponseWriter].
@@ -118,42 +110,6 @@ type cTx struct {
 	rec         recorder
 	scope       HandlerScope
 	tsr         bool
-}
-
-// Rehydrate updates the current [Context] to serve the provided [Route], bypassing the need for a full tree lookup.
-// It succeeds only if the [http.Request]'s URL path strictly matches the given [Route]. If successful, the internal state
-// of the context is updated, allowing the context to serve the route directly, regardless of whether the route
-// still exists in the routing tree. This provides a key advantage in concurrent scenarios where routes may be
-// modified by other threads, as Rehydrate guarantees success if the path matches, without requiring serial execution
-// or tree lookups. Note that the context's state is only mutated if the rehydration is successful.
-// This api is EXPERIMENTAL and is likely to change in future release.
-func (c *cTx) Rehydrate(route *Route) bool {
-
-	target := c.req.URL.Path
-	if len(c.req.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = c.req.URL.RawPath
-	}
-
-	var params *Params
-	if c.tsr {
-		*c.params = (*c.params)[:0]
-		params = c.params
-	} else {
-		*c.tsrParams = (*c.tsrParams)[:0]
-		params = c.tsrParams
-	}
-
-	if !route.hydrateParams(target, params) {
-		return false
-	}
-
-	*c.params, *c.tsrParams = *c.tsrParams, *c.params
-	c.cachedQuery = nil
-	c.route = route
-	c.scope = RouteHandler
-
-	return true
 }
 
 // reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].

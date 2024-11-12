@@ -8,9 +8,11 @@ import (
 	"bufio"
 	"errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -288,4 +290,89 @@ func TestRecorder_SetWriteDeadline(t *testing.T) {
 			tc.assert(t, tc.rec)
 		})
 	}
+}
+
+func TestRecorderSuperfluousWriteHeader(t *testing.T) {
+	rec := new(recorder)
+	w := httptest.NewRecorder()
+	rec.reset(w)
+	rec.WriteHeader(http.StatusCreated)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	rec.WriteHeader(http.StatusAccepted)
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	rec = new(recorder)
+	w = httptest.NewRecorder()
+	rec.reset(w)
+	_, err := rec.Write([]byte("foo"))
+	require.NoError(t, err)
+	rec.WriteHeader(http.StatusCreated)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	rec = new(recorder)
+	w = httptest.NewRecorder()
+	rec.reset(w)
+	_, err = rec.WriteString("foo")
+	require.NoError(t, err)
+	rec.WriteHeader(http.StatusCreated)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	rec = new(recorder)
+	w = httptest.NewRecorder()
+	rec.reset(w)
+	err = rec.FlushError()
+	require.NoError(t, err)
+	rec.WriteHeader(http.StatusCreated)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRecorderWriteAfterHijack(t *testing.T) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		conn, _, err := c.Writer().Hijack()
+		require.NoError(t, err)
+		defer conn.Close()
+		c.Writer().WriteHeader(http.StatusAccepted)
+		assert.Equal(t, http.StatusOK, c.Writer().Status())
+		_, err = c.Writer().Write([]byte("foo"))
+		assert.ErrorIs(t, err, http.ErrHijacked)
+		_, err = c.Writer().WriteString("foo")
+		assert.ErrorIs(t, err, http.ErrHijacked)
+		_, err = c.Writer().ReadFrom(strings.NewReader("foo"))
+		assert.ErrorIs(t, err, http.ErrHijacked)
+	})
+
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+	require.NoError(t, err)
+	client := srv.Client()
+	_, err = client.Do(req)
+	require.Error(t, err)
+}
+
+func TestInformationalHeader(t *testing.T) {
+	f := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		c.SetHeader("Link", "</style.css>; rel=preload; as=style")
+		c.Writer().WriteHeader(http.StatusEarlyHints)
+		_, err := c.Writer().WriteString("final response")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, c.Writer().Status())
+	})
+
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/foo", nil)
+	require.NoError(t, err)
+	client := srv.Client()
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	linkHeader := resp.Header.Get("Link")
+	expectedLink := "</style.css>; rel=preload; as=style"
+	assert.Equal(t, expectedLink, linkHeader)
 }
