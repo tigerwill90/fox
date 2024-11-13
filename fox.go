@@ -189,6 +189,7 @@ func (fox *Router) NewTree() *Tree {
 		nds[i] = new(node)
 		nds[i].key = commonVerbs[i]
 		nds[i].paramChildIndex = -1
+		nds[i].wildcardChildIndex = -1
 	}
 	tree.nodes.Store(&nds)
 
@@ -340,10 +341,10 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tsr bool
 	)
 
-	target := r.URL.Path
+	path := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
 		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = r.URL.RawPath
+		path = r.URL.RawPath
 	}
 
 	tree := fox.tree.Load()
@@ -359,7 +360,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// if len(nds[index].children) == 1 && nds[index].childKeys[0] == '/' => ignore domain
 	// if len(nds[index].children) > 1 => search node linearSearch(nds[index].childKeys, c.Request().Host[0])
 
-	n, tsr = tree.lookup(nds[index].children[0].Load(), target, c, false)
+	n, tsr = tree.lookup(nds[index], r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
 		c.tsr = tsr
@@ -381,7 +382,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if n.route.redirectTrailingSlash && target == CleanPath(target) {
+		if n.route.redirectTrailingSlash && path == CleanPath(path) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
 			c.route = nil
@@ -404,7 +405,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
-		if target == "*" {
+		if path == "*" {
 			for i := 0; i < len(nds); i++ {
 				if nds[i].key != http.MethodOptions && len(nds[i].children) > 0 {
 					if sb.Len() > 0 {
@@ -417,7 +418,7 @@ NoMethodFallback:
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i].children[0].Load(), target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}
@@ -440,7 +441,7 @@ NoMethodFallback:
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i].children[0].Load(), target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}
@@ -553,10 +554,24 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func parseRoute(path string) (uint32, error) {
+func parseRoute(url string) (uint32, error) {
 
-	if !strings.HasPrefix(path, "/") {
-		return 0, fmt.Errorf("%w: path must start with '/'", ErrInvalidRoute)
+	endHost := strings.IndexByte(url, '/')
+	if endHost == -1 {
+		return 0, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
+	}
+	if strings.HasPrefix(url, ".") {
+		return 0, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
+	}
+	if strings.HasPrefix(url, "-") {
+		return 0, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
+	}
+
+	var delim byte
+	if endHost == 0 {
+		delim = slashDelim
+	} else {
+		delim = dotDelim
 	}
 
 	state := stateDefault
@@ -564,17 +579,21 @@ func parseRoute(path string) (uint32, error) {
 	paramCnt := uint32(0)
 	countStatic := 0
 	inParam := false
+	nonNumeric := false // true once we've seen a letter or hyphen
+	partlen := 0
+	totallen := 0
+	last := dotDelim
 
 	i := 0
-	for i < len(path) {
+	for i < len(url) {
 		switch state {
 		case stateParam:
-			if path[i] == '}' {
+			if url[i] == '}' {
 				if !inParam {
 					return 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
-				if i+1 < len(path) && path[i+1] != '/' {
+				if i+1 < len(url) && url[i+1] != delim {
 					return 0, fmt.Errorf("%w: unexpected character after '{param}'", ErrInvalidRoute)
 				}
 
@@ -585,18 +604,18 @@ func parseRoute(path string) (uint32, error) {
 				continue
 			}
 
-			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
-				return 0, fmt.Errorf("%w: unexpected character in '{params}'", ErrInvalidRoute)
+			if url[i] == delim || url[i] == '*' || url[i] == '{' {
+				return 0, fmt.Errorf("%w: unexpected character in '{param}'", ErrInvalidRoute)
 			}
 			inParam = true
 			i++
 		case stateCatchAll:
-			if path[i] == '}' {
+			if url[i] == '}' {
 				if !inParam {
 					return 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
 				}
 				inParam = false
-				if i+1 < len(path) && path[i+1] != '/' {
+				if i+1 < len(url) && url[i+1] != '/' {
 					return 0, fmt.Errorf("%w: unexpected character after '*{param}'", ErrInvalidRoute)
 				}
 
@@ -611,21 +630,63 @@ func parseRoute(path string) (uint32, error) {
 				continue
 			}
 
-			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
-				return 0, fmt.Errorf("%w: unexpected character in '*{params}'", ErrInvalidRoute)
+			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
+				return 0, fmt.Errorf("%w: unexpected character in '*{param}'", ErrInvalidRoute)
 			}
 			inParam = true
 			i++
 		default:
-			if path[i] == '{' {
+			if i == endHost {
+				delim = slashDelim
+			}
+
+			if url[i] == '{' {
 				state = stateParam
 				paramCnt++
-			} else if path[i] == '*' {
+			} else if url[i] == '*' {
+				if i < endHost {
+					return 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
+				}
 				state = stateCatchAll
 				i++
 				paramCnt++
 			} else {
 				countStatic++
+				if i < endHost {
+					c := url[i]
+					switch {
+					case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '_':
+						nonNumeric = true
+						partlen++
+					case '0' <= c && c <= '9':
+						// fine
+						partlen++
+					case c == '-':
+						// Byte before dash cannot be dot.
+						if last == '.' {
+							return 0, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
+						}
+						partlen++
+						nonNumeric = true
+					case c == '.':
+						// Byte before dot cannot be dot.
+						if last == '.' && url[i-1] != '}' {
+							return 0, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
+						}
+						// Byte before dot cannot be dash.
+						if last == '-' {
+							return 0, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
+						}
+						if partlen > 63 {
+							return 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+						}
+						totallen += partlen + 1 // +1 count the current dot
+						partlen = 0
+					default:
+						return 0, fmt.Errorf("%w: illegal character %q in hostname label", ErrInvalidRoute, string(c))
+					}
+					last = c
+				}
 			}
 
 			if paramCnt > math.MaxUint16 {
@@ -636,15 +697,34 @@ func parseRoute(path string) (uint32, error) {
 		}
 	}
 
+	if endHost > 0 {
+		totallen += partlen
+		if last == '-' {
+			return 0, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
+		}
+		if last == '.' {
+			return 0, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
+		}
+		if !nonNumeric {
+			return 0, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
+		}
+		if partlen > 63 {
+			return 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+		}
+		if totallen > 255 {
+			return 0, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
+		}
+	}
+
 	if state == stateParam {
-		return 0, fmt.Errorf("%w: unclosed '{params}'", ErrInvalidRoute)
+		return 0, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
 	}
 
 	if state == stateCatchAll {
-		if path[len(path)-1] == '*' {
-			return 0, fmt.Errorf("%w: missing '{params}' after '*' catch-all delimiter", ErrInvalidRoute)
+		if url[len(url)-1] == '*' {
+			return 0, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
 		}
-		return 0, fmt.Errorf("%w: unclosed '*{params}'", ErrInvalidRoute)
+		return 0, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
 	}
 
 	return paramCnt, nil
@@ -696,13 +776,13 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 // joinHostPath combines host and path into a single url string without making a copy. The provided buf is used as
 // temporary storage to hold the combined result (the buffer may be safely reused once url is no longer referenced).
 // The host is stripped of any port information (e.g., ":<port>") before combining. The function returns the stripped
-// host, the combined url, and the position indicating the end of the host segment within url.
+// host, the combined url, and the position indicating the last '.' of the host segment within url.
 func joinHostPath(buf []byte, host, path string) (h string, url string, end int) {
 	host = stripHostPort(host)
 	buf = buf[:0]
 	buf = append(buf, host...)
 	buf = append(buf, path...)
-	return host, unsafe.String(buf), len(host)
+	return host, unsafe.String(buf), strings.LastIndexByte(host, '.')
 }
 
 // stripHostPort returns h without any trailing ":<port>".
@@ -711,6 +791,7 @@ func stripHostPort(h string) string {
 	if !strings.Contains(h, ":") {
 		return h
 	}
+
 	host, _, err := net.SplitHostPort(h)
 	if err != nil {
 		return h // on error, return unchanged
@@ -794,4 +875,74 @@ type noClientIPStrategy struct{}
 
 func (s noClientIPStrategy) ClientIP(_ Context) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPStrategy
+}
+
+// isDomainName checks if a string is a presentation-format domain name
+// (currently restricted to hostname-compatible "preferred name" LDH labels and
+// SRV-like "underscore labels"; see golang.org/issue/12421).
+//
+// isDomainName should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/sagernet/sing
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+func isDomainName(s string) bool {
+	// The root domain name is valid. See golang.org/issue/45715.
+	if s == "." {
+		return true
+	}
+
+	// See RFC 1035, RFC 3696.
+	// Presentation format has dots before every label except the first, and the
+	// terminal empty label is optional here because we assume fully-qualified
+	// (absolute) input. We must therefore reserve space for the first and last
+	// labels' length octets in wire format, where they are necessary and the
+	// maximum total length is 255.
+	// So our _effective_ maximum is 253, but 254 is not rejected if the last
+	// character is a dot.
+	l := len(s)
+	if l == 0 || l > 254 || l == 254 && s[l-1] != '.' {
+		return false
+	}
+
+	last := byte('.')
+	nonNumeric := false // true once we've seen a letter or hyphen
+	partlen := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		default:
+			return false
+		case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '_':
+			nonNumeric = true
+			partlen++
+		case '0' <= c && c <= '9':
+			// fine
+			partlen++
+		case c == '-':
+			// Byte before dash cannot be dot.
+			if last == '.' {
+				return false
+			}
+			partlen++
+			nonNumeric = true
+		case c == '.':
+			// Byte before dot cannot be dot, dash.
+			if last == '.' || last == '-' {
+				return false
+			}
+			if partlen > 63 || partlen == 0 {
+				return false
+			}
+			partlen = 0
+		}
+		last = c
+	}
+	if last == '-' || partlen > 63 {
+		return false
+	}
+
+	return nonNumeric
 }

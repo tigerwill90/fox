@@ -140,7 +140,7 @@ func (t *Tree) Route(method, path string) *Route {
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index].children[0].Load(), path, c, true)
+	n, tsr := t.lookupByPath(nds[index].children[0].Load(), path, c, true)
 	c.Close()
 	if n != nil && !tsr && n.route.path == path {
 		return n.route
@@ -162,7 +162,7 @@ func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookup(nds[index].children[0].Load(), path, c, true)
+	n, tsr := t.lookupByPath(nds[index].children[0].Load(), path, c, true)
 	c.Close()
 	if n != nil {
 		return n.route, tsr
@@ -192,7 +192,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 		target = r.URL.RawPath
 	}
 
-	n, tsr := t.lookup(nds[index].children[0].Load(), target, c, false)
+	n, tsr := t.lookupByPath(nds[index].children[0].Load(), target, c, false)
 	if n != nil {
 		c.route = n.route
 		c.tsr = tsr
@@ -222,7 +222,11 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
-		rootNode = &node{key: method}
+		rootNode = &node{
+			key:                method,
+			paramChildIndex:    -1,
+			wildcardChildIndex: -1,
+		}
 		t.addRoot(rootNode)
 	} else {
 		rootNode = nds[index]
@@ -352,14 +356,28 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-
+		isHostname := isHostnameSplit(path, result.charsMatched)
 		// Rule: a node with {param} or *{wildcard} has no child or has a separator before the end of the key
-		for i := len(cPrefix) - 1; i >= 0; i-- {
-			if cPrefix[i] == '/' {
-				break
+		if !isHostname {
+			for i := len(cPrefix) - 1; i >= 0; i-- {
+				if cPrefix[i] == '/' {
+					break
+				}
+
+				if cPrefix[i] == '{' || cPrefix[i] == '*' {
+					return newConflictErr(method, path, getRouteConflict(result.matched))
+				}
 			}
-			if cPrefix[i] == '{' || cPrefix[i] == '*' {
-				return newConflictErr(method, path, getRouteConflict(result.matched))
+		} else if !strings.HasSuffix(cPrefix, "}") {
+			// e.g. a.{b} is valid
+			for i := len(cPrefix) - 1; i >= 0; i-- {
+				if cPrefix[i] == '.' {
+					break
+				}
+
+				if cPrefix[i] == '{' {
+					return newConflictErr(method, path, getRouteConflict(result.matched))
+				}
 			}
 		}
 
@@ -530,7 +548,41 @@ const (
 	starDelim    byte = '*'
 )
 
-func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+// lookup  returns the node matching the host and/or path. If lazy is false, it parses and record into c, path segment according to
+// the route definition. In case of indirect match, tsr is true and n != nil.
+func (t *Tree) lookup(root *node, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+	// The tree for this method only have path registered
+	if len(root.children) == 1 && root.childKeys[0] == '/' {
+		return t.lookupByPath(root.children[0].Load(), path, c, lazy)
+	}
+
+	bufp := buf1k.Get().(*[]byte)
+	buf := *bufp
+	defer buf1k.Put(bufp)
+
+	host, unsafeUrl, end := joinHostPath(buf, hostPort, path)
+	// Try first by domain
+	n, tsr = t.lookupByDomain(root, host, path, unsafeUrl, c, end, lazy)
+	if n != nil {
+		return n, tsr
+	}
+
+	idx := linearSearch(root.childKeys, '/')
+	if idx < 0 {
+		return nil, false
+	}
+
+	// Reset any recorded params and tsrParams
+	*c.params = (*c.params)[:0]
+	c.tsr = false
+
+	// Fallback by path
+	return t.lookupByPath(root.children[idx].Load(), path, c, lazy)
+}
+
+// lookupByPath returns the node matching the path. If lazy is false, it parses and record into c, path segment according to
+// the route definition. In case of indirect match, tsr is true and n != nil.
+func (t *Tree) lookupByPath(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
@@ -635,7 +687,7 @@ Walk:
 						if idx > 0 {
 							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
-							subNode, subTsr := t.lookup(interNode, path[charsMatched:], subCtx, false)
+							subNode, subTsr := t.lookupByPath(interNode, path[charsMatched:], subCtx, false)
 							if subNode == nil {
 								// Try with next segment
 								charsMatched++
@@ -890,9 +942,9 @@ Backtrack:
 	return n, tsr
 }
 
-// lookupWithDomain is like lookup, but for target with domain. The url string is only valid within the function and
+// lookupByDomain is like lookupByPath, but for target with domain. The url string is only valid within the function and
 // should never be sliced as the underlying pointer may change (see joinHostPath) -- ether use strings.Clone or safeUrlValue.
-func (t *Tree) lookupWithDomain(target *node, host, path, url string, c *cTx, pos int, lazy bool) (n *node, tsr bool) {
+func (t *Tree) lookupByDomain(target *node, host, path, url string, c *cTx, lastDot int, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
 		charsMatchedInNodeFound int
@@ -900,10 +952,16 @@ func (t *Tree) lookupWithDomain(target *node, host, path, url string, c *cTx, po
 		paramKeyCnt             uint32
 		parent                  *node
 		current                 *node
+		delim                   byte
 	)
 
 	*c.skipNds = (*c.skipNds)[:0]
-	delim := dotDelim
+
+	if lastDot >= 0 {
+		delim = dotDelim
+	} else {
+		delim = slashDelim
+	}
 
 	idx := -1
 	for i := 0; i < len(target.childKeys); i++ {
@@ -941,23 +999,24 @@ Walk:
 			}
 
 			// Switch to path mode
-			if charsMatched == pos {
+			if charsMatched == lastDot {
 				delim = slashDelim
 			}
 
-			/*			x := string(current.key[i])
-						y := string(url[charsMatched])
-						_, _ = x, y*/
+			x := string(current.key[i])
+			y := string(url[charsMatched])
+			z := string(delim)
+			_, _, _ = x, y, z
 
 			if current.key[i] != url[charsMatched] || url[charsMatched] == bracketDelim || url[charsMatched] == starDelim {
 				if current.key[i] == bracketDelim {
 					startPath := charsMatched
 					idx = strings.IndexByte(url[charsMatched:], delim)
 					if idx > 0 {
-						// There is another path segment (e.g. /foo/{bar}/baz)
+						// There is another path or label segment (e.g. /foo/{bar}/baz or foo.{bar}.baz/)
 						charsMatched += idx
 					} else if idx < 0 {
-						// This is the end of the path (e.g. /foo/{bar})
+						// This is the end of the path (e.g. /foo/{bar} or a.b.c/{bar})
 						charsMatched += len(url[charsMatched:])
 					} else {
 						// segment is empty
@@ -1034,7 +1093,7 @@ Walk:
 						if idx > 0 {
 							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
-							subNode, subTsr := t.lookup(interNode, url[charsMatched:], subCtx, false)
+							subNode, subTsr := t.lookupByPath(interNode, url[charsMatched:], subCtx, false)
 							if subNode == nil {
 								// Try with next segment
 								charsMatched++
@@ -1284,7 +1343,7 @@ Backtrack:
 		*c.params = (*c.params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
 		// If we backtrack before pos, we are in domain mode.
-		if charsMatched < pos {
+		if charsMatched < lastDot {
 			delim = dotDelim
 		}
 		goto Walk
@@ -1450,7 +1509,7 @@ func copyParams(src, dst *Params) {
 	copy(*dst, *src)
 }
 
-// safeUrlValue extracts a substring from `host` or `path`. When using Tree.lookupWithDomain, it's unsafe to use directly
+// safeUrlValue extracts a substring from `host` or `path`. When using Tree.lookupByDomain, it's unsafe to use directly
 // the full url value to create a substring as this an unsafe conversion of buffer that may be reused at any time.
 // Per validation rules, a value may be extracted ether entirely from the host or entirely from the path.
 func safeUrlValue(host, path string, start, end int) string {
@@ -1460,4 +1519,9 @@ func safeUrlValue(host, path string, start, end int) string {
 	}
 	// Substring entirely within path
 	return path[start-len(host) : end-len(host)]
+}
+
+func isHostnameSplit(path string, charsMatched int) bool {
+	idx := strings.IndexByte(path, '/')
+	return charsMatched <= idx
 }

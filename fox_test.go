@@ -829,7 +829,7 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			require.False(t, tsr)
 			require.Nil(t, n)
 		})
@@ -862,7 +862,7 @@ func TestRouteWithParams(t *testing.T) {
 	nds := *tree.nodes.Load()
 	for _, rte := range routes {
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0].children[0].Load(), rte, c, false)
+		n, tsr := tree.lookupByPath(nds[0].children[0].Load(), rte, c, false)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
@@ -902,7 +902,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
@@ -1374,7 +1374,7 @@ func TestOverlappingRoute(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -1388,7 +1388,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContextTree(tree)
-			n, tsr = tree.lookup(nds[0].children[0].Load(), tc.path, c, true)
+			n, tsr = tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -2123,7 +2123,7 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.path)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -2445,7 +2445,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.path)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -2773,8 +2773,18 @@ func TestParseRoute(t *testing.T) {
 			wantN: 2,
 		},
 		{
-			name:    "missing prefix slash",
-			path:    "foo/bar",
+			name:  "simple domain and path",
+			path:  "foo/bar",
+			wantN: 0,
+		},
+		{
+			name:  "simple domain with trailing slash",
+			path:  "foo/",
+			wantN: 0,
+		},
+		{
+			name:    "missing a least one slash",
+			path:    "foo.com",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
@@ -2827,6 +2837,12 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:    "unexpected character in catch-all",
+			path:    "/foo/*{/bar}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "in flight catch-all after param in one route segment",
 			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,
@@ -2874,6 +2890,178 @@ func TestParseRoute(t *testing.T) {
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
+		{
+			name:    "illegal catch-all in hostname",
+			path:    "*{any}.com/foo",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal catch-all in hostname",
+			path:    "a.*{any}.com/foo",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal catch-all in hostname",
+			path:    "a.b.*{any}/foo",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:  "static hostname with catch-all path",
+			path:  "a.b.com/*{any}",
+			wantN: 1,
+		},
+		{
+			name:    "illegal leading hyphen in hostname",
+			path:    "-a.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal leading dot in hostname",
+			path:    ".a.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal trailing hyphen in hostname",
+			path:    "a.com-/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal trailing dot in hostname",
+			path:    "a.com./",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal single dot in hostname",
+			path:    "./",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal hyphen before dot",
+			path:    "a-.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal hyphen after dot",
+			path:    "a.-com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal double dot",
+			path:    "a..com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal double dot with param state",
+			path:    "{b}..com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal double dot with inflight param state",
+			path:    "a{b}..com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "param not finishing with delimiter in hostname",
+			path:    "{a}b{b}.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "consecutive parameter in hostname",
+			path:    "{a}{b}.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "leading hostname label exceed 63 characters",
+			path:    "UJ01DowF1x5Lk6LYsUrbr0LgbDD1wFyw8Sm8q17MnT0I9igK774vCWr5rLY5dGuu.b.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "middle hostname label exceed 63 characters",
+			path:    "a.UJ01DowF1x5Lk6LYsUrbr0LgbDD1wFyw8Sm8q17MnT0I9igK774vCWr5rLY5dGuu.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "trailing hostname label exceed 63 characters",
+			path:    "a.b.UJ01DowF1x5Lk6LYsUrbr0LgbDD1wFyw8Sm8q17MnT0I9igK774vCWr5rLY5dGuu/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal character in domain",
+			path:    "a.b!.com/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "invalid all-numeric label",
+			path:    "123/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "hostname exceed 255 character",
+			path:    "a.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJx.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "invalid all-numeric label",
+			path:    "11.22.33/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:  "2 regular params in domain",
+			path:  "{a}.{b}.com/",
+			wantN: 2,
+		},
+		{
+			name:  "255 character with .",
+			path:  "78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR/",
+			wantN: 0,
+		},
+		{
+			name:  "param does not count at character",
+			path:  "{a}.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJx.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR/",
+			wantN: 1,
+		},
+		{
+			name:  "hostname variant with multiple catch all suffix and inflight with arg in the middle of the route",
+			path:  "example.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
+			wantN: 4,
+		},
+		{
+			name:  "hostname variant with inflight catch all with arg in the middle of the route",
+			path:  "example.com/foo/bar/damn*{bar}/baz",
+			wantN: 1,
+		},
+		{
+			name:  "hostname variant catch all with arg in the middle of the route and param after",
+			path:  "example.com/foo/bar/*{bar}/{baz}",
+			wantN: 2,
+		},
+		{
+			name:  "complex domain and path",
+			path:  "{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
+			wantN: 7,
+		},
 	}
 
 	for _, tc := range cases {
@@ -2883,6 +3071,19 @@ func TestParseRoute(t *testing.T) {
 			assert.Equal(t, tc.wantN, n)
 		})
 	}
+}
+
+func TestParseRouteMalloc(t *testing.T) {
+	var (
+		n   uint32
+		err error
+	)
+	allocs := testing.AllocsPerRun(100, func() {
+		n, err = parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
+	})
+	assert.Equal(t, float64(0), allocs)
+	assert.NoError(t, err)
+	assert.Equal(t, uint32(7), n)
 }
 
 func TestTree_LookupTsr(t *testing.T) {
@@ -2961,7 +3162,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			nds := *tree.nodes.Load()
 			c := newTestContextTree(tree)
-			n, got := tree.lookup(nds[0].children[0].Load(), tc.key, c, true)
+			n, got := tree.lookupByPath(nds[0].children[0].Load(), tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -4310,7 +4511,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			nds := *tree.nodes.Load()
 
 			c := newTestContextTree(tree)
-			n, tsr := tree.lookup(nds[0].children[0].Load(), fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
+			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -4367,7 +4568,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	for rte := range routes {
 		nds := *tree.nodes.Load()
 		c := newTestContextTree(tree)
-		n, tsr := tree.lookup(nds[0].children[0].Load(), "/"+rte, c, true)
+		n, tsr := tree.lookupByPath(nds[0].children[0].Load(), "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.NotNilf(t, n.route, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
@@ -4780,27 +4981,49 @@ func TestJoinHostPort(t *testing.T) {
 	buf := make([]byte, 1024)
 	host, url, pos := joinHostPath(buf, "example.com:8080", "/foo")
 	fmt.Println(host, url, "=>", string(url[pos]))
-
 }
 
 func TestX(t *testing.T) {
 	f := New()
 	tree := f.Tree()
 
-	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.com/{a}/bar/bazz"}, 0))
-	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.b.com/{a}/bar/baz"}, 0))
-	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{domain}.com/foo/{bar}/baz"}, 0))
-	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/foo/bar/baz"}, 0))
-	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/john"}, 0))
+	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{a}/"}, 3))
+	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}/{a}/bar/baz/"}, 3))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{damn}/{a}/bar/baz/"}, 3))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}/{a}/bar/baz/"}, 3))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{damn}.com/{a}/bar/baz/"}, 3))
+	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{damn}/{a}"}, 3))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.com/{a}/bar/baz"}, 0))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{domain}.com/foo/{bar}/baz"}, 0))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/foo/{bam}/baz"}, 0))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/john"}, 0))
 
 	nds := *tree.nodes.Load()
 	fmt.Println(nds[0])
 
 	ctx := newTestContextTree(tree)
-	path := "/foo/bar/baz"
-	host, url, pos := joinHostPath(make([]byte, 1024), "a.c.com:8080", path)
-	n, tsr := tree.lookupWithDomain(nds[0], host, path, url, ctx, pos, false)
+	host := "abc:8080"
+	path := "/foo/bar/baz/"
+	n, tsr := tree.lookup(nds[0], host, path, ctx, false)
 	fmt.Println(n)
 	fmt.Println(tsr)
 	fmt.Println(slices.Collect(ctx.Params()))
+}
+
+func TestY(t *testing.T) {
+	f := New()
+	tree := f.Tree()
+
+	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.com/{a}/bar/bazz"}, 0))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}.c/"}, 1))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}/"}, 1))
+
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}.c/"}, 1))
+	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{c}/"}, 1))
+
+	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{bc}.d/"}, 1))
+	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}.c/"}, 1))
+
+	nds := *tree.nodes.Load()
+	fmt.Println(nds[0])
 }
