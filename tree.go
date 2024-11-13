@@ -1457,7 +1457,6 @@ func safeUrlValue(host, path string, start, end int) string {
 	if end <= len(host) {
 		return host[start:end]
 	}
-
 	// Substring entirely within path
 	return path[start-len(host) : end-len(host)]
 }
