@@ -695,9 +695,10 @@ var buf1k = sync.Pool{
 	},
 }
 
-// joinHostPath combines host and path into a single url string without making a copy. The host is stripped of any port
-// information (e.g., ":<port>") before combining. The function returns the stripped host, the combined url, and the position
-// indicating the end of the host segment within url.
+// joinHostPath combines host and path into a single url string without making a copy. The provided buf is used as
+// temporary storage to hold the combined result (the buffer may be safely reused once url is no longer referenced).
+// The host is stripped of any port information (e.g., ":<port>") before combining. The function returns the stripped
+// host, the combined url, and the position indicating the end of the host segment within url.
 func joinHostPath(buf []byte, host, path string) (h string, url string, end int) {
 	host = stripHostPort(host)
 	buf = buf[:0]
