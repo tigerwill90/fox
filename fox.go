@@ -240,8 +240,8 @@ func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...
 
 // Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
-// - [ErrRouteNotFound]: if the route does not exist.
-// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: if the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or path is invalid.
 //
 // It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To add new handler, use [Router.Handle] method.
@@ -253,8 +253,8 @@ func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...Path
 }
 
 // Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
-// - [ErrRouteNotFound]: if the route does not exist.
-// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: if the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or path is invalid.
 //
 // It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine.
@@ -349,8 +349,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	// if len(nds[index].children == 1) => ignore domain
-	// if len(nds[index].children > 1) => search node linearSearch(nds[index].childKeys, c.Request().Host[0])
+	// if len(nds[index].children) == 1 && nds[index].childKeys[0] == '/' => ignore domain
+	// if len(nds[index].children) > 1 => search node linearSearch(nds[index].childKeys, c.Request().Host[0])
 
 	n, tsr = tree.lookup(nds[index].children[0].Load(), target, c, false)
 	if !tsr && n != nil {
@@ -690,23 +690,17 @@ const size1k = 1024
 
 var buf1k = sync.Pool{
 	New: func() any {
-		buf := make([]byte, size1k)
+		buf := make([]byte, 0, size1k)
 		return &buf
 	},
 }
 
-func joinHostPath(buf []byte, host, path string) string {
+func joinHostPath(buf []byte, host, path string) (h string, url string, pos int) {
 	host = stripHostPort(host)
-	if len(host) < size1k {
-		n := copy(buf, host)
-		buf = buf[:n]
-		buf = append(buf, path...)
-	} else {
-		buf = buf[:0]
-		buf = append(buf, host...)
-		buf = append(buf, path...)
-	}
-	return unsafe.String(buf)
+	buf = buf[:0]
+	buf = append(buf, host...)
+	buf = append(buf, path...)
+	return host, unsafe.String(buf), len(host)
 }
 
 // stripHostPort returns h without any trailing ":<port>".

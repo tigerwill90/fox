@@ -4771,12 +4771,36 @@ func BenchmarkStripHostPort(b *testing.B) {
 	for range b.N {
 		bufp := buf1k.Get().(*[]byte)
 		buf := *bufp
-		_ = joinHostPath(buf, host, path)
+		joinHostPath(buf, host, path)
 		buf1k.Put(bufp)
 	}
 }
 
 func TestJoinHostPort(t *testing.T) {
 	buf := make([]byte, 1024)
-	fmt.Println(joinHostPath(buf, "[2001:db8::1]:8080", "/foo/bar/baz"))
+	host, url, pos := joinHostPath(buf, "example.com:8080", "/foo")
+	fmt.Println(host, url, "=>", string(url[pos]))
+
+}
+
+func TestX(t *testing.T) {
+	f := New()
+	tree := f.Tree()
+
+	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.com/{a}/bar/bazz"}, 0))
+	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.b.com/{a}/bar/baz"}, 0))
+	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{domain}.com/foo/{bar}/baz"}, 0))
+	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/foo/bar/baz"}, 0))
+	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/john"}, 0))
+
+	nds := *tree.nodes.Load()
+	fmt.Println(nds[0])
+
+	ctx := newTestContextTree(tree)
+	path := "/foo/bar/baz"
+	host, url, pos := joinHostPath(make([]byte, 1024), "a.c.com:8080", path)
+	n, tsr := tree.lookupWithDomain(nds[0], host, path, url, ctx, pos, false)
+	fmt.Println(n)
+	fmt.Println(tsr)
+	fmt.Println(slices.Collect(ctx.Params()))
 }

@@ -17,18 +17,17 @@ import (
 // The caller is responsible for ensuring that all writes are run serially.
 //
 // IMPORTANT:
-// Each tree as its own sync.Mutex that may be used to serialize write. Since the router tree may be swapped at any
+// Each tree as its own [sync.Mutex] that may be used to serialize write. Since the router tree may be swapped at any
 // given time (see [Router.Swap]), you MUST always copy the pointer locally to avoid inadvertently causing a deadlock
 // by locking/unlocking the wrong Tree.
 //
-// Good:
-// t := fox.Tree()
-// t.Lock()
-// defer t.Unlock()
-//
-// Dramatically bad, may cause deadlock
-// fox.Tree().Lock()
-// defer fox.Tree().Unlock()
+//   - Good
+//     t := fox.Tree()
+//     t.Lock()
+//     defer t.Unlock()
+//   - Dramatically bad, may cause deadlock
+//     fox.Tree().Lock()
+//     defer fox.Tree().Unlock()
 type Tree struct {
 	ctx   sync.Pool
 	nodes atomic.Pointer[[]*node]
@@ -71,8 +70,8 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 
 // Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
-// - [ErrRouteNotFound]: if the route does not exist.
-// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: if the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or path is invalid.
 //
 // It's safe to update a handler while the tree is in use for serving requests. However, this function is NOT thread-safe
 // and should be run serially, along with all other [Tree] APIs that perform write operations. To add a new handler,
@@ -99,8 +98,9 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 }
 
 // Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
-// - [ErrRouteNotFound]: if the route does not exist.
-// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: if the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//
 // It's safe to delete a handler while the tree is in use for serving requests. However, this function is NOT
 // thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
 func (t *Tree) Delete(method, path string) error {
@@ -326,7 +326,6 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 
 		if result.matched == rootNode {
 			n.key = method
-			n.paramChildIndex = -1
 			t.updateRoot(n)
 			break
 		}
@@ -516,7 +515,6 @@ func (t *Tree) remove(method, path string) bool {
 			return t.removeRoot(method)
 		}
 		parent.key = method
-		parent.paramChildIndex = -1
 		t.updateRoot(parent)
 		return true
 	}
@@ -526,9 +524,10 @@ func (t *Tree) remove(method, path string) bool {
 }
 
 const (
-	slashDelim   = '/'
-	bracketDelim = '{'
-	starDelim    = '*'
+	slashDelim   byte = '/'
+	dotDelim     byte = '.'
+	bracketDelim byte = '{'
+	starDelim    byte = '*'
 )
 
 func (t *Tree) lookup(target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
@@ -891,6 +890,408 @@ Backtrack:
 	return n, tsr
 }
 
+// lookupWithDomain is like lookup, but for target with domain. The url string is only valid within the function and
+// should never be sliced as the underlying pointer may change (see joinHostPath). Ether use strings.Clone or safeUrlValue.
+func (t *Tree) lookupWithDomain(target *node, host, path, url string, c *cTx, pos int, lazy bool) (n *node, tsr bool) {
+	var (
+		charsMatched            int
+		charsMatchedInNodeFound int
+		paramCnt                uint32
+		paramKeyCnt             uint32
+		parent                  *node
+		current                 *node
+	)
+
+	*c.skipNds = (*c.skipNds)[:0]
+	delim := dotDelim
+
+	idx := -1
+	for i := 0; i < len(target.childKeys); i++ {
+		if target.childKeys[i] == url[0] {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		if target.paramChildIndex >= 0 {
+			// We start with a param child, save it for later evaluation
+			*c.skipNds = append(*c.skipNds, skippedNode{target, charsMatched, paramCnt, target.paramChildIndex})
+
+			// Go deeper
+			idx = target.paramChildIndex
+			parent = target
+			current = target.children[idx].Load()
+		} else {
+			return
+		}
+	} else {
+		// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
+		if target.paramChildIndex >= 0 {
+			*c.skipNds = append(*c.skipNds, skippedNode{target, charsMatched, paramCnt, target.paramChildIndex})
+		}
+		current = target.children[idx].Load()
+	}
+
+Walk:
+	for charsMatched < len(url) {
+		charsMatchedInNodeFound = 0
+		for i := 0; charsMatched < len(url); i++ {
+			if i >= len(current.key) {
+				break
+			}
+
+			// Switch to path mode
+			if charsMatched == pos {
+				delim = slashDelim
+			}
+
+			/*			x := string(current.key[i])
+						y := string(url[charsMatched])
+						_, _ = x, y*/
+
+			if current.key[i] != url[charsMatched] || url[charsMatched] == bracketDelim || url[charsMatched] == starDelim {
+				if current.key[i] == bracketDelim {
+					startPath := charsMatched
+					idx = strings.IndexByte(url[charsMatched:], delim)
+					if idx > 0 {
+						// There is another path segment (e.g. /foo/{bar}/baz)
+						charsMatched += idx
+					} else if idx < 0 {
+						// This is the end of the path (e.g. /foo/{bar})
+						charsMatched += len(url[charsMatched:])
+					} else {
+						// segment is empty
+						break Walk
+					}
+
+					idx = current.params[paramKeyCnt].end - charsMatchedInNodeFound
+					if idx >= 0 {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						i += idx - 1
+						charsMatchedInNodeFound += idx
+					} else {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						i += len(current.key[charsMatchedInNodeFound:]) - 1
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					}
+
+					if !lazy {
+						paramCnt++
+						*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: safeUrlValue(host, path, startPath, charsMatched)})
+					}
+					paramKeyCnt++
+					continue
+				}
+
+				if current.key[i] == starDelim {
+					//                | current.params[paramKeyCnt].end (10)
+					// key: foo/*{bar}/                                      => 10 - 5 = 5 => i+=idx set i to '/'
+					//          | charsMatchedInNodeFound (5)
+					idx = current.params[paramKeyCnt].end - charsMatchedInNodeFound
+					var interNode *node
+					if idx >= 0 {
+						// Unfortunately, we cannot use object pooling here because we need to keep a reference to this
+						// interNode object until the lookup function returns, especially when TSR (Trailing Slash Redirect)
+						// is enabled. The interNode may be referenced by subNode and 'n'.
+						interNode = &node{
+							route:     current.route,
+							key:       current.key[current.params[paramKeyCnt].end:],
+							childKeys: current.childKeys,
+							children:  current.children,
+							// len(current.params)-1 is safe since we have at least the current infix wildcard in params
+							params:             make([]param, 0, len(current.params)-1),
+							paramChildIndex:    current.paramChildIndex,
+							wildcardChildIndex: current.wildcardChildIndex,
+						}
+						for _, ps := range current.params[paramKeyCnt+1:] { // paramKeyCnt+1 is safe since we have at least the current infix wildcard in params
+							interNode.params = append(interNode.params, param{
+								key: ps.key,
+								// end is relative to the original key, so we need to adjust the position relative to
+								// the new intermediary node.
+								end:      ps.end - current.params[paramKeyCnt].end,
+								catchAll: ps.catchAll,
+							})
+						}
+
+						charsMatchedInNodeFound += idx
+
+					} else if len(current.children) > 0 {
+						interNode = current.get(0)
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					} else {
+						// We are in an ending catch all node with no child, so it's a direct match
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: safeUrlValue(host, path, charsMatched, len(url))})
+						}
+						return current, false
+					}
+
+					subCtx := t.ctx.Get().(*cTx)
+					startPath := charsMatched
+					for {
+						idx = strings.IndexByte(url[charsMatched:], slashDelim)
+						// idx >= 0, we have a next segment with at least one char
+						if idx > 0 {
+							*subCtx.params = (*subCtx.params)[:0]
+							charsMatched += idx
+							subNode, subTsr := t.lookup(interNode, url[charsMatched:], subCtx, false)
+							if subNode == nil {
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							// We have a tsr opportunity
+							if subTsr {
+								// Only if no previous tsr
+								if !tsr {
+									tsr = true
+									n = subNode
+									if !lazy {
+										*c.tsrParams = (*c.tsrParams)[:0]
+										*c.tsrParams = append(*c.tsrParams, *c.params...)
+										*c.tsrParams = append(*c.tsrParams, Param{Key: current.params[paramKeyCnt].key, Value: safeUrlValue(host, path, startPath, charsMatched)})
+										*c.tsrParams = append(*c.tsrParams, *subCtx.tsrParams...)
+									}
+								}
+
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							if !lazy {
+								*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: safeUrlValue(host, path, startPath, charsMatched)})
+								*c.params = append(*c.params, *subCtx.params...)
+							}
+
+							t.ctx.Put(subCtx)
+							return subNode, subTsr
+						}
+
+						t.ctx.Put(subCtx)
+
+						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
+						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
+						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: safeUrlValue(host, path, startPath, len(url))})
+						}
+
+						// We are also in an ending catch all, and this is the most specific path
+						if current.params[paramKeyCnt].end == -1 {
+							return current, false
+						}
+
+						charsMatched += len(url[charsMatched:])
+
+						break Walk
+					}
+				}
+
+				break Walk
+			}
+
+			charsMatched++
+			charsMatchedInNodeFound++
+		}
+
+		if charsMatched < len(url) {
+			// linear search
+			idx = -1
+			for i := 0; i < len(current.childKeys); i++ {
+				if current.childKeys[i] == url[charsMatched] {
+					idx = i
+					break
+				}
+			}
+
+			// No next static segment found, but maybe some params or wildcard child
+			if idx < 0 {
+				// We have at least a param child which is has higher priority that catch-all
+				if current.paramChildIndex >= 0 {
+					// We have also a wildcard child, save it for later evaluation
+					if current.wildcardChildIndex >= 0 {
+						*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
+					}
+
+					// Go deeper
+					idx = current.paramChildIndex
+					parent = current
+					current = current.children[idx].Load()
+					paramKeyCnt = 0
+					continue
+				}
+				if current.wildcardChildIndex >= 0 {
+					// We have a wildcard child, go deeper
+					idx = current.wildcardChildIndex
+					parent = current
+					current = current.children[idx].Load()
+					paramKeyCnt = 0
+					continue
+				}
+
+				// We have nothing more to evaluate
+				break
+			}
+
+			// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
+			if current.wildcardChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
+			}
+			if current.paramChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.paramChildIndex})
+			}
+
+			parent = current
+			current = current.children[idx].Load()
+			paramKeyCnt = 0
+		}
+	}
+
+	paramCnt = 0
+	paramKeyCnt = 0
+	hasSkpNds := len(*c.skipNds) > 0
+
+	if !current.isLeaf() {
+
+		if !tsr {
+			// Tsr recommendation: remove the extra trailing slash (got an exact match)
+			// If match the completely /foo/, we end up in an intermediary node which is not a leaf.
+			// /foo [leaf=/foo]
+			//	  /
+			//		b/ [leaf=/foo/b/]
+			//		x/ [leaf=/foo/x/]
+			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
+			// the intermediary node (charsMatched == len(path)).
+			if strings.HasSuffix(url, "/") && parent != nil && parent.isLeaf() && charsMatched == len(url) {
+				tsr = true
+				n = parent
+				// Save also a copy of the matched params, it should not allocate anything in most case.
+				if !lazy {
+					if cap(*c.params) > cap(*c.tsrParams) {
+						// Grow c.tsrParams to a least cap(c.params)
+						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
+					}
+					// cap(c.tsrParams) >= cap(c.params)
+					// now constraint into len(c.params) & cap(c.params)
+					*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+					copy(*c.tsrParams, *c.params)
+				}
+			}
+		}
+
+		if hasSkpNds {
+			goto Backtrack
+		}
+
+		return n, tsr
+	}
+
+	// From here we are always in a leaf
+	if charsMatched == len(url) {
+		if charsMatchedInNodeFound == len(current.key) {
+			// Exact match, tsr is always false
+			return current, false
+		}
+		if charsMatchedInNodeFound < len(current.key) {
+			// Key end mid-edge
+			if !tsr {
+				if strings.HasSuffix(url, "/") {
+					// Tsr recommendation: remove the extra trailing slash (got an exact match)
+					remainingPrefix := current.key[:charsMatchedInNodeFound]
+					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
+						tsr = true
+						n = parent
+						// Save also a copy of the matched params, it should not allocate anything in most case.
+						if !lazy {
+							if cap(*c.params) > cap(*c.tsrParams) {
+								// Grow c.tsrParams to a least cap(c.params)
+								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
+							}
+							// cap(c.tsrParams) >= cap(c.params)
+							// now constraint into len(c.params) & cap(c.params)
+							*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+							copy(*c.tsrParams, *c.params)
+						}
+					}
+				} else {
+					// Tsr recommendation: add an extra trailing slash (got an exact match)
+					remainingSuffix := current.key[charsMatchedInNodeFound:]
+					if len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim {
+						tsr = true
+						n = current
+						// Save also a copy of the matched params, it should not allocate anything in most case.
+						if !lazy {
+							if cap(*c.params) > cap(*c.tsrParams) {
+								// Grow c.tsrParams to a least cap(c.params)
+								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
+							}
+							// cap(c.tsrParams) >= cap(c.params)
+							// now constraint into len(c.params) & cap(c.params)
+							*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+							copy(*c.tsrParams, *c.params)
+						}
+					}
+				}
+			}
+
+			if hasSkpNds {
+				goto Backtrack
+			}
+
+			return n, tsr
+		}
+	}
+
+	// Incomplete match to end of edge
+	if charsMatched < len(url) && charsMatchedInNodeFound == len(current.key) {
+		// Tsr recommendation: remove the extra trailing slash (got an exact match)
+		if !tsr {
+			remainingKeySuffix := url[charsMatched:]
+			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
+				tsr = true
+				n = current
+				// Save also a copy of the matched params, it should not allocate anything in most case.
+				if !lazy {
+					if cap(*c.params) > cap(*c.tsrParams) {
+						// Grow c.tsrParams to a least cap(c.params)
+						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
+					}
+					// cap(c.tsrParams) >= cap(c.params)
+					// now constraint into len(c.params) & cap(c.params)
+					*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
+					copy(*c.tsrParams, *c.params)
+				}
+			}
+		}
+
+		if hasSkpNds {
+			goto Backtrack
+		}
+
+		return n, tsr
+	}
+
+	// Finally incomplete match to middle of edge
+Backtrack:
+	if hasSkpNds {
+		skipped := c.skipNds.pop()
+
+		parent = skipped.n
+		current = skipped.n.children[skipped.childIndex].Load()
+
+		*c.params = (*c.params)[:skipped.paramCnt]
+		charsMatched = skipped.pathIndex
+		if charsMatched < pos {
+			delim = dotDelim
+		}
+		goto Walk
+	}
+
+	return n, tsr
+}
+
 func (t *Tree) search(rootNode *node, path string) searchResult {
 	current := rootNode
 
@@ -1046,4 +1447,16 @@ func copyParams(src, dst *Params) {
 	// now constraint into len(src) & cap(src)
 	*dst = (*dst)[:len(*src):cap(*src)]
 	copy(*dst, *src)
+}
+
+// safeUrlValue extracts a substring from `host` or `path`. When using Tree.lookupWithDomain, it's unsafe to use directly
+// the full url value to create a substring as this an unsafe conversion of buffer that may be reused at any time.
+func safeUrlValue(host, path string, start, end int) string {
+	// Substring entirely within host
+	if end <= len(host) {
+		return host[start:end]
+	}
+
+	// Substring entirely within path
+	return path[start-len(host) : end-len(host)]
 }

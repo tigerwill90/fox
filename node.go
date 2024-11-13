@@ -35,7 +35,7 @@ type node struct {
 
 	// The index of a paramChild if any, -1 if none (per rules, only one paramChildren is allowed).
 	// Once assigned, paramChildIndex is immutable.
-	paramChildIndex int // TODO uint32
+	paramChildIndex int
 	// The index of a wildcardChild if any, -1 if none (per rules, only one wildcardChild is allowed).
 	// Once assigned, wildcardChildIndex is immutable.
 	wildcardChildIndex int
