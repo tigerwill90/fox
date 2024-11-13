@@ -891,7 +891,7 @@ Backtrack:
 }
 
 // lookupWithDomain is like lookup, but for target with domain. The url string is only valid within the function and
-// should never be sliced as the underlying pointer may change (see joinHostPath). Ether use strings.Clone or safeUrlValue.
+// should never be sliced as the underlying pointer may change (see joinHostPath) -- ether use strings.Clone or safeUrlValue.
 func (t *Tree) lookupWithDomain(target *node, host, path, url string, c *cTx, pos int, lazy bool) (n *node, tsr bool) {
 	var (
 		charsMatched            int
