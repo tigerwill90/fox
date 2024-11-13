@@ -1283,6 +1283,7 @@ Backtrack:
 
 		*c.params = (*c.params)[:skipped.paramCnt]
 		charsMatched = skipped.pathIndex
+		// If we backtrack before pos, we are in domain mode.
 		if charsMatched < pos {
 			delim = dotDelim
 		}
