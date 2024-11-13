@@ -1451,6 +1451,7 @@ func copyParams(src, dst *Params) {
 
 // safeUrlValue extracts a substring from `host` or `path`. When using Tree.lookupWithDomain, it's unsafe to use directly
 // the full url value to create a substring as this an unsafe conversion of buffer that may be reused at any time.
+// Per validation rules, a value may be extracted ether entirely from the host or entirely from the path.
 func safeUrlValue(host, path string, start, end int) string {
 	// Substring entirely within host
 	if end <= len(host) {

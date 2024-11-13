@@ -26,6 +26,13 @@ var (
 	regEnLetter = regexp.MustCompile("^[A-Z]+$")
 	// commonVerbs define http method for which node are pre instantiated.
 	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
+	// buf1k is used to combine the host+path without copy.
+	buf1k = sync.Pool{
+		New: func() any {
+			buf := make([]byte, 0, 1024)
+			return &buf
+		},
+	}
 )
 
 // HandlerFunc is a function type that responds to an HTTP request.
@@ -684,15 +691,6 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 		}
 	}
 	return rte, all
-}
-
-const size1k = 1024
-
-var buf1k = sync.Pool{
-	New: func() any {
-		buf := make([]byte, 0, size1k)
-		return &buf
-	},
 }
 
 // joinHostPath combines host and path into a single url string without making a copy. The provided buf is used as
