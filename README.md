@@ -44,6 +44,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
 
 ## Getting started
 ### Installation
+With a [correctly configured](https://go.dev/doc/install#testing) Go toolchain:
 ```shell
 go get -u github.com/tigerwill90/fox
 ```

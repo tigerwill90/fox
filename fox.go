@@ -6,7 +6,6 @@ package fox
 
 import (
 	"fmt"
-	"github.com/tigerwill90/fox/internal/unsafe"
 	"math"
 	"net"
 	"net/http"
@@ -26,13 +25,6 @@ var (
 	regEnLetter = regexp.MustCompile("^[A-Z]+$")
 	// commonVerbs define http method for which node are pre instantiated.
 	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
-	// buf1k is used to combine the host+path without copy.
-	buf1k = sync.Pool{
-		New: func() any {
-			buf := make([]byte, 0, 1024)
-			return &buf
-		},
-	}
 )
 
 // HandlerFunc is a function type that responds to an HTTP request.
@@ -507,6 +499,7 @@ type searchResult struct {
 	matched                 *node
 	p                       *node
 	pp                      *node
+	ppp                     *node
 	path                    string
 	charsMatched            int
 	charsMatchedInNodeFound int
@@ -770,23 +763,14 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 	return rte, all
 }
 
-// joinHostPath combines host and path into a single url string without making a copy. The provided buf is used as
-// temporary storage to hold the combined result (the buffer may be safely reused once url is no longer referenced).
-// The host is stripped of any port information (e.g., ":<port>") before combining. The function returns the stripped
-// host, the combined url, and the position indicating the last '.' of the host segment within url.
-func joinHostPath(buf []byte, host, path string) (h string, url string, end int) {
-	host = stripHostPort(host)
-	buf = buf[:0]
-	buf = append(buf, host...)
-	buf = append(buf, path...)
-	return host, unsafe.String(buf), strings.LastIndexByte(host, '.')
-}
-
 // stripHostPort returns h without any trailing ":<port>". It also removes trailing period in the hostname.
 // Per RFC 3696, The DNS specification permits a trailing period to be used to denote the root, e.g., "a.b.c" and "a.b.c."
 // are equivalent, but the latter is more explicit and is required to be accepted by applications. Note that FQDN does
 // not play well with TLS (see https://github.com/traefik/traefik/issues/9157#issuecomment-1180588735)
 func stripHostPort(h string) string {
+	if h == "" {
+		return h
+	}
 	// If no port on host, return unchanged
 	if !strings.Contains(h, ":") {
 		return strings.TrimSuffix(h, ".")
@@ -875,74 +859,4 @@ type noClientIPStrategy struct{}
 
 func (s noClientIPStrategy) ClientIP(_ Context) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPStrategy
-}
-
-// isDomainName checks if a string is a presentation-format domain name
-// (currently restricted to hostname-compatible "preferred name" LDH labels and
-// SRV-like "underscore labels"; see golang.org/issue/12421).
-//
-// isDomainName should be an internal detail,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/sagernet/sing
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-func isDomainName(s string) bool {
-	// The root domain name is valid. See golang.org/issue/45715.
-	if s == "." {
-		return true
-	}
-
-	// See RFC 1035, RFC 3696.
-	// Presentation format has dots before every label except the first, and the
-	// terminal empty label is optional here because we assume fully-qualified
-	// (absolute) input. We must therefore reserve space for the first and last
-	// labels' length octets in wire format, where they are necessary and the
-	// maximum total length is 255.
-	// So our _effective_ maximum is 253, but 254 is not rejected if the last
-	// character is a dot.
-	l := len(s)
-	if l == 0 || l > 254 || l == 254 && s[l-1] != '.' {
-		return false
-	}
-
-	last := byte('.')
-	nonNumeric := false // true once we've seen a letter or hyphen
-	partlen := 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		default:
-			return false
-		case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '_':
-			nonNumeric = true
-			partlen++
-		case '0' <= c && c <= '9':
-			// fine
-			partlen++
-		case c == '-':
-			// Byte before dash cannot be dot.
-			if last == '.' {
-				return false
-			}
-			partlen++
-			nonNumeric = true
-		case c == '.':
-			// Byte before dot cannot be dot, dash.
-			if last == '.' || last == '-' {
-				return false
-			}
-			if partlen > 63 || partlen == 0 {
-				return false
-			}
-			partlen = 0
-		}
-		last = c
-	}
-	if last == '-' || partlen > 63 {
-		return false
-	}
-
-	return nonNumeric
 }

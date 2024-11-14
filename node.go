@@ -240,10 +240,8 @@ type skippedNode struct {
 
 // param represents a parsed parameter and its end position in the path.
 type param struct {
-	key string
-	// -1 if end with {a}, else pos of the next char. Note that since infix wildcard are always followed
-	// by a static segment, pos should be always > 0
-	end      int
+	key      string
+	end      int // -1 if end with {a}, else pos of the next char.
 	catchAll bool
 }
 

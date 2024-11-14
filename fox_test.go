@@ -460,7 +460,6 @@ func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 
 	for i := 0; i < b.N; i++ {
 		for _, route := range routes {
-			r.Host = "cyberchef.dev.stdapi.sh"
 			r.Method = route.method
 			r.RequestURI = route.path
 			u.Path = route.path
@@ -484,77 +483,22 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	})
 }
 
-// BenchmarkStaticAll-16    	   49490	     23748 ns/op	       0 B/op	       0 allocs/op
-// BenchmarkMuxStaticAll-16    	   32419	     36047 ns/op	       0 B/op	       0 allocs/op
-// BenchmarkStaticAll-16    	   88928	     13060 ns/op	       0 B/op	       0 allocs/op
-// BenchmarkMuxStaticAll-16    	   32018	     36809 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkStaticAll(b *testing.B) {
 	r := New()
-	// require.NoError(b, onlyError(r.Tree().Handle("GET", "exemple.com/foo/bar", emptyHandler)))
 	for _, route := range staticRoutes {
-		require.NoError(b, onlyError(r.Tree().Handle(route.method, "cyberchef.dev.stdapi.sh"+route.path, emptyHandler)))
-		require.NoError(b, onlyError(r.Tree().Handle(route.method, "pypadkyluczbsxpggvuhynacahxzyaqaeiiqlbrmrmqocjlaxhqjkxkiiqgyrlu.com"+route.path, emptyHandler)))
+		require.NoError(b, onlyError(r.Tree().Handle(route.method, route.path, emptyHandler)))
 	}
 
 	benchRoutes(b, r, staticRoutes)
 }
 
-func BenchmarkMuxStaticAll(b *testing.B) {
-	r := http.NewServeMux()
-	/*	r.HandleFunc("GET exemple.com/foo/bar", func(w http.ResponseWriter, r *http.Request) {
-
-		})*/
-	for _, route := range staticRoutes {
-		r.HandleFunc("GET cyberchef.dev.stdapi.sh"+route.path, func(w http.ResponseWriter, r *http.Request) {})
-		r.HandleFunc("GET pypadkyluczbsxpggvuhynacahxzyaqaeiiqlbrmrmqocjlaxhqjkxkiiqgyrlu.com"+route.path, func(w http.ResponseWriter, r *http.Request) {})
-	}
-	benchRoutes(b, r, staticRoutes)
-}
-
-func BenchmarkMuxHostnameParam(b *testing.B) {
-	r := http.NewServeMux()
-	r.HandleFunc("GET exemple.com/{boulou}/b/{bili}", func(w http.ResponseWriter, r *http.Request) {
-
-	})
-
-	req := httptest.NewRequest("GET", "/foo/b/bar", nil)
-	req.Host = "exemple.com"
-	w := new(mockResponseWriter)
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for range b.N {
-		r.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkFoxHostnameParam(b *testing.B) {
-	r := New()
-	r.MustHandle(http.MethodGet, "exemple.com/{boulou}/b/{bili}", emptyHandler)
-
-	req := httptest.NewRequest("GET", "/foo/b/bar", nil)
-	req.Host = "exemple.com"
-	w := new(mockResponseWriter)
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for range b.N {
-		r.ServeHTTP(w, req)
-	}
-}
-
-// BenchmarkGithubParamsAll-16    	13291836	        85.54 ns/op	       0 B/op	       0 allocs/op
-// BenchmarkGithubParamsAll-16    	 6798686	       157.8 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkGithubParamsAll(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(r.Tree().Handle(route.method, "exemple.com"+route.path, emptyHandler)))
+		require.NoError(b, onlyError(r.Tree().Handle(route.method, route.path, emptyHandler)))
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/repos/sylvain/fox/hooks/1500", nil)
-	req.Host = "exemple.com"
 	w := new(mockResponseWriter)
 
 	b.ReportAllocs()
@@ -3688,6 +3632,7 @@ func TestTree_Delete(t *testing.T) {
 	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
 
 	for _, rte := range routes {
+		fmt.Println(rte.method, rte.path)
 		require.NoError(t, tree.Delete(rte.method, rte.path))
 	}
 
@@ -5018,68 +4963,4 @@ func ExampleTree_Has() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
-}
-
-func BenchmarkStripHostPort(b *testing.B) {
-	host := "[2001:db8::1]:8080"
-	path := "/foo/bar/baz"
-	b.ResetTimer()
-	b.ReportAllocs()
-	for range b.N {
-		bufp := buf1k.Get().(*[]byte)
-		buf := *bufp
-		joinHostPath(buf, host, path)
-		buf1k.Put(bufp)
-	}
-}
-
-func TestJoinHostPort(t *testing.T) {
-	buf := make([]byte, 1024)
-	host, url, pos := joinHostPath(buf, "example.com.:8080", "/foo")
-	fmt.Println(host, url, "=>", string(url[pos]))
-}
-
-func TestX(t *testing.T) {
-	f := New()
-	tree := f.Tree()
-
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{a}/"}, 3))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}/{a}/bar/baz/"}, 3))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{damn}/{a}/bar/baz/"}, 3))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}/{a}/bar/baz/"}, 3))
-	require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{damn}.com/{a}/bar/baz/"}, 3))
-	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.{damn}/{a}"}, 3))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.com/{a}/bar/baz"}, 0))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{domain}.com/foo/{bar}/baz"}, 0))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/foo/{bam}/baz"}, 0))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "/john"}, 0))
-
-	nds := *tree.nodes.Load()
-	fmt.Println(nds[0])
-
-	ctx := newTestContextTree(tree)
-	host := "a.b.com.:8080"
-	path := "/foo/bar/baz/"
-	n, tsr := tree.lookup(nds[0], host, path, ctx, false)
-	fmt.Println(n)
-	fmt.Println(tsr)
-	fmt.Println(slices.Collect(ctx.Params()))
-}
-
-func TestY(t *testing.T) {
-	f := New()
-	tree := f.Tree()
-
-	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "{any}.com/{a}/bar/bazz"}, 0))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}.c/"}, 1))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}/"}, 1))
-
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}.c/"}, 1))
-	//require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{c}/"}, 1))
-
-	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{bc}.d/"}, 1))
-	// require.NoError(t, tree.insert(http.MethodGet, &Route{path: "a.{b}.c/"}, 1))
-
-	nds := *tree.nodes.Load()
-	fmt.Println(nds[0])
 }
