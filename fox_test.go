@@ -3665,14 +3665,14 @@ func TestTree_Methods(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 	}
 
-	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/gists/123/star")))
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/gists/123/star")))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
 	methods = slices.Sorted(f.Iter().Methods())
 	assert.Equal(t, []string{"DELETE", "GET", "POST", "PUT"}, methods)
 
 	// Ignore trailing slash disable
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/gists/123/star/")))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/gists/123/star/")))
 	assert.Empty(t, methods)
 }
 
@@ -3683,13 +3683,13 @@ func TestTree_MethodsWithIgnoreTsEnable(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(method, "/john/doe/", emptyHandler)))
 	}
 
-	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/foo/bar/")))
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/foo/bar/")))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/john/doe")))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/john/doe")))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "/foo/bar/baz")))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/foo/bar/baz")))
 	assert.Empty(t, methods)
 }
 
@@ -3903,7 +3903,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().Host, c.Request().URL.Path))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -3979,7 +3979,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().Host, c.Request().URL.Path))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -4024,7 +4024,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().Host, c.Request().URL.Path))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -4372,7 +4372,7 @@ func TestTree_Route(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			route, tsr := r.Tree().Reverse(http.MethodGet, tc.path)
+			route, tsr := r.Tree().Reverse(http.MethodGet, "", tc.path)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Path())
@@ -4443,7 +4443,7 @@ func TestTree_RouteWithIgnoreTrailingSlashEnable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			route, tsr := r.Tree().Reverse(http.MethodGet, tc.path)
+			route, tsr := r.Tree().Reverse(http.MethodGet, "", tc.path)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Path())
@@ -4786,12 +4786,6 @@ func TestNode_String(t *testing.T) {
 	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
 }
 
-func TestFixTrailingSlash(t *testing.T) {
-	assert.Equal(t, "/foo/", FixTrailingSlash("/foo"))
-	assert.Equal(t, "/foo", FixTrailingSlash("/foo/"))
-	assert.Equal(t, "/", FixTrailingSlash(""))
-}
-
 // This example demonstrates how to create a simple router using the default options,
 // which include the Recovery and Logger middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.
@@ -4944,10 +4938,10 @@ func ExampleRouter_Lookup() {
 // This example demonstrates how to do a reverse lookup on the tree.
 func ExampleTree_Reverse() {
 	f := New()
-	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
+	f.MustHandle(http.MethodGet, "exemple.com/hello/{name}", emptyHandler)
 
 	tree := f.Tree()
-	route, _ := tree.Reverse(http.MethodGet, "/hello/fox")
+	route, _ := tree.Reverse(http.MethodGet, "exemple.com", "/hello/fox")
 	fmt.Println(route.Path()) // /hello/{name}
 }
 

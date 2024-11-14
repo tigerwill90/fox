@@ -140,7 +140,9 @@ func (t *Tree) Route(method, path string) *Route {
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookupByPath(nds[index].children[0].Load(), path, c, true)
+
+	host, path := SplitHostPath(path)
+	n, tsr := t.lookup(nds[index], host, path, c, true)
 	c.Close()
 	if n != nil && !tsr && n.route.path == path {
 		return n.route
@@ -148,12 +150,12 @@ func (t *Tree) Route(method, path string) *Route {
 	return nil
 }
 
-// Reverse perform a reverse lookup on the tree for the given method and path and return the matching registered [Route]
+// Reverse perform a reverse lookup on the tree for the given method, host and path and return the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
 // mutation on [Tree] are ongoing. See also [Tree.Lookup] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
+func (t *Tree) Reverse(method, host, path string) (route *Route, tsr bool) {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
@@ -162,7 +164,7 @@ func (t *Tree) Reverse(method, path string) (route *Route, tsr bool) {
 
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := t.lookupByPath(nds[index].children[0].Load(), path, c, true)
+	n, tsr := t.lookup(nds[index], host, path, c, true)
 	c.Close()
 	if n != nil {
 		return n.route, tsr
@@ -186,13 +188,13 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 	c := t.ctx.Get().(*cTx)
 	c.resetWithWriter(w, r)
 
-	target := r.URL.Path
+	path := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
 		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = r.URL.RawPath
+		path = r.URL.RawPath
 	}
 
-	n, tsr := t.lookupByPath(nds[index].children[0].Load(), target, c, false)
+	n, tsr := t.lookup(nds[index], r.Host, path, c, false)
 	if n != nil {
 		c.route = n.route
 		c.tsr = tsr

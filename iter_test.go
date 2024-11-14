@@ -93,7 +93,7 @@ func TestIter_ReverseBreak(t *testing.T) {
 		lastRoute  *Route
 	)
 	it := tree.Iter()
-	for method, route := range it.Reverse(it.Methods(), "/john/doe/1/2/3") {
+	for method, route := range it.Reverse(it.Methods(), "", "/john/doe/1/2/3") {
 		lastMethod = method
 		lastRoute = route
 		break
@@ -172,8 +172,8 @@ func TestIter_EdgeCase(t *testing.T) {
 
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("GET"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("CONNECT"), "/"))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), "/"))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), "", "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), "", "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("GET"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("CONNECT"), "/"))))
 }
@@ -227,7 +227,7 @@ func BenchmarkIter_Reverse(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _, _ = range it.Reverse(it.Methods(), "/user/subscriptions/fox/fox") {
+		for _, _ = range it.Reverse(it.Methods(), "", "/user/subscriptions/fox/fox") {
 
 		}
 	}
@@ -244,7 +244,7 @@ func BenchmarkIter_Route(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _, _ = range it.Reverse(it.Methods(), "/user/subscriptions/{owner}/{repo}") {
+		for _, _ = range it.Reverse(it.Methods(), "", "/user/subscriptions/{owner}/{repo}") {
 
 		}
 	}

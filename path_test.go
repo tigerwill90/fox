@@ -6,6 +6,7 @@
 package fox
 
 import (
+	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
 )
@@ -136,6 +137,78 @@ func TestPathCleanLong(t *testing.T) {
 	}
 }
 
+func TestFixTrailingSlash(t *testing.T) {
+	assert.Equal(t, "/foo/", FixTrailingSlash("/foo"))
+	assert.Equal(t, "/foo", FixTrailingSlash("/foo/"))
+	assert.Equal(t, "/", FixTrailingSlash(""))
+}
+
+func TestSplitHostPath(t *testing.T) {
+	cases := []struct {
+		name     string
+		url      string
+		wantHost string
+		wantPath string
+	}{
+		{
+			name:     "empty url",
+			url:      "",
+			wantHost: "",
+			wantPath: "/",
+		},
+		{
+			name:     "empty host",
+			url:      "/foo",
+			wantHost: "",
+			wantPath: "/foo",
+		},
+		{
+			name:     "empty host",
+			url:      "/",
+			wantHost: "",
+			wantPath: "/",
+		},
+		{
+			name:     "empty path",
+			url:      "a.b.c",
+			wantHost: "a.b.c",
+			wantPath: "/",
+		},
+		{
+			name:     "host and path",
+			url:      "a.b.c/foo",
+			wantHost: "a.b.c",
+			wantPath: "/foo",
+		},
+		{
+			name:     "host, port and path",
+			url:      "a.b.c:8080/foo",
+			wantHost: "a.b.c",
+			wantPath: "/foo",
+		},
+		{
+			name:     "host, port and no path",
+			url:      "a.b.c:8080",
+			wantHost: "a.b.c",
+			wantPath: "/",
+		},
+		{
+			name:     "invalid port",
+			url:      "a.b.c:abc/foo",
+			wantHost: "a.b.c:abc",
+			wantPath: "/foo",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			host, path := SplitHostPath(tc.url)
+			assert.Equal(t, tc.wantHost, host)
+			assert.Equal(t, tc.wantPath, path)
+		})
+	}
+}
+
 func BenchmarkPathCleanLong(b *testing.B) {
 	cleanTests := genLongPaths()
 	b.ResetTimer()
@@ -144,6 +217,23 @@ func BenchmarkPathCleanLong(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		for _, test := range cleanTests {
 			CleanPath(test.path)
+		}
+	}
+}
+
+func BenchmarkSplitHostPath(b *testing.B) {
+	cases := []string{
+		"abc.com/foo/bar",
+		"exemple.com/a/b/c",
+		"a.b.c:8080/",
+		"google.com:443/long/long/long/long/path",
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for _, hostPath := range cases {
+			SplitHostPath(hostPath)
 		}
 	}
 }
