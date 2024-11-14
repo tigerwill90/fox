@@ -357,9 +357,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	// if len(nds[index].children) == 1 && nds[index].childKeys[0] == '/' => ignore domain
-	// if len(nds[index].children) > 1 => search node linearSearch(nds[index].childKeys, c.Request().Host[0])
-
 	n, tsr = tree.lookup(nds[index], r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
@@ -785,18 +782,21 @@ func joinHostPath(buf []byte, host, path string) (h string, url string, end int)
 	return host, unsafe.String(buf), strings.LastIndexByte(host, '.')
 }
 
-// stripHostPort returns h without any trailing ":<port>".
+// stripHostPort returns h without any trailing ":<port>". It also removes trailing period in the hostname.
+// Per RFC 3696, The DNS specification permits a trailing period to be used to denote the root, e.g., "a.b.c" and "a.b.c."
+// are equivalent, but the latter is more explicit and is required to be accepted by applications. Note that FQDN does
+// not play well with TLS (see https://github.com/traefik/traefik/issues/9157#issuecomment-1180588735)
 func stripHostPort(h string) string {
 	// If no port on host, return unchanged
 	if !strings.Contains(h, ":") {
-		return h
+		return strings.TrimSuffix(h, ".")
 	}
 
 	host, _, err := net.SplitHostPort(h)
 	if err != nil {
 		return h // on error, return unchanged
 	}
-	return host
+	return strings.TrimSuffix(host, ".")
 }
 
 // localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths

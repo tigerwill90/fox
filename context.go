@@ -350,9 +350,9 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.tsr = c.tsr
 
 	if !c.tsr {
-		copyParams(c.params, cp.params)
+		copyWithResize(cp.params, c.params)
 	} else {
-		copyParams(c.tsrParams, cp.tsrParams)
+		copyWithResize(cp.tsrParams, c.tsrParams)
 	}
 
 	return cp

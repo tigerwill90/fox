@@ -822,14 +822,7 @@ Walk:
 				n = parent
 				// Save also a copy of the matched params, it should not allocate anything in most case.
 				if !lazy {
-					if cap(*c.params) > cap(*c.tsrParams) {
-						// Grow c.tsrParams to a least cap(c.params)
-						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
-					}
-					// cap(c.tsrParams) >= cap(c.params)
-					// now constraint into len(c.params) & cap(c.params)
-					*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
-					copy(*c.tsrParams, *c.params)
+					copyWithResize(c.tsrParams, c.params)
 				}
 			}
 		}
@@ -858,14 +851,7 @@ Walk:
 						n = parent
 						// Save also a copy of the matched params, it should not allocate anything in most case.
 						if !lazy {
-							if cap(*c.params) > cap(*c.tsrParams) {
-								// Grow c.tsrParams to a least cap(c.params)
-								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
-							}
-							// cap(c.tsrParams) >= cap(c.params)
-							// now constraint into len(c.params) & cap(c.params)
-							*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
-							copy(*c.tsrParams, *c.params)
+							copyWithResize(c.tsrParams, c.params)
 						}
 					}
 				} else {
@@ -876,14 +862,7 @@ Walk:
 						n = current
 						// Save also a copy of the matched params, it should not allocate anything in most case.
 						if !lazy {
-							if cap(*c.params) > cap(*c.tsrParams) {
-								// Grow c.tsrParams to a least cap(c.params)
-								*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
-							}
-							// cap(c.tsrParams) >= cap(c.params)
-							// now constraint into len(c.params) & cap(c.params)
-							*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
-							copy(*c.tsrParams, *c.params)
+							copyWithResize(c.tsrParams, c.params)
 						}
 					}
 				}
@@ -907,14 +886,7 @@ Walk:
 				n = current
 				// Save also a copy of the matched params, it should not allocate anything in most case.
 				if !lazy {
-					if cap(*c.params) > cap(*c.tsrParams) {
-						// Grow c.tsrParams to a least cap(c.params)
-						*c.tsrParams = slices.Grow(*c.tsrParams, cap(*c.params))
-					}
-					// cap(c.tsrParams) >= cap(c.params)
-					// now constraint into len(c.params) & cap(c.params)
-					*c.tsrParams = (*c.tsrParams)[:len(*c.params):cap(*c.params)]
-					copy(*c.tsrParams, *c.params)
+					copyWithResize(c.tsrParams, c.params)
 				}
 			}
 		}
@@ -1003,10 +975,10 @@ Walk:
 				delim = slashDelim
 			}
 
-			x := string(current.key[i])
-			y := string(url[charsMatched])
-			z := string(delim)
-			_, _, _ = x, y, z
+			/*			x := string(current.key[i])
+						y := string(url[charsMatched])
+						z := string(delim)
+						_, _, _ = x, y, z*/
 
 			if current.key[i] != url[charsMatched] || url[charsMatched] == bracketDelim || url[charsMatched] == starDelim {
 				if current.key[i] == bracketDelim {
@@ -1498,14 +1470,14 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 	return rte
 }
 
-func copyParams(src, dst *Params) {
-	if cap(*src) > cap(*dst) {
-		// Grow dst to a least cap(src)
-		*dst = slices.Grow(*dst, cap(*src))
+func copyWithResize[S ~[]T, T any](dst, src *S) {
+	if len(*src) > len(*dst) {
+		// Grow dst cap to a least len(src)
+		*dst = slices.Grow(*dst, len(*src)-len(*dst))
 	}
-	// cap(dst) >= cap(src)
-	// now constraint into len(src) & cap(src)
-	*dst = (*dst)[:len(*src):cap(*src)]
+	// cap(dst) >= len(src)
+	// now constraint into len(src) & cap(dst)
+	*dst = (*dst)[:len(*src):cap(*dst)]
 	copy(*dst, *src)
 }
 

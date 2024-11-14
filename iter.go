@@ -203,7 +203,7 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 // This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		for method, route := range it.Prefix(it.Methods(), "/") {
+		for method, route := range it.Prefix(it.Methods(), "") {
 			if !yield(method, route) {
 				return
 			}
