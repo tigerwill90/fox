@@ -211,58 +211,58 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 	return fox.tree.Swap(new)
 }
 
-// Handle registers a new handler for the given method and path. On success, it returns the newly registered [Route].
+// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to add a new handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To override an existing route, use [Router.Update].
-func (fox *Router) Handle(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Handle(method, path, handler, opts...)
+	return t.Handle(method, pattern, handler, opts...)
 }
 
-// MustHandle registers a new handler for the given method and path. On success, it returns the newly registered [Route]
+// MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
 // add a new handler while the tree is in use for serving requests. This function is safe for concurrent use by multiple
 // goroutines. To override an existing route, use [Router.Update].
-func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...PathOption) *Route {
-	rte, err := fox.Handle(method, path, handler, opts...)
+func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...PathOption) *Route {
+	rte, err := fox.Handle(method, pattern, handler, opts...)
 	if err != nil {
 		panic(err)
 	}
 	return rte
 }
 
-// Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
+// Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
-//   - [ErrRouteNotFound]: if the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To add new handler, use [Router.Handle] method.
-func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Update(method, path, handler, opts...)
+	return t.Update(method, pattern, handler, opts...)
 }
 
-// Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
-//   - [ErrRouteNotFound]: if the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+// Delete deletes an existing handler for the given method and route pattern. If an error occurs, it returns one of the following:
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine.
-func (fox *Router) Delete(method, path string) error {
+func (fox *Router) Delete(method, pattern string) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Delete(method, path)
+	return t.Delete(method, pattern)
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a

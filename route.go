@@ -38,8 +38,8 @@ func (r *Route) HandleMiddleware(c Context, _ ...struct{}) {
 	r.hself(c)
 }
 
-// Path returns the route path.
-func (r *Route) Path() string {
+// Pattern returns the route pattern.
+func (r *Route) Pattern() string {
 	return r.path
 }
 

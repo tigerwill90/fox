@@ -45,7 +45,7 @@ func (it *rawIterator) hasNext() bool {
 		it.current = elem
 
 		if it.current.isLeaf() {
-			it.path = elem.route.Path()
+			it.path = elem.route.Pattern()
 			return true
 		}
 	}
@@ -75,15 +75,15 @@ func (it Iter) Methods() iter.Seq[string] {
 	}
 }
 
-// Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided url
-// for the given HTTP methods.
+// Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided route
+// pattern for the given HTTP methods.
 //
-// This method performs a lookup for each method and the exact route associated with the provided url. It yields
-// a tuple containing the HTTP method and the corresponding route if the route is registered for that method and url.
+// This method performs a lookup for each method and the exact route associated with the provided pattern. It yields
+// a tuple containing the HTTP method and the corresponding route if the route is registered for that method and pattern.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (it Iter) Routes(methods iter.Seq[string], url string) iter.Seq2[string, *Route] {
+func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		nds := *it.t.nodes.Load()
 		c := it.t.ctx.Get().(*cTx)
@@ -95,7 +95,7 @@ func (it Iter) Routes(methods iter.Seq[string], url string) iter.Seq2[string, *R
 				continue
 			}
 
-			host, path := SplitHostPath(url)
+			host, path := SplitHostPath(pattern)
 			n, tsr := it.t.lookup(nds[index], host, path, c, true)
 			if n != nil && !tsr && n.route.path == path {
 				if !yield(method, n.route) {

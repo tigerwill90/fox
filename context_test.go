@@ -89,7 +89,7 @@ func TestContext_Route(t *testing.T) {
 	f := New()
 	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
 		require.NotNil(t, c.Route())
-		_, _ = io.WriteString(c.Writer(), c.Route().Path())
+		_, _ = io.WriteString(c.Writer(), c.Route().Pattern())
 	})
 
 	w := httptest.NewRecorder()

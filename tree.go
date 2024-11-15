@@ -39,16 +39,16 @@ type Tree struct {
 	race      atomic.Uint32
 }
 
-// Handle registers a new handler for the given method and path. On success, it returns the newly registered [Route].
+// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to add a new handler while the tree is in use for serving requests. However, this function is NOT
 // thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
 // To override an existing route, use [Tree.Update].
-func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (t *Tree) Handle(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
@@ -56,12 +56,12 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
-	n, err := parseRoute(path)
+	n, err := parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	rte := t.newRoute(path, handler, opts...)
+	rte := t.newRoute(pattern, handler, opts...)
 
 	if err = t.insert(method, rte, n); err != nil {
 		return nil, err
@@ -69,15 +69,15 @@ func (t *Tree) Handle(method, path string, handler HandlerFunc, opts ...PathOpti
 	return rte, nil
 }
 
-// Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
+// Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
-//   - [ErrRouteNotFound]: if the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to update a handler while the tree is in use for serving requests. However, this function is NOT thread-safe
 // and should be run serially, along with all other [Tree] APIs that perform write operations. To add a new handler,
 // use [Tree.Handle] method.
-func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (t *Tree) Update(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
@@ -85,12 +85,12 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	_, err := parseRoute(path)
+	_, err := parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	rte := t.newRoute(path, handler, opts...)
+	rte := t.newRoute(pattern, handler, opts...)
 	if err = t.update(method, rte); err != nil {
 		return nil, err
 	}
@@ -98,41 +98,41 @@ func (t *Tree) Update(method, path string, handler HandlerFunc, opts ...PathOpti
 	return rte, nil
 }
 
-// Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
-//   - [ErrRouteNotFound]: if the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+// Delete deletes an existing handler for the given method and router pattern. If an error occurs, it returns one of the following:
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to delete a handler while the tree is in use for serving requests. However, this function is NOT
 // thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
-func (t *Tree) Delete(method, path string) error {
+func (t *Tree) Delete(method, pattern string) error {
 	if method == "" {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	_, err := parseRoute(path)
+	_, err := parseRoute(pattern)
 	if err != nil {
 		return err
 	}
 
-	if !t.remove(method, path) {
-		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
+	if !t.remove(method, pattern) {
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
 	}
 
 	return nil
 }
 
-// Has allows to check if the given method and path exactly match a registered route. This function is safe for
+// Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Route] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Has(method, path string) bool {
-	return t.Route(method, path) != nil
+func (t *Tree) Has(method, pattern string) bool {
+	return t.Route(method, pattern) != nil
 }
 
-// Route performs a lookup for a registered route matching the given method and path. It returns the [Route] if a
+// Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
 // mutation on [Tree] are ongoing. See also [Tree.Has] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (t *Tree) Route(method, path string) *Route {
+func (t *Tree) Route(method, pattern string) *Route {
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
@@ -142,10 +142,10 @@ func (t *Tree) Route(method, path string) *Route {
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 
-	host, p := SplitHostPath(path)
-	n, tsr := t.lookup(nds[index], host, p, c, true)
+	host, path := SplitHostPath(pattern)
+	n, tsr := t.lookup(nds[index], host, path, c, true)
 	c.Close()
-	if n != nil && !tsr && n.route.path == path {
+	if n != nil && !tsr && n.route.path == pattern {
 		return n.route
 	}
 	return nil

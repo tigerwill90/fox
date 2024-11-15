@@ -4795,7 +4795,7 @@ func TestRouter_Lookup(t *testing.T) {
 		route, cc, _ := f.Lookup(newResponseWriter(mockResponseWriter{}), req)
 		require.NotNil(t, cc)
 		require.NotNil(t, route)
-		assert.Equal(t, rte.path, route.Path())
+		assert.Equal(t, rte.path, route.Pattern())
 
 		matches := rx.FindAllString(rte.path, -1)
 		for _, match := range matches {
@@ -4939,7 +4939,7 @@ func TestTree_Route(t *testing.T) {
 			route, tsr := r.Tree().Reverse(http.MethodGet, "", tc.path)
 			if tc.want != "" {
 				require.NotNil(t, route)
-				assert.Equal(t, tc.want, route.Path())
+				assert.Equal(t, tc.want, route.Pattern())
 				assert.Equal(t, tc.wantTsr, tsr)
 				return
 			}
@@ -5010,7 +5010,7 @@ func TestTree_RouteWithIgnoreTrailingSlashEnable(t *testing.T) {
 			route, tsr := r.Tree().Reverse(http.MethodGet, "", tc.path)
 			if tc.want != "" {
 				require.NotNil(t, route)
-				assert.Equal(t, tc.want, route.Path())
+				assert.Equal(t, tc.want, route.Pattern())
 				assert.Equal(t, tc.wantTsr, tsr)
 				return
 			}
@@ -5562,7 +5562,7 @@ func ExampleTree_Reverse() {
 
 	tree := f.Tree()
 	route, _ := tree.Reverse(http.MethodGet, "exemple.com", "/hello/fox")
-	fmt.Println(route.Path()) // /hello/{name}
+	fmt.Println(route.Pattern()) // /hello/{name}
 }
 
 // This example demonstrates how to check if a given route is registered in the tree.
