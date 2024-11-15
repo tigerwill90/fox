@@ -4,7 +4,7 @@ import "iter"
 
 func Left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {
 	return func(yield func(K) bool) {
-		for k, _ := range seq {
+		for k := range seq {
 			if !yield(k) {
 				return
 			}

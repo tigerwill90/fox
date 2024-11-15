@@ -454,68 +454,6 @@ NoMethodFallback:
 	c.Close()
 }
 
-type resultType int
-
-const (
-	exactMatch resultType = iota
-	incompleteMatchToEndOfEdge
-	incompleteMatchToMiddleOfEdge
-	keyEndMidEdge
-)
-
-func (r searchResult) classify() resultType {
-	if r.charsMatched == len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.key) {
-			return exactMatch
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return keyEndMidEdge
-		}
-	} else if r.charsMatched < len(r.path) {
-		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
-		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
-		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
-			return incompleteMatchToEndOfEdge
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return incompleteMatchToMiddleOfEdge
-		}
-	}
-	panic("internal error: cannot classify the result")
-}
-func (r searchResult) isExactMatch() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
-}
-
-func (r searchResult) isKeyMidEdge() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
-}
-
-func (c resultType) String() string {
-	return [...]string{"EXACT_MATCH", "INCOMPLETE_MATCH_TO_END_OF_EDGE", "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE", "KEY_END_MID_EDGE"}[c]
-}
-
-type searchResult struct {
-	matched                 *node
-	p                       *node
-	pp                      *node
-	ppp                     *node
-	path                    string
-	charsMatched            int
-	charsMatchedInNodeFound int
-	depth                   uint32
-}
-
-func commonPrefix(k1, k2 string) string {
-	minLength := min(len(k1), len(k2))
-	for i := 0; i < minLength; i++ {
-		if k1[i] != k2[i] {
-			return k1[:i]
-		}
-	}
-	return k1[:minLength]
-}
-
 func findRootNode(method string, nodes []*node) int {
 	// Nodes for common http method are pre instantiated.
 	switch method {
@@ -761,26 +699,6 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 		}
 	}
 	return rte, all
-}
-
-// stripHostPort returns h without any trailing ":<port>". It also removes trailing period in the hostname.
-// Per RFC 3696, The DNS specification permits a trailing period to be used to denote the root, e.g., "a.b.c" and "a.b.c."
-// are equivalent, but the latter is more explicit and is required to be accepted by applications. Note that FQDN does
-// not play well with TLS (see https://github.com/traefik/traefik/issues/9157#issuecomment-1180588735)
-func stripHostPort(h string) string {
-	if h == "" {
-		return h
-	}
-	// If no port on host, return unchanged
-	if !strings.Contains(h, ":") {
-		return strings.TrimSuffix(h, ".")
-	}
-
-	host, _, err := net.SplitHostPort(h)
-	if err != nil {
-		return h // on error, return unchanged
-	}
-	return strings.TrimSuffix(host, ".")
 }
 
 // localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths

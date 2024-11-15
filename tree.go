@@ -6,6 +6,7 @@ package fox
 
 import (
 	"fmt"
+	"github.com/tigerwill90/fox/internal/netutil"
 	"net/http"
 	"slices"
 	"strings"
@@ -602,7 +603,7 @@ func (t *Tree) lookup(root *node, hostPort, path string, c *cTx, lazy bool) (n *
 		return t.lookupByPath(root.children[0].Load(), path, c, lazy)
 	}
 
-	host := stripHostPort(hostPort)
+	host := netutil.StripHostPort(hostPort)
 	if host != "" {
 		// Try first by domain
 		n, tsr = t.lookupByDomain(root, host, path, c, lazy)
@@ -1312,4 +1313,66 @@ func recreateParentEdge(parent, matched *node) []*node {
 		}
 	}
 	return parentEdges
+}
+
+type resultType int
+
+const (
+	exactMatch resultType = iota
+	incompleteMatchToEndOfEdge
+	incompleteMatchToMiddleOfEdge
+	keyEndMidEdge
+)
+
+func (r searchResult) classify() resultType {
+	if r.charsMatched == len(r.path) {
+		if r.charsMatchedInNodeFound == len(r.matched.key) {
+			return exactMatch
+		}
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
+			return keyEndMidEdge
+		}
+	} else if r.charsMatched < len(r.path) {
+		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
+		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
+		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
+			return incompleteMatchToEndOfEdge
+		}
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
+			return incompleteMatchToMiddleOfEdge
+		}
+	}
+	panic("internal error: cannot classify the result")
+}
+func (r searchResult) isExactMatch() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
+}
+
+func (r searchResult) isKeyMidEdge() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
+}
+
+func (c resultType) String() string {
+	return [...]string{"EXACT_MATCH", "INCOMPLETE_MATCH_TO_END_OF_EDGE", "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE", "KEY_END_MID_EDGE"}[c]
+}
+
+type searchResult struct {
+	matched                 *node
+	p                       *node
+	pp                      *node
+	ppp                     *node
+	path                    string
+	charsMatched            int
+	charsMatchedInNodeFound int
+	depth                   uint32
+}
+
+func commonPrefix(k1, k2 string) string {
+	minLength := min(len(k1), len(k2))
+	for i := 0; i < minLength; i++ {
+		if k1[i] != k2[i] {
+			return k1[:i]
+		}
+	}
+	return k1[:minLength]
 }

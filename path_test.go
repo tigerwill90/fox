@@ -181,6 +181,12 @@ func TestSplitHostPath(t *testing.T) {
 			wantPath: "/foo",
 		},
 		{
+			name:     "host and root path",
+			url:      "a.b.c:443/",
+			wantHost: "a.b.c",
+			wantPath: "/",
+		},
+		{
 			name:     "host, port and path",
 			url:      "a.b.c:8080/foo",
 			wantHost: "a.b.c",

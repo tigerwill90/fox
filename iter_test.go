@@ -210,7 +210,7 @@ func BenchmarkIter_Methods(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _ = range it.Methods() {
+		for range it.Methods() {
 
 		}
 	}
@@ -227,7 +227,7 @@ func BenchmarkIter_Reverse(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _, _ = range it.Reverse(it.Methods(), "", "/user/subscriptions/fox/fox") {
+		for range it.Reverse(it.Methods(), "", "/user/subscriptions/fox/fox") {
 
 		}
 	}
@@ -244,7 +244,7 @@ func BenchmarkIter_Route(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _, _ = range it.Reverse(it.Methods(), "", "/user/subscriptions/{owner}/{repo}") {
+		for range it.Reverse(it.Methods(), "", "/user/subscriptions/{owner}/{repo}") {
 
 		}
 	}
@@ -261,7 +261,7 @@ func BenchmarkIter_Prefix(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for _, _ = range it.Prefix(it.Methods(), "/") {
+		for range it.Prefix(it.Methods(), "/") {
 
 		}
 	}
