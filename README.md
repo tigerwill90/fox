@@ -20,13 +20,15 @@ The current api is not yet stabilize. Breaking changes may occur before `v1.0.0`
 **Runtime updates:** Register, update and delete route handler safely at any time without impact on performance. Fox never block while serving
 request!
 
-**Wildcard pattern:** Route can be registered using wildcard parameters. The matched path segment can then be easily retrieved by 
+**Wildcard pattern:** Route can be registered using wildcard parameters. The matched segment can then be easily retrieved by 
 name. Due to Fox design, wildcard route are cheap and scale really well.
 
 **Detect panic:** Comes with a ready-to-use, efficient Recovery middleware that gracefully handles panics.
 
 **Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
 observability middleware like open telemetry.
+
+**Hostname routing:** Supports hostname-based routing with wildcard matching.
 
 **Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear 
 priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
@@ -92,9 +94,11 @@ if errors.Is(err, fox.ErrRouteConflict) {
 ```
 
 #### Named parameters
-Routes can include named parameters using curly braces `{}` to match exactly one non-empty path segment. The matching 
+Routes can include named parameters using curly braces `{}` to match exactly one non-empty route segment. The matching 
 segment are recorder into `fox.Param` accessible via `fox.Context`. `fox.Context.Params` provide an iterator to range 
 over `fox.Param` and `fox.Context.Param` allow to retrieve directly the value of a parameter using the placeholder name.
+Named parameters are supported anywhere in the route, but only one parameter is allowed per segment (or hostname label) 
+and must appear at the end of the segment.
 
 ````
 Pattern /avengers/{name}
@@ -107,13 +111,37 @@ Pattern /avengers/{name}
 Pattern /users/uuid:{id}
 
 /users/uuid:123             matches
-/users/uuid                 no matches
+/users/uuid:                no matches
+
+Pattern /users/uuid:{id}/config
+
+/users/uuid:123/config      matches
+/users/uuid:/config         no matches
 ````
 
-#### Catch all parameter
-Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** path segments, 
-including slashes. They can be placed anywhere in the route path but **cannot be consecutive**. The matching segment are also 
-accessible via `fox.Context`
+For hostnames, named parameters are also supported. The path portion must still include at least `/`.
+
+````
+Pattern exemple.com/avengers
+
+exemple.com/avengers/avengers   matches
+{sub}.com/avengers/avengers     matches
+exemple.{tld}/avengers          matches
+{sub}.exemple.com/avengers      no matches
+````
+
+Hostnames are validated to conform to [the LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2). 
+Wildcard segments within hostnames, such as {a}.b.c/, are exempt from LDH validation since they act as placeholders rather 
+than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label, nor the 255-character 
+limit for the full hostname (including periods).
+
+#### Catch-all parameter
+Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** route segments, 
+including slashes. The matching segment are also accessible via `fox.Context`. Catch-all parameters are supported anywhere 
+in the route, but only one parameter is allowed per segment and must appear at the end of the segment. Consecutive catch-all 
+parameter are not allowed.
+
+Named
 
 **Example with ending catch all**
 ````
@@ -145,11 +173,14 @@ Pattern: /assets/path:*{path}/thumbnail
 /assets/path:thumbnail              no matches
 ````
 
+Note that catch-all patterns are not supported in hostname.
+
 #### Priority rules
 Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
 
 The following rules apply:
 
+- Routes with hostnames are always evaluated first, before any path-only routes.
 - Static segments are always evaluated first.
 - A named parameter can only overlap with a catch-all parameter or static segments.
 - A catch-all parameter can only overlap with a named parameter or static segments.
@@ -182,6 +213,13 @@ Request Matching:
 - /fs/ironman.txt               matches Route 2
 - /fs/avengers/ironman.txt      matches Route 3
 ````
+
+##### Hostname routing
+
+The router can transition instantly and transparently, at runtime, from path-only mode to hostname-prioritized mode without any 
+additional configuration or action. If any route with a hostname is registered, the router automatically switches to 
+prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
+path-priority mode, ensuring optimal and adaptive routing behavior.
 
 #### Warning about context
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
@@ -337,17 +375,17 @@ The `Tree` API allow you to take control of the internal `sync.Mutex` to prevent
 other threads. **Remember that all write operation should be run serially.**
 
 In the following example, the `Upsert` function needs to perform a lookup on the tree to check if a handler
-is already registered for the provided method and path. By locking the `Tree`, this operation ensures
+is already registered for the provided method and route pattern. By locking the `Tree`, this operation ensures
 atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
 Note that all read operation on the tree remain lock-free.
 ````go
-func Upsert(t *fox.Tree, method, path string, handler fox.HandlerFunc) (*fox.Route, error) {
+func Upsert(t *fox.Tree, method, pattern string, handler fox.HandlerFunc) (*fox.Route, error) {
     t.Lock()
     defer t.Unlock()
-    if t.Has(method, path) {
-        return t.Update(method, path, handler)
+    if t.Has(method, pattern) {
+        return t.Update(method, pattern, handler)
     }
-    return t.Handle(method, path, handler)
+    return t.Handle(method, pattern, handler)
 }
 ````
 
@@ -423,7 +461,7 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 		start := time.Now()
 		next(c)
 		log.Printf("route: %s, latency: %s, status: %d, size: %d",
-			c.Path(),
+			c.Pattern(),
 			time.Since(start),
 			c.Writer().Status(),
 			c.Writer().Size(),
