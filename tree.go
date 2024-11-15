@@ -323,12 +323,10 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 
 		// For hostname route, we always insert the path in a dedicated sub-child.
 		// This allows to perform lookup optimization for route with hostname name.
-		// TODO idx should be computed by the parseRoute function
 		var child *node
 		idx := strings.IndexByte(path, '/')
 		if idx > 0 && result.charsMatched < idx {
 			host, p := keySuffix[:idx-result.charsMatched], keySuffix[idx-result.charsMatched:]
-			_, _ = host, p // TODO remove me
 			pathChild := newNode(p, route, nil)
 			child = newNode(host, nil, []*node{pathChild})
 			addDepth++
@@ -375,9 +373,10 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		// 4. Update the "te" (parent) node to the new "s" node (we are swapping old "st" to new "s" node, first
 		//    char remain the same).
 
+		idx := strings.IndexByte(path, '/')
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-		isHostname := isHostnameSplit(path, result.charsMatched)
+		isHostname := result.charsMatched <= idx
 		// Rule: a node with {param} or *{wildcard} has no child or has a separator before the end of the key
 		if !isHostname {
 			for i := len(cPrefix) - 1; i >= 0; i-- {
@@ -408,12 +407,9 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		addDepth := uint32(1)
 		// For domain route, we always insert the path in a dedicated sub-child.
 		// This allows to perform lookup optimization for domain name.
-		// TODO idx should be computed by the parseRoute function
 		var n1 *node
-		idx := strings.IndexByte(path, '/')
 		if idx > 0 && result.charsMatched < idx {
 			host, p := keySuffix[:idx-result.charsMatched], keySuffix[idx-result.charsMatched:]
-			_, _ = host, p // TODO remove me
 			pathChild := newNodeFromRef(p, route, nil, nil, -1, -1)
 			n1 = newNode(host, nil, []*node{pathChild})
 			addDepth++
@@ -1321,11 +1317,6 @@ func copyWithResize[S ~[]T, T any](dst, src *S) {
 	// now constraint into len(src) & cap(dst)
 	*dst = (*dst)[:len(*src):cap(*dst)]
 	copy(*dst, *src)
-}
-
-func isHostnameSplit(path string, charsMatched int) bool {
-	idx := strings.IndexByte(path, '/')
-	return charsMatched <= idx
 }
 
 func recreateParentEdge(parent, matched *node) []*node {

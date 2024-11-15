@@ -3955,6 +3955,9 @@ func TestTree_DeleteRoot(t *testing.T) {
 	require.NoError(t, onlyError(tree.Handle(http.MethodOptions, "/foo/bar", emptyHandler)))
 	require.NoError(t, tree.Delete(http.MethodOptions, "/foo/bar"))
 	assert.Equal(t, 4, len(*tree.nodes.Load()))
+	require.NoError(t, onlyError(tree.Handle(http.MethodOptions, "exemple.com/foo/bar", emptyHandler)))
+	require.NoError(t, tree.Delete(http.MethodOptions, "exemple.com/foo/bar"))
+	assert.Equal(t, 4, len(*tree.nodes.Load()))
 }
 
 func TestTree_DeleteWildcard(t *testing.T) {
@@ -4894,6 +4897,62 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	it = tree.Iter()
 	countPath = len(slices.Collect(iterutil.Right(it.All())))
 	assert.Equal(t, 0, countPath)
+}
+
+func TestRaceHostnamePathSwitch(t *testing.T) {
+	var wg sync.WaitGroup
+	start, wait := atomicSync()
+
+	f := New()
+
+	tree := f.Tree()
+	for _, rte := range githubAPI {
+		require.NoError(t, onlyError(tree.Handle(rte.method, rte.path, emptyHandler)))
+	}
+
+	wg.Add(1000 * 2)
+	for range 1000 {
+		go func() {
+			wait()
+			defer wg.Done()
+			local := f.Tree()
+			local.Lock()
+			defer local.Unlock()
+			for _, rte := range githubAPI {
+				require.NoError(t, onlyError(tree.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, emptyHandler)))
+			}
+			for _, rte := range githubAPI {
+				require.NoError(t, onlyError(tree.Handle(rte.method, "foo.bar.baz"+rte.path, emptyHandler)))
+			}
+			for _, rte := range githubAPI {
+				require.NoError(t, tree.Delete(rte.method, "foo.bar.baz"+rte.path))
+			}
+			for _, rte := range githubAPI {
+				require.NoError(t, tree.Delete(rte.method, "{sub}.bar.{tld}"+rte.path))
+			}
+		}()
+
+		go func() {
+			wait()
+			defer wg.Done()
+			for range 10 {
+				for _, rte := range githubAPI {
+					req := httptest.NewRequest(rte.method, rte.path, nil)
+					req.Host = "foo.bar.baz"
+					w := httptest.NewRecorder()
+					f.ServeHTTP(w, req)
+					assert.Equal(t, http.StatusOK, w.Code)
+				}
+			}
+		}()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	start()
+	wg.Wait()
+
+	nds := *tree.nodes.Load()
+	require.Len(t, nds[0].children, 1)
 }
 
 func TestDataRace(t *testing.T) {
