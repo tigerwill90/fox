@@ -2535,14 +2535,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 	}
 }
 
-func TestX(t *testing.T) {
-	f := New()
-	f.MustHandle("GET", "a.b/", emptyHandler)
-	tree := f.Tree()
-	fmt.Println(tree.Has("GET", "a.b/"))
-}
-
-func TestInsertAndDeleteWithHostname(t *testing.T) {
+func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 	cases := []struct {
 		name   string
 		routes []struct {
@@ -2638,6 +2631,19 @@ func TestInsertAndDeleteWithHostname(t *testing.T) {
 		},
 	}
 
+	insertAnnot := Annotation{
+		Key:   "foo",
+		Value: "bar",
+	}
+	updateAnnot := Annotation{
+		Key:   "john",
+		Value: "doe",
+	}
+	updateAnnot2 := Annotation{
+		Key:   "billi",
+		Value: "boulou",
+	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := New()
@@ -2646,10 +2652,15 @@ func TestInsertAndDeleteWithHostname(t *testing.T) {
 			copy(routeCopy, tc.routes)
 
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.path, emptyHandler, WithAnnotations(insertAnnot))))
 			}
 			for _, rte := range tc.routes {
-				assert.Truef(t, tree.Has(http.MethodGet, rte.path), "missing method=%s;path=%s", http.MethodGet, rte.path)
+				require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot))))
+			}
+			for _, rte := range tc.routes {
+				r := tree.Route(http.MethodGet, rte.path)
+				require.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path)
+				assert.Equal(t, []Annotation{updateAnnot}, slices.Collect(r.Annotations()))
 			}
 
 			for _, rte := range tc.routes {
@@ -2657,7 +2668,12 @@ func TestInsertAndDeleteWithHostname(t *testing.T) {
 				routeCopy = slices.Delete(routeCopy, 0, 1)
 				assert.Falsef(t, tree.Has(http.MethodGet, rte.path), "found method=%s;path=%s", http.MethodGet, rte.path)
 				for _, rte := range routeCopy {
-					assert.Truef(t, tree.Has(http.MethodGet, rte.path), "missing method=%s;path=%s", http.MethodGet, rte.path)
+					require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot2))))
+				}
+				for _, rte := range routeCopy {
+					r := tree.Route(http.MethodGet, rte.path)
+					require.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path)
+					assert.Equal(t, []Annotation{updateAnnot2}, slices.Collect(r.Annotations()))
 				}
 			}
 			assert.Equal(t, (*tree.nodes.Load())[0].String(), "path: GET\n")
@@ -2789,6 +2805,9 @@ func TestInsertConflict(t *testing.T) {
 				{path: "foo.ab{x}.com/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.ab{bar}.com/baz"}},
 				{path: "foo.{bar}/", wantErr: nil, wantMatch: nil},
 				{path: "foo.{yyy}/", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/", "foo.{bar}/baz"}},
+				{path: "{foo}.bar/baz", wantErr: nil, wantMatch: nil},
+				{path: "{foo}.bar.com/baz", wantErr: nil, wantMatch: nil},
+				{path: "{baz}.bar/baz", wantErr: ErrRouteConflict, wantMatch: []string{"{foo}.bar.com/baz", "{foo}.bar/baz"}},
 			},
 		},
 	}
