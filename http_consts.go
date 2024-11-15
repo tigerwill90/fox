@@ -28,12 +28,8 @@ const (
 
 // Headers
 const (
-	HeaderAccept         = "Accept"
-	HeaderAcceptEncoding = "Accept-Encoding"
-	// HeaderAllow is the name of the "Allow" header field used to list the set of methods
-	// advertised as supported by the target resource. Returning an Allow header is mandatory
-	// for status 405 (method not found) and useful for the OPTIONS method in responses.
-	// See RFC 7231: https://datatracker.ietf.org/doc/html/rfc7231#section-7.4.1
+	HeaderAccept              = "Accept"
+	HeaderAcceptEncoding      = "Accept-Encoding"
 	HeaderAllow               = "Allow"
 	HeaderAuthorization       = "Authorization"
 	HeaderProxyAuthorization  = "Proxy-Authorization"

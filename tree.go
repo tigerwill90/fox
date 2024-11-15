@@ -142,8 +142,8 @@ func (t *Tree) Route(method, path string) *Route {
 	c := t.ctx.Get().(*cTx)
 	c.resetNil()
 
-	host, path := SplitHostPath(path)
-	n, tsr := t.lookup(nds[index], host, path, c, true)
+	host, p := SplitHostPath(path)
+	n, tsr := t.lookup(nds[index], host, p, c, true)
 	c.Close()
 	if n != nil && !tsr && n.route.path == path {
 		return n.route
@@ -534,15 +534,41 @@ func (t *Tree) remove(method, path string) bool {
 
 	// recreate the parent edges without the removed node
 	parentEdges := recreateParentEdge(result.p, result.matched)
-
 	parentIsRoot := result.p == nds[index]
 
 	// The parent was the result of a previous hostname/path split, so we have at least depth 3,
 	// where p can not be root, but pp and ppp may.
 	if len(parentEdges) == 0 && !result.p.isLeaf() && !parentIsRoot {
 		parentEdges = recreateParentEdge(result.pp, result.p)
-		parent := newNode(result.pp.key, result.pp.route, parentEdges)
+		var parent *node
 		parentParentIsRoot := result.pp == nds[index]
+		if len(parentEdges) == 1 && !result.pp.isLeaf() && !strings.HasPrefix(parentEdges[0].key, "/") && !parentParentIsRoot {
+			// Note that !strings.HasPrefix(parentEdges[0].key, "/") ensure that we do not merge back a hostname
+			// its path.
+			// 		DELETE a.b.c{d}/foo/bar
+			//		path: GET
+			//		      path: a.b
+			//		          path: .c{d}
+			//		              path: /foo/bar
+			//		          path: /
+			//
+			//		AFTER
+			//		path: GET
+			//		      path: a.b/ => bad
+			child := parentEdges[0]
+			mergedPath := fmt.Sprintf("%s%s", result.pp.key, child.key)
+			parent = newNodeFromRef(
+				mergedPath,
+				child.route,
+				child.children,
+				child.childKeys,
+				child.paramChildIndex,
+				child.wildcardChildIndex,
+			)
+		} else {
+			parent = newNode(result.pp.key, result.pp.route, parentEdges)
+		}
+
 		if parentParentIsRoot {
 			if len(parent.children) == 0 && isRemovable(method) {
 				return t.removeRoot(method)

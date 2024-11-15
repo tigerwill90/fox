@@ -7,6 +7,7 @@ package fox
 import (
 	"fmt"
 	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/netutil"
 	"log"
 	"math/rand"
 	"net"
@@ -643,6 +644,23 @@ func TestStaticRoute(t *testing.T) {
 	}
 }
 
+func TestStaticRouteWithStaticDomain(t *testing.T) {
+	r := New()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, onlyError(r.Tree().Handle(route.method, "exemple.com"+route.path, pathHandler)))
+	}
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		req.Host = "exemple.com"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+}
+
 func TestStaticRouteMalloc(t *testing.T) {
 	r := New()
 
@@ -652,6 +670,22 @@ func TestStaticRouteMalloc(t *testing.T) {
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+	}
+}
+
+func TestStaticRouteWithStaticDomainMalloc(t *testing.T) {
+	r := New()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, onlyError(r.Tree().Handle(route.method, "exemple.com"+route.path, emptyHandler)))
+	}
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		req.Host = "exemple.com"
 		w := httptest.NewRecorder()
 		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
 		assert.Equal(t, float64(0), allocs)
@@ -688,6 +722,38 @@ func TestParamsRoute(t *testing.T) {
 	}
 }
 
+func TestParamsRouteWithDomain(t *testing.T) {
+	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
+	r := New()
+	h := func(c Context) {
+		matches := rx.FindAllString(c.Request().URL.Path, -1)
+		for _, match := range matches {
+			var key string
+			if strings.HasPrefix(match, "*") {
+				key = match[2 : len(match)-1]
+			} else {
+				key = match[1 : len(match)-1]
+			}
+			value := match
+			assert.Equal(t, value, c.Param(key))
+		}
+
+		assert.Equal(t, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path, c.Path())
+		_ = c.String(200, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path)
+	}
+	for _, route := range githubAPI {
+		require.NoError(t, onlyError(r.Tree().Handle(route.method, "foo.{bar}.com"+route.path, h)))
+	}
+	for _, route := range githubAPI {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		req.Host = "foo.{bar}.com"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "foo.{bar}.com"+route.path, w.Body.String())
+	}
+}
+
 func TestParamsRouteMalloc(t *testing.T) {
 	r := New()
 	for _, route := range githubAPI {
@@ -695,6 +761,20 @@ func TestParamsRouteMalloc(t *testing.T) {
 	}
 	for _, route := range githubAPI {
 		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+	}
+}
+
+func TestParamsRouteWithDomainMalloc(t *testing.T) {
+	r := New()
+	for _, route := range githubAPI {
+		require.NoError(t, onlyError(r.Tree().Handle(route.method, "foo.{bar}.com"+route.path, emptyHandler)))
+	}
+	for _, route := range githubAPI {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		req.Host = "foo.{bar}.com"
 		w := httptest.NewRecorder()
 		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
 		assert.Equal(t, float64(0), allocs)
@@ -2455,6 +2535,156 @@ func TestInfixWildcardTsr(t *testing.T) {
 	}
 }
 
+func TestX(t *testing.T) {
+	f := New()
+	f.MustHandle("GET", "a.b/", emptyHandler)
+	tree := f.Tree()
+	fmt.Println(tree.Has("GET", "a.b/"))
+}
+
+func TestInsertAndDeleteWithHostname(t *testing.T) {
+	cases := []struct {
+		name   string
+		routes []struct {
+			path string
+		}
+	}{
+		{
+			name: "test delete with merge",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/foo/bar"},
+				{path: "a.b.c.d/foo/bar"},
+				{path: "a.b.c{d}/foo/bar"},
+				{path: "a.b/"},
+			},
+		},
+		{
+			name: "test delete with merge",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/f"},
+				{path: "a.b.c.d/foo/bar"},
+				{path: "a.b.c.d/f"},
+				{path: "a.b.c.d/fox"},
+				{path: "a.b.c{d}/fox/bar"},
+				{path: "a.e.c{d}/fox/bar"},
+				{path: "/johnny"},
+				{path: "/j"},
+				{path: "/x"},
+				{path: "a.b/"},
+			},
+		},
+		{
+			name: "test delete with merge ppp root",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/foo/bar"},
+				{path: "a.b.c.d/foo/bar"},
+				{path: "a.b.c{d}/foo/bar"},
+			},
+		},
+		{
+			name: "test delete with merge pp root",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/foo/bar"},
+				{path: "a.b.c{d}/foo/bar"},
+			},
+		},
+		{
+			name: "simple insert and delete",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.x.x/"},
+			},
+		},
+		{
+			name: "simple insert and delete",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.x.x/"},
+				{path: "a.x.y/"},
+			},
+		},
+		{
+			name: "simple insert and delete",
+			routes: []struct {
+				path string
+			}{
+				{path: "aaa/"},
+				{path: "aaab/"},
+				{path: "aaabc/"},
+			},
+		},
+		{
+			name: "test delete with merge ppp root",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/foo/bar"},
+				{path: "a.b.c/foo/ba"},
+				{path: "a.b.c/foo"},
+				{path: "a.b.c/x"},
+				{path: "a.b.c.d/foo/bar"},
+				{path: "a.b.c{d}/foo/bar"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			tree := f.Tree()
+			routeCopy := make([]struct{ path string }, len(tc.routes))
+			copy(routeCopy, tc.routes)
+
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.path, emptyHandler)))
+			}
+			for _, rte := range tc.routes {
+				assert.Truef(t, tree.Has(http.MethodGet, rte.path), "missing method=%s;path=%s", http.MethodGet, rte.path)
+			}
+
+			for _, rte := range tc.routes {
+				require.NoError(t, f.Delete(http.MethodGet, rte.path))
+				routeCopy = slices.Delete(routeCopy, 0, 1)
+				assert.Falsef(t, tree.Has(http.MethodGet, rte.path), "found method=%s;path=%s", http.MethodGet, rte.path)
+				for _, rte := range routeCopy {
+					assert.Truef(t, tree.Has(http.MethodGet, rte.path), "missing method=%s;path=%s", http.MethodGet, rte.path)
+				}
+			}
+			assert.Equal(t, (*tree.nodes.Load())[0].String(), "path: GET\n")
+
+			// Now let's do it in reverse
+			routeCopy = make([]struct{ path string }, len(tc.routes))
+			copy(routeCopy, tc.routes)
+			for i := len(tc.routes) - 1; i >= 0; i-- {
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.routes[i].path, emptyHandler)))
+			}
+			for i := len(tc.routes) - 1; i >= 0; i-- {
+				assert.Truef(t, tree.Has(http.MethodGet, tc.routes[i].path), "missing method=%s;path=%s", http.MethodGet, tc.routes[i].path)
+			}
+			for i := len(tc.routes) - 1; i >= 0; i-- {
+				require.NoError(t, f.Delete(http.MethodGet, tc.routes[i].path))
+				routeCopy = slices.Delete(routeCopy, len(routeCopy)-1, len(routeCopy))
+				assert.Falsef(t, tree.Has(http.MethodGet, tc.routes[i].path), "found method=%s;path=%s", http.MethodGet, tc.routes[i].path)
+				for _, rte := range routeCopy {
+					assert.Truef(t, tree.Has(http.MethodGet, rte.path), "missing method=%s;path=%s", http.MethodGet, rte.path)
+				}
+			}
+
+			assert.Equal(t, (*tree.nodes.Load())[0].String(), "path: GET\n")
+		})
+	}
+}
+
 func TestInsertConflict(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -2484,6 +2714,12 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/fox/", wantErr: nil, wantMatch: nil},
 				{path: "/fox/*{args}", wantErr: nil, wantMatch: nil},
+				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: []string{"/fox/*{args}"}},
+				{path: "a.b.c/fox", wantErr: nil, wantMatch: nil},
+				{path: "a.b.c/fox", wantErr: ErrRouteExist, wantMatch: []string{"a.b.c/fox"}},
+				{path: "a.{b}.c/fox", wantErr: nil, wantMatch: nil},
+				{path: "{a}.b.c/fox", wantErr: nil, wantMatch: nil},
+				{path: "a.{b}.c/fox", wantErr: ErrRouteExist, wantMatch: []string{"a.{b}.c/fox"}},
 			},
 		},
 		{
@@ -2497,6 +2733,10 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
+				{path: "a.b.c/foo/bar", wantErr: nil, wantMatch: nil},
+				{path: "a.b.c.d/foo/bar", wantErr: nil, wantMatch: nil},
+				{path: "a.b.c{d}/foo/bar", wantErr: nil, wantMatch: nil},
+				{path: "a.b.c{d}.com/foo/bar", wantErr: nil, wantMatch: nil},
 			},
 		},
 		{
@@ -2506,6 +2746,8 @@ func TestInsertConflict(t *testing.T) {
 				path      string
 				wantMatch []string
 			}{
+				// Note that this is impossible for route with hostname to
+				// end mid-edge in the hostname part since it always end with /
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/a*{args}", wantErr: nil, wantMatch: nil},
@@ -2540,6 +2782,13 @@ func TestInsertConflict(t *testing.T) {
 				{path: "/ironman/*{id}/baz", wantErr: nil, wantMatch: nil},
 				{path: "/ironman/*{id}", wantErr: nil, wantMatch: nil},
 				{path: "/ironman/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
+				{path: "foo.{bar}/baz", wantErr: nil, wantMatch: nil},
+				{path: "foo.{bar}.com/baz", wantErr: nil, wantMatch: nil},
+				{path: "foo.{baz}/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/baz"}},
+				{path: "foo.ab{bar}.com/baz", wantErr: nil, wantMatch: nil},
+				{path: "foo.ab{x}.com/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.ab{bar}.com/baz"}},
+				{path: "foo.{bar}/", wantErr: nil, wantMatch: nil},
+				{path: "foo.{yyy}/", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/", "foo.{bar}/baz"}},
 			},
 		},
 	}
@@ -2713,6 +2962,11 @@ func TestParseRoute(t *testing.T) {
 			path: "/foo/bar",
 		},
 		{
+			name:  "top level domain",
+			path:  "{tld}/foo/bar",
+			wantN: 1,
+		},
+		{
 			name:  "valid catch all route",
 			path:  "/foo/bar/*{arg}",
 			wantN: 1,
@@ -2781,6 +3035,11 @@ func TestParseRoute(t *testing.T) {
 			name:  "simple domain with trailing slash",
 			path:  "foo/",
 			wantN: 0,
+		},
+		{
+			name:  "period in param path allowed",
+			path:  "foo/{.bar}",
+			wantN: 1,
 		},
 		{
 			name:    "missing a least one slash",
@@ -2950,6 +3209,12 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:    "illegal trailing dot in hostname after param",
+			path:    "{tld}./foo/bar",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "illegal single dot in hostname",
 			path:    "./",
 			wantErr: ErrInvalidRoute,
@@ -3028,6 +3293,17 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:  "all-numeric label with wildcard",
+			path:  "123.{a}.456/",
+			wantN: 1,
+		},
+		{
+			name:    "all-numeric label with path wildcard",
+			path:    "123.456/{abc}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "hostname exceed 255 character",
 			path:    "a.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJx.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR/",
 			wantErr: ErrInvalidRoute,
@@ -3079,7 +3355,6 @@ func TestParseRoute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			n, err := parseRoute(tc.path)
-			fmt.Println(err)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
 		})

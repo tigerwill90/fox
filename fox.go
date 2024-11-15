@@ -521,8 +521,13 @@ func parseRoute(url string) (uint32, error) {
 					return 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
-				if i+1 < len(url) && url[i+1] != delim {
-					return 0, fmt.Errorf("%w: unexpected character after '{param}'", ErrInvalidRoute)
+
+				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
+					return 0, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
+				}
+
+				if i < endHost {
+					nonNumeric = true
 				}
 
 				countStatic = 0
@@ -532,8 +537,8 @@ func parseRoute(url string) (uint32, error) {
 				continue
 			}
 
-			if url[i] == delim || url[i] == '*' || url[i] == '{' {
-				return 0, fmt.Errorf("%w: unexpected character in '{param}'", ErrInvalidRoute)
+			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
+				return 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
@@ -543,8 +548,9 @@ func parseRoute(url string) (uint32, error) {
 					return 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
 				}
 				inParam = false
+
 				if i+1 < len(url) && url[i+1] != '/' {
-					return 0, fmt.Errorf("%w: unexpected character after '*{param}'", ErrInvalidRoute)
+					return 0, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if previous == stateCatchAll && countStatic <= 1 {
@@ -559,11 +565,12 @@ func parseRoute(url string) (uint32, error) {
 			}
 
 			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return 0, fmt.Errorf("%w: unexpected character in '*{param}'", ErrInvalidRoute)
+				return 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
 		default:
+
 			if i == endHost {
 				delim = slashDelim
 			}
@@ -611,7 +618,7 @@ func parseRoute(url string) (uint32, error) {
 						totallen += partlen + 1 // +1 count the current dot
 						partlen = 0
 					default:
-						return 0, fmt.Errorf("%w: illegal character %q in hostname label", ErrInvalidRoute, string(c))
+						return 0, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
 					}
 					last = c
 				}
@@ -630,7 +637,7 @@ func parseRoute(url string) (uint32, error) {
 		if last == '-' {
 			return 0, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
 		}
-		if last == '.' {
+		if url[endHost-1] == '.' {
 			return 0, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
 		}
 		if !nonNumeric {
