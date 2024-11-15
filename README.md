@@ -74,24 +74,6 @@ func main() {
 	}
 }
 ````
-#### Error handling
-Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another. 
-Instead, it returns the following error values:
-```go
-ErrRouteExist    = errors.New("route already registered")
-ErrRouteConflict = errors.New("route conflict")
-ErrInvalidRoute  = errors.New("invalid route")
-```
-
-Conflict error may be unwrapped to retrieve conflicting route.
-```go
-if errors.Is(err, fox.ErrRouteConflict) {
-    matched := err.(*fox.RouteConflictError).Matched
-    for _, route := range matched {
-        fmt.Println(route)
-    }
-}
-```
 
 #### Named parameters
 Routes can include named parameters using curly braces `{}` to match exactly one non-empty route segment. The matching 
