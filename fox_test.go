@@ -2843,6 +2843,18 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:    "unexpected character in param hostname",
+			path:    "a.{.bar}.c/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected character in param hostname",
+			path:    "a.{/bar}.c/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "in flight catch-all after param in one route segment",
 			path:    "/foo/{bar}*{baz}",
 			wantErr: ErrInvalidRoute,
@@ -3067,6 +3079,7 @@ func TestParseRoute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			n, err := parseRoute(tc.path)
+			fmt.Println(err)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
 		})
