@@ -668,10 +668,7 @@ func (t *Tree) lookupByDomain(target *node, host, path string, c *cTx, lazy bool
 	}
 	if idx < 0 {
 		if target.paramChildIndex >= 0 {
-			// We start with a param child, save it for later evaluation
-			*c.skipNds = append(*c.skipNds, skippedNode{target, charsMatched, paramCnt, target.paramChildIndex})
-
-			// Go deeper
+			// We start with a param child, let's go deeper directly
 			idx = target.paramChildIndex
 			current = target.children[idx].Load()
 		} else {
@@ -786,10 +783,7 @@ Walk:
 			}
 		}
 		if idx < 0 {
-			if hasSkpNds {
-				goto Backtrack
-			}
-			return n, tsr
+			goto Backtrack
 		}
 
 		*subCtx.params = (*subCtx.params)[:0]

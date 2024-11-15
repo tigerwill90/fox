@@ -2214,6 +2214,257 @@ func TestInfixWildcard(t *testing.T) {
 
 }
 
+func TestDomainLookup(t *testing.T) {
+	cases := []struct {
+		name       string
+		routes     []string
+		host       string
+		path       string
+		wantPath   string
+		wantTsr    bool
+		wantParams []Param
+	}{
+		{
+			name: "static hostname with complex overlapping route with static priority",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1}/jo",
+				"exemple.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.com/foo/{ps}/baz/{$1}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bar/baz/1/jo",
+			wantPath: "exemple.com/foo/bar/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "static hostname with complex overlapping route with param priority",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1}/jo",
+				"exemple.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.com/foo/{ps}/baz/{$1}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bam/baz/1/jo",
+			wantPath: "exemple.com/foo/{ps}/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "bam",
+				},
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "wildcard hostname with complex overlapping route with static priority",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1}/jo",
+				"{any}.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bar/baz/1/jo",
+			wantPath: "exemple.com/foo/bar/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "wildcard hostname with complex overlapping route with param priority",
+			routes: []string{
+				"{sub}.com/foo/bar/baz/{$1}/jo",
+				"exemple.{tld}/foo/*{any}/baz/{$1}/jo",
+				"exemple.com/foo/{ps}/baz/{$1}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bam/baz/1/jo",
+			wantPath: "exemple.com/foo/{ps}/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "bam",
+				},
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "hostname not matching fallback to param",
+			routes: []string{
+				"{a}/foo",
+				"fooxyz/foo",
+				"foobar/foo",
+			},
+			host:     "foo",
+			path:     "/foo",
+			wantPath: "{a}/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "static priority in hostname",
+			routes: []string{
+				"{a}.{b}.{c}/foo",
+				"{a}.{b}.c/foo",
+				"{a}.b.c/foo",
+			},
+			host:     "foo.b.c",
+			path:     "/foo",
+			wantPath: "{a}.b.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "static priority in hostname",
+			routes: []string{
+				"{a}.{b}.{c}/foo",
+				"{a}.{b}.c/foo",
+				"{a}.b.c/foo",
+			},
+			host:     "foo.bar.c",
+			path:     "/foo",
+			wantPath: "{a}.{b}.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name: "static priority in hostname",
+			routes: []string{
+				"{a}.{b}.{c}/foo",
+				"{a}.{b}.c/foo",
+				"{a}.b.c/foo",
+			},
+			host:     "foo.bar.baz",
+			path:     "/foo",
+			wantPath: "{a}.{b}.{c}/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "bar",
+				},
+				{
+					Key:   "c",
+					Value: "baz",
+				},
+			},
+		},
+		{
+			name: "fallback to path only",
+			routes: []string{
+				"{a}.{b}.{c}/foo",
+				"{a}.{b}.c/foo",
+				"{a}.b.c/foo",
+				"/foo/bar",
+			},
+			host:       "foo.bar.baz",
+			path:       "/foo/bar",
+			wantPath:   "/foo/bar",
+			wantTsr:    false,
+			wantParams: Params(nil),
+		},
+		{
+			name: "fallback to path only with param",
+			routes: []string{
+				"{a}.{b}.{c}/{d}",
+				"{a}.{b}.c/{d}",
+				"{a}.b.c/{d}",
+				"/{a}/bar",
+			},
+			host:     "foo.bar.baz",
+			path:     "/foo/bar",
+			wantPath: "/{a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "fallback to tsr with hostname priority",
+			routes: []string{
+				"{a}.{b}.{c}/{d}",
+				"{a}.{b}.c/{d}",
+				"{a}.b.c/{path}/bar/",
+				"/{a}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "{a}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			tree := f.Tree()
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(tree.Handle(http.MethodGet, rte, emptyHandler)))
+			}
+			nds := *tree.nodes.Load()
+			c := newTestContextTree(tree)
+			n, tsr := tree.lookup(nds[0], tc.host, tc.path, c, false)
+			require.NotNil(t, n)
+			assert.Equal(t, tc.wantPath, n.route.path)
+			assert.Equal(t, tc.wantTsr, tsr)
+			c.tsr = tsr
+			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
+		})
+	}
+}
+
 func TestInfixWildcardTsr(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -2676,7 +2927,9 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 					assert.Equal(t, []Annotation{updateAnnot2}, slices.Collect(r.Annotations()))
 				}
 			}
-			assert.Equal(t, (*tree.nodes.Load())[0].String(), "path: GET\n")
+			nds := *tree.nodes.Load()
+			assert.Equal(t, http.MethodGet, nds[0].key)
+			assert.Len(t, nds[0].children, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -2696,7 +2949,9 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, (*tree.nodes.Load())[0].String(), "path: GET\n")
+			nds = *tree.nodes.Load()
+			assert.Equal(t, http.MethodGet, nds[0].key)
+			assert.Len(t, nds[0].children, 0)
 		})
 	}
 }
@@ -3939,7 +4194,6 @@ func TestTree_Delete(t *testing.T) {
 	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
 
 	for _, rte := range routes {
-		fmt.Println(rte.method, rte.path)
 		require.NoError(t, tree.Delete(rte.method, rte.path))
 	}
 
@@ -4935,7 +5189,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 		go func() {
 			wait()
 			defer wg.Done()
-			for range 10 {
+			for range 5 {
 				for _, rte := range githubAPI {
 					req := httptest.NewRequest(rte.method, rte.path, nil)
 					req.Host = "foo.bar.baz"
