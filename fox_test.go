@@ -707,7 +707,7 @@ func TestParamsRoute(t *testing.T) {
 			value := match
 			assert.Equal(t, value, c.Param(key))
 		}
-		assert.Equal(t, c.Request().URL.Path, c.Path())
+		assert.Equal(t, c.Request().URL.Path, c.Pattern())
 		_ = c.String(200, c.Request().URL.Path)
 	}
 	for _, route := range githubAPI {
@@ -738,7 +738,7 @@ func TestParamsRouteWithDomain(t *testing.T) {
 			assert.Equal(t, value, c.Param(key))
 		}
 
-		assert.Equal(t, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path, c.Path())
+		assert.Equal(t, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path, c.Pattern())
 		_ = c.String(200, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path)
 	}
 	for _, route := range githubAPI {
@@ -946,7 +946,7 @@ func TestRouteWithParams(t *testing.T) {
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
-		assert.Equal(t, rte, n.route.path)
+		assert.Equal(t, rte, n.route.pattern)
 	}
 }
 
@@ -1458,7 +1458,7 @@ func TestOverlappingRoute(t *testing.T) {
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
-			assert.Equal(t, tc.wantMatch, n.route.path)
+			assert.Equal(t, tc.wantMatch, n.route.pattern)
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
@@ -1473,7 +1473,7 @@ func TestOverlappingRoute(t *testing.T) {
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
 			assert.Empty(t, slices.Collect(c.Params()))
-			assert.Equal(t, tc.wantMatch, n.route.path)
+			assert.Equal(t, tc.wantMatch, n.route.pattern)
 		})
 	}
 }
@@ -2205,7 +2205,7 @@ func TestInfixWildcard(t *testing.T) {
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
-			assert.Equal(t, tc.wantPath, n.route.path)
+			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
 			c.tsr = tsr
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -2457,7 +2457,7 @@ func TestDomainLookup(t *testing.T) {
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookup(nds[0], tc.host, tc.path, c, false)
 			require.NotNil(t, n)
-			assert.Equal(t, tc.wantPath, n.route.path)
+			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
 			c.tsr = tsr
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -2778,7 +2778,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			c := newTestContextTree(tree)
 			n, tsr := tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
 			require.NotNil(t, n)
-			assert.Equal(t, tc.wantPath, n.route.path)
+			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
 			c.tsr = tsr
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -3729,7 +3729,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			if tc.want {
 				require.NotNil(t, n)
 				require.NotNil(t, n.route)
-				assert.Equal(t, tc.wantPath, n.route.path)
+				assert.Equal(t, tc.wantPath, n.route.pattern)
 			}
 		})
 	}
@@ -3841,7 +3841,7 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			require.True(t, r.IgnoreTrailingSlashEnabled())
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(r.Tree().Handle(tc.method, path, func(c Context) {
-					_ = c.String(http.StatusOK, c.Path())
+					_ = c.String(http.StatusOK, c.Pattern())
 				})))
 				rte := r.Tree().Route(tc.method, path)
 				require.NotNil(t, rte)
@@ -3864,7 +3864,7 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 		return c.RemoteIP(), nil
 	})
 	f := New(WithClientIPStrategy(c1), WithNoRouteHandler(func(c Context) {
-		assert.Empty(t, c.Path())
+		assert.Empty(t, c.Pattern())
 		ip, err := c.ClientIP()
 		assert.NoError(t, err)
 		assert.NotNil(t, ip)
@@ -4167,7 +4167,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 			f := New(WithIgnoreTrailingSlash(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c Context) {
-					assert.Equal(t, tc.wantPath, c.Path())
+					assert.Equal(t, tc.wantPath, c.Pattern())
 					var params Params = slices.Collect(c.Params())
 					assert.Equal(t, tc.wantParams, params)
 					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
@@ -4604,7 +4604,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 
 func TestRouterWithOptionsHandler(t *testing.T) {
 	f := New(WithOptionsHandler(func(c Context) {
-		assert.Equal(t, "", c.Path())
+		assert.Equal(t, "", c.Pattern())
 		assert.Empty(t, slices.Collect(c.Params()))
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
@@ -5080,7 +5080,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
-			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.route.path)
+			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.route.pattern)
 			assert.Equal(t, "xxxx", c.Param(e1))
 			assert.Equal(t, "xxxx", c.Param(e2))
 			assert.Equal(t, "xxxx", c.Param(e3))
@@ -5138,7 +5138,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 		require.NotNilf(t, n.route, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
-		require.Equal(t, "/"+rte, n.route.path)
+		require.Equal(t, "/"+rte, n.route.pattern)
 		path := "/" + rte
 		require.NoError(t, tree.update(http.MethodGet, tree.newRoute(path, emptyHandler)))
 	}
@@ -5280,7 +5280,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			_ = tree.insert(rte.method, &Route{path: rte.path}, 0)
+			_ = tree.insert(rte.method, &Route{pattern: rte.path}, 0)
 		}()
 
 		go func() {
@@ -5292,7 +5292,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			_ = tree.update(rte.method, &Route{path: rte.path})
+			_ = tree.update(rte.method, &Route{pattern: rte.path})
 		}()
 
 		go func() {
@@ -5321,7 +5321,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	h1 := HandlerFunc(func(c Context) {
 		assert.Equal(t, "john", c.Param("owner"))
 		assert.Equal(t, "fox", c.Param("repo"))
-		_ = c.String(200, c.Path())
+		_ = c.String(200, c.Pattern())
 	})
 
 	// /repos/{owner}/{repo}/contents/*{path}
@@ -5329,13 +5329,13 @@ func TestConcurrentRequestHandling(t *testing.T) {
 		assert.Equal(t, "alex", c.Param("owner"))
 		assert.Equal(t, "vault", c.Param("repo"))
 		assert.Equal(t, "file.txt", c.Param("path"))
-		_ = c.String(200, c.Path())
+		_ = c.String(200, c.Pattern())
 	})
 
 	// /users/{user}/received_events/public
 	h3 := HandlerFunc(func(c Context) {
 		assert.Equal(t, "go", c.Param("user"))
-		_ = c.String(200, c.Path())
+		_ = c.String(200, c.Pattern())
 	})
 
 	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/repos/{owner}/{repo}/keys", h1)))
@@ -5419,7 +5419,7 @@ func ExampleNew() {
 		return func(c Context) {
 			start := time.Now()
 			next(c)
-			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Path(), time.Since(start), c.Writer().Status())
+			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Pattern(), time.Since(start), c.Writer().Status())
 		}
 	}
 
@@ -5445,7 +5445,7 @@ func ExampleWithMiddleware() {
 			log.Printf(
 				"url=%s; route=%s; time=%d; status=%d",
 				c.Request().URL,
-				c.Path(),
+				c.Pattern(),
 				time.Since(start),
 				c.Writer().Status(),
 			)

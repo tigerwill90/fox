@@ -197,7 +197,7 @@ func (n *node) string(space int) string {
 
 	if n.isLeaf() {
 		sb.WriteString(" [leaf=")
-		sb.WriteString(n.route.path)
+		sb.WriteString(n.route.pattern)
 		sb.WriteString("]")
 	}
 	if n.hasWildcard() {

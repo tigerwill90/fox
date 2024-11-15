@@ -145,7 +145,7 @@ func (t *Tree) Route(method, pattern string) *Route {
 	host, path := SplitHostPath(pattern)
 	n, tsr := t.lookup(nds[index], host, path, c, true)
 	c.Close()
-	if n != nil && !tsr && n.route.path == pattern {
+	if n != nil && !tsr && n.route.pattern == pattern {
 		return n.route
 	}
 	return nil
@@ -235,7 +235,7 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		rootNode = nds[index]
 	}
 
-	path := route.path
+	path := route.pattern
 
 	result := t.search(rootNode, path)
 	switch result.classify() {
@@ -246,7 +246,7 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		// └── am
 		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
 		if result.matched.isLeaf() {
-			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.path, result.matched.route.path)
+			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.pattern, result.matched.route.pattern)
 		}
 
 		// We are updating an existing node. We only need to create a new node from
@@ -448,7 +448,7 @@ func (t *Tree) update(method string, route *Route) error {
 	}
 	defer t.race.Store(0)
 
-	path := route.path
+	path := route.pattern
 
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -1288,7 +1288,7 @@ func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *R
 	rte := &Route{
 		ipStrategy:            t.fox.ipStrategy,
 		hbase:                 handler,
-		path:                  path,
+		pattern:               path,
 		mws:                   t.fox.mws,
 		redirectTrailingSlash: t.fox.redirectTrailingSlash,
 		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,

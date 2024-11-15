@@ -669,7 +669,7 @@ func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 	it := newRawIterator(n)
 	for it.hasNext() {
-		routes = append(routes, it.current.route.path)
+		routes = append(routes, it.current.route.pattern)
 	}
 	return routes
 }

@@ -50,11 +50,9 @@ type Context interface {
 	// worthy of panicking.
 	//
 	// The returned [net.IPAddr] may contain a zone identifier.
-	//
-	// This api is EXPERIMENTAL and is likely to change in future release.
 	ClientIP() (*net.IPAddr, error)
-	// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
-	Path() string
+	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+	Pattern() string
 	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
 	Route() *Route
 	// Params returns a range iterator over the matched wildcard parameters for the current route.
@@ -249,12 +247,12 @@ func (c *cTx) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
-// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
-func (c *cTx) Path() string {
+// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+func (c *cTx) Pattern() string {
 	if c.route == nil {
 		return ""
 	}
-	return c.route.path
+	return c.route.pattern
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].

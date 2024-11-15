@@ -97,7 +97,7 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 
 			host, path := SplitHostPath(pattern)
 			n, tsr := it.t.lookup(nds[index], host, path, c, true)
-			if n != nil && !tsr && n.route.path == path {
+			if n != nil && !tsr && n.route.pattern == path {
 				if !yield(method, n.route) {
 					return
 				}
