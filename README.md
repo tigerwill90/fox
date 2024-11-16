@@ -28,7 +28,7 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 **Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
 observability middleware like open telemetry.
 
-**Hostname routing:** Supports hostname-based routing with wildcard matching.
+**Hostname routing:** Fox supports hostname-based routing with wildcard matching.
 
 **Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear 
 priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
