@@ -188,7 +188,8 @@ Routes are prioritized based on specificity, with static segments taking precede
 
 The following rules apply:
 
-- Routes with hostnames are always evaluated first, before any path-only routes.
+- Routes with hostnames are evaluated first, before any path-only routes.
+- If no route matches a hostname, the router falls back to matching path-only routes. Path-only routes match requests with any hostname.
 - Static segments are always evaluated first.
 - A named parameter can only overlap with a catch-all parameter or static segments.
 - A catch-all parameter can only overlap with a named parameter or static segments.
@@ -228,6 +229,10 @@ The router can transition instantly and transparently, at runtime, from path-onl
 additional configuration or action. If any route with a hostname is registered, the router automatically switches to 
 prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
 path-priority mode, ensuring optimal and adaptive routing behavior.
+
+Trailing slash handling (redirect or ignore) is mode-specific, either for hostname-prioritized or path-prioritized mode. 
+Therefore, if no exact match is found for a domain-based lookup but a trailing slash adjustment is possible, Fox will 
+perform the redirect (or ignore the trailing slash) without falling back to path-only lookup.
 
 #### Warning about context
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
