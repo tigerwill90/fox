@@ -189,7 +189,7 @@ Routes are prioritized based on specificity, with static segments taking precede
 The following rules apply:
 
 - Routes with hostnames are evaluated first, before any path-only routes.
-- If no route matches a hostname, the router falls back to matching path-only routes. Path-only routes match requests with any hostname.
+- If no route matches with a hostname, the router falls back to matching path-only routes. Path-only routes match requests with any hostname.
 - Static segments are always evaluated first.
 - A named parameter can only overlap with a catch-all parameter or static segments.
 - A catch-all parameter can only overlap with a named parameter or static segments.
