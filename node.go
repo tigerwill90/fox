@@ -17,9 +17,10 @@ type node struct {
 	// Once assigned, route is immutable.
 	route *Route
 
-	// Precomputed next inode for infix wildcard lookup, so we don't have to create it
-	// during the lookup phase. Once assigned, nextinode is immutable.
-	nextinode *node
+	// Precomputed inode for infix wildcard lookup, so we don't have to create it during the lookup phase.
+	// Inode is this node, but with the key split after the first infix wildcard (e.g. /foo/*{bar}/baz => /baz).
+	// Once assigned, inode is immutable.
+	inode *node
 
 	// key represent a segment of a route which share a common prefix with it parent.
 	// Once assigned, key is immutable.
@@ -82,7 +83,7 @@ func newNodeFromRef(key string, route *Route, children []atomic.Pointer[node], c
 		childKeys:          childKeys,
 		children:           children,
 		route:              route,
-		nextinode:          next,
+		inode:              next,
 		paramChildIndex:    paramChildIndex,
 		wildcardChildIndex: wildcardChildIndex,
 		params:             params,
@@ -236,7 +237,7 @@ func (n *node) string(space int, inode bool) string {
 	sb.WriteByte('\n')
 
 	if inode {
-		next := n.nextinode
+		next := n.inode
 		addSpace := space + 8
 		for next != nil {
 			sb.WriteString(strings.Repeat(" ", addSpace))
@@ -248,8 +249,13 @@ func (n *node) string(space int, inode bool) string {
 				sb.WriteByte(']')
 			}
 			sb.WriteByte('\n')
+			//children := next.getEdgesShallowCopy()
+			//for _, child := range children {
+			//	sb.WriteString("  ")
+			//	sb.WriteString(child.string(addSpace+4, false))
+			//}
 			addSpace += 8
-			next = next.nextinode
+			next = next.inode
 		}
 	}
 

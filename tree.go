@@ -331,11 +331,10 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 			child = newNode(host, nil, []*node{pathChild})
 			addDepth++
 		} else {
+			// No children, so no paramChild
 			child = newNode(keySuffix, route, nil)
 		}
 
-		// child := newNode(keySuffix, route, nil)
-		// No children, so no paramChild
 		edges := result.matched.getEdgesShallowCopy()
 		edges = append(edges, child)
 		n := newNode(
@@ -893,7 +892,7 @@ Walk:
 					idx := current.params[paramKeyCnt].end - charsMatchedInNodeFound
 					var inode *node
 					if idx >= 0 {
-						inode = current.nextinode
+						inode = current.inode
 						charsMatchedInNodeFound += idx
 					} else if len(current.children) > 0 {
 						inode = current.get(0)
