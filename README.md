@@ -225,7 +225,7 @@ Request Matching:
 
 ##### Hostname routing
 
-The router can transition instantly and transparently, at runtime, from path-only mode to hostname-prioritized mode without any 
+The router can transition instantly and transparently from path-only mode to hostname-prioritized mode without any 
 additional configuration or action. If any route with a hostname is registered, the router automatically switches to 
 prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
 path-priority mode, ensuring optimal and adaptive routing behavior.
