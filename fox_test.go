@@ -5406,6 +5406,18 @@ func TestNode_String(t *testing.T) {
 	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
 }
 
+func TestNode_Debug(t *testing.T) {
+	f := New()
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/*{any}/bar", emptyHandler)))
+	tree := f.Tree()
+	nds := *tree.nodes.Load()
+
+	want := `path: GET
+      path: /foo/*{any}/bar [leaf=/foo/*{any}/bar] [any (11)]
+             inode: /bar`
+	assert.Equal(t, want, strings.TrimSuffix(nds[0].Debug(), "\n"))
+}
+
 // This example demonstrates how to create a simple router using the default options,
 // which include the Recovery and Logger middleware. A basic route is defined, along with a
 // custom middleware to log the request metrics.

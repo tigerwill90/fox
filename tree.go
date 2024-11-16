@@ -891,35 +891,12 @@ Walk:
 					// key: foo/*{bar}/                                      => 10 - 5 = 5 => i+=idx set i to '/'
 					//          | charsMatchedInNodeFound (5)
 					idx := current.params[paramKeyCnt].end - charsMatchedInNodeFound
-					var interNode *node
+					var inode *node
 					if idx >= 0 {
-						// Unfortunately, we cannot use object pooling here because we need to keep a reference to this
-						// interNode object until the lookup function returns, especially when TSR (Trailing Slash Redirect)
-						// is enabled. The interNode may be referenced by subNode and 'n'.
-						interNode = &node{
-							route:     current.route,
-							key:       current.key[current.params[paramKeyCnt].end:],
-							childKeys: current.childKeys,
-							children:  current.children,
-							// len(current.params)-1 is safe since we have at least the current infix wildcard in params
-							params:             make([]param, 0, len(current.params)-1),
-							paramChildIndex:    current.paramChildIndex,
-							wildcardChildIndex: current.wildcardChildIndex,
-						}
-						for _, ps := range current.params[paramKeyCnt+1:] { // paramKeyCnt+1 is safe since we have at least the current infix wildcard in params
-							interNode.params = append(interNode.params, param{
-								key: ps.key,
-								// end is relative to the original key, so we need to adjust the position relative to
-								// the new intermediary node.
-								end:      ps.end - current.params[paramKeyCnt].end,
-								catchAll: ps.catchAll,
-							})
-						}
-
+						inode = current.nextinode
 						charsMatchedInNodeFound += idx
-
 					} else if len(current.children) > 0 {
-						interNode = current.get(0)
+						inode = current.get(0)
 						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
 					} else {
 						// We are in an ending catch all node with no child, so it's a direct match
@@ -932,12 +909,12 @@ Walk:
 					subCtx := t.ctx.Get().(*cTx)
 					startPath := charsMatched
 					for {
-						idx := strings.IndexByte(path[charsMatched:], slashDelim)
+						idx = strings.IndexByte(path[charsMatched:], slashDelim)
 						// idx >= 0, we have a next segment with at least one char
 						if idx > 0 {
 							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
-							subNode, subTsr := t.lookupByPath(interNode, path[charsMatched:], subCtx, false)
+							subNode, subTsr := t.lookupByPath(inode, path[charsMatched:], subCtx, false)
 							if subNode == nil {
 								// Try with next segment
 								charsMatched++
