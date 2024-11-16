@@ -120,7 +120,7 @@ Pattern /users/uuid:{id}/config
 /users/uuid:/config         no matches
 ````
 
-For hostnames, named parameters are also supported. The path portion must still include at least `/`.
+Named parameters are also supported in hostname. Note that the path portion must still include at least `/`.
 
 ````
 Pattern exemple.com/avengers
