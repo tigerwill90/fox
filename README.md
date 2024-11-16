@@ -230,9 +230,12 @@ additional configuration or action. If any route with a hostname is registered, 
 prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
 path-priority mode, ensuring optimal and adaptive routing behavior.
 
-Trailing slash handling (redirect or ignore) is mode-specific, either for hostname-prioritized or path-prioritized mode. 
-Therefore, if no exact match is found for a domain-based lookup but a trailing slash adjustment is possible, Fox will 
-perform the redirect (or ignore the trailing slash) without falling back to path-only lookup.
+- If the routing tree for a given method has no routes registered with hostnames, the router will perform a path-based lookup only.
+- If the routing tree for a given method includes at least one route with a hostname, the router will prioritize lookup based 
+on the request host and path. If no match is found, the router will then fall back to a path-only lookup.
+- Trailing slash handling (redirect or ignore) is mode-specific, either for hostname-prioritized or path-prioritized mode. 
+Therefore, if no exact match is found for a domain-based lookup but a trailing slash adjustment is possible, Fox will perform 
+- the redirect (or ignore the trailing slash) without falling back to path-only lookup.
 
 #### Warning about context
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
