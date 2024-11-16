@@ -219,7 +219,7 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 //
 // It's safe to add a new handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To override an existing route, use [Router.Update].
-func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
@@ -230,7 +230,7 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...P
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
 // add a new handler while the tree is in use for serving requests. This function is safe for concurrent use by multiple
 // goroutines. To override an existing route, use [Router.Update].
-func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...PathOption) *Route {
+func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
 	rte, err := fox.Handle(method, pattern, handler, opts...)
 	if err != nil {
 		panic(err)
@@ -245,7 +245,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 //
 // It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To add new handler, use [Router.Handle] method.
-func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()

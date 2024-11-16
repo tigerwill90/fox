@@ -10,15 +10,15 @@ import (
 
 type Option interface {
 	GlobalOption
-	PathOption
+	RouteOption
 }
 
 type GlobalOption interface {
 	applyGlob(*Router)
 }
 
-type PathOption interface {
-	applyPath(*Route)
+type RouteOption interface {
+	applyRoute(*Route)
 }
 
 type globOptionFunc func(*Router)
@@ -31,7 +31,7 @@ func (o globOptionFunc) applyGlob(r *Router) {
 type pathOptionFunc func(*Route)
 
 // nolint:unused
-func (o pathOptionFunc) applyPath(r *Route) {
+func (o pathOptionFunc) applyRoute(r *Route) {
 	o(r)
 }
 
@@ -41,7 +41,7 @@ func (o optionFunc) applyGlob(r *Router) {
 	o(r, nil)
 }
 
-func (o optionFunc) applyPath(r *Route) {
+func (o optionFunc) applyRoute(r *Route) {
 	o(nil, r)
 }
 
@@ -227,7 +227,7 @@ func WithClientIPStrategy(strategy ClientIPStrategy) Option {
 // any other components to modify behavior based on the attached metadata. Unlike context-based metadata, which is tied to
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
 // Annotations must be explicitly reapplied when updating a route.
-func WithAnnotations(annotations ...Annotation) PathOption {
+func WithAnnotations(annotations ...Annotation) RouteOption {
 	return pathOptionFunc(func(route *Route) {
 		route.annots = append(route.annots, annotations...)
 	})

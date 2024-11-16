@@ -48,7 +48,7 @@ type Tree struct {
 // It's safe to add a new handler while the tree is in use for serving requests. However, this function is NOT
 // thread-safe and should be run serially, along with all other [Tree] APIs that perform write operations.
 // To override an existing route, use [Tree.Update].
-func (t *Tree) Handle(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (t *Tree) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
@@ -77,7 +77,7 @@ func (t *Tree) Handle(method, pattern string, handler HandlerFunc, opts ...PathO
 // It's safe to update a handler while the tree is in use for serving requests. However, this function is NOT thread-safe
 // and should be run serially, along with all other [Tree] APIs that perform write operations. To add a new handler,
 // use [Tree.Handle] method.
-func (t *Tree) Update(method, pattern string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (t *Tree) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
@@ -1283,19 +1283,19 @@ func (t *Tree) updateMaxDepth(max uint32) {
 	}
 }
 
-// newRoute create a new route, apply path options and apply middleware on the handler.
-func (t *Tree) newRoute(path string, handler HandlerFunc, opts ...PathOption) *Route {
+// newRoute create a new route, apply route options and apply middleware on the handler.
+func (t *Tree) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
 	rte := &Route{
 		ipStrategy:            t.fox.ipStrategy,
 		hbase:                 handler,
-		pattern:               path,
+		pattern:               pattern,
 		mws:                   t.fox.mws,
 		redirectTrailingSlash: t.fox.redirectTrailingSlash,
 		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
 	}
 
 	for _, opt := range opts {
-		opt.applyPath(rte)
+		opt.applyRoute(rte)
 	}
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
