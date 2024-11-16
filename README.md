@@ -112,18 +112,11 @@ exemple.{tld}/avengers          matches
 {sub}.exemple.com/avengers      no matches
 ````
 
-Hostnames are validated to conform to [the LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2). 
-Wildcard segments within hostnames, such as {a}.b.c/, are exempt from LDH validation since they act as placeholders rather 
-than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label, nor the 255-character 
-limit for the full hostname (including periods).
-
 #### Catch-all parameter
 Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** route segments, 
 including slashes. The matching segment are also accessible via `fox.Context`. Catch-all parameters are supported anywhere 
 in the route, but only one parameter is allowed per segment and must appear at the end of the segment. Consecutive catch-all 
 parameter are not allowed.
-
-Named
 
 **Example with ending catch all**
 ````
@@ -156,6 +149,20 @@ Pattern: /assets/path:*{path}/thumbnail
 ````
 
 Note that catch-all patterns are not supported in hostname.
+
+#### Hostname validation & restrictions
+
+Hostnames are validated to conform to [the LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2).
+Wildcard segments within hostnames, such as {a}.b.c/, are exempt from LDH validation since they act as placeholders rather
+than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label, nor the 255-character
+limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
+(Punycode) representation.
+
+The DNS specification permits a trailing period to be used to denote the root, e.g., `a.b.c` and `a.b.c.` are equivalent, 
+but the latter is more explicit and is required to be accepted by applications. Fox will reject route registered with 
+trailing period. However, the router will automatically strip any trailing period from incoming request host so it can match 
+the route regardless of a trailing period. Note that FQDN (with trailing period) does not play well with golang 
+TLS stdlib (see traefik/traefik#9157 (comment)).
 
 #### Priority rules
 Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
