@@ -129,6 +129,23 @@ func (n *node) updateEdge(node *node) {
 	n.children[id].Store(node)
 }
 
+func (n *node) clone() *node {
+	nc := &node{
+		route:              n.route,
+		inode:              n.inode,
+		key:                n.key,
+		childKeys:          n.childKeys,
+		children:           make([]atomic.Pointer[node], len(n.children)),
+		params:             n.params,
+		paramChildIndex:    n.paramChildIndex,
+		wildcardChildIndex: n.wildcardChildIndex,
+	}
+	for i := 0; i < len(n.children); i++ {
+		nc.children[i].Store(n.children[i].Load())
+	}
+	return nc
+}
+
 // linearSearch return the index of s in keys or -1, using a simple loop.
 // Although binary search is a more efficient search algorithm,
 // the small size of the child keys array means that the
