@@ -353,24 +353,23 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.RawPath
 	}
 
-	tree := fox.tree
-	c := tree.ctx.Get().(*cTx)
+	c := fox.tree.ctx.Get().(*cTx)
 	c.reset(w, r)
 
-	nds := *tree.root.Load()
+	nds := *fox.tree.root.Load()
 	index := findRootNode(r.Method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index], r.Host, path, c, false)
+	n, tsr = fox.tree.lookup(nds[index], r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
 		c.tsr = tsr
 		n.route.hall(c)
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
-		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
+		if cap(*c.params) <= int(fox.tree.maxParams.Load()) && cap(*c.skipNds) <= int(fox.tree.maxDepth.Load()) {
 			c.tree.ctx.Put(c)
 		}
 		return
@@ -421,7 +420,7 @@ NoMethodFallback:
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := fox.tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}
@@ -444,7 +443,7 @@ NoMethodFallback:
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := fox.tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}

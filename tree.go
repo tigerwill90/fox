@@ -1268,11 +1268,9 @@ func (t *Tree) allocateContext() *cTx {
 		params:    &params,
 		skipNds:   &skipNds,
 		tsrParams: &tsrParams,
-		// This is a read only value, no reset, it's always the
-		// owner of the pool.
+		// This is a read only value, no reset
 		tree: t,
-		// This is a read only value, no reset, it's always the
-		// owner of the tree.
+		// This is a read only value, no reset
 		fox: t.fox,
 	}
 }
