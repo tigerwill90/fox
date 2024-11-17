@@ -7,6 +7,7 @@ package fox
 import (
 	"fmt"
 	"github.com/tigerwill90/fox/internal/netutil"
+	"github.com/tigerwill90/fox/internal/simplelru"
 	"net/http"
 	"slices"
 	"strings"
@@ -30,13 +31,15 @@ import (
 //     fox.Tree().Lock()
 //     defer fox.Tree().Unlock()
 type Tree struct {
-	ctx   sync.Pool
-	nodes atomic.Pointer[[]*node]
-	fox   *Router
+	ctx      sync.Pool
+	nodes    atomic.Pointer[[]*node]
+	fox      *Router
+	writable *simplelru.LRU[*node, any]
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
 	race      atomic.Uint32
+	txn       bool
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -221,6 +224,14 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 	}
 	defer t.race.Store(0)
 
+	if t.txn && t.writable == nil {
+		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
+		if err != nil {
+			panic(err)
+		}
+		t.writable = lru
+	}
+
 	var rootNode *node
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -261,6 +272,11 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		)
 
 		t.updateMaxParams(paramsN)
+
+		if t.txn {
+			t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+			break
+		}
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
@@ -302,6 +318,10 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 
 		t.updateMaxParams(paramsN)
 		t.updateMaxDepth(result.depth + 1)
+		if t.txn {
+			t.updateToRoot(result.p, result.pp, result.ppp, result.visited, parent)
+			break
+		}
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
 		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
@@ -348,7 +368,14 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 
 		if result.matched == rootNode {
 			n.key = method
+			if t.txn {
+				t.writable.Add(n, nil)
+			}
 			t.updateRoot(n)
+			break
+		}
+		if t.txn {
+			t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
 			break
 		}
 		result.p.updateEdge(n)
@@ -431,6 +458,12 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 
 		t.updateMaxDepth(result.depth + addDepth)
 		t.updateMaxParams(paramsN)
+
+		if t.txn {
+			t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n3)
+			break
+		}
+
 		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type
@@ -446,6 +479,14 @@ func (t *Tree) update(method string, route *Route) error {
 		panic(ErrConcurrentAccess)
 	}
 	defer t.race.Store(0)
+
+	if t.txn && t.writable == nil {
+		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
+		if err != nil {
+			panic(err)
+		}
+		t.writable = lru
+	}
 
 	path := route.pattern
 
@@ -470,6 +511,12 @@ func (t *Tree) update(method string, route *Route) error {
 		result.matched.paramChildIndex,
 		result.matched.wildcardChildIndex,
 	)
+
+	if t.txn {
+		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+		return nil
+	}
+
 	result.p.updateEdge(n)
 	return nil
 }
@@ -481,6 +528,14 @@ func (t *Tree) remove(method, path string) bool {
 		panic(ErrConcurrentAccess)
 	}
 	defer t.race.Store(0)
+
+	if t.txn && t.writable == nil {
+		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
+		if err != nil {
+			panic(err)
+		}
+		t.writable = lru
+	}
 
 	nds := *t.nodes.Load()
 	index := findRootNode(method, nds)
@@ -508,6 +563,12 @@ func (t *Tree) remove(method, path string) bool {
 			result.matched.paramChildIndex,
 			result.matched.wildcardChildIndex,
 		)
+
+		if t.txn {
+			t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+			return true
+		}
+
 		result.p.updateEdge(n)
 		return true
 	}
@@ -523,6 +584,12 @@ func (t *Tree) remove(method, path string) bool {
 			child.paramChildIndex,
 			child.wildcardChildIndex,
 		)
+
+		if t.txn {
+			t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+			return true
+		}
+
 		result.p.updateEdge(n)
 		return true
 	}
@@ -569,9 +636,18 @@ func (t *Tree) remove(method, path string) bool {
 				return t.removeRoot(method)
 			}
 			parent.key = method
+			if t.txn {
+				t.writable.Add(parent, nil)
+			}
 			t.updateRoot(parent)
 			return true
 		}
+
+		if t.txn {
+			t.updateToRoot(nil, nil, result.ppp, result.visited, parent)
+			return true
+		}
+
 		result.ppp.updateEdge(parent)
 		return true
 	}
@@ -601,7 +677,15 @@ func (t *Tree) remove(method, path string) bool {
 			return t.removeRoot(method)
 		}
 		parent.key = method
+		if t.txn {
+			t.writable.Add(parent, nil)
+		}
 		t.updateRoot(parent)
+		return true
+	}
+
+	if t.txn {
+		t.updateToRoot(nil, result.pp, result.ppp, result.visited, parent)
 		return true
 	}
 
@@ -1132,6 +1216,7 @@ func (t *Tree) search(rootNode *node, path string) searchResult {
 	current := rootNode
 
 	var (
+		visited                 []*node
 		ppp                     *node
 		pp                      *node
 		p                       *node
@@ -1139,6 +1224,10 @@ func (t *Tree) search(rootNode *node, path string) searchResult {
 		charsMatchedInNodeFound int
 		depth                   uint32
 	)
+
+	if t.txn {
+		visited = make([]*node, 0, min(15, t.maxDepth.Load()))
+	}
 
 STOP:
 	for charsMatched < len(path) {
@@ -1148,6 +1237,9 @@ STOP:
 		}
 
 		depth++
+		if t.txn && ppp != nil {
+			visited = append(visited, ppp)
+		}
 		ppp = pp
 		pp = p
 		p = current
@@ -1175,6 +1267,7 @@ STOP:
 		p:                       p,
 		pp:                      pp,
 		ppp:                     ppp,
+		visited:                 visited,
 		depth:                   depth,
 	}
 }
@@ -1195,6 +1288,21 @@ func (t *Tree) allocateContext() *cTx {
 		// owner of the tree.
 		fox: t.fox,
 	}
+}
+
+// t should be held locked from snapshot to the end of the transaction.
+func (t *Tree) snapshot() *Tree {
+	tree := new(Tree)
+	tree.fox = t.fox
+	tree.nodes.Store(t.nodes.Load())
+	tree.ctx = sync.Pool{
+		New: func() any {
+			return tree.allocateContext()
+		},
+	}
+	tree.maxDepth.Store(t.maxDepth.Load())
+	tree.maxParams.Store(t.maxParams.Load())
+	return tree
 }
 
 // addRoot append a new root node to the tree.
@@ -1241,6 +1349,88 @@ func (t *Tree) removeRoot(method string) bool {
 	newNds = append(newNds, nds[index+1:]...)
 	t.nodes.Store(&newNds)
 	return true
+}
+
+func (t *Tree) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
+	nn := n
+	if p != nil {
+		np := p
+		if _, ok := t.writable.Get(np); !ok {
+			np = np.clone()
+			t.writable.Add(np, nil)
+			// np is root and has never been writen
+			if pp == nil {
+				np.updateEdge(n)
+				t.updateRoot(np)
+				return
+			}
+		}
+
+		// If it's a clone, it's not a root
+		np.updateEdge(n)
+		if pp == nil {
+			return
+		}
+		nn = np
+	}
+
+	if pp != nil {
+		npp := pp
+		if _, ok := t.writable.Get(npp); !ok {
+			npp = npp.clone()
+			t.writable.Add(npp, nil)
+			// npp is root and has never been writen
+			if ppp == nil {
+				npp.updateEdge(nn)
+				t.updateRoot(npp)
+				return
+			}
+		}
+
+		// If it's a clone, it's not a root
+		npp.updateEdge(nn)
+		if ppp == nil {
+			return
+		}
+		nn = npp
+	}
+
+	nppp := ppp
+	if _, ok := t.writable.Get(nppp); !ok {
+		nppp = nppp.clone()
+		t.writable.Add(nppp, nil)
+		// nppp is root and has never been writen
+		if len(visited) == 0 {
+			nppp.updateEdge(nn)
+			t.updateRoot(nppp)
+			return
+		}
+	}
+
+	// If it's a clone, it's not a root
+	nppp.updateEdge(nn)
+	if len(visited) == 0 {
+		return
+	}
+
+	// Process remaining visited nodes in reverse order
+	current := nppp
+	for i := len(visited) - 1; i >= 0; i-- {
+		vNode := visited[i]
+
+		if _, ok := t.writable.Get(vNode); !ok {
+			vNode = vNode.clone()
+			t.writable.Add(vNode, nil)
+		}
+
+		vNode.updateEdge(current)
+		current = vNode
+	}
+
+	if current != visited[0] {
+		// root is a clone
+		t.updateRoot(current)
+	}
 }
 
 // updateMaxParams perform an update only if max is greater than the current

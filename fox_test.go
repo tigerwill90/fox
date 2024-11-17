@@ -629,33 +629,76 @@ func BenchmarkCloneWith(b *testing.B) {
 }
 
 func TestStaticRoute(t *testing.T) {
-	r := New()
+	f := New()
 
 	for _, route := range staticRoutes {
-		require.NoError(t, onlyError(r.Tree().Handle(route.method, route.path, pathHandler)))
+		require.NoError(t, onlyError(f.Tree().Handle(route.method, route.path, pathHandler)))
 	}
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+}
+
+func TestStaticRouteTxn(t *testing.T) {
+	f := New()
+
+	require.NoError(t, f.Updates(func(txn *Txn) error {
+		for _, route := range staticRoutes {
+			if err := onlyError(txn.Handle(route.method, route.path, pathHandler)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
 	}
 }
 
 func TestStaticRouteWithStaticDomain(t *testing.T) {
-	r := New()
+	f := New()
 
 	for _, route := range staticRoutes {
-		require.NoError(t, onlyError(r.Tree().Handle(route.method, "exemple.com"+route.path, pathHandler)))
+		require.NoError(t, onlyError(f.Tree().Handle(route.method, "exemple.com"+route.path, pathHandler)))
 	}
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
 		req.Host = "exemple.com"
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+}
+
+func TestStaticRouteWithStaticDomainTxn(t *testing.T) {
+	f := New()
+
+	require.NoError(t, f.Updates(func(txn *Txn) error {
+		for _, route := range staticRoutes {
+			if err := onlyError(txn.Handle(route.method, "exemple.com"+route.path, pathHandler)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		req.Host = "exemple.com"
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
 	}
@@ -3372,6 +3415,24 @@ func TestParseRoute(t *testing.T) {
 		{
 			name:    "unexpected character in catch-all",
 			path:    "/foo/*{/bar}",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "catch all not supported in hostname",
+			path:    "a.b.c*/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal character in params hostname",
+			path:    "a.b.c{/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "illegal character in hostname label",
+			path:    "a.b.c}/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},

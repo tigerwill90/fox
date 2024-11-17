@@ -194,6 +194,17 @@ func (fox *Router) NewTree() *Tree {
 	return tree
 }
 
+func (fox *Router) Txn() *Txn {
+	tree := fox.Tree()
+	tree.Lock()
+	root := tree.snapshot()
+	root.txn = true
+	return &Txn{
+		snap: root,
+		main: tree,
+	}
+}
+
 // Tree atomically loads and return the currently in-use routing tree.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Tree() *Tree {
@@ -274,6 +285,27 @@ func (fox *Router) Delete(method, pattern string) error {
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.Tree()
 	return tree.Lookup(w, r)
+}
+
+// Updates executes a function within the context of a read-write managed transaction. If no error is returned from the
+// function then the transaction is committed. If an error is returned then the entire transaction is rolled back.
+// Updates returns any error returned by the callback. It's safe to call in txn function while the tree is in use for
+// serving requests. This function is safe for concurrent use by multiple goroutine. For unmanaged transaction,
+// use [Router.Txn] method.
+func (fox *Router) Updates(fn func(txn *Txn) error) error {
+	txn := fox.Txn()
+	defer func() {
+		if p := recover(); p != nil {
+			txn.Rollback()
+			panic(p)
+		}
+		txn.Rollback()
+	}()
+	if err := fn(txn); err != nil {
+		return err
+	}
+	txn.Commit()
+	return nil
 }
 
 // Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
