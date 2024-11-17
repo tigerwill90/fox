@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -93,7 +92,7 @@ type Router struct {
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
-	tree                   atomic.Pointer[Tree]
+	tree                   *Tree
 	ipStrategy             ClientIPStrategy
 	mws                    []middleware
 	handleMethodNotAllowed bool
@@ -128,7 +127,7 @@ func New(opts ...GlobalOption) *Router {
 	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler)
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
-	r.tree.Store(r.NewTree())
+	r.tree = r.newTree()
 	return r
 }
 
@@ -167,61 +166,6 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 	return !ok
 }
 
-// NewTree returns a fresh routing [Tree] that inherits all registered router options. It's safe to create multiple [Tree]
-// concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
-// serially. Note that a [Tree] give direct access to the underlying [sync.Mutex].
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) NewTree() *Tree {
-	tree := new(Tree)
-	tree.fox = fox
-
-	// Pre instantiate nodes for common http verb
-	nds := make([]*node, len(commonVerbs))
-	for i := range commonVerbs {
-		nds[i] = new(node)
-		nds[i].key = commonVerbs[i]
-		nds[i].paramChildIndex = -1
-		nds[i].wildcardChildIndex = -1
-	}
-	tree.nodes.Store(&nds)
-
-	tree.ctx = sync.Pool{
-		New: func() any {
-			return tree.allocateContext()
-		},
-	}
-
-	return tree
-}
-
-func (fox *Router) Txn() *Txn {
-	tree := fox.Tree()
-	tree.Lock()
-	root := tree.snapshot()
-	root.txn = true
-	return &Txn{
-		snap: root,
-		main: tree,
-	}
-}
-
-// Tree atomically loads and return the currently in-use routing tree.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Tree() *Tree {
-	return fox.tree.Load()
-}
-
-// Swap atomically replaces the currently in-use routing tree with the provided new tree, and returns the previous tree.
-// Note that the swap will panic if the current tree belongs to a different instance of the router, preventing accidental
-// replacement of trees from different routers.
-func (fox *Router) Swap(new *Tree) (old *Tree) {
-	current := fox.tree.Load()
-	if current.fox != new.fox {
-		panic("swap failed: current and new routing trees belong to different router instances")
-	}
-	return fox.tree.Swap(new)
-}
-
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
@@ -231,10 +175,9 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 // It's safe to add a new handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To override an existing route, use [Router.Update].
 func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	t := fox.Tree()
-	t.Lock()
-	defer t.Unlock()
-	return t.Handle(method, pattern, handler, opts...)
+	fox.tree.Lock()
+	defer fox.tree.Unlock()
+	return fox.tree.Handle(method, pattern, handler, opts...)
 }
 
 // MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
@@ -257,10 +200,9 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To add new handler, use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	t := fox.Tree()
-	t.Lock()
-	defer t.Unlock()
-	return t.Update(method, pattern, handler, opts...)
+	fox.tree.Lock()
+	defer fox.tree.Unlock()
+	return fox.tree.Update(method, pattern, handler, opts...)
 }
 
 // Delete deletes an existing handler for the given method and route pattern. If an error occurs, it returns one of the following:
@@ -270,10 +212,9 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 // It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine.
 func (fox *Router) Delete(method, pattern string) error {
-	t := fox.Tree()
-	t.Lock()
-	defer t.Unlock()
-	return t.Delete(method, pattern)
+	fox.tree.Lock()
+	defer fox.tree.Unlock()
+	return fox.tree.Delete(method, pattern)
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -283,8 +224,7 @@ func (fox *Router) Delete(method, pattern string) error {
 // concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Reverse] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
-	tree := fox.Tree()
-	return tree.Lookup(w, r)
+	return fox.tree.Lookup(w, r)
 }
 
 // Updates executes a function within the context of a read-write managed transaction. If no error is returned from the
@@ -312,8 +252,50 @@ func (fox *Router) Updates(fn func(txn *Txn) error) error {
 // This function is safe for concurrent use by multiple goroutines and can operate while the [Tree] is being modified.
 // This API is EXPERIMENTAL and may change in future releases.
 func (fox *Router) Iter() Iter {
-	tree := fox.Tree()
-	return tree.Iter()
+	return fox.tree.Iter()
+}
+
+// Txn create a new read-write transaction.
+// It's safe to create and execute a transaction while the tree is in use for serving requests.
+// This function is safe for concurrent use by multiple goroutine. For managed transaction, use [Router.Updates].
+func (fox *Router) Txn() *Txn {
+	fox.tree.Lock()
+	root := fox.tree.snapshot()
+	root.txn = true
+	return &Txn{
+		snap: root,
+		main: fox.tree,
+	}
+}
+
+// Tree atomically loads and return the currently in-use routing tree.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) Tree() *Tree {
+	return fox.tree
+}
+
+// newTree returns a fresh routing Tree that inherits all registered router options.
+func (fox *Router) newTree() *Tree {
+	tree := new(Tree)
+	tree.fox = fox
+
+	// Pre instantiate nodes for common http verb
+	nds := make([]*node, len(commonVerbs))
+	for i := range commonVerbs {
+		nds[i] = new(node)
+		nds[i].key = commonVerbs[i]
+		nds[i].paramChildIndex = -1
+		nds[i].wildcardChildIndex = -1
+	}
+	tree.root.Store(&nds)
+
+	tree.ctx = sync.Pool{
+		New: func() any {
+			return tree.allocateContext()
+		},
+	}
+
+	return tree
 }
 
 // DefaultNotFoundHandler is a simple [HandlerFunc] that replies to each request
@@ -371,11 +353,11 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.RawPath
 	}
 
-	tree := fox.tree.Load()
+	tree := fox.tree
 	c := tree.ctx.Get().(*cTx)
 	c.reset(w, r)
 
-	nds := *tree.nodes.Load()
+	nds := *tree.root.Load()
 	index := findRootNode(r.Method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
 		goto NoMethodFallback

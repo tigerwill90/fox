@@ -7,6 +7,7 @@ import (
 
 const defaultModifiedCache = 8192
 
+// Txn is a read-write transaction against the [Router].
 type Txn struct {
 	snap *Tree
 	main *Tree
@@ -41,6 +42,10 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 	return txn.snap.Lookup(w, r)
 }
 
+func (txn *Txn) Truncate(methods ...string) {
+	txn.snap.truncateRoot(methods)
+}
+
 func (txn *Txn) Iter() Iter {
 	return Iter{t: txn.snap}
 }
@@ -51,7 +56,7 @@ func (txn *Txn) Commit() {
 		txn.snap.writable = nil
 		txn.main.maxParams.Store(txn.snap.maxParams.Load())
 		txn.main.maxDepth.Store(txn.snap.maxDepth.Load())
-		txn.main.nodes.Store(txn.snap.nodes.Load())
+		txn.main.root.Store(txn.snap.root.Load())
 		txn.main.Unlock()
 	})
 }

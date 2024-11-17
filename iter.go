@@ -64,7 +64,7 @@ type Iter struct {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (it Iter) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		nds := *it.t.nodes.Load()
+		nds := *it.t.root.Load()
 		for i := range nds {
 			if len(nds[i].children) > 0 {
 				if !yield(nds[i].key) {
@@ -85,7 +85,7 @@ func (it Iter) Methods() iter.Seq[string] {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		nds := *it.t.nodes.Load()
+		nds := *it.t.root.Load()
 		c := it.t.ctx.Get().(*cTx)
 		defer c.Close()
 		for method := range methods {
@@ -119,7 +119,7 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		nds := *it.t.nodes.Load()
+		nds := *it.t.root.Load()
 		c := it.t.ctx.Get().(*cTx)
 		defer c.Close()
 		for method := range methods {
@@ -149,7 +149,7 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 // This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		nds := *it.t.nodes.Load()
+		nds := *it.t.root.Load()
 		maxDepth := it.t.maxDepth.Load()
 		var stacks []stack
 		if maxDepth < stackSizeThreshold {

@@ -17,22 +17,9 @@ import (
 
 // Tree implements a Concurrent Radix Tree that supports lock-free reads while allowing concurrent writes.
 // The caller is responsible for ensuring that all writes are run serially.
-//
-// IMPORTANT:
-// Each tree as its own [sync.Mutex] that may be used to serialize write. Since the router tree may be swapped at any
-// given time (see [Router.Swap]), you MUST always copy the pointer locally to avoid inadvertently causing a deadlock
-// by locking/unlocking the wrong Tree.
-//
-//   - Good
-//     t := fox.Tree()
-//     t.Lock()
-//     defer t.Unlock()
-//   - Dramatically bad, may cause deadlock
-//     fox.Tree().Lock()
-//     defer fox.Tree().Unlock()
 type Tree struct {
 	ctx      sync.Pool
-	nodes    atomic.Pointer[[]*node]
+	root     atomic.Pointer[[]*node]
 	fox      *Router
 	writable *simplelru.LRU[*node, any]
 	sync.Mutex
@@ -136,7 +123,7 @@ func (t *Tree) Has(method, pattern string) bool {
 // mutation on [Tree] are ongoing. See also [Tree.Has] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Route(method, pattern string) *Route {
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
 		return nil
@@ -160,7 +147,7 @@ func (t *Tree) Route(method, pattern string) *Route {
 // mutation on [Tree] are ongoing. See also [Tree.Lookup] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Reverse(method, host, path string) (route *Route, tsr bool) {
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
 		return nil, false
@@ -183,7 +170,7 @@ func (t *Tree) Reverse(method, host, path string) (route *Route, tsr bool) {
 // concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Reverse] as an alternative.
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(r.Method, nds)
 	if index < 0 || len(nds[index].children) == 0 {
 		return
@@ -233,7 +220,7 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 	}
 
 	var rootNode *node
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		rootNode = &node{
@@ -490,7 +477,7 @@ func (t *Tree) update(method string, route *Route) error {
 
 	path := route.pattern
 
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
@@ -537,7 +524,7 @@ func (t *Tree) remove(method, path string) bool {
 		t.writable = lru
 	}
 
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return false
@@ -1036,7 +1023,7 @@ Walk:
 
 						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
 						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
-						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
+						// there is no tsr opportunity, and skipped nodes > 0, we will truncateRoot the params anyway.
 						if !lazy {
 							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
 						}
@@ -1294,7 +1281,7 @@ func (t *Tree) allocateContext() *cTx {
 func (t *Tree) snapshot() *Tree {
 	tree := new(Tree)
 	tree.fox = t.fox
-	tree.nodes.Store(t.nodes.Load())
+	tree.root.Store(t.root.Load())
 	tree.ctx = sync.Pool{
 		New: func() any {
 			return tree.allocateContext()
@@ -1308,11 +1295,11 @@ func (t *Tree) snapshot() *Tree {
 // addRoot append a new root node to the tree.
 // Note: This function should be guarded by mutex.
 func (t *Tree) addRoot(n *node) {
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	newNds := make([]*node, 0, len(nds)+1)
 	newNds = append(newNds, nds...)
 	newNds = append(newNds, n)
-	t.nodes.Store(&newNds)
+	t.root.Store(&newNds)
 }
 
 // updateRoot replaces a root node in the tree.
@@ -1322,7 +1309,7 @@ func (t *Tree) addRoot(n *node) {
 // updated root node, and the entire list is swapped afterwards.
 // Note: This function should be guarded by mutex.
 func (t *Tree) updateRoot(n *node) bool {
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	// for root node, the key contains the HTTP verb.
 	index := findRootNode(n.key, nds)
 	if index < 0 {
@@ -1332,14 +1319,14 @@ func (t *Tree) updateRoot(n *node) bool {
 	newNds = append(newNds, nds[:index]...)
 	newNds = append(newNds, n)
 	newNds = append(newNds, nds[index+1:]...)
-	t.nodes.Store(&newNds)
+	t.root.Store(&newNds)
 	return true
 }
 
 // removeRoot remove a root nod from the tree.
 // Note: This function should be guarded by mutex.
 func (t *Tree) removeRoot(method string) bool {
-	nds := *t.nodes.Load()
+	nds := *t.root.Load()
 	index := findRootNode(method, nds)
 	if index < 0 {
 		return false
@@ -1347,10 +1334,43 @@ func (t *Tree) removeRoot(method string) bool {
 	newNds := make([]*node, 0, len(nds)-1)
 	newNds = append(newNds, nds[:index]...)
 	newNds = append(newNds, nds[index+1:]...)
-	t.nodes.Store(&newNds)
+	t.root.Store(&newNds)
 	return true
 }
 
+// truncateRoot truncate the tree for the provided methods.
+// Note: This function should be guarded by mutex.
+func (t *Tree) truncateRoot(methods []string) {
+	nds := *t.root.Load()
+	oldlen := len(nds)
+	newNds := make([]*node, len(nds))
+	copy(newNds, nds)
+
+	for _, method := range methods {
+		idx := findRootNode(method, newNds)
+		if idx < 0 {
+			continue
+		}
+		if !isRemovable(method) {
+			newNds[idx] = new(node)
+			newNds[idx].key = commonVerbs[idx]
+			newNds[idx].paramChildIndex = -1
+			newNds[idx].wildcardChildIndex = -1
+			continue
+		}
+
+		newNds = append(newNds[:idx], newNds[idx+1:]...)
+	}
+
+	clear(newNds[len(newNds):oldlen]) // zero/nil out the obsolete elements, for GC
+
+	// Update the tree's nodes with the new slice.
+	t.root.Store(&newNds)
+}
+
+// updateToRoot propagate update to the root by cloning any visited node that have not been cloned previously.
+// This effectively allow to create a fully isolated snapshot of the tree.
+// Note: This function should be guarded by mutex.
 func (t *Tree) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
 	nn := n
 	if p != nil {
