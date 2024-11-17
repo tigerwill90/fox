@@ -28,7 +28,7 @@ import (
 )
 
 var emptyHandler = HandlerFunc(func(c Context) {})
-var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Request().URL.Path) })
+var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Path()) })
 
 type mockResponseWriter struct{}
 
@@ -739,7 +739,7 @@ func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r := New()
 	h := func(c Context) {
-		matches := rx.FindAllString(c.Request().URL.Path, -1)
+		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
 			if strings.HasPrefix(match, "*") {
@@ -750,8 +750,8 @@ func TestParamsRoute(t *testing.T) {
 			value := match
 			assert.Equal(t, value, c.Param(key))
 		}
-		assert.Equal(t, c.Request().URL.Path, c.Pattern())
-		_ = c.String(200, c.Request().URL.Path)
+		assert.Equal(t, c.Path(), c.Pattern())
+		_ = c.String(200, c.Path())
 	}
 	for _, route := range githubAPI {
 		require.NoError(t, onlyError(r.Tree().Handle(route.method, route.path, h)))
@@ -769,7 +769,7 @@ func TestParamsRouteWithDomain(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r := New()
 	h := func(c Context) {
-		matches := rx.FindAllString(c.Request().URL.Path, -1)
+		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
 			if strings.HasPrefix(match, "*") {
@@ -781,8 +781,8 @@ func TestParamsRouteWithDomain(t *testing.T) {
 			assert.Equal(t, value, c.Param(key))
 		}
 
-		assert.Equal(t, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path, c.Pattern())
-		_ = c.String(200, netutil.StripHostPort(c.Request().Host)+c.Request().URL.Path)
+		assert.Equal(t, netutil.StripHostPort(c.Host())+c.Path(), c.Pattern())
+		_ = c.String(200, netutil.StripHostPort(c.Host())+c.Path())
 	}
 	for _, route := range githubAPI {
 		require.NoError(t, onlyError(r.Tree().Handle(route.method, "foo.{bar}.com"+route.path, h)))
@@ -4528,7 +4528,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			require.True(t, f.AutoOptionsEnabled())
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().Host, c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -4601,7 +4601,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			f := New(WithAutoOptions(true), WithIgnoreTrailingSlash(true))
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().Host, c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -4643,7 +4643,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 			f := New(WithAutoOptions(true))
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Tree().Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Tree().Iter().Reverse(c.Tree().Iter().Methods(), c.Request().Host, c.Request().URL.Path))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -5508,41 +5508,6 @@ func ExampleWithMiddleware() {
 	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
 	})
-}
-
-// This example demonstrates some important considerations when using the Tree API.
-func ExampleRouter_Tree() {
-	r := New()
-
-	// Each tree as its own sync.Mutex that is used to lock write on the tree. Since the router tree may be swapped at
-	// any given time, you MUST always copy the pointer locally, This ensures that you do not inadvertently cause a
-	// deadlock by locking/unlocking the wrong tree.
-	tree := r.Tree()
-	upsert := func(method, path string, handler HandlerFunc) (*Route, error) {
-		tree.Lock()
-		defer tree.Unlock()
-		if tree.Has(method, path) {
-			return tree.Update(method, path, handler)
-		}
-		return tree.Handle(method, path, handler)
-	}
-
-	_, _ = upsert(http.MethodGet, "/foo/bar", func(c Context) {
-		// Note the tree accessible from fox.Context is already a local copy so the golden rule above does not apply.
-		c.Tree().Lock()
-		defer c.Tree().Unlock()
-		_ = c.String(200, "foo bar")
-	})
-
-	// Bad, instead make a local copy of the tree!
-	_ = func(method, path string, handler HandlerFunc) (*Route, error) {
-		r.Tree().Lock()
-		defer r.Tree().Unlock()
-		if r.Tree().Has(method, path) {
-			return r.Tree().Update(method, path, handler)
-		}
-		return r.Tree().Handle(method, path, handler)
-	}
 }
 
 // This example demonstrates how to create a custom middleware that cleans the request path and performs a manual

@@ -98,6 +98,32 @@ func TestContext_Route(t *testing.T) {
 	assert.Equal(t, "/foo", w.Body.String())
 }
 
+func TestContext_Path(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/{a}", func(c Context) {
+		_, _ = io.WriteString(c.Writer(), c.Path())
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	f.ServeHTTP(w, r)
+	assert.Equal(t, "/foo", w.Body.String())
+}
+
+func TestContext_Host(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/{a}", func(c Context) {
+		_, _ = io.WriteString(c.Writer(), c.Host())
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	f.ServeHTTP(w, r)
+	assert.Equal(t, "example.com", w.Body.String())
+}
+
 func TestContext_Annotations(t *testing.T) {
 	t.Parallel()
 	f := New()
@@ -290,19 +316,6 @@ func TestContext_Fox(t *testing.T) {
 	f := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
 		assert.NotNil(t, c.Fox())
-	})))
-
-	f.ServeHTTP(w, req)
-}
-
-func TestContext_Tree(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
-
-	f := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
-		assert.NotNil(t, c.Tree())
 	})))
 
 	f.ServeHTTP(w, req)

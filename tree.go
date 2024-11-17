@@ -1269,8 +1269,6 @@ func (t *Tree) allocateContext() *cTx {
 		skipNds:   &skipNds,
 		tsrParams: &tsrParams,
 		// This is a read only value, no reset
-		tree: t,
-		// This is a read only value, no reset
 		fox: t.fox,
 	}
 }

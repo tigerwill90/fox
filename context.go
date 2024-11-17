@@ -59,6 +59,10 @@ type Context interface {
 	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
+	// Path returns the request URL path.
+	Path() string
+	// Host returns the request host.
+	Host() string
 	// QueryParams parses the [http.Request] raw query and returns the corresponding values.
 	QueryParams() url.Values
 	// QueryParam returns the first query value associated with the given key.
@@ -85,8 +89,6 @@ type Context interface {
 	// Scope returns the [HandlerScope] associated with the current [Context].
 	// This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
 	Scope() HandlerScope
-	// Tree is a local copy of the [Tree] in use to serve the request.
-	Tree() *Tree
 	// Fox returns the [Router] instance.
 	Fox() *Router
 }
@@ -99,9 +101,6 @@ type cTx struct {
 	tsrParams *Params
 	skipNds   *skippedNodes
 	route     *Route
-
-	// tree at allocation (read-only, no reset)
-	tree *Tree
 	// router at allocation (read-only, no reset)
 	fox         *Router
 	cachedQuery url.Values
@@ -227,6 +226,16 @@ func (c *cTx) Param(name string) string {
 	return ""
 }
 
+// Path returns the request URL path.
+func (c *cTx) Path() string {
+	return c.req.URL.Path
+}
+
+// Host returns the request host.
+func (c *cTx) Host() string {
+	return c.req.Host
+}
+
 // QueryParams parses the [http.Request] raw query and returns the corresponding values.
 func (c *cTx) QueryParams() url.Values {
 	return c.getQueries()
@@ -295,11 +304,6 @@ func (c *cTx) Redirect(code int, url string) error {
 	return nil
 }
 
-// Tree is a local copy of the [Tree] in use to serve the request.
-func (c *cTx) Tree() *Tree {
-	return c.tree
-}
-
 // Fox returns the [Router] instance.
 func (c *cTx) Fox() *Router {
 	return c.fox
@@ -312,7 +316,6 @@ func (c *cTx) Clone() Context {
 		rec:   c.rec,
 		req:   c.req.Clone(c.req.Context()),
 		fox:   c.fox,
-		tree:  c.tree,
 		route: c.route,
 		scope: c.scope,
 		tsr:   c.tsr,
@@ -339,7 +342,7 @@ func (c *cTx) Clone() Context {
 // be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
 // their custom [ResponseWriter] while preserving the state of the original [Context].
 func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
-	cp := c.tree.ctx.Get().(*cTx)
+	cp := c.fox.tree.ctx.Get().(*cTx)
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
@@ -366,10 +369,10 @@ func (c *cTx) Scope() HandlerScope {
 func (c *cTx) Close() {
 	// Put back the context, if not extended more than max params or max depth, allowing
 	// the slice to naturally grow within the constraint.
-	if cap(*c.params) > int(c.tree.maxParams.Load()) || cap(*c.skipNds) > int(c.tree.maxDepth.Load()) {
+	if cap(*c.params) > int(c.fox.tree.maxParams.Load()) || cap(*c.skipNds) > int(c.fox.tree.maxDepth.Load()) {
 		return
 	}
-	c.tree.ctx.Put(c)
+	c.fox.tree.ctx.Put(c)
 }
 
 func (c *cTx) getQueries() url.Values {

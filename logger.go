@@ -45,6 +45,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					ipStr,
 					slog.Int("status", c.Writer().Status()),
 					slog.String("method", req.Method),
+					slog.String("host", c.Host()),
 					slog.String("path", c.Request().URL.String()),
 					slog.Duration("latency", roundLatency(latency)),
 				)
@@ -55,6 +56,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					ipStr,
 					slog.Int("status", c.Writer().Status()),
 					slog.String("method", req.Method),
+					slog.String("host", c.Host()),
 					slog.String("path", c.Request().URL.String()),
 					slog.Duration("latency", roundLatency(latency)),
 					slog.String("location", location),

@@ -370,7 +370,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Put back the context, if not extended more than max params or max depth, allowing
 		// the slice to naturally grow within the constraint.
 		if cap(*c.params) <= int(fox.tree.maxParams.Load()) && cap(*c.skipNds) <= int(fox.tree.maxDepth.Load()) {
-			c.tree.ctx.Put(c)
+			fox.tree.ctx.Put(c)
 		}
 		return
 	}
