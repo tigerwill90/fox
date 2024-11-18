@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox"
+	"github.com/tigerwill90/fox/internal/netutil"
 	"net"
 	"net/http"
 	"strings"
@@ -154,7 +155,7 @@ func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	return ParseIPAddr(ipStr)
 }
 
-// LeftmostNonPrivate derives the client IP from the leftmost valid and non-private/non-internal IP address in the X-Fowarded-For
+// LeftmostNonPrivate derives the client IP from the leftmost valid and non-private/non-internal IP address in the X-Forwarded-For
 // or Forwarded header. This strategy should be used when a valid, non-private IP closest to the client is desired. By default,
 // loopback, link local and private net ip range are blacklisted. Note that this MUST NOT BE USED FOR SECURITY PURPOSES.
 // This IP can be TRIVIALLY SPOOFED.
@@ -368,7 +369,7 @@ func ParseIPAddr(ip string) (*net.IPAddr, error) {
 	// net.ParseIP doesn't like them, so we'll trim them off.
 	ip = trimMatchedEnds(ip, "[]")
 
-	ipStr, zone := splitHostZone(ip)
+	ipStr, zone := netutil.SplitHostZone(ip)
 	ipAddr := &net.IPAddr{
 		IP:   net.ParseIP(ipStr),
 		Zone: zone,
@@ -425,19 +426,6 @@ func AddressesAndRangesToIPNets(ranges ...string) ([]net.IPNet, error) {
 	}
 
 	return result, nil
-}
-
-func splitHostZone(s string) (host, zone string) {
-	// This is copied from an unexported function in the Go stdlib:
-	// https://github.com/golang/go/blob/5c9b6e8e63e012513b1cb1a4a08ff23dec4137a1/src/net/ipsock.go#L219-L228
-
-	// The IPv6 scoped addressing zone identifier starts after the last percent sign.
-	if i := strings.LastIndexByte(s, '%'); i > 0 {
-		host, zone = s[:i], s[i+1:]
-	} else {
-		host = s
-	}
-	return
 }
 
 // trimMatchedEnds trims s if and only if the first and last bytes in s are in chars.

@@ -89,7 +89,7 @@ func TestContext_Route(t *testing.T) {
 	f := New()
 	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
 		require.NotNil(t, c.Route())
-		_, _ = io.WriteString(c.Writer(), c.Route().Path())
+		_, _ = io.WriteString(c.Writer(), c.Route().Pattern())
 	})
 
 	w := httptest.NewRecorder()
@@ -156,7 +156,7 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
-	assert.Equal(t, c.Path(), cp.Path())
+	assert.Equal(t, c.Pattern(), cp.Pattern())
 	assert.Equal(t, c.Fox(), cp.Fox())
 	assert.Nil(t, cc.cachedQuery)
 

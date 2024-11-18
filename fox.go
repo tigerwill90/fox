@@ -181,6 +181,7 @@ func (fox *Router) NewTree() *Tree {
 		nds[i] = new(node)
 		nds[i].key = commonVerbs[i]
 		nds[i].paramChildIndex = -1
+		nds[i].wildcardChildIndex = -1
 	}
 	tree.nodes.Store(&nds)
 
@@ -210,58 +211,58 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 	return fox.tree.Swap(new)
 }
 
-// Handle registers a new handler for the given method and path. On success, it returns the newly registered [Route].
+// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
-//   - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to add a new handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To override an existing route, use [Router.Update].
-func (fox *Router) Handle(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Handle(method, path, handler, opts...)
+	return t.Handle(method, pattern, handler, opts...)
 }
 
-// MustHandle registers a new handler for the given method and path. On success, it returns the newly registered [Route]
+// MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
 // add a new handler while the tree is in use for serving requests. This function is safe for concurrent use by multiple
 // goroutines. To override an existing route, use [Router.Update].
-func (fox *Router) MustHandle(method, path string, handler HandlerFunc, opts ...PathOption) *Route {
-	rte, err := fox.Handle(method, path, handler, opts...)
+func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
+	rte, err := fox.Handle(method, pattern, handler, opts...)
 	if err != nil {
 		panic(err)
 	}
 	return rte
 }
 
-// Update override an existing handler for the given method and path. On success, it returns the newly registered [Route].
+// Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
-// - [ErrRouteNotFound]: if the route does not exist.
-// - [ErrInvalidRoute]: If the provided method or path is invalid.
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine. To add new handler, use [Router.Handle] method.
-func (fox *Router) Update(method, path string, handler HandlerFunc, opts ...PathOption) (*Route, error) {
+func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Update(method, path, handler, opts...)
+	return t.Update(method, pattern, handler, opts...)
 }
 
-// Delete deletes an existing handler for the given method and path. If an error occurs, it returns one of the following:
-// - [ErrRouteNotFound]: if the route does not exist.
-// - [ErrInvalidRoute]: If the provided method or path is invalid.
+// Delete deletes an existing handler for the given method and route pattern. If an error occurs, it returns one of the following:
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
 // use by multiple goroutine.
-func (fox *Router) Delete(method, path string) error {
+func (fox *Router) Delete(method, pattern string) error {
 	t := fox.Tree()
 	t.Lock()
 	defer t.Unlock()
-	return t.Delete(method, path)
+	return t.Delete(method, pattern)
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -332,10 +333,10 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tsr bool
 	)
 
-	target := r.URL.Path
+	path := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
 		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		target = r.URL.RawPath
+		path = r.URL.RawPath
 	}
 
 	tree := fox.tree.Load()
@@ -348,7 +349,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		goto NoMethodFallback
 	}
 
-	n, tsr = tree.lookup(nds[index].children[0].Load(), target, c, false)
+	n, tsr = tree.lookup(nds[index], r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
 		c.tsr = tsr
@@ -370,7 +371,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if n.route.redirectTrailingSlash && target == CleanPath(target) {
+		if n.route.redirectTrailingSlash && path == CleanPath(path) {
 			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
 			*c.params = (*c.params)[:0]
 			c.route = nil
@@ -393,7 +394,7 @@ NoMethodFallback:
 		var sb strings.Builder
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
-		if target == "*" {
+		if path == "*" {
 			for i := 0; i < len(nds); i++ {
 				if nds[i].key != http.MethodOptions && len(nds[i].children) > 0 {
 					if sb.Len() > 0 {
@@ -406,7 +407,7 @@ NoMethodFallback:
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(nds); i++ {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i].children[0].Load(), target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}
@@ -429,7 +430,7 @@ NoMethodFallback:
 		for i := 0; i < len(nds); i++ {
 			if nds[i].key != r.Method {
 				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i].children[0].Load(), target, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 						if sb.Len() > 0 {
 							sb.WriteString(", ")
 						}
@@ -451,67 +452,6 @@ NoMethodFallback:
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 	c.Close()
-}
-
-type resultType int
-
-const (
-	exactMatch resultType = iota
-	incompleteMatchToEndOfEdge
-	incompleteMatchToMiddleOfEdge
-	keyEndMidEdge
-)
-
-func (r searchResult) classify() resultType {
-	if r.charsMatched == len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.key) {
-			return exactMatch
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return keyEndMidEdge
-		}
-	} else if r.charsMatched < len(r.path) {
-		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
-		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
-		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
-			return incompleteMatchToEndOfEdge
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return incompleteMatchToMiddleOfEdge
-		}
-	}
-	panic("internal error: cannot classify the result")
-}
-func (r searchResult) isExactMatch() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
-}
-
-func (r searchResult) isKeyMidEdge() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
-}
-
-func (c resultType) String() string {
-	return [...]string{"EXACT_MATCH", "INCOMPLETE_MATCH_TO_END_OF_EDGE", "INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE", "KEY_END_MID_EDGE"}[c]
-}
-
-type searchResult struct {
-	matched                 *node
-	p                       *node
-	pp                      *node
-	path                    string
-	charsMatched            int
-	charsMatchedInNodeFound int
-	depth                   uint32
-}
-
-func commonPrefix(k1, k2 string) string {
-	minLength := min(len(k1), len(k2))
-	for i := 0; i < minLength; i++ {
-		if k1[i] != k2[i] {
-			return k1[:i]
-		}
-	}
-	return k1[:minLength]
 }
 
 func findRootNode(method string, nodes []*node) int {
@@ -542,10 +482,24 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func parseRoute(path string) (uint32, error) {
+func parseRoute(url string) (uint32, error) {
 
-	if !strings.HasPrefix(path, "/") {
-		return 0, fmt.Errorf("%w: path must start with '/'", ErrInvalidRoute)
+	endHost := strings.IndexByte(url, '/')
+	if endHost == -1 {
+		return 0, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
+	}
+	if strings.HasPrefix(url, ".") {
+		return 0, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
+	}
+	if strings.HasPrefix(url, "-") {
+		return 0, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
+	}
+
+	var delim byte
+	if endHost == 0 {
+		delim = slashDelim
+	} else {
+		delim = dotDelim
 	}
 
 	state := stateDefault
@@ -553,18 +507,27 @@ func parseRoute(path string) (uint32, error) {
 	paramCnt := uint32(0)
 	countStatic := 0
 	inParam := false
+	nonNumeric := false // true once we've seen a letter or hyphen
+	partlen := 0
+	totallen := 0
+	last := dotDelim
 
 	i := 0
-	for i < len(path) {
+	for i < len(url) {
 		switch state {
 		case stateParam:
-			if path[i] == '}' {
+			if url[i] == '}' {
 				if !inParam {
 					return 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
-				if i+1 < len(path) && path[i+1] != '/' {
-					return 0, fmt.Errorf("%w: unexpected character after '{param}'", ErrInvalidRoute)
+
+				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
+					return 0, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
+				}
+
+				if i < endHost {
+					nonNumeric = true
 				}
 
 				countStatic = 0
@@ -574,19 +537,20 @@ func parseRoute(path string) (uint32, error) {
 				continue
 			}
 
-			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
-				return 0, fmt.Errorf("%w: unexpected character in '{params}'", ErrInvalidRoute)
+			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
+				return 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
 		case stateCatchAll:
-			if path[i] == '}' {
+			if url[i] == '}' {
 				if !inParam {
 					return 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
 				}
 				inParam = false
-				if i+1 < len(path) && path[i+1] != '/' {
-					return 0, fmt.Errorf("%w: unexpected character after '*{param}'", ErrInvalidRoute)
+
+				if i+1 < len(url) && url[i+1] != '/' {
+					return 0, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if previous == stateCatchAll && countStatic <= 1 {
@@ -600,21 +564,64 @@ func parseRoute(path string) (uint32, error) {
 				continue
 			}
 
-			if path[i] == '/' || path[i] == '*' || path[i] == '{' {
-				return 0, fmt.Errorf("%w: unexpected character in '*{params}'", ErrInvalidRoute)
+			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
+				return 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
 		default:
-			if path[i] == '{' {
+
+			if i == endHost {
+				delim = slashDelim
+			}
+
+			if url[i] == '{' {
 				state = stateParam
 				paramCnt++
-			} else if path[i] == '*' {
+			} else if url[i] == '*' {
+				if i < endHost {
+					return 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
+				}
 				state = stateCatchAll
 				i++
 				paramCnt++
 			} else {
 				countStatic++
+				if i < endHost {
+					c := url[i]
+					switch {
+					case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '_':
+						nonNumeric = true
+						partlen++
+					case '0' <= c && c <= '9':
+						// fine
+						partlen++
+					case c == '-':
+						// Byte before dash cannot be dot.
+						if last == '.' {
+							return 0, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
+						}
+						partlen++
+						nonNumeric = true
+					case c == '.':
+						// Byte before dot cannot be dot.
+						if last == '.' && url[i-1] != '}' {
+							return 0, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
+						}
+						// Byte before dot cannot be dash.
+						if last == '-' {
+							return 0, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
+						}
+						if partlen > 63 {
+							return 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+						}
+						totallen += partlen + 1 // +1 count the current dot
+						partlen = 0
+					default:
+						return 0, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
+					}
+					last = c
+				}
 			}
 
 			if paramCnt > math.MaxUint16 {
@@ -625,15 +632,34 @@ func parseRoute(path string) (uint32, error) {
 		}
 	}
 
+	if endHost > 0 {
+		totallen += partlen
+		if last == '-' {
+			return 0, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
+		}
+		if url[endHost-1] == '.' {
+			return 0, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
+		}
+		if !nonNumeric {
+			return 0, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
+		}
+		if partlen > 63 {
+			return 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+		}
+		if totallen > 255 {
+			return 0, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
+		}
+	}
+
 	if state == stateParam {
-		return 0, fmt.Errorf("%w: unclosed '{params}'", ErrInvalidRoute)
+		return 0, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
 	}
 
 	if state == stateCatchAll {
-		if path[len(path)-1] == '*' {
-			return 0, fmt.Errorf("%w: missing '{params}' after '*' catch-all delimiter", ErrInvalidRoute)
+		if url[len(url)-1] == '*' {
+			return 0, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
 		}
-		return 0, fmt.Errorf("%w: unclosed '*{params}'", ErrInvalidRoute)
+		return 0, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
 	}
 
 	return paramCnt, nil
@@ -643,7 +669,7 @@ func getRouteConflict(n *node) []string {
 	routes := make([]string, 0)
 	it := newRawIterator(n)
 	for it.hasNext() {
-		routes = append(routes, it.current.route.path)
+		routes = append(routes, it.current.route.pattern)
 	}
 	return routes
 }

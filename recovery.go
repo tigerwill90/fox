@@ -89,7 +89,7 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 
 		logger.Error(
 			sb.String(),
-			slog.String("path", c.Path()),
+			slog.String("path", c.Pattern()),
 			slog.Group("params", params...),
 			slog.Group("annotations", annotations...),
 			slog.Any("error", err),

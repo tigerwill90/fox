@@ -5,6 +5,11 @@
 
 package fox
 
+import (
+	"github.com/tigerwill90/fox/internal/netutil"
+	"strings"
+)
+
 // CleanPath is the URL version of path.Clean, it returns a canonical URL path
 // for p, eliminating . and .. elements.
 //
@@ -157,4 +162,25 @@ func FixTrailingSlash(path string) string {
 		return path[:len(path)-1]
 	}
 	return path + "/"
+}
+
+// SplitHostPath separates the host and path from a URL string. If url includes a valid numeric port, the port is
+// stripped from the host; otherwise, it remains part of the host. If url is empty or lacks a path, the path
+// defaults to "/". SplitHostPath does not perform host validation.
+func SplitHostPath(url string) (host, path string) {
+	hostEnd := strings.IndexByte(url, '/')
+	// no host
+	if hostEnd == 0 {
+		return "", url
+	}
+
+	// no path
+	if hostEnd < 0 {
+		host, _ = netutil.SplitHostPort(url)
+		return host, "/"
+	}
+
+	host, _ = netutil.SplitHostPort(url[:hostEnd])
+	path = url[hostEnd:]
+	return
 }

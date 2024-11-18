@@ -19,7 +19,7 @@ type Route struct {
 	hbase                 HandlerFunc
 	hself                 HandlerFunc
 	hall                  HandlerFunc
-	path                  string
+	pattern               string
 	mws                   []middleware
 	annots                []Annotation
 	redirectTrailingSlash bool
@@ -38,9 +38,9 @@ func (r *Route) HandleMiddleware(c Context, _ ...struct{}) {
 	r.hself(c)
 }
 
-// Path returns the route path.
-func (r *Route) Path() string {
-	return r.path
+// Pattern returns the registered route pattern.
+func (r *Route) Pattern() string {
+	return r.pattern
 }
 
 // Annotations returns a range iterator over annotations associated with the route.

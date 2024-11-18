@@ -7,13 +7,13 @@ package fox
 import (
 	"context"
 	"fmt"
+	"github.com/tigerwill90/fox/internal/netutil"
 	"io"
 	"iter"
 	"net"
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 )
 
 // ContextCloser extends [Context] for manually created instances, adding a Close method
@@ -50,11 +50,9 @@ type Context interface {
 	// worthy of panicking.
 	//
 	// The returned [net.IPAddr] may contain a zone identifier.
-	//
-	// This api is EXPERIMENTAL and is likely to change in future release.
 	ClientIP() (*net.IPAddr, error)
-	// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
-	Path() string
+	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+	Pattern() string
 	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
 	Route() *Route
 	// Params returns a range iterator over the matched wildcard parameters for the current route.
@@ -169,7 +167,7 @@ func (c *cTx) SetWriter(w ResponseWriter) {
 func (c *cTx) RemoteIP() *net.IPAddr {
 	ipStr, _, _ := net.SplitHostPort(c.req.RemoteAddr)
 
-	ip, zone := splitHostZone(ipStr)
+	ip, zone := netutil.SplitHostZone(ipStr)
 	ipAddr := &net.IPAddr{
 		IP:   net.ParseIP(ip),
 		Zone: zone,
@@ -249,12 +247,12 @@ func (c *cTx) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
-// Path returns the registered path or an empty string if the handler is called in a scope other than [RouteHandler].
-func (c *cTx) Path() string {
+// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+func (c *cTx) Pattern() string {
 	if c.route == nil {
 		return ""
 	}
-	return c.route.path
+	return c.route.pattern
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
@@ -350,9 +348,9 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.tsr = c.tsr
 
 	if !c.tsr {
-		copyParams(c.params, cp.params)
+		copyWithResize(cp.params, c.params)
 	} else {
-		copyParams(c.tsrParams, cp.tsrParams)
+		copyWithResize(cp.tsrParams, c.tsrParams)
 	}
 
 	return cp
@@ -413,17 +411,4 @@ func WrapH(h http.Handler) HandlerFunc {
 
 		h.ServeHTTP(c.Writer(), c.Request())
 	}
-}
-
-func splitHostZone(s string) (host, zone string) {
-	// This is copied from an unexported function in the Go stdlib:
-	// https://github.com/golang/go/blob/5c9b6e8e63e012513b1cb1a4a08ff23dec4137a1/src/net/ipsock.go#L219-L228
-
-	// The IPv6 scoped addressing zone identifier starts after the last percent sign.
-	if i := strings.LastIndexByte(s, '%'); i > 0 {
-		host, zone = s[:i], s[i+1:]
-	} else {
-		host = s
-	}
-	return
 }

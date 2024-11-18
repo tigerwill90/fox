@@ -45,7 +45,7 @@ func (it *rawIterator) hasNext() bool {
 		it.current = elem
 
 		if it.current.isLeaf() {
-			it.path = elem.route.Path()
+			it.path = elem.route.Pattern()
 			return true
 		}
 	}
@@ -75,15 +75,15 @@ func (it Iter) Methods() iter.Seq[string] {
 	}
 }
 
-// Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided path
-// for the given HTTP methods.
+// Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided route
+// pattern for the given HTTP methods.
 //
-// This method performs a lookup for each method and the exact route associated with the provided `path`. It yields
-// a tuple containing the HTTP method and the corresponding route if the route is registered for that method and path.
+// This method performs a lookup for each method and the exact route associated with the provided pattern. It yields
+// a tuple containing the HTTP method and the corresponding route if the route is registered for that method and pattern.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and is likely to change in future release.
-func (it Iter) Routes(methods iter.Seq[string], path string) iter.Seq2[string, *Route] {
+func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		nds := *it.t.nodes.Load()
 		c := it.t.ctx.Get().(*cTx)
@@ -95,8 +95,9 @@ func (it Iter) Routes(methods iter.Seq[string], path string) iter.Seq2[string, *
 				continue
 			}
 
-			n, tsr := it.t.lookup(nds[index].children[0].Load(), path, c, true)
-			if n != nil && !tsr && n.route.path == path {
+			host, path := SplitHostPath(pattern)
+			n, tsr := it.t.lookup(nds[index], host, path, c, true)
+			if n != nil && !tsr && n.route.pattern == path {
 				if !yield(method, n.route) {
 					return
 				}
@@ -105,18 +106,18 @@ func (it Iter) Routes(methods iter.Seq[string], path string) iter.Seq2[string, *
 	}
 }
 
-// Reverse returns a range iterator over all routes registered in the routing tree that match the given path
+// Reverse returns a range iterator over all routes registered in the routing tree that match the given host and path
 // for the provided HTTP methods. It performs a reverse lookup for each method and path combination,
 // yielding a tuple containing the HTTP method and the corresponding route.
-// Unlike Routes, which matches an exact route path, Reverse is used to match a path (e.g., a path from an incoming
-// request) to registered routes in the tree.
+// Unlike Routes, which matches an exact route, Reverse is used to match an url (e.g., a path from an incoming
+// request) to a registered routes in the tree.
 //
 // When WithIgnoreTrailingSlash or WithRedirectTrailingSlash is enabled, Reverse will match routes regardless
 // of whether a trailing slash is present.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
 // This API is EXPERIMENTAL and may change in future releases.
-func (it Iter) Reverse(methods iter.Seq[string], path string) iter.Seq2[string, *Route] {
+func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		nds := *it.t.nodes.Load()
 		c := it.t.ctx.Get().(*cTx)
@@ -128,7 +129,7 @@ func (it Iter) Reverse(methods iter.Seq[string], path string) iter.Seq2[string, 
 				continue
 			}
 
-			n, tsr := it.t.lookup(nds[index].children[0].Load(), path, c, true)
+			n, tsr := it.t.lookup(nds[index], host, path, c, true)
 			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if !yield(method, n.route) {
 					return
@@ -203,7 +204,7 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 // This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		for method, route := range it.Prefix(it.Methods(), "/") {
+		for method, route := range it.Prefix(it.Methods(), "") {
 			if !yield(method, route) {
 				return
 			}

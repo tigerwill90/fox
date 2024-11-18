@@ -17,6 +17,11 @@ type node struct {
 	// Once assigned, route is immutable.
 	route *Route
 
+	// Precomputed inode for infix wildcard lookup, so we don't have to create it during the lookup phase.
+	// Inode is this node, but with the key split after the first infix wildcard (e.g. /foo/*{bar}/baz => /baz).
+	// Once assigned, inode is immutable.
+	inode *node
+
 	// key represent a segment of a route which share a common prefix with it parent.
 	// Once assigned, key is immutable.
 	key string
@@ -35,7 +40,7 @@ type node struct {
 
 	// The index of a paramChild if any, -1 if none (per rules, only one paramChildren is allowed).
 	// Once assigned, paramChildIndex is immutable.
-	paramChildIndex int // TODO uint32
+	paramChildIndex int
 	// The index of a wildcardChild if any, -1 if none (per rules, only one wildcardChild is allowed).
 	// Once assigned, wildcardChildIndex is immutable.
 	wildcardChildIndex int
@@ -63,14 +68,25 @@ func newNode(key string, route *Route, children []*node) *node {
 }
 
 func newNodeFromRef(key string, route *Route, children []atomic.Pointer[node], childKeys []byte, paramChildIndex, wildcardChildIndex int) *node {
+
+	var next *node
+	params := parseWildcard(key)
+	for _, p := range params {
+		if p.catchAll && p.end >= 0 {
+			next = newNodeFromRef(key[p.end:], route, children, childKeys, paramChildIndex, wildcardChildIndex)
+			break
+		}
+	}
+
 	return &node{
 		key:                key,
 		childKeys:          childKeys,
 		children:           children,
 		route:              route,
+		inode:              next,
 		paramChildIndex:    paramChildIndex,
 		wildcardChildIndex: wildcardChildIndex,
-		params:             parseWildcard(key),
+		params:             params,
 	}
 }
 
@@ -174,10 +190,14 @@ func assertNotNil(n *node) {
 }
 
 func (n *node) String() string {
-	return n.string(0)
+	return n.string(0, false)
 }
 
-func (n *node) string(space int) string {
+func (n *node) Debug() string {
+	return n.string(0, true)
+}
+
+func (n *node) string(space int, inode bool) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
 	sb.WriteString("path: ")
@@ -197,7 +217,7 @@ func (n *node) string(space int) string {
 
 	if n.isLeaf() {
 		sb.WriteString(" [leaf=")
-		sb.WriteString(n.route.path)
+		sb.WriteString(n.route.pattern)
 		sb.WriteString("]")
 	}
 	if n.hasWildcard() {
@@ -215,10 +235,34 @@ func (n *node) string(space int) string {
 	}
 
 	sb.WriteByte('\n')
+
+	if inode {
+		next := n.inode
+		addSpace := space + 8
+		for next != nil {
+			sb.WriteString(strings.Repeat(" ", addSpace))
+			sb.WriteString(" inode: ")
+			sb.WriteString(next.key)
+			if len(next.children) > 0 {
+				sb.WriteString(" [child=")
+				sb.WriteString(strconv.Itoa(len(next.children)))
+				sb.WriteByte(']')
+			}
+			sb.WriteByte('\n')
+			//children := next.getEdgesShallowCopy()
+			//for _, child := range children {
+			//	sb.WriteString("  ")
+			//	sb.WriteString(child.string(addSpace+4, false))
+			//}
+			addSpace += 8
+			next = next.inode
+		}
+	}
+
 	children := n.getEdgesShallowCopy()
 	for _, child := range children {
 		sb.WriteString("  ")
-		sb.WriteString(child.string(space + 4))
+		sb.WriteString(child.string(space+4, inode))
 	}
 	return sb.String()
 }
@@ -240,10 +284,8 @@ type skippedNode struct {
 
 // param represents a parsed parameter and its end position in the path.
 type param struct {
-	key string
-	// -1 if end with {a}, else pos of the next char. Note that since infix wildcard are always followed
-	// by a static segment, pos should be always > 0
-	end      int
+	key      string
+	end      int // -1 if end with {a}, else pos of the next char.
 	catchAll bool
 }
 
