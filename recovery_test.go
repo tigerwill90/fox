@@ -20,14 +20,14 @@ func TestAbortHandler(t *testing.T) {
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
 
-	r := New(WithMiddleware(m))
+	f := New(WithMiddleware(m))
 
 	h := func(c Context) {
 		func() { panic(http.ErrAbortHandler) }()
 		_ = c.String(200, "foo")
 	}
 
-	require.NoError(t, onlyError(r.Tree().Handle(http.MethodPost, "/{foo}", h)))
+	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/{foo}", h)))
 	req := httptest.NewRequest(http.MethodPost, "/foo", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
 	w := httptest.NewRecorder()
@@ -39,7 +39,7 @@ func TestAbortHandler(t *testing.T) {
 		require.NotNil(t, err)
 		assert.ErrorIs(t, err, http.ErrAbortHandler)
 	}()
-	r.ServeHTTP(w, req)
+	f.ServeHTTP(w, req)
 }
 
 func TestRecoveryMiddleware(t *testing.T) {
@@ -55,7 +55,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
 
-	r := New(WithMiddleware(m))
+	f := New(WithMiddleware(m))
 
 	const errMsg = "unexpected error"
 	h := func(c Context) {
@@ -63,11 +63,11 @@ func TestRecoveryMiddleware(t *testing.T) {
 		_ = c.String(200, "foo")
 	}
 
-	require.NoError(t, onlyError(r.Tree().Handle(http.MethodPost, "/", h)))
+	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/", h)))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	f.ServeHTTP(w, req)
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, errMsg, w.Body.String())
 	assert.Equal(t, woBuf.Len(), 0)

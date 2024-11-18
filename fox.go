@@ -218,6 +218,30 @@ func (fox *Router) Delete(method, pattern string) error {
 	return fox.tree.Delete(method, pattern)
 }
 
+// Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for
+// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Route] as an alternative.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) Has(method, pattern string) bool {
+	return fox.tree.Has(method, pattern)
+}
+
+// Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
+// match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
+// mutation on route are ongoing. See also [Router.Has] as an alternative.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) Route(method, pattern string) *Route {
+	return fox.tree.Route(method, pattern)
+}
+
+// Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]
+// (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
+// mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
+// This API is EXPERIMENTAL and is likely to change in future release.
+func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
+	return fox.tree.Reverse(method, host, path)
+}
+
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
 // [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
@@ -289,11 +313,6 @@ func (fox *Router) BatchWriter() BatchWriter {
 	return BatchWriter{
 		tree: fox.tree,
 	}
-}
-
-// Tree returns the routing tree.
-func (fox *Router) Tree() *Tree {
-	return fox.tree
 }
 
 // newTree returns a fresh routing Tree that inherits all registered router options.

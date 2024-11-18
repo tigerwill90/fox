@@ -61,7 +61,7 @@ func TestContext_QueryParams(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTestContextTree(New().Tree())
+	c := newTestContext(New())
 	c.req = req
 	values := c.QueryParams()
 	assert.Equal(t, wantValues, values)
@@ -77,7 +77,7 @@ func TestContext_QueryParam(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTestContextTree(New().Tree())
+	c := newTestContext(New())
 	c.req = req
 	assert.Equal(t, "b", c.QueryParam("a"))
 	assert.Equal(t, "d", c.QueryParam("c"))
@@ -134,7 +134,7 @@ func TestContext_Annotations(t *testing.T) {
 		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
 		WithAnnotations(Annotation{Key: "john", Value: 1}),
 	)
-	rte := f.Tree().Route(http.MethodGet, "/foo")
+	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.Equal(t, []Annotation{{Key: "foo", Value: "bar"}, {Key: "foo", Value: "baz"}, {Key: "john", Value: 1}}, slices.Collect(rte.Annotations()))
 }
