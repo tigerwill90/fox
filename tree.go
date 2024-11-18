@@ -46,12 +46,10 @@ func (t *Tree) Handle(method, pattern string, handler HandlerFunc, opts ...Route
 		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
-	n, err := parseRoute(pattern)
+	rte, n, err := t.newRoute(pattern, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
-
-	rte := t.newRoute(pattern, handler, opts...)
 
 	if err = t.insert(method, rte, n); err != nil {
 		return nil, err
@@ -75,12 +73,11 @@ func (t *Tree) Update(method, pattern string, handler HandlerFunc, opts ...Route
 		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	_, err := parseRoute(pattern)
+	rte, _, err := t.newRoute(pattern, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	rte := t.newRoute(pattern, handler, opts...)
 	if err = t.update(method, rte); err != nil {
 		return nil, err
 	}
@@ -99,7 +96,7 @@ func (t *Tree) Delete(method, pattern string) error {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	_, err := parseRoute(pattern)
+	_, _, err := parseRoute(pattern)
 	if err != nil {
 		return err
 	}
@@ -195,7 +192,7 @@ func (t *Tree) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Conte
 	return nil, nil, tsr
 }
 
-// Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
+// Iter returns a collection of iterators for traversing the routing tree.
 // This function is safe for concurrent use by multiple goroutine and while mutation on [Tree] are ongoing.
 // This API is EXPERIMENTAL and may change in future releases.
 func (t *Tree) Iter() Iter {
@@ -331,9 +328,8 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		// For hostname route, we always insert the path in a dedicated sub-child.
 		// This allows to perform lookup optimization for route with hostname name.
 		var child *node
-		idx := strings.IndexByte(path, '/')
-		if idx > 0 && result.charsMatched < idx {
-			host, p := keySuffix[:idx-result.charsMatched], keySuffix[idx-result.charsMatched:]
+		if route.hostSplit > 0 && result.charsMatched < route.hostSplit {
+			host, p := keySuffix[:route.hostSplit-result.charsMatched], keySuffix[route.hostSplit-result.charsMatched:]
 			pathChild := newNode(p, route, nil)
 			child = newNode(host, nil, []*node{pathChild})
 			addDepth++
@@ -386,10 +382,9 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		// 4. Update the "te" (parent) node to the new "s" node (we are swapping old "st" to new "s" node, first
 		//    char remain the same).
 
-		idx := strings.IndexByte(path, '/')
 		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
 		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-		isHostname := result.charsMatched <= idx
+		isHostname := result.charsMatched <= route.hostSplit
 		// Rule: a node with {param} or *{wildcard} has no child or has a separator before the end of the key
 		if !isHostname {
 			for i := len(cPrefix) - 1; i >= 0; i-- {
@@ -421,8 +416,8 @@ func (t *Tree) insert(method string, route *Route, paramsN uint32) error {
 		// For domain route, we always insert the path in a dedicated sub-child.
 		// This allows to perform lookup optimization for domain name.
 		var n1 *node
-		if idx > 0 && result.charsMatched < idx {
-			host, p := keySuffix[:idx-result.charsMatched], keySuffix[idx-result.charsMatched:]
+		if route.hostSplit > 0 && result.charsMatched < route.hostSplit {
+			host, p := keySuffix[:route.hostSplit-result.charsMatched], keySuffix[route.hostSplit-result.charsMatched:]
 			pathChild := newNodeFromRef(p, route, nil, nil, -1, -1)
 			n1 = newNode(host, nil, []*node{pathChild})
 			addDepth++
@@ -678,6 +673,53 @@ func (t *Tree) remove(method, path string) bool {
 
 	result.pp.updateEdge(parent)
 	return true
+}
+
+// truncate truncates the tree for the provided methods.
+// This function should be guarded by mutex.
+func (t *Tree) truncate(methods []string) {
+	if !t.race.CompareAndSwap(0, 1) {
+		panic(ErrConcurrentAccess)
+	}
+	defer t.race.Store(0)
+
+	nds := *t.root.Load()
+	if len(methods) == 0 {
+		// Pre instantiate nodes for common http verb
+		newNds := make([]*node, len(commonVerbs))
+		for i := range commonVerbs {
+			newNds[i] = new(node)
+			newNds[i].key = commonVerbs[i]
+			newNds[i].paramChildIndex = -1
+			newNds[i].wildcardChildIndex = -1
+		}
+		t.root.Store(&newNds)
+		return
+	}
+
+	oldlen := len(nds)
+	newNds := make([]*node, len(nds))
+	copy(newNds, nds)
+
+	for _, method := range methods {
+		idx := findRootNode(method, newNds)
+		if idx < 0 {
+			continue
+		}
+		if !isRemovable(method) {
+			newNds[idx] = new(node)
+			newNds[idx].key = commonVerbs[idx]
+			newNds[idx].paramChildIndex = -1
+			newNds[idx].wildcardChildIndex = -1
+			continue
+		}
+
+		newNds = append(newNds[:idx], newNds[idx+1:]...)
+	}
+
+	clear(newNds[len(newNds):oldlen]) // zero/nil out the obsolete elements, for GC
+
+	t.root.Store(&newNds)
 }
 
 const (
@@ -1023,7 +1065,7 @@ Walk:
 
 						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
 						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
-						// there is no tsr opportunity, and skipped nodes > 0, we will truncateRoot the params anyway.
+						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
 						if !lazy {
 							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
 						}
@@ -1334,36 +1376,6 @@ func (t *Tree) removeRoot(method string) bool {
 	return true
 }
 
-// truncateRoot truncate the tree for the provided methods.
-// Note: This function should be guarded by mutex.
-func (t *Tree) truncateRoot(methods []string) {
-	nds := *t.root.Load()
-	oldlen := len(nds)
-	newNds := make([]*node, len(nds))
-	copy(newNds, nds)
-
-	for _, method := range methods {
-		idx := findRootNode(method, newNds)
-		if idx < 0 {
-			continue
-		}
-		if !isRemovable(method) {
-			newNds[idx] = new(node)
-			newNds[idx].key = commonVerbs[idx]
-			newNds[idx].paramChildIndex = -1
-			newNds[idx].wildcardChildIndex = -1
-			continue
-		}
-
-		newNds = append(newNds[:idx], newNds[idx+1:]...)
-	}
-
-	clear(newNds[len(newNds):oldlen]) // zero/nil out the obsolete elements, for GC
-
-	// Update the tree's nodes with the new slice.
-	t.root.Store(&newNds)
-}
-
 // updateToRoot propagate update to the root by cloning any visited node that have not been cloned previously.
 // This effectively allow to create a fully isolated snapshot of the tree.
 // Note: This function should be guarded by mutex.
@@ -1466,7 +1478,12 @@ func (t *Tree) updateMaxDepth(max uint32) {
 }
 
 // newRoute create a new route, apply route options and apply middleware on the handler.
-func (t *Tree) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
+func (t *Tree) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, uint32, error) {
+	n, endHost, err := parseRoute(pattern)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	rte := &Route{
 		ipStrategy:            t.fox.ipStrategy,
 		hbase:                 handler,
@@ -1474,6 +1491,7 @@ func (t *Tree) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption
 		mws:                   t.fox.mws,
 		redirectTrailingSlash: t.fox.redirectTrailingSlash,
 		ignoreTrailingSlash:   t.fox.ignoreTrailingSlash,
+		hostSplit:             endHost, // 0 if no host
 	}
 
 	for _, opt := range opts {
@@ -1481,7 +1499,7 @@ func (t *Tree) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption
 	}
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
-	return rte
+	return rte, n, nil
 }
 
 func copyWithResize[S ~[]T, T any](dst, src *S) {

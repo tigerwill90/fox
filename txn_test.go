@@ -1,83 +1,125 @@
 package fox
 
 import (
-	"fmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
-	"slices"
 	"testing"
 )
 
-func TestXyz(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "a.b.c/a", emptyHandler)
-	/*	f.MustHandle(http.MethodGet, "/a", emptyHandler)
-		f.MustHandle(http.MethodGet, "/a/b", emptyHandler)
-		f.MustHandle(http.MethodGet, "/a/b/c", emptyHandler)
-		f.MustHandle(http.MethodGet, "/a/b/c/d", emptyHandler)
-		f.MustHandle(http.MethodGet, "/a/b/c/d/e", emptyHandler)
-		f.MustHandle(http.MethodGet, "/a/b/c/d/e/f", emptyHandler)*/
+func TestTxn_Truncate(t *testing.T) {
+	cases := []struct {
+		name   string
+		routes []struct {
+			method string
+			path   string
+		}
+	}{
+		{
+			name: "common verb node should have a root and no children",
+			routes: []struct {
+				method string
+				path   string
+			}{
+				{method: http.MethodGet, path: "/foo/bar"},
+				{method: http.MethodGet, path: "/foo"},
+				{method: http.MethodPost, path: "/foo/bar"},
+				{method: http.MethodPost, path: "/foo"},
+				{method: http.MethodPut, path: "/foo/bar"},
+				{method: http.MethodPut, path: "/foo"},
+				{method: http.MethodDelete, path: "/foo/bar"},
+				{method: http.MethodDelete, path: "/foo"},
+			},
+		},
+		{
+			name: "not common verb should be removed entirely",
+			routes: []struct {
+				method string
+				path   string
+			}{
+				{method: http.MethodTrace, path: "/foo/bar"},
+				{method: http.MethodTrace, path: "/foo"},
+				{method: http.MethodPost, path: "/foo/bar"},
+				{method: http.MethodPost, path: "/foo"},
+				{method: http.MethodPut, path: "/foo/bar"},
+				{method: http.MethodPut, path: "/foo"},
+				{method: http.MethodOptions, path: "/foo/bar"},
+				{method: http.MethodOptions, path: "/foo"},
+			},
+		},
+		{
+			name: "custom verb should be removed entirely",
+			routes: []struct {
+				method string
+				path   string
+			}{
+				{method: http.MethodGet, path: "/foo/bar"},
+				{method: http.MethodGet, path: "/foo"},
+				{method: http.MethodPost, path: "/foo/bar"},
+				{method: http.MethodPost, path: "/foo"},
+				{method: http.MethodPut, path: "/foo/bar"},
+				{method: http.MethodPut, path: "/foo"},
+				{method: "BOULOU", path: "/foo/bar"},
+				{method: "BOULOU", path: "/foo"},
+				{method: http.MethodDelete, path: "/foo/bar"},
+				{method: http.MethodDelete, path: "/foo"},
+				{method: "ANY", path: "/foo/bar"},
+				{method: "ANY", path: "/foo"},
+			},
+		},
+	}
 
-	tree := f.Tree()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := New()
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+			}
+			txn := f.Txn()
+			defer txn.Abort()
+
+			methods := make([]string, 0)
+			for _, rte := range tc.routes {
+				methods = append(methods, rte.method)
+			}
+
+			txn.Truncate(methods...)
+			txn.Commit()
+
+			nds := *f.tree.root.Load()
+
+			for _, method := range methods {
+				idx := findRootNode(method, nds)
+				if isRemovable(method) {
+					assert.Equal(t, idx, -1)
+				} else {
+					assert.Len(t, nds[idx].children, 0)
+				}
+			}
+			assert.Len(t, nds, len(commonVerbs))
+		})
+	}
+}
+
+func TestTxn_TruncateAll(t *testing.T) {
+	f := New()
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodDelete, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodPut, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodConnect, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodTrace, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle("BOULOU", "/foo/bar", emptyHandler)))
 
 	txn := f.Txn()
-	defer txn.Rollback()
+	defer txn.Abort()
 
-	require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/a/b", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/a/b/c", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/a/b/c/d", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/a/b/c/d/e", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/a/b/c/d/e/f", emptyHandler)))
-	require.NoError(t, txn.Delete(http.MethodGet, "a.b.c/a"))
-	fmt.Println(txn.Has(http.MethodGet, "/a/b/c/d"))
-
-	fmt.Println("current", (*tree.root.Load())[0])
-
-	fmt.Println("isolated", (*txn.snap.root.Load())[0])
+	txn.Truncate()
 	txn.Commit()
 
-	fmt.Println("committed", (*tree.root.Load())[0])
-
-}
-
-func TestZ(t *testing.T) {
-	f := New()
-	f.MustHandle(http.MethodGet, "a.b.c/a", emptyHandler)
-	tree := f.Tree()
-	txn := f.Txn()
-	defer txn.Rollback()
-
-	require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/a/b", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodPost, "/a/b/c", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodConnect, "/a/b/c/d", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodOptions, "/a/b/c/d/e", emptyHandler)))
-	require.NoError(t, onlyError(txn.Handle(http.MethodTrace, "/a/b/c/d/e/f", emptyHandler)))
-	txn.Truncate(slices.Collect(txn.Iter().Methods())...)
-	for _, n := range *txn.snap.root.Load() {
-		fmt.Println("isolated", n)
-	}
-
-	fmt.Println("current", (*tree.root.Load())[0])
-
-}
-
-func BenchmarkTx(b *testing.B) {
-	f := New()
-
-	for _, route := range staticRoutes {
-		f.MustHandle(route.method, route.path, emptyHandler)
-	}
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for range b.N {
-		txn := f.Txn()
-		txn.Delete(http.MethodGet, "/go1compat.html")
-		txn.Delete(http.MethodGet, "/articles/wiki/part1-noerror.go")
-		txn.Delete(http.MethodGet, "/gopher/gophercolor16x16.png")
-		txn.Handle(http.MethodGet, "/go1compat.html", emptyHandler)
-		txn.Handle(http.MethodGet, "/articles/wiki/part1-noerror.go", emptyHandler)
-		txn.Handle(http.MethodGet, "/gopher/gophercolor16x16.png", emptyHandler)
-		txn.Commit()
+	nds := *f.tree.root.Load()
+	assert.Len(t, nds, len(commonVerbs))
+	for _, n := range nds {
+		assert.Len(t, n.children, 0)
 	}
 }

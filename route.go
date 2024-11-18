@@ -22,6 +22,7 @@ type Route struct {
 	pattern               string
 	mws                   []middleware
 	annots                []Annotation
+	hostSplit             int // 0 if no host
 	redirectTrailingSlash bool
 	ignoreTrailingSlash   bool
 }
@@ -41,6 +42,16 @@ func (r *Route) HandleMiddleware(c Context, _ ...struct{}) {
 // Pattern returns the registered route pattern.
 func (r *Route) Pattern() string {
 	return r.pattern
+}
+
+// Hostname returns the hostname part of the registered pattern if any.
+func (r *Route) Hostname() string {
+	return r.pattern[:r.hostSplit]
+}
+
+// Path returns the path part of the registered pattern.
+func (r *Route) Path() string {
+	return r.pattern[r.hostSplit:]
 }
 
 // Annotations returns a range iterator over annotations associated with the route.
