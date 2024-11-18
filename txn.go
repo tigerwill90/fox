@@ -9,7 +9,8 @@ const defaultModifiedCache = 4096
 
 // Txn is a read-write transaction for managing routes in a [Router]. It's safe to run multiple transaction
 // concurrently and while the router is serving request, however Txn itself is not tread-safe.
-// Each Txn must be finalized with [Txn.Commit] or [Txn.Abort].
+// Each Txn must be finalized with [Txn.Commit] or [Txn.Abort]. For non-transactional batch updates, see
+// [Router.BatchWriter] or [Router.Batch].
 type Txn struct {
 	snap *Tree
 	main *Tree
@@ -85,20 +86,20 @@ func (txn *Txn) Iter() Iter {
 // Commit finalize this transaction. This is a noop for transactions already aborted or commited.
 func (txn *Txn) Commit() {
 	txn.once.Do(func() {
-		// clear the snapshot
-		txn.snap = nil
 		txn.main.maxParams.Store(txn.snap.maxParams.Load())
 		txn.main.maxDepth.Store(txn.snap.maxDepth.Load())
 		txn.main.root.Store(txn.snap.root.Load())
+		txn.snap = nil
 		txn.main.race.Store(0)
-		txn.main.Unlock()
+		txn.main.fox.mu.Unlock()
 	})
 }
 
 // Abort cancel this transaction. This is a noop for transaction already aborted or commited.
 func (txn *Txn) Abort() {
 	txn.once.Do(func() {
+		txn.snap = nil
 		txn.main.race.Store(0)
-		txn.main.Unlock()
+		txn.main.fox.mu.Unlock()
 	})
 }

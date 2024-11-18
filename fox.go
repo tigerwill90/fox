@@ -95,6 +95,7 @@ type Router struct {
 	tree                   *Tree
 	ipStrategy             ClientIPStrategy
 	mws                    []middleware
+	mu                     sync.Mutex
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
@@ -175,8 +176,8 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 // It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.Update].
 func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	fox.tree.Lock()
-	defer fox.tree.Unlock()
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 	return fox.tree.Handle(method, pattern, handler, opts...)
 }
 
@@ -200,8 +201,8 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To add new handler, use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	fox.tree.Lock()
-	defer fox.tree.Unlock()
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 	return fox.tree.Update(method, pattern, handler, opts...)
 }
 
@@ -212,8 +213,8 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
 func (fox *Router) Delete(method, pattern string) error {
-	fox.tree.Lock()
-	defer fox.tree.Unlock()
+	fox.mu.Lock()
+	defer fox.mu.Unlock()
 	return fox.tree.Delete(method, pattern)
 }
 
@@ -249,6 +250,18 @@ func (fox *Router) Updates(fn func(txn *Txn) error) error {
 	return nil
 }
 
+func (fox *Router) Batch(fn func(w BatchWriter) error) error {
+	w := fox.BatchWriter()
+	defer func() {
+		if p := recover(); p != nil {
+			w.Release()
+			panic(p)
+		}
+		w.Release()
+	}()
+	return fn(w)
+}
+
 // Iter returns a collection of iterators for traversing the routing tree.
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 // This API is EXPERIMENTAL and may change in future releases.
@@ -260,7 +273,7 @@ func (fox *Router) Iter() Iter {
 // It's safe to create and execute a transaction while the tree is in use for serving requests.
 // This function is safe for concurrent use by multiple goroutine. For managed transaction, use [Router.Updates].
 func (fox *Router) Txn() *Txn {
-	fox.tree.Lock()
+	fox.mu.Lock()
 	if !fox.tree.race.CompareAndSwap(0, 1) {
 		panic(ErrConcurrentAccess)
 	}
@@ -268,6 +281,13 @@ func (fox *Router) Txn() *Txn {
 	return &Txn{
 		snap: root,
 		main: fox.tree,
+	}
+}
+
+func (fox *Router) BatchWriter() BatchWriter {
+	fox.mu.Lock()
+	return BatchWriter{
+		tree: fox.tree,
 	}
 }
 

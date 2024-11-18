@@ -5533,30 +5533,33 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	f := New()
 
-	tree := f.Tree()
-	for _, rte := range githubAPI {
-		require.NoError(t, onlyError(tree.Handle(rte.method, rte.path, emptyHandler)))
-	}
+	require.NoError(t, f.Batch(func(w BatchWriter) error {
+		for _, rte := range githubAPI {
+			if err := onlyError(w.Handle(rte.method, rte.path, emptyHandler)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
 
 	wg.Add(1000 * 2)
 	for range 1000 {
 		go func() {
 			wait()
 			defer wg.Done()
-			local := f.Tree()
-			local.Lock()
-			defer local.Unlock()
+			w := f.BatchWriter()
+			defer w.Release()
 			for _, rte := range githubAPI {
-				require.NoError(t, onlyError(tree.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, emptyHandler)))
+				require.NoError(t, onlyError(w.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, emptyHandler)))
 			}
 			for _, rte := range githubAPI {
-				require.NoError(t, onlyError(tree.Handle(rte.method, "foo.bar.baz"+rte.path, emptyHandler)))
+				require.NoError(t, onlyError(w.Handle(rte.method, "foo.bar.baz"+rte.path, emptyHandler)))
 			}
 			for _, rte := range githubAPI {
-				require.NoError(t, tree.Delete(rte.method, "foo.bar.baz"+rte.path))
+				require.NoError(t, w.Delete(rte.method, "foo.bar.baz"+rte.path))
 			}
 			for _, rte := range githubAPI {
-				require.NoError(t, tree.Delete(rte.method, "{sub}.bar.{tld}"+rte.path))
+				require.NoError(t, w.Delete(rte.method, "{sub}.bar.{tld}"+rte.path))
 			}
 		}()
 
@@ -5579,8 +5582,9 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	start()
 	wg.Wait()
 
-	nds := *tree.root.Load()
+	nds := *f.tree.root.Load()
 	require.Len(t, nds[0].children, 1)
+	// TODO node children == '/'
 }
 
 func TestDataRace(t *testing.T) {
@@ -5590,7 +5594,7 @@ func TestDataRace(t *testing.T) {
 	h := HandlerFunc(func(c Context) {})
 	newH := HandlerFunc(func(c Context) {})
 
-	r := New()
+	f := New()
 
 	w := new(mockResponseWriter)
 
@@ -5599,34 +5603,31 @@ func TestDataRace(t *testing.T) {
 		go func(method, route string) {
 			wait()
 			defer wg.Done()
-			tree := r.Tree()
-			tree.Lock()
-			defer tree.Unlock()
-			if tree.Has(method, route) {
-				assert.NoError(t, onlyError(tree.Update(method, route, h)))
+			b := f.BatchWriter()
+			defer b.Release()
+			if b.Has(method, route) {
+				assert.NoError(t, onlyError(b.Update(method, route, h)))
 				return
 			}
-			assert.NoError(t, onlyError(tree.Handle(method, route, h)))
-			// assert.NoError(t, r.Handle("PING", route, h))
+			assert.NoError(t, onlyError(b.Handle(method, route, h)))
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
 			wait()
 			defer wg.Done()
-			tree := r.Tree()
-			tree.Lock()
-			defer tree.Unlock()
-			if tree.Has(method, route) {
-				assert.NoError(t, tree.Delete(method, route))
+			b := f.BatchWriter()
+			defer b.Release()
+			if b.Has(method, route) {
+				assert.NoError(t, b.Delete(method, route))
 				return
 			}
-			assert.NoError(t, onlyError(tree.Handle(method, route, newH)))
+			assert.NoError(t, onlyError(b.Handle(method, route, newH)))
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
 			wait()
 			req := httptest.NewRequest(method, route, nil)
-			r.ServeHTTP(w, req)
+			f.ServeHTTP(w, req)
 			wg.Done()
 		}(rte.method, rte.path)
 	}
@@ -5641,7 +5642,7 @@ func TestTree_RaceDetector(t *testing.T) {
 	start, wait := atomicSync()
 	var raceCount atomic.Uint32
 
-	tree := New().Tree()
+	f := New()
 
 	wg.Add(len(staticRoutes) * 3)
 	for _, rte := range staticRoutes {
@@ -5654,7 +5655,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			_ = tree.insert(rte.method, &Route{pattern: rte.path, hself: emptyHandler}, 0)
+			_ = f.tree.insert(rte.method, &Route{pattern: rte.path, hself: emptyHandler}, 0)
 		}()
 
 		go func() {
@@ -5666,7 +5667,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			_ = tree.update(rte.method, &Route{pattern: rte.path, hself: emptyHandler})
+			_ = f.tree.update(rte.method, &Route{pattern: rte.path, hself: emptyHandler})
 		}()
 
 		go func() {
@@ -5678,7 +5679,7 @@ func TestTree_RaceDetector(t *testing.T) {
 				}
 				wg.Done()
 			}()
-			tree.remove(rte.method, rte.path)
+			f.tree.remove(rte.method, rte.path)
 		}()
 	}
 

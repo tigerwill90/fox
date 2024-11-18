@@ -290,7 +290,7 @@ func BenchmarkIter_Route(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for range it.Reverse(it.Methods(), "", "/user/subscriptions/{owner}/{repo}") {
+		for range it.Routes(it.Methods(), "/user/subscriptions/{owner}/{repo}") {
 
 		}
 	}
@@ -326,6 +326,22 @@ func ExampleIter_Methods() {
 	it := f.Iter()
 	for method := range it.Methods() {
 		fmt.Println(method)
+	}
+}
+
+func ExampleIter_Reverse() {
+	f := New()
+	it := f.Iter()
+	for method, route := range it.Reverse(slices.Values([]string{"GET", "POST"}), "exemple.com", "/foo") {
+		fmt.Println(method, route.Pattern())
+	}
+}
+
+func ExampleIter_Routes() {
+	f := New()
+	it := f.Iter()
+	for method, route := range it.Routes(slices.Values([]string{"GET", "POST"}), "/hello/{name}") {
+		fmt.Println(method, route.Pattern())
 	}
 }
 

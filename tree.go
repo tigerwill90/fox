@@ -18,11 +18,10 @@ import (
 // Tree implements a Concurrent Radix Tree that supports lock-free reads while allowing concurrent writes.
 // The caller is responsible for ensuring that all writes are run serially.
 type Tree struct {
-	ctx      sync.Pool // immutable once assigned
-	root     atomic.Pointer[[]*node]
-	fox      *Router                    // immutable once assigned
-	writable *simplelru.LRU[*node, any] // must only be accessible by writer thread.
-	sync.Mutex
+	ctx       sync.Pool // immutable once assigned
+	root      atomic.Pointer[[]*node]
+	fox       *Router                    // immutable once assigned
+	writable  *simplelru.LRU[*node, any] // must only be accessible by writer thread.
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
 	race      atomic.Uint32
