@@ -18,15 +18,15 @@ import (
 // Tree implements a Concurrent Radix Tree that supports lock-free reads while allowing concurrent writes.
 // The caller is responsible for ensuring that all writes are run serially.
 type Tree struct {
-	ctx      sync.Pool
+	ctx      sync.Pool // immutable once assigned
 	root     atomic.Pointer[[]*node]
-	fox      *Router
-	writable *simplelru.LRU[*node, any]
+	fox      *Router                    // immutable once assigned
+	writable *simplelru.LRU[*node, any] // must only be accessible by writer thread.
 	sync.Mutex
 	maxParams atomic.Uint32
 	maxDepth  atomic.Uint32
 	race      atomic.Uint32
-	txn       bool
+	txn       bool // immutable once assigned
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -1315,10 +1315,12 @@ func (t *Tree) allocateContext() *cTx {
 	}
 }
 
-// t should be held locked from snapshot to the end of the transaction.
+// snapshot create a point in time snapshot of Tree. Each write on the new Tree are fully isolated. However, a lock must
+// be held locked until the snapshot is commited or aborted.
 func (t *Tree) snapshot() *Tree {
 	tree := new(Tree)
-	tree.fox = t.fox
+	tree.fox = t.fox // immutable once assigned
+	tree.txn = true  // immutable once assigned
 	tree.root.Store(t.root.Load())
 	tree.ctx = sync.Pool{
 		New: func() any {

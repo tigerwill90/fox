@@ -256,7 +256,7 @@ func (fox *Router) Iter() Iter {
 	return fox.tree.Iter()
 }
 
-// Txn create a new read-write transaction.
+// Txn create a new read-write transaction. Each Txn must be finalized with [Txn.Commit] or [Txn.Abort].
 // It's safe to create and execute a transaction while the tree is in use for serving requests.
 // This function is safe for concurrent use by multiple goroutine. For managed transaction, use [Router.Updates].
 func (fox *Router) Txn() *Txn {
@@ -265,7 +265,6 @@ func (fox *Router) Txn() *Txn {
 		panic(ErrConcurrentAccess)
 	}
 	root := fox.tree.snapshot()
-	root.txn = true
 	return &Txn{
 		snap: root,
 		main: fox.tree,
