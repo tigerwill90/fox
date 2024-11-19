@@ -133,14 +133,39 @@ func TestX(t *testing.T) {
 		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab", emptyHandler)))
 		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd", emptyHandler)))
 		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef", emptyHandler)))
-		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef/gh", emptyHandler)))
-		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef/gh/ij", emptyHandler)))
-		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/c", emptyHandler)))
-		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/bba", emptyHandler)))
-		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/cbb", emptyHandler)))
-		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/", emptyHandler)))
+		for method, route := range txn.Iter().All() {
+			fmt.Println(method, route.Pattern())
+			txn.Handle(http.MethodGet, "/ab/cd/ef/gh", emptyHandler)
+			txn.Handle(http.MethodGet, "/ax", emptyHandler)
+		}
+		/*		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef/gh", emptyHandler)))
+				require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef/gh/ij", emptyHandler)))
+				require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/c", emptyHandler)))
+				require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/bba", emptyHandler)))
+				require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/cbb", emptyHandler)))
+				require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/", emptyHandler)))*/
 		return nil
 	})
 	tree := f.getRoot()
 	fmt.Println(tree.root[0])
+}
+
+func TestB(t *testing.T) {
+	f := New()
+
+	iter := f.Iter()
+
+	f.Updates(func(txn *Txn) error {
+		txn.Handle(http.MethodGet, "/foo", emptyHandler)
+		return nil
+	})
+
+	for method, route := range iter.All() {
+		fmt.Println(method, route.Pattern())
+	}
+
+	iter = f.Iter()
+	for method, route := range iter.All() {
+		fmt.Println(method, route.Pattern())
+	}
 }

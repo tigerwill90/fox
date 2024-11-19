@@ -309,6 +309,9 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 	return nil, nil, tsr
 }
 
+// Iter returns a collection of range iterators for traversing registered routes. It creates a point-in-time snapshot
+// of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent write on the router.
+// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (fox *Router) Iter() Iter {
 	rt := fox.getRoot()
 	return Iter{
@@ -319,11 +322,10 @@ func (fox *Router) Iter() Iter {
 }
 
 // Updates executes a function within the context of a read-write managed transaction. If no error is returned from the
-// function then the transaction is committed. If an error is returned then the entire transaction is rolled back.
-// Updates returns any error returned by the callback. It's safe to run a transaction while the tree is in use for
-// serving requests. This function is safe for concurrent use by multiple goroutine, however [Txn] itself is not tread-safe.
-// For unmanaged transaction, use [Router.Txn] method.
-// This API is EXPERIMENTAL and may change in future releases.
+// function then the transaction is committed. If an error is returned then the entire transaction is aborted.
+// Updates returns any error returned by fn. This function is safe for concurrent use by multiple goroutine and while
+// the router is serving request. However [Txn] itself is NOT tread-safe.
+// See also [Router.Txn] for unmanaged transaction and [Router.View] for managed read-only transaction.
 func (fox *Router) Updates(fn func(txn *Txn) error) error {
 	txn := fox.Txn(true)
 	defer func() {
@@ -340,6 +342,10 @@ func (fox *Router) Updates(fn func(txn *Txn) error) error {
 	return nil
 }
 
+// View executes a function within the context of a read-only managed transaction. View returns any error returned
+// by fn. This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
+// However [Txn] itself is NOT tread-safe.
+// See also [Router.Txn] for unmanaged transaction and [Router.Updates] for managed read-write transaction.
 func (fox *Router) View(fn func(txn *Txn) error) error {
 	txn := fox.Txn(false)
 	defer func() {
@@ -352,9 +358,10 @@ func (fox *Router) View(fn func(txn *Txn) error) error {
 	return fn(txn)
 }
 
-// Txn create a new read-write transaction. Each Txn must be finalized with [Txn.Commit] or [Txn.Abort].
-// It's safe to create and execute a transaction while the tree is in use for serving requests.
-// This function is safe for concurrent use by multiple goroutine. For managed transaction, use [Router.Updates].
+// Txn create a new read-write transaction. Each [Txn] must be finalized with [Txn.Commit] or [Txn.Abort].
+// It's safe to create transaction from multiple goroutine and while the router is serving request.
+// However, the returned [Txn] itself is NOT tread-safe.
+// See also [Router.Updates] and [Router.View] for managed read-write and 	read-only transaction.
 func (fox *Router) Txn(write bool) *Txn {
 	if write {
 		fox.mu.Lock()

@@ -65,6 +65,9 @@ func (t *txn) commit() *iTree {
 	return nt
 }
 
+// clone capture a point-in-time clone of the transaction. The cloned transaction will contain
+// any uncommited writes in the original transaction but further mutations to either will be independent and result
+// in different tree on commit.
 func (t *txn) clone() *txn {
 	// reset the writable node cache to avoid leaking future writes into the clone
 	t.writable = nil
@@ -75,6 +78,13 @@ func (t *txn) clone() *txn {
 		maxDepth:  t.maxDepth,
 	}
 	return tx
+}
+
+// snapshot capture a point-in-time snapshot of the root tree. Further mutation to txn
+// will not be reflected on the snapshot.
+func (t *txn) snapshot() root {
+	t.writable = nil
+	return t.root
 }
 
 // insert is not safe for concurrent use
@@ -565,67 +575,64 @@ func (t *txn) truncate(methods []string) {
 func (t *txn) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
 	last := n
 	if p != nil {
-		pc := p
-		if _, ok := t.writable.Get(pc); !ok {
-			pc = pc.clone()
-			t.writable.Add(pc, nil)
+		if _, ok := t.writable.Get(p); !ok {
+			p = p.clone()
+			t.writable.Add(p, nil)
 			// pc is root and has never been writen
 			if pp == nil {
-				pc.updateEdge(n)
-				t.updateRoot(pc)
+				p.updateEdge(n)
+				t.updateRoot(p)
 				return
 			}
 		}
 
 		// If it's a clone, it's not a root
-		pc.updateEdge(n)
+		p.updateEdge(n)
 		if pp == nil {
 			return
 		}
-		last = pc
+		last = p
 	}
 
 	if pp != nil {
-		ppc := pp
-		if _, ok := t.writable.Get(ppc); !ok {
-			ppc = ppc.clone()
-			t.writable.Add(ppc, nil)
+		if _, ok := t.writable.Get(pp); !ok {
+			pp = pp.clone()
+			t.writable.Add(pp, nil)
 			// ppc is root and has never been writen
 			if ppp == nil {
-				ppc.updateEdge(last)
-				t.updateRoot(ppc)
+				pp.updateEdge(last)
+				t.updateRoot(pp)
 				return
 			}
 		}
 
 		// If it's a clone, it's not a root
-		ppc.updateEdge(last)
+		pp.updateEdge(last)
 		if ppp == nil {
 			return
 		}
-		last = ppc
+		last = pp
 	}
 
-	pppc := ppp
-	if _, ok := t.writable.Get(pppc); !ok {
-		pppc = pppc.clone()
-		t.writable.Add(pppc, nil)
+	if _, ok := t.writable.Get(ppp); !ok {
+		ppp = ppp.clone()
+		t.writable.Add(ppp, nil)
 		// pppc is root and has never been writen
 		if len(visited) == 0 {
-			pppc.updateEdge(last)
-			t.updateRoot(pppc)
+			ppp.updateEdge(last)
+			t.updateRoot(ppp)
 			return
 		}
 	}
 
 	// If it's a clone, it's not a root
-	pppc.updateEdge(last)
+	ppp.updateEdge(last)
 	if len(visited) == 0 {
 		return
 	}
 
 	// Propagate update to the root node
-	current := pppc
+	current := ppp
 	for i := len(visited) - 1; i >= 0; i-- {
 		vNode := visited[i]
 

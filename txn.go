@@ -130,7 +130,7 @@ func (txn *Txn) Route(method, pattern string) *Route {
 	return nil
 }
 
-// Reverse perform a reverse lookup on the tree for the given method, host and path and return the matching registered [Route]
+// Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Lookup] as an alternative.
@@ -172,16 +172,26 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 	return nil, nil, tsr
 }
 
-// Iter returns a collection of iterators for traversing the routing tree.
+// Iter returns a collection of range iterators for traversing registered routes. When called on a write transaction,
+// Iter creates a point-in-time snapshot of the transaction state. Therefore, writing on the current transaction while
+// iterating is allowed, but the mutation will not be observed in the result returned by iterators collection.
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 func (txn *Txn) Iter() Iter {
+	rt := txn.rootTxn.root
+	if txn.write {
+		rt = txn.rootTxn.snapshot()
+	}
+
 	return Iter{
 		tree:     txn.rootTxn.tree,
-		root:     txn.rootTxn.root,
+		root:     rt,
 		maxDepth: txn.rootTxn.maxDepth,
 	}
 }
 
+// Commit finalize the transaction. This is a noop for read transactions, already aborted or
+// committed transactions. This function is NOT thread-safe and should be run serially,
+// along with all other [Txn] APIs.
 func (txn *Txn) Commit() {
 	// Noop for a read transaction
 	if !txn.write {
@@ -201,6 +211,9 @@ func (txn *Txn) Commit() {
 	txn.fox.mu.Unlock()
 }
 
+// Abort cancel the transaction. This is a noop for read transactions, already aborted or
+// committed transactions. This function is NOT thread-safe and should be run serially,
+// along with all other [Txn] APIs.
 func (txn *Txn) Abort() {
 	// Noop for a read transaction
 	if !txn.write {
