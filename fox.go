@@ -421,6 +421,7 @@ func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	return rte, n, nil
 }
 
+// getRoot load the tree atomically.
 func (fox *Router) getRoot() *iTree {
 	r := fox.tree.Load()
 	return r
