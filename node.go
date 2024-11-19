@@ -370,12 +370,6 @@ Walk:
 					continue
 				}
 
-				// path: GET
-				//      path: /foo/*{any}/ [any (11)]
-				//          path: b
-				//              path: /c/bbb/ [leaf=/foo/*{any}/b/c/bbb/]
-				//              path: bb [leaf=/foo/*{any}/bbb]
-				//          path: c/bbb/ [leaf=/foo/*{any}/c/bbb/]
 				if current.key[i] == starDelim {
 					//                | current.params[paramKeyCnt].end (10)
 					// key: foo/*{bar}/                                      => 10 - 5 = 5 => i+=idx set i to '/'
@@ -653,6 +647,7 @@ type node struct {
 	wildcardChildIndex int
 }
 
+// newNode create a new node. Note that is sort in place children, so it should NEVER be a slice from reference.
 func newNode(key string, route *Route, children []*node) *node {
 	slices.SortFunc(children, func(a, b *node) int {
 		return cmp.Compare(a.key, b.key)
@@ -733,9 +728,11 @@ func (n *node) updateEdge(node *node) {
 	n.children[id] = node
 }
 
+// clone returns a copy of the nodes.
 func (n *node) clone() *node {
 	children := make([]*node, len(n.children))
 	copy(children, n.children)
+	// We need to recalculate inode.
 	return newNodeFromRef(n.key, n.route, children, n.childKeys, n.paramChildIndex, n.wildcardChildIndex)
 }
 

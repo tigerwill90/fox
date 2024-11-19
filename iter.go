@@ -39,8 +39,7 @@ func (it *rawIterator) hasNext() bool {
 		}
 
 		if len(elem.children) > 0 {
-			// TODO probably elem.children is now OKAY for read only
-			it.stack = append(it.stack, stack{edges: elem.getEdges()})
+			it.stack = append(it.stack, stack{edges: elem.children})
 		}
 
 		it.current = elem
@@ -173,7 +172,7 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 				}
 
 				if len(elem.children) > 0 {
-					stacks = append(stacks, stack{edges: elem.getEdges()})
+					stacks = append(stacks, stack{edges: elem.children})
 				}
 
 				if elem.isLeaf() {

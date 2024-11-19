@@ -77,6 +77,7 @@ func (t *txn) clone() *txn {
 	return tx
 }
 
+// insert is not safe for concurrent use
 func (t *txn) insert(method string, route *Route, paramsN uint32) error {
 	if t.writable == nil {
 		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
@@ -303,6 +304,7 @@ func (t *txn) insert(method string, route *Route, paramsN uint32) error {
 	return nil
 }
 
+// update is not safe for concurrent use
 func (t *txn) update(method string, route *Route) error {
 	if t.writable == nil {
 		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
@@ -561,69 +563,69 @@ func (t *txn) truncate(methods []string) {
 // This effectively allow to create a fully isolated snapshot of the tree.
 // Note: This function should be guarded by mutex.
 func (t *txn) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
-	nn := n
+	last := n
 	if p != nil {
-		np := p
-		if _, ok := t.writable.Get(np); !ok {
-			np = np.clone()
-			t.writable.Add(np, nil)
-			// np is root and has never been writen
+		pc := p
+		if _, ok := t.writable.Get(pc); !ok {
+			pc = pc.clone()
+			t.writable.Add(pc, nil)
+			// pc is root and has never been writen
 			if pp == nil {
-				np.updateEdge(n)
-				t.updateRoot(np)
+				pc.updateEdge(n)
+				t.updateRoot(pc)
 				return
 			}
 		}
 
 		// If it's a clone, it's not a root
-		np.updateEdge(n)
+		pc.updateEdge(n)
 		if pp == nil {
 			return
 		}
-		nn = np
+		last = pc
 	}
 
 	if pp != nil {
-		npp := pp
-		if _, ok := t.writable.Get(npp); !ok {
-			npp = npp.clone()
-			t.writable.Add(npp, nil)
-			// npp is root and has never been writen
+		ppc := pp
+		if _, ok := t.writable.Get(ppc); !ok {
+			ppc = ppc.clone()
+			t.writable.Add(ppc, nil)
+			// ppc is root and has never been writen
 			if ppp == nil {
-				npp.updateEdge(nn)
-				t.updateRoot(npp)
+				ppc.updateEdge(last)
+				t.updateRoot(ppc)
 				return
 			}
 		}
 
 		// If it's a clone, it's not a root
-		npp.updateEdge(nn)
+		ppc.updateEdge(last)
 		if ppp == nil {
 			return
 		}
-		nn = npp
+		last = ppc
 	}
 
-	nppp := ppp
-	if _, ok := t.writable.Get(nppp); !ok {
-		nppp = nppp.clone()
-		t.writable.Add(nppp, nil)
-		// nppp is root and has never been writen
+	pppc := ppp
+	if _, ok := t.writable.Get(pppc); !ok {
+		pppc = pppc.clone()
+		t.writable.Add(pppc, nil)
+		// pppc is root and has never been writen
 		if len(visited) == 0 {
-			nppp.updateEdge(nn)
-			t.updateRoot(nppp)
+			pppc.updateEdge(last)
+			t.updateRoot(pppc)
 			return
 		}
 	}
 
 	// If it's a clone, it's not a root
-	nppp.updateEdge(nn)
+	pppc.updateEdge(last)
 	if len(visited) == 0 {
 		return
 	}
 
 	// Propagate update to the root node
-	current := nppp
+	current := pppc
 	for i := len(visited) - 1; i >= 0; i-- {
 		vNode := visited[i]
 
@@ -666,6 +668,7 @@ func commonPrefix(k1, k2 string) string {
 	return k1[:minLength]
 }
 
+// recreateParentEdge returns a copy of parent children, minus the matched node.
 func recreateParentEdge(parent, matched *node) []*node {
 	parentEdges := make([]*node, len(parent.children)-1)
 	added := 0

@@ -129,16 +129,18 @@ func TestTxn_TruncateAll(t *testing.T) {
 func TestX(t *testing.T) {
 	f := New()
 
-	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
-
+	f.Updates(func(txn *Txn) error {
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef/gh", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd/ef/gh/ij", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/c", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/bba", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/cbb", emptyHandler)))
+		require.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ax/", emptyHandler)))
+		return nil
 	})
 	tree := f.getRoot()
-	fmt.Println(tree.root[0])
-
-	f.MustHandle(http.MethodGet, "/foo/baz", func(c Context) {
-
-	})
-
-	tree = f.getRoot()
 	fmt.Println(tree.root[0])
 }

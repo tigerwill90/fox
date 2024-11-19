@@ -494,6 +494,19 @@ func BenchmarkStaticAll(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+func BenchmarkInsertStatic(b *testing.B) {
+	f := New()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for _, route := range staticRoutes {
+			f.Handle(route.method, route.path, emptyHandler)
+		}
+	}
+}
+
 func BenchmarkInsertStaticTx(b *testing.B) {
 	f := New()
 
@@ -5559,19 +5572,20 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	f := New()
 
+	h := func(c Context) {}
+
 	require.NoError(t, f.Updates(func(txn *Txn) error {
 		for _, rte := range githubAPI {
-			if err := onlyError(txn.Handle(rte.method, rte.path, func(c Context) {
-				fmt.Println(c.Pattern())
-			})); err != nil {
+			if err := onlyError(txn.Handle(rte.method, rte.path, h)); err != nil {
 				return err
 			}
 		}
 		return nil
 	}))
 
-	wg.Add(1000 * 2)
+	wg.Add(1000 * 3)
 	for range 1000 {
+
 		go func() {
 			wait()
 			defer wg.Done()
@@ -5586,13 +5600,18 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 				}
 
 				for _, rte := range githubAPI {
-					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, emptyHandler)); err != nil {
+					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h)); err != nil {
 						return err
 					}
 				}
 				return nil
 			}))
 
+		}()
+
+		go func() {
+			wait()
+			defer wg.Done()
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				if txn.Has(githubAPI[0].method, "foo.bar.baz"+githubAPI[0].path) {
 					for _, rte := range githubAPI {
@@ -5604,7 +5623,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 				}
 
 				for _, rte := range githubAPI {
-					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, emptyHandler)); err != nil {
+					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h)); err != nil {
 						return err
 					}
 				}
@@ -5631,8 +5650,12 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	start()
 	wg.Wait()
 
-	/*	tree := f.getRoot()
-		require.Len(t, tree.root[0].children, 1)*/
+	// With a pair number of iteration, we should always delete all domains
+	tree := f.getRoot()
+	for _, n := range tree.root {
+		assert.Len(t, n.children, 1)
+	}
+
 }
 
 func TestDataRace(t *testing.T) {
