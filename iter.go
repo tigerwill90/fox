@@ -55,15 +55,17 @@ func (it *rawIterator) hasNext() bool {
 	return false
 }
 
+// Iter provide a set of range iterators for traversing registered methods and routes. Iter capture a point-in-time
+// snapshot of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent write on the
+// router or on the transaction from which the Iter is created.
 type Iter struct {
 	tree     *iTree
 	root     root
 	maxDepth uint32
 }
 
-// Methods returns a range iterator over all HTTP methods registered in the routing tree.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
+// Methods returns a range iterator over all HTTP methods registered in the routing tree at the time [Iter] is created.
+// been created. This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for i := range it.root {
@@ -77,13 +79,8 @@ func (it Iter) Methods() iter.Seq[string] {
 }
 
 // Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided route
-// pattern for the given HTTP methods.
-//
-// This method performs a lookup for each method and the exact route associated with the provided pattern. It yields
-// a tuple containing the HTTP method and the corresponding route if the route is registered for that method and pattern.
-//
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and is likely to change in future release.
+// pattern for the given HTTP methods. The iterator reflect a snapshot of the routing tree at the time [Iter] is created.
+// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		c := it.tree.ctx.Get().(*cTx)
@@ -102,16 +99,14 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 }
 
 // Reverse returns a range iterator over all routes registered in the routing tree that match the given host and path
-// for the provided HTTP methods. It performs a reverse lookup for each method and path combination,
-// yielding a tuple containing the HTTP method and the corresponding route.
-// Unlike Routes, which matches an exact route, Reverse is used to match an url (e.g., a path from an incoming
-// request) to a registered routes in the tree.
+// for the provided HTTP methods. Unlike Routes, which matches an exact route, Reverse is used to match an url
+// (e.g., a path from an incoming request) to a registered routes in the tree. The iterator reflect a snapshot of the
+// routing tree at the time [Iter] is created.
 //
-// When WithIgnoreTrailingSlash or WithRedirectTrailingSlash is enabled, Reverse will match routes regardless
+// If WithIgnoreTrailingSlash or WithRedirectTrailingSlash option is enabled on a route, Reverse will match it regardless
 // of whether a trailing slash is present.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		c := it.tree.ctx.Get().(*cTx)
@@ -128,14 +123,9 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 	}
 }
 
-// Prefix returns a range iterator over all routes in the routing tree that match a given prefix and HTTP methods.
-//
-// This iterator traverses the routing tree for each method provided, starting from nodes that match the given prefix.
-// For each method, it yields a tuple containing the HTTP method and the corresponding route found under that prefix.
-// If no routes match the prefix, the method will not yield any results.
-//
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and may change in future releases.
+// Prefix returns a range iterator over all routes in the routing tree that match a given prefix and HTTP methods at
+// the time [Iter] is created. This function is safe for concurrent use by multiple goroutine and while mutation
+// on Tree are ongoing.
 func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		var stacks []stack
@@ -185,10 +175,9 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 	}
 }
 
-// All returns a range iterator over all routes registered in the routing tree for all HTTP methods.
-// The result is an iterator that yields a tuple containing the HTTP method and the corresponding route.
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
-// This API is EXPERIMENTAL and may change in future releases.
+// All returns a range iterator over all routes registered in the routing tree for all HTTP methods at
+// the time [Iter] is created. This function is safe for concurrent use by multiple goroutine and while
+// mutation on Tree are ongoing.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		for method, route := range it.Prefix(it.Methods(), "") {

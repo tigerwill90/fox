@@ -309,9 +309,10 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 	return nil, nil, tsr
 }
 
-// Iter returns a collection of range iterators for traversing registered routes. It creates a point-in-time snapshot
-// of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent write on the router.
-// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
+// Iter returns a collection of range iterators for traversing registered methods and routes. It creates a
+// point-in-time snapshot of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent
+// write on the router. This function is safe for concurrent use by multiple goroutine and while mutation on
+// routes are ongoing.
 func (fox *Router) Iter() Iter {
 	rt := fox.getRoot()
 	return Iter{
@@ -582,27 +583,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tree.ctx.Put(c)
 }
 
-func findRootNode(method string, nodes []*node) int {
-	// Nodes for common http method are pre instantiated.
-	switch method {
-	case http.MethodGet:
-		return 0
-	case http.MethodPost:
-		return 1
-	case http.MethodPut:
-		return 2
-	case http.MethodDelete:
-		return 3
-	}
-
-	for i, nd := range nodes[verb:] {
-		if nd.key == method {
-			return i + verb
-		}
-	}
-	return -1
-}
-
 const (
 	stateDefault uint8 = iota
 	stateParam
@@ -791,24 +771,6 @@ func parseRoute(url string) (uint32, int, error) {
 	}
 
 	return paramCnt, endHost, nil
-}
-
-func getRouteConflict(n *node) []string {
-	routes := make([]string, 0)
-	it := newRawIterator(n)
-	for it.hasNext() {
-		routes = append(routes, it.current.route.pattern)
-	}
-	return routes
-}
-
-func isRemovable(method string) bool {
-	for _, verb := range commonVerbs {
-		if verb == method {
-			return false
-		}
-	}
-	return true
 }
 
 func applyMiddleware(scope HandlerScope, mws []middleware, h HandlerFunc) HandlerFunc {

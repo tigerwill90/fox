@@ -689,6 +689,24 @@ func recreateParentEdge(parent, matched *node) []*node {
 	return parentEdges
 }
 
+func getRouteConflict(n *node) []string {
+	routes := make([]string, 0)
+	it := newRawIterator(n)
+	for it.hasNext() {
+		routes = append(routes, it.current.route.pattern)
+	}
+	return routes
+}
+
+func isRemovable(method string) bool {
+	for _, verb := range commonVerbs {
+		if verb == method {
+			return false
+		}
+	}
+	return true
+}
+
 func (t *iTree) allocateContext() *cTx {
 	params := make(Params, 0, t.maxParams)
 	tsrParams := make(Params, 0, t.maxParams)
