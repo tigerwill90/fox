@@ -380,6 +380,8 @@ Walk:
 						inode = current.inode
 						charsMatchedInNodeFound += idx
 					} else if len(current.children) > 0 {
+						// key end with *{foo}, so we are sure to have only one children staring by '/'
+						// e.g. /*{foo} and /*{foo}/bar
 						inode = current.children[0]
 						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
 					} else {
