@@ -95,14 +95,14 @@ type Context interface {
 
 // cTx holds request-related information and allows interaction with the [ResponseWriter].
 type cTx struct {
-	w         ResponseWriter
-	req       *http.Request
-	params    *Params
-	tsrParams *Params
-	skipNds   *skippedNodes
-	route     *Route
-	// router at allocation (read-only, no reset)
-	fox         *Router
+	w           ResponseWriter
+	req         *http.Request
+	params      *Params
+	tsrParams   *Params
+	skipNds     *skippedNodes
+	route       *Route
+	tree        *iTree  // no reset
+	fox         *Router // no reset
 	cachedQuery url.Values
 	rec         recorder
 	scope       HandlerScope
@@ -342,7 +342,7 @@ func (c *cTx) Clone() Context {
 // be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
 // their custom [ResponseWriter] while preserving the state of the original [Context].
 func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
-	cp := c.fox.tree.ctx.Get().(*cTx)
+	cp := c.tree.ctx.Get().(*cTx)
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
@@ -359,6 +359,17 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	return cp
 }
 
+func copyWithResize[S ~[]T, T any](dst, src *S) {
+	if len(*src) > len(*dst) {
+		// Grow dst cap to a least len(src)
+		*dst = slices.Grow(*dst, len(*src)-len(*dst))
+	}
+	// cap(dst) >= len(src)
+	// now constraint into len(src) & cap(dst)
+	*dst = (*dst)[:len(*src):cap(*dst)]
+	copy(*dst, *src)
+}
+
 // Scope returns the HandlerScope associated with the current Context.
 // This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
 func (c *cTx) Scope() HandlerScope {
@@ -367,12 +378,7 @@ func (c *cTx) Scope() HandlerScope {
 
 // Close releases the context to be reused later.
 func (c *cTx) Close() {
-	// Put back the context, if not extended more than max params or max depth, allowing
-	// the slice to naturally grow within the constraint.
-	if cap(*c.params) > int(c.fox.tree.maxParams.Load()) || cap(*c.skipNds) > int(c.fox.tree.maxDepth.Load()) {
-		return
-	}
-	c.fox.tree.ctx.Put(c)
+	c.tree.ctx.Put(c)
 }
 
 func (c *cTx) getQueries() url.Values {

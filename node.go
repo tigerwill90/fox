@@ -6,11 +6,618 @@ package fox
 
 import (
 	"cmp"
+	"github.com/tigerwill90/fox/internal/netutil"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 )
+
+type root []*node
+
+func (r root) methodIndex(method string) int {
+	// Nodes for common http method are pre instantiated.
+	switch method {
+	case http.MethodGet:
+		return 0
+	case http.MethodPost:
+		return 1
+	case http.MethodPut:
+		return 2
+	case http.MethodDelete:
+		return 3
+	}
+
+	for i, nd := range r[verb:] {
+		if nd.key == method {
+			return i + verb
+		}
+	}
+	return -1
+}
+
+func (r root) search(rootNode *node, path string, write bool, maxDepth uint32) searchResult {
+	current := rootNode
+
+	var (
+		visited                 []*node
+		ppp                     *node
+		pp                      *node
+		p                       *node
+		charsMatched            int
+		charsMatchedInNodeFound int
+		depth                   uint32
+	)
+
+	if write {
+		visited = make([]*node, 0, min(15, maxDepth))
+	}
+
+STOP:
+	for charsMatched < len(path) {
+		next := current.getEdge(path[charsMatched])
+		if next == nil {
+			break STOP
+		}
+
+		depth++
+		if write && ppp != nil {
+			visited = append(visited, ppp)
+		}
+		ppp = pp
+		pp = p
+		p = current
+		current = next
+		charsMatchedInNodeFound = 0
+		for i := 0; charsMatched < len(path); i++ {
+			if i >= len(current.key) {
+				break
+			}
+
+			if current.key[i] != path[charsMatched] {
+				break STOP
+			}
+
+			charsMatched++
+			charsMatchedInNodeFound++
+		}
+	}
+
+	return searchResult{
+		path:                    path,
+		matched:                 current,
+		charsMatched:            charsMatched,
+		charsMatchedInNodeFound: charsMatchedInNodeFound,
+		p:                       p,
+		pp:                      pp,
+		ppp:                     ppp,
+		visited:                 visited,
+		depth:                   depth,
+	}
+}
+
+// lookup  returns the node matching the host and/or path. If lazy is false, it parses and record into c, path segment according to
+// the route definition. In case of indirect match, tsr is true and n != nil.
+func (r root) lookup(t *iTree, method, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+	index := r.methodIndex(method)
+	if index < 0 || len(r[index].children) == 0 {
+		return nil, false
+	}
+
+	// The tree for this method only have path registered
+	if len(r[index].children) == 1 && r[index].childKeys[0] == '/' {
+		return lookupByPath(t, r[index].children[0], path, c, lazy)
+	}
+
+	host := netutil.StripHostPort(hostPort)
+	if host != "" {
+		// Try first by domain
+		n, tsr = lookupByDomain(t, r[index], host, path, c, lazy)
+		if n != nil {
+			return n, tsr
+		}
+	}
+
+	// Fallback by path
+	idx := linearSearch(r[index].childKeys, '/')
+	if idx < 0 {
+		return nil, false
+	}
+
+	// Reset any recorded params and tsrParams
+	*c.params = (*c.params)[:0]
+	c.tsr = false
+
+	return lookupByPath(t, r[index].children[idx], path, c, lazy)
+}
+
+// lookupByDomain is like lookupByPath, but for target with hostname.
+func lookupByDomain(tree *iTree, target *node, host, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+	var (
+		charsMatched            int
+		charsMatchedInNodeFound int
+		paramCnt                uint32
+		paramKeyCnt             uint32
+		current                 *node
+	)
+
+	*c.skipNds = (*c.skipNds)[:0]
+
+	idx := -1
+	for i := 0; i < len(target.childKeys); i++ {
+		if target.childKeys[i] == host[0] {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		if target.paramChildIndex >= 0 {
+			// We start with a param child, let's go deeper directly
+			idx = target.paramChildIndex
+			current = target.children[idx]
+		} else {
+			return
+		}
+	} else {
+		// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
+		if target.paramChildIndex >= 0 {
+			*c.skipNds = append(*c.skipNds, skippedNode{target, charsMatched, paramCnt, target.paramChildIndex})
+		}
+		current = target.children[idx]
+	}
+
+	subCtx := tree.ctx.Get().(*cTx)
+	defer tree.ctx.Put(subCtx)
+
+Walk:
+	for charsMatched < len(host) {
+		charsMatchedInNodeFound = 0
+		for i := 0; charsMatched < len(host); i++ {
+			if i >= len(current.key) {
+				break
+			}
+
+			if current.key[i] != host[charsMatched] || host[charsMatched] == bracketDelim {
+				if current.key[i] == bracketDelim {
+					startPath := charsMatched
+					idx = strings.IndexByte(host[charsMatched:], dotDelim)
+					if idx > 0 {
+						// There is another path segment (e.g. foo.{bar}.baz)
+						charsMatched += idx
+					} else if idx < 0 {
+						//
+						// This is the end of the path (e.g. foo.{bar})
+						charsMatched += len(host[charsMatched:])
+					} else {
+						// segment is empty
+						break Walk
+					}
+
+					idx = current.params[paramKeyCnt].end - charsMatchedInNodeFound
+					if idx >= 0 {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						i += idx - 1
+						charsMatchedInNodeFound += idx
+					} else {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						i += len(current.key[charsMatchedInNodeFound:]) - 1
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					}
+
+					if !lazy {
+						paramCnt++
+						*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: host[startPath:charsMatched]})
+					}
+					paramKeyCnt++
+					continue
+				}
+
+				break Walk
+			}
+			charsMatched++
+			charsMatchedInNodeFound++
+		}
+
+		if charsMatched < len(host) {
+			// linear search
+			idx = -1
+			for i := 0; i < len(current.childKeys); i++ {
+				if current.childKeys[i] == host[charsMatched] {
+					idx = i
+					break
+				}
+			}
+
+			// No next static segment found, but maybe some params
+			if idx < 0 {
+				// We have a param child
+				if current.paramChildIndex >= 0 {
+					// Go deeper
+					idx = current.paramChildIndex
+					current = current.children[idx]
+					paramKeyCnt = 0
+					continue
+				}
+
+				// We have nothing more to evaluate
+				break
+			}
+
+			// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
+			if current.paramChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.paramChildIndex})
+			}
+
+			current = current.children[idx]
+			paramKeyCnt = 0
+		}
+	}
+
+	paramCnt = 0
+	paramKeyCnt = 0
+	hasSkpNds := len(*c.skipNds) > 0
+
+	if charsMatchedInNodeFound == len(current.key) {
+		// linear search
+		idx = -1
+		for i := 0; i < len(current.childKeys); i++ {
+			if current.childKeys[i] == slashDelim {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			goto Backtrack
+		}
+
+		*subCtx.params = (*subCtx.params)[:0]
+		subNode, subTsr := lookupByPath(tree, current.children[idx], path, subCtx, lazy)
+		if subNode == nil {
+			goto Backtrack
+		}
+
+		// We have a tsr opportunity
+		if subTsr {
+			// Only if no previous tsr
+			if !tsr {
+				tsr = true
+				n = subNode
+				if !lazy {
+					*c.tsrParams = (*c.tsrParams)[:0]
+					*c.tsrParams = append(*c.tsrParams, *c.params...)
+					*c.tsrParams = append(*c.tsrParams, *subCtx.tsrParams...)
+				}
+			}
+
+			goto Backtrack
+		}
+
+		// Direct match
+		if !lazy {
+			*c.params = append(*c.params, *subCtx.params...)
+		}
+
+		return subNode, subTsr
+	}
+
+Backtrack:
+	if hasSkpNds {
+		skipped := c.skipNds.pop()
+
+		current = skipped.n.children[skipped.childIndex]
+
+		*c.params = (*c.params)[:skipped.paramCnt]
+		charsMatched = skipped.pathIndex
+		goto Walk
+	}
+
+	return n, tsr
+}
+
+// lookupByPath returns the node matching the path. If lazy is false, it parses and record into c, path segment according to
+// the route definition. In case of indirect match, tsr is true and n != nil.
+func lookupByPath(tree *iTree, target *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+	var (
+		charsMatched            int
+		charsMatchedInNodeFound int
+		paramCnt                uint32
+		paramKeyCnt             uint32
+		parent                  *node
+	)
+
+	current := target
+	*c.skipNds = (*c.skipNds)[:0]
+
+Walk:
+	for charsMatched < len(path) {
+		charsMatchedInNodeFound = 0
+		for i := 0; charsMatched < len(path); i++ {
+			if i >= len(current.key) {
+				break
+			}
+
+			if current.key[i] != path[charsMatched] || path[charsMatched] == bracketDelim || path[charsMatched] == starDelim {
+				if current.key[i] == bracketDelim {
+					startPath := charsMatched
+					idx := strings.IndexByte(path[charsMatched:], slashDelim)
+					if idx > 0 {
+						// There is another path segment (e.g. /foo/{bar}/baz)
+						charsMatched += idx
+					} else if idx < 0 {
+						// This is the end of the path (e.g. /foo/{bar})
+						charsMatched += len(path[charsMatched:])
+					} else {
+						// segment is empty
+						break Walk
+					}
+
+					idx = current.params[paramKeyCnt].end - charsMatchedInNodeFound
+					if idx >= 0 {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						i += idx - 1
+						charsMatchedInNodeFound += idx
+					} else {
+						// -1 since on the next incrementation, if any, 'i' are going to be incremented
+						i += len(current.key[charsMatchedInNodeFound:]) - 1
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					}
+
+					if !lazy {
+						paramCnt++
+						*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+					}
+					paramKeyCnt++
+					continue
+				}
+
+				// path: GET
+				//      path: /foo/*{any}/ [any (11)]
+				//          path: b
+				//              path: /c/bbb/ [leaf=/foo/*{any}/b/c/bbb/]
+				//              path: bb [leaf=/foo/*{any}/bbb]
+				//          path: c/bbb/ [leaf=/foo/*{any}/c/bbb/]
+				if current.key[i] == starDelim {
+					//                | current.params[paramKeyCnt].end (10)
+					// key: foo/*{bar}/                                      => 10 - 5 = 5 => i+=idx set i to '/'
+					//          | charsMatchedInNodeFound (5)
+					idx := current.params[paramKeyCnt].end - charsMatchedInNodeFound
+					var inode *node
+					if idx >= 0 {
+						inode = current.inode
+						charsMatchedInNodeFound += idx
+					} else if len(current.children) > 0 {
+						inode = current.children[0]
+						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
+					} else {
+						// We are in an ending catch all node with no child, so it's a direct match
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[charsMatched:]})
+						}
+						return current, false
+					}
+
+					subCtx := tree.ctx.Get().(*cTx)
+					startPath := charsMatched
+					for {
+						idx = strings.IndexByte(path[charsMatched:], slashDelim)
+						// idx >= 0, we have a next segment with at least one char
+						if idx > 0 {
+							*subCtx.params = (*subCtx.params)[:0]
+							charsMatched += idx
+							subNode, subTsr := lookupByPath(tree, inode, path[charsMatched:], subCtx, false)
+							if subNode == nil {
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							// We have a tsr opportunity
+							if subTsr {
+								// Only if no previous tsr
+								if !tsr {
+									tsr = true
+									n = subNode
+									if !lazy {
+										*c.tsrParams = (*c.tsrParams)[:0]
+										*c.tsrParams = append(*c.tsrParams, *c.params...)
+										*c.tsrParams = append(*c.tsrParams, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+										*c.tsrParams = append(*c.tsrParams, *subCtx.tsrParams...)
+									}
+								}
+
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							if !lazy {
+								*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:charsMatched]})
+								*c.params = append(*c.params, *subCtx.params...)
+							}
+
+							tree.ctx.Put(subCtx)
+							return subNode, subTsr
+						}
+
+						tree.ctx.Put(subCtx)
+
+						// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
+						// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
+						// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
+						if !lazy {
+							*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: path[startPath:]})
+						}
+
+						// We are also in an ending catch all, and this is the most specific path
+						if current.params[paramKeyCnt].end == -1 {
+							return current, false
+						}
+
+						charsMatched += len(path[charsMatched:])
+
+						break Walk
+					}
+				}
+
+				break Walk
+			}
+
+			charsMatched++
+			charsMatchedInNodeFound++
+		}
+
+		if charsMatched < len(path) {
+			// linear search
+			idx := -1
+			for i := 0; i < len(current.childKeys); i++ {
+				if current.childKeys[i] == path[charsMatched] {
+					idx = i
+					break
+				}
+			}
+
+			// No next static segment found, but maybe some params or wildcard child
+			if idx < 0 {
+				// We have at least a param child which is has higher priority that catch-all
+				if current.paramChildIndex >= 0 {
+					// We have also a wildcard child, save it for later evaluation
+					if current.wildcardChildIndex >= 0 {
+						*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
+					}
+
+					// Go deeper
+					idx = current.paramChildIndex
+					parent = current
+					current = current.children[idx]
+					paramKeyCnt = 0
+					continue
+				}
+				if current.wildcardChildIndex >= 0 {
+					// We have a wildcard child, go deeper
+					idx = current.wildcardChildIndex
+					parent = current
+					current = current.children[idx]
+					paramKeyCnt = 0
+					continue
+				}
+
+				// We have nothing more to evaluate
+				break
+			}
+
+			// Here we have a next static segment and possibly wildcard children, so we save them for later evaluation if needed.
+			if current.wildcardChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.wildcardChildIndex})
+			}
+			if current.paramChildIndex >= 0 {
+				*c.skipNds = append(*c.skipNds, skippedNode{current, charsMatched, paramCnt, current.paramChildIndex})
+			}
+
+			parent = current
+			current = current.children[idx]
+			paramKeyCnt = 0
+		}
+	}
+
+	paramCnt = 0
+	paramKeyCnt = 0
+	hasSkpNds := len(*c.skipNds) > 0
+
+	if !current.isLeaf() {
+
+		if !tsr {
+			// Tsr recommendation: remove the extra trailing slash (got an exact match)
+			// If match the completely /foo/, we end up in an intermediary node which is not a leaf.
+			// /foo [leaf=/foo]
+			//	  /
+			//		b/ [leaf=/foo/b/]
+			//		x/ [leaf=/foo/x/]
+			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
+			// the intermediary node (charsMatched == len(path)).
+			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() && charsMatched == len(path) {
+				tsr = true
+				n = parent
+				// Save also a copy of the matched params, it should not allocate anything in most case.
+				if !lazy {
+					copyWithResize(c.tsrParams, c.params)
+				}
+			}
+		}
+
+		goto Backtrack
+	}
+
+	// From here we are always in a leaf
+	if charsMatched == len(path) {
+		if charsMatchedInNodeFound == len(current.key) {
+			// Exact match, tsr is always false
+			return current, false
+		}
+		if charsMatchedInNodeFound < len(current.key) {
+			// Key end mid-edge
+			if !tsr {
+				if strings.HasSuffix(path, "/") {
+					// Tsr recommendation: remove the extra trailing slash (got an exact match)
+					remainingPrefix := current.key[:charsMatchedInNodeFound]
+					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
+						tsr = true
+						n = parent
+						// Save also a copy of the matched params, it should not allocate anything in most case.
+						if !lazy {
+							copyWithResize(c.tsrParams, c.params)
+						}
+					}
+				} else {
+					// Tsr recommendation: add an extra trailing slash (got an exact match)
+					remainingSuffix := current.key[charsMatchedInNodeFound:]
+					if len(remainingSuffix) == 1 && remainingSuffix[0] == slashDelim {
+						tsr = true
+						n = current
+						// Save also a copy of the matched params, it should not allocate anything in most case.
+						if !lazy {
+							copyWithResize(c.tsrParams, c.params)
+						}
+					}
+				}
+			}
+
+			goto Backtrack
+		}
+	}
+
+	// Incomplete match to end of edge
+	if charsMatched < len(path) && charsMatchedInNodeFound == len(current.key) {
+		// Tsr recommendation: remove the extra trailing slash (got an exact match)
+		if !tsr {
+			remainingKeySuffix := path[charsMatched:]
+			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
+				tsr = true
+				n = current
+				// Save also a copy of the matched params, it should not allocate anything in most case.
+				if !lazy {
+					copyWithResize(c.tsrParams, c.params)
+				}
+			}
+		}
+
+		goto Backtrack
+	}
+
+	// Finally incomplete match to middle of edge
+Backtrack:
+	if hasSkpNds {
+		skipped := c.skipNds.pop()
+
+		parent = skipped.n
+		current = skipped.n.children[skipped.childIndex]
+
+		*c.params = (*c.params)[:skipped.paramCnt]
+		charsMatched = skipped.pathIndex
+		goto Walk
+	}
+
+	return n, tsr
+}
 
 type node struct {
 	// The registered route matching the full path. Nil if the node is not a leaf.
@@ -32,9 +639,9 @@ type node struct {
 	childKeys []byte
 
 	// Child nodes representing outgoing edges from this node sorted in ascending order.
-	// Once assigned, this is mostly a read only slice with the exception than we can update atomically
+	// Once assigned, this is mostly a read only slice with the exception than we can update
 	// each pointer reference to a new child node starting with the same character.
-	children []atomic.Pointer[node]
+	children []*node
 
 	params []param
 
@@ -50,24 +657,21 @@ func newNode(key string, route *Route, children []*node) *node {
 	slices.SortFunc(children, func(a, b *node) int {
 		return cmp.Compare(a.key, b.key)
 	})
-	nds := make([]atomic.Pointer[node], len(children))
 	childKeys := make([]byte, len(children))
 	paramChildIndex := -1
 	wildcardChildIndex := -1
 	for i := range children {
-		assertNotNil(children[i])
 		childKeys[i] = children[i].key[0]
-		nds[i].Store(children[i])
 		if strings.HasPrefix(children[i].key, "{") {
 			paramChildIndex = i
 		} else if strings.HasPrefix(children[i].key, "*") {
 			wildcardChildIndex = i
 		}
 	}
-	return newNodeFromRef(key, route, nds, childKeys, paramChildIndex, wildcardChildIndex)
+	return newNodeFromRef(key, route, children, childKeys, paramChildIndex, wildcardChildIndex)
 }
 
-func newNodeFromRef(key string, route *Route, children []atomic.Pointer[node], childKeys []byte, paramChildIndex, wildcardChildIndex int) *node {
+func newNodeFromRef(key string, route *Route, children []*node, childKeys []byte, paramChildIndex, wildcardChildIndex int) *node {
 
 	var next *node
 	params := parseWildcard(key)
@@ -104,13 +708,13 @@ func (n *node) getEdge(s byte) *node {
 		if id < 0 {
 			return nil
 		}
-		return n.children[id].Load()
+		return n.children[id]
 	}
 	id := binarySearch(n.childKeys, s)
 	if id < 0 {
 		return nil
 	}
-	return n.children[id].Load()
+	return n.children[id]
 }
 
 func (n *node) updateEdge(node *node) {
@@ -119,91 +723,27 @@ func (n *node) updateEdge(node *node) {
 		if id < 0 {
 			panic("internal error: cannot update the edge with this node")
 		}
-		n.children[id].Store(node)
+		n.children[id] = node
 		return
 	}
 	id := binarySearch(n.childKeys, node.key[0])
 	if id < 0 {
 		panic("internal error: cannot update the edge with this node")
 	}
-	n.children[id].Store(node)
+	n.children[id] = node
 }
 
 func (n *node) clone() *node {
-	nc := &node{
-		route:              n.route,
-		inode:              n.inode,
-		key:                n.key,
-		childKeys:          n.childKeys,
-		children:           make([]atomic.Pointer[node], len(n.children)),
-		params:             n.params,
-		paramChildIndex:    n.paramChildIndex,
-		wildcardChildIndex: n.wildcardChildIndex,
-	}
-	for i := 0; i < len(n.children); i++ {
-		nc.children[i].Store(n.children[i].Load())
-	}
-	return nc
+	children := make([]*node, len(n.children))
+	copy(children, n.children)
+	return newNodeFromRef(n.key, n.route, children, n.childKeys, n.paramChildIndex, n.wildcardChildIndex)
 }
 
-// linearSearch return the index of s in keys or -1, using a simple loop.
-// Although binary search is a more efficient search algorithm,
-// the small size of the child keys array means that the
-// constant factor will dominate (cf Adaptive Radix Tree algorithm).
-func linearSearch(keys []byte, s byte) int {
-	for i := 0; i < len(keys); i++ {
-		if keys[i] == s {
-			return i
-		}
-	}
-	return -1
-}
-
-// binarySearch return the index of s in keys or -1.
-func binarySearch(keys []byte, s byte) int {
-	low, high := 0, len(keys)-1
-	for low <= high {
-		// nolint:gosec
-		mid := int(uint(low+high) >> 1) // avoid overflow
-		cmp := compare(keys[mid], s)
-		if cmp < 0 {
-			low = mid + 1
-		} else if cmp > 0 {
-			high = mid - 1
-		} else {
-			return mid
-		}
-	}
-	return -(low + 1)
-}
-
-func compare(a, b byte) int {
-	if a == b {
-		return 0
-	}
-	if a < b {
-		return -1
-	}
-	return +1
-}
-
-func (n *node) get(i int) *node {
-	return n.children[i].Load()
-}
-
-func (n *node) getEdgesShallowCopy() []*node {
-	nodes := make([]*node, len(n.children))
-	for i := range n.children {
-		nodes[i] = n.get(i)
-	}
-	return nodes
-}
-
-// assertNotNil is a safeguard against creating unsafe.Pointer(nil).
-func assertNotNil(n *node) {
-	if n == nil {
-		panic("internal error: a node cannot be nil")
-	}
+// getEdges returns a copy of children.
+func (n *node) getEdges() []*node {
+	children := make([]*node, len(n.children))
+	copy(children, n.children)
+	return children
 }
 
 func (n *node) String() string {
@@ -266,7 +806,7 @@ func (n *node) string(space int, inode bool) string {
 				sb.WriteByte(']')
 			}
 			sb.WriteByte('\n')
-			//children := next.getEdgesShallowCopy()
+			//children := next.getEdges()
 			//for _, child := range children {
 			//	sb.WriteString("  ")
 			//	sb.WriteString(child.string(addSpace+4, false))
@@ -276,12 +816,52 @@ func (n *node) string(space int, inode bool) string {
 		}
 	}
 
-	children := n.getEdgesShallowCopy()
-	for _, child := range children {
+	for _, child := range n.children {
 		sb.WriteString("  ")
 		sb.WriteString(child.string(space+4, inode))
 	}
 	return sb.String()
+}
+
+// linearSearch return the index of s in keys or -1, using a simple loop.
+// Although binary search is a more efficient search algorithm,
+// the small size of the child keys array means that the
+// constant factor will dominate (cf Adaptive Radix Tree algorithm).
+func linearSearch(keys []byte, s byte) int {
+	for i := 0; i < len(keys); i++ {
+		if keys[i] == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// binarySearch return the index of s in keys or -1.
+func binarySearch(keys []byte, s byte) int {
+	low, high := 0, len(keys)-1
+	for low <= high {
+		// nolint:gosec
+		mid := int(uint(low+high) >> 1) // avoid overflow
+		cmp := compare(keys[mid], s)
+		if cmp < 0 {
+			low = mid + 1
+		} else if cmp > 0 {
+			high = mid - 1
+		} else {
+			return mid
+		}
+	}
+	return -(low + 1)
+}
+
+func compare(a, b byte) int {
+	if a == b {
+		return 0
+	}
+	if a < b {
+		return -1
+	}
+	return +1
 }
 
 type skippedNodes []skippedNode
@@ -362,4 +942,54 @@ func parseWildcard(segment string) []param {
 	}
 
 	return params
+}
+
+type resultType int
+
+const (
+	exactMatch resultType = iota
+	incompleteMatchToEndOfEdge
+	incompleteMatchToMiddleOfEdge
+	keyEndMidEdge
+)
+
+type searchResult struct {
+	matched                 *node
+	p                       *node
+	pp                      *node
+	ppp                     *node
+	path                    string
+	visited                 []*node
+	charsMatched            int
+	charsMatchedInNodeFound int
+	depth                   uint32
+}
+
+func (r searchResult) classify() resultType {
+	if r.charsMatched == len(r.path) {
+		if r.charsMatchedInNodeFound == len(r.matched.key) {
+			return exactMatch
+		}
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
+			return keyEndMidEdge
+		}
+	} else if r.charsMatched < len(r.path) {
+		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
+		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
+		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
+			return incompleteMatchToEndOfEdge
+		}
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
+			return incompleteMatchToMiddleOfEdge
+		}
+	}
+	panic("internal error: cannot classify the result")
+}
+
+func (r searchResult) isExactMatch() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
+}
+
+func (r searchResult) isKeyMidEdge() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
 }

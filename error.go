@@ -18,7 +18,7 @@ var (
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 	ErrNoClientIPStrategy      = errors.New("no client ip strategy")
-	ErrConcurrentAccess        = errors.New("concurrent access violation: multiple writes detected on tree")
+	ErrReadOnlyTxn             = errors.New("write on read-only transaction")
 )
 
 // RouteConflictError is a custom error type used to represent conflicts when

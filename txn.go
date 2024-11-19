@@ -1,20 +1,14 @@
 package fox
 
 import (
+	"fmt"
 	"net/http"
-	"sync"
 )
 
-const defaultModifiedCache = 4096
-
-// Txn is a read-write transaction for managing routes in a [Router]. It's safe to run multiple transaction
-// concurrently and while the router is serving request, however Txn itself is not tread-safe.
-// Each Txn must be finalized with [Txn.Commit] or [Txn.Abort]. For non-transactional batch updates, see
-// [Router.BatchWriter] or [Router.Batch].
 type Txn struct {
-	snap *Tree
-	main *Tree
-	once sync.Once
+	fox     *Router
+	rootTxn *txn
+	write   bool
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -23,11 +17,29 @@ type Txn struct {
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
-// It's safe to add a new handler while the router is serving requests. However, this function is NOT
-// thread-safe and should be run serially, along with all other [Txn] APIs that perform write operations.
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To override an existing route, use [Txn.Update].
 func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	return txn.snap.Handle(method, pattern, handler, opts...)
+	if !txn.write {
+		return nil, ErrReadOnlyTxn
+	}
+
+	if handler == nil {
+		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
+	if matched := regEnLetter.MatchString(method); !matched {
+		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+	}
+
+	rte, n, err := txn.fox.newRoute(pattern, handler, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = txn.rootTxn.insert(method, rte, n); err != nil {
+		return nil, err
+	}
+	return rte, nil
 }
 
 // Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -35,71 +47,172 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
-// It's safe to update a handler while the router is serving requests. However, this function is NOT thread-safe
-// and should be run serially, along with all other [Txn] APIs that perform write operations. To add a new handler,
-// use [Txn.Handle] method.
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
+// To add a new handler, use [Txn.Handle].
 func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	return txn.snap.Update(method, pattern, handler, opts...)
+	if !txn.write {
+		return nil, ErrReadOnlyTxn
+	}
+
+	if handler == nil {
+		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
+	if method == "" {
+		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+
+	rte, _, err := txn.fox.newRoute(pattern, handler, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = txn.rootTxn.update(method, rte); err != nil {
+		return nil, err
+	}
+
+	return rte, nil
 }
 
 // Delete deletes an existing handler for the given method and router pattern. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
-// It's safe to delete a handler while the tree is in use for serving requests. However, this function is NOT
-// thread-safe and should be run serially, along with all other [Txn] APIs that perform write operations.
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 func (txn *Txn) Delete(method, pattern string) error {
-	return txn.snap.Delete(method, pattern)
+	if !txn.write {
+		return ErrReadOnlyTxn
+	}
+
+	if method == "" {
+		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+
+	_, _, err := parseRoute(pattern)
+	if err != nil {
+		return err
+	}
+
+	if !txn.rootTxn.remove(method, pattern) {
+		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
+	}
+
+	return nil
 }
 
-// Truncate delete all registered route for the provided methods. If no method are provided, Truncate deletes all routes.
-// It's safe to truncate routes while the router is serving requests. However, this function is NOT thread-safe and
-// should be run serially, along with all other [Txn] APIs that perform write operations. To delete a single route,
-// use [Txn.Delete].
-func (txn *Txn) Truncate(methods ...string) {
-	txn.snap.truncate(methods)
+func (txn *Txn) Truncate(methods ...string) error {
+	if !txn.write {
+		return ErrReadOnlyTxn
+	}
+	txn.rootTxn.truncate(methods)
+	return nil
 }
 
+// Has allows to check if the given method and route pattern exactly match a registered route. This function is NOT
+// thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Route] as an alternative.
 func (txn *Txn) Has(method, pattern string) bool {
 	return txn.Route(method, pattern) != nil
 }
 
+// Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
+// match is found or nil otherwise. This function is NOT thread-safe and should be run serially, along with all
+// other [Txn] APIs. See also [Tree.Has] as an alternative.
 func (txn *Txn) Route(method, pattern string) *Route {
-	return txn.snap.Route(method, pattern)
+	tree := txn.rootTxn.tree
+	c := tree.ctx.Get().(*cTx)
+	c.resetNil()
+
+	host, path := SplitHostPath(pattern)
+	n, tsr := txn.rootTxn.root.lookup(tree, method, host, path, c, true)
+	tree.ctx.Put(c)
+	if n != nil && !tsr && n.route.pattern == pattern {
+		return n.route
+	}
+	return nil
 }
 
+// Reverse perform a reverse lookup on the tree for the given method, host and path and return the matching registered [Route]
+// (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
+// other [Txn] APIs. See also [Txn.Lookup] as an alternative.
 func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
-	return txn.snap.Reverse(method, host, path)
+	tree := txn.rootTxn.tree
+	c := tree.ctx.Get().(*cTx)
+	c.resetNil()
+	n, tsr := txn.rootTxn.root.lookup(tree, method, host, path, c, true)
+	tree.ctx.Put(c)
+	if n != nil {
+		return n.route, tsr
+	}
+	return nil, false
 }
 
+// Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
+// [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
+// [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is NOT
+// thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Reverse] as an alternative.
 func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
-	return txn.snap.Lookup(w, r)
+	tree := txn.rootTxn.tree
+	c := tree.ctx.Get().(*cTx)
+	c.resetWithWriter(w, r)
+
+	path := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		path = r.URL.RawPath
+	}
+
+	n, tsr := txn.rootTxn.root.lookup(tree, r.Method, r.Host, path, c, false)
+	if n != nil {
+		c.route = n.route
+		c.tsr = tsr
+		return n.route, c, tsr
+	}
+	tree.ctx.Put(c)
+	return nil, nil, tsr
 }
 
 // Iter returns a collection of iterators for traversing the routing tree.
-// This function is safe for concurrent use by multiple goroutine and while mutation on [Tree] are ongoing.
-// This API is EXPERIMENTAL and may change in future releases.
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 func (txn *Txn) Iter() Iter {
-	return Iter{t: txn.snap}
+	return Iter{
+		tree:     txn.rootTxn.tree,
+		root:     txn.rootTxn.root,
+		maxDepth: txn.rootTxn.maxDepth,
+	}
 }
 
-// Commit finalize this transaction. This is a noop for transactions already aborted or commited.
 func (txn *Txn) Commit() {
-	txn.once.Do(func() {
-		txn.main.maxParams.Store(txn.snap.maxParams.Load())
-		txn.main.maxDepth.Store(txn.snap.maxDepth.Load())
-		txn.main.root.Store(txn.snap.root.Load())
-		txn.snap = nil
-		txn.main.race.Store(0)
-		txn.main.fox.mu.Unlock()
-	})
+	// Noop for a read transaction
+	if !txn.write {
+		return
+	}
+
+	// Check if already aborted or committed
+	if txn.rootTxn == nil {
+		return
+	}
+
+	newRoot := txn.rootTxn.commit()
+	txn.fox.tree.Store(newRoot)
+
+	// Clear the txn
+	txn.rootTxn = nil
+	txn.fox.mu.Unlock()
 }
 
-// Abort cancel this transaction. This is a noop for transaction already aborted or commited.
 func (txn *Txn) Abort() {
-	txn.once.Do(func() {
-		txn.snap = nil
-		txn.main.race.Store(0)
-		txn.main.fox.mu.Unlock()
-	})
+	// Noop for a read transaction
+	if !txn.write {
+		return
+	}
+
+	// Check if already aborted or committed
+	if txn.rootTxn == nil {
+		return
+	}
+
+	// Clear the txn
+	txn.rootTxn = nil
+	txn.fox.mu.Unlock()
 }

@@ -22,7 +22,8 @@ func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Con
 }
 
 func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cTx {
-	c := fox.tree.allocateContext()
+	tree := fox.getRoot()
+	c := tree.allocateContext()
 	c.resetNil()
 	c.req = r
 	c.rec.reset(w)
@@ -32,7 +33,8 @@ func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cT
 }
 
 func newTestContext(fox *Router) *cTx {
-	c := fox.tree.allocateContext()
+	tree := fox.getRoot()
+	c := tree.allocateContext()
 	c.resetNil()
 	return c
 }

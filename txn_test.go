@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -75,7 +76,7 @@ func TestTxn_Truncate(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 			}
-			txn := f.Txn()
+			txn := f.Txn(true)
 			defer txn.Abort()
 
 			methods := make([]string, 0)
@@ -83,20 +84,20 @@ func TestTxn_Truncate(t *testing.T) {
 				methods = append(methods, rte.method)
 			}
 
-			txn.Truncate(methods...)
-			txn.Commit()
+			if assert.NoError(t, txn.Truncate(methods...)) {
+				txn.Commit()
+			}
 
-			nds := *f.tree.root.Load()
-
+			tree := f.getRoot()
 			for _, method := range methods {
-				idx := findRootNode(method, nds)
+				idx := tree.root.methodIndex(method)
 				if isRemovable(method) {
 					assert.Equal(t, idx, -1)
 				} else {
-					assert.Len(t, nds[idx].children, 0)
+					assert.Len(t, tree.root[idx].children, 0)
 				}
 			}
-			assert.Len(t, nds, len(commonVerbs))
+			assert.Len(t, tree.root, len(commonVerbs))
 		})
 	}
 }
@@ -111,15 +112,33 @@ func TestTxn_TruncateAll(t *testing.T) {
 	require.NoError(t, onlyError(f.Handle(http.MethodTrace, "/foo/bar", emptyHandler)))
 	require.NoError(t, onlyError(f.Handle("BOULOU", "/foo/bar", emptyHandler)))
 
-	txn := f.Txn()
+	txn := f.Txn(true)
 	defer txn.Abort()
 
-	txn.Truncate()
-	txn.Commit()
+	if assert.NoError(t, txn.Truncate()) {
+		txn.Commit()
+	}
 
-	nds := *f.tree.root.Load()
-	assert.Len(t, nds, len(commonVerbs))
-	for _, n := range nds {
+	tree := f.getRoot()
+	assert.Len(t, tree.root, len(commonVerbs))
+	for _, n := range tree.root {
 		assert.Len(t, n.children, 0)
 	}
+}
+
+func TestX(t *testing.T) {
+	f := New()
+
+	f.MustHandle(http.MethodGet, "/foo/bar", func(c Context) {
+
+	})
+	tree := f.getRoot()
+	fmt.Println(tree.root[0])
+
+	f.MustHandle(http.MethodGet, "/foo/baz", func(c Context) {
+
+	})
+
+	tree = f.getRoot()
+	fmt.Println(tree.root[0])
 }

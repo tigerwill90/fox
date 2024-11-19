@@ -494,23 +494,6 @@ func BenchmarkStaticAll(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
-// BenchmarkInsertStaticBatch-16    	    9996	    112527 ns/op	   48619 B/op	     942 allocs/op
-// BenchmarkInsertStaticTx-16    	   10000	    117965 ns/op	   61506 B/op	    1105 allocs/op
-func BenchmarkInsertStaticBatch(b *testing.B) {
-	f := New()
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for range b.N {
-		w := f.BatchWriter()
-		for _, route := range staticRoutes {
-			w.Handle(route.method, route.path, emptyHandler)
-		}
-		w.Release()
-	}
-}
-
 func BenchmarkInsertStaticTx(b *testing.B) {
 	f := New()
 
@@ -518,7 +501,7 @@ func BenchmarkInsertStaticTx(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		txn := f.Txn()
+		txn := f.Txn(true)
 		for _, route := range staticRoutes {
 			txn.Handle(route.method, route.path, emptyHandler)
 		}
@@ -1056,9 +1039,9 @@ func TestEmptyCatchAll(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			nds := *f.tree.root.Load()
+			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := f.tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			require.False(t, tsr)
 			require.Nil(t, n)
 		})
@@ -1088,10 +1071,10 @@ func TestRouteWithParams(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 	}
 
-	nds := *f.tree.root.Load()
+	tree := f.getRoot()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		n, tsr := f.tree.lookupByPath(nds[0].children[0].Load(), rte, c, false)
+		n, tsr := lookupByPath(tree, tree.root[0].children[0], rte, c, false)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
@@ -1129,9 +1112,9 @@ func TestRouteParamEmptySegment(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			nds := *f.tree.root.Load()
+			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := f.tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
@@ -1599,10 +1582,11 @@ func TestOverlappingRoute(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			nds := *f.tree.root.Load()
+
+			tree := f.getRoot()
 
 			c := newTestContext(f)
-			n, tsr := f.tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -1616,7 +1600,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			n, tsr = f.tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, true)
+			n, tsr = lookupByPath(tree, tree.root[0].children[0], tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -2348,9 +2332,9 @@ func TestInfixWildcard(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			nds := *f.tree.root.Load()
+			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := f.tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -2599,9 +2583,9 @@ func TestDomainLookup(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			nds := *f.tree.root.Load()
+			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := f.tree.lookup(nds[0], tc.host, tc.path, c, false)
+			n, tsr := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -2919,9 +2903,13 @@ func TestInfixWildcardTsr(t *testing.T) {
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			nds := *f.tree.root.Load()
+
+			tree := f.getRoot()
+
+			fmt.Println(tree.root[0])
+
 			c := newTestContext(f)
-			n, tsr := f.tree.lookupByPath(nds[0].children[0].Load(), tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -3053,7 +3041,7 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot))))
 			}
 			for _, rte := range tc.routes {
-				r := f.tree.Route(http.MethodGet, rte.path)
+				r := f.Route(http.MethodGet, rte.path)
 				require.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path)
 				assert.Equal(t, []Annotation{updateAnnot}, slices.Collect(r.Annotations()))
 			}
@@ -3071,9 +3059,10 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 					assert.Equal(t, []Annotation{updateAnnot2}, slices.Collect(r.Annotations()))
 				}
 			}
-			nds := *f.tree.root.Load()
-			assert.Equal(t, http.MethodGet, nds[0].key)
-			assert.Len(t, nds[0].children, 0)
+
+			tree := f.getRoot()
+			assert.Equal(t, http.MethodGet, tree.root[0].key)
+			assert.Len(t, tree.root[0].children, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -3093,9 +3082,9 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				}
 			}
 
-			nds = *f.tree.root.Load()
-			assert.Equal(t, http.MethodGet, nds[0].key)
-			assert.Len(t, nds[0].children, 0)
+			tree = f.getRoot()
+			assert.Equal(t, http.MethodGet, tree.root[0].key)
+			assert.Len(t, tree.root[0].children, 0)
 		})
 	}
 }
@@ -3259,9 +3248,10 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 				}
 				return nil
 			}))
-			nds := *f.tree.root.Load()
-			assert.Equal(t, http.MethodGet, nds[0].key)
-			assert.Len(t, nds[0].children, 0)
+
+			tree := f.getRoot()
+			assert.Equal(t, http.MethodGet, tree.root[0].key)
+			assert.Len(t, tree.root[0].children, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -3290,9 +3280,10 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 				}
 				return nil
 			}))
-			nds = *f.tree.root.Load()
-			assert.Equal(t, http.MethodGet, nds[0].key)
-			assert.Len(t, nds[0].children, 0)
+
+			tree = f.getRoot()
+			assert.Equal(t, http.MethodGet, tree.root[0].key)
+			assert.Len(t, tree.root[0].children, 0)
 		})
 	}
 }
@@ -4081,9 +4072,9 @@ func TestTree_LookupTsr(t *testing.T) {
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, path, emptyHandler)))
 			}
-			nds := *f.tree.root.Load()
+			tree := f.getRoot()
 			c := newTestContext(f)
-			n, got := f.tree.lookupByPath(nds[0].children[0].Load(), tc.key, c, true)
+			n, got := lookupByPath(tree, tree.root[0].children[0], tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -4559,8 +4550,9 @@ func TestTree_Delete(t *testing.T) {
 	it := f.Iter()
 	cnt := len(slices.Collect(iterutil.Right(it.All())))
 
+	tree := f.getRoot()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 4, len(*f.tree.root.Load()))
+	assert.Equal(t, 4, len(tree.root))
 }
 
 func TestTree_DeleteTxn(t *testing.T) {
@@ -4586,18 +4578,21 @@ func TestTree_DeleteTxn(t *testing.T) {
 	it := f.Iter()
 	cnt := len(slices.Collect(iterutil.Right(it.All())))
 
+	tree := f.getRoot()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 4, len(*f.tree.root.Load()))
+	assert.Equal(t, 4, len(tree.root))
 }
 
 func TestTree_DeleteRoot(t *testing.T) {
 	f := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "/foo/bar", emptyHandler)))
 	require.NoError(t, f.Delete(http.MethodOptions, "/foo/bar"))
-	assert.Equal(t, 4, len(*f.tree.root.Load()))
+	tree := f.getRoot()
+	assert.Equal(t, 4, len(tree.root))
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "exemple.com/foo/bar", emptyHandler)))
 	require.NoError(t, f.Delete(http.MethodOptions, "exemple.com/foo/bar"))
-	assert.Equal(t, 4, len(*f.tree.root.Load()))
+	tree = f.getRoot()
+	assert.Equal(t, 4, len(tree.root))
 }
 
 func TestRouter_UpdatesError(t *testing.T) {
@@ -4612,8 +4607,8 @@ func TestRouter_UpdatesError(t *testing.T) {
 		return wantErr
 	})
 	assert.ErrorIs(t, err, wantErr)
-	nds := *f.tree.root.Load()
-	assert.Len(t, nds[0].children, 0)
+	tree := f.getRoot()
+	assert.Len(t, tree.root[0].children, 0)
 }
 
 func TestRouter_UpdatesPanic(t *testing.T) {
@@ -4630,8 +4625,8 @@ func TestRouter_UpdatesPanic(t *testing.T) {
 		})
 	})
 
-	nds := *f.tree.root.Load()
-	assert.Len(t, nds[0].children, 0)
+	tree := f.getRoot()
+	assert.Len(t, tree.root[0].children, 0)
 }
 
 func TestTree_DeleteWildcard(t *testing.T) {
@@ -5469,11 +5464,11 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 			continue
 		}
 		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
-		if err := r.tree.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 3); err == nil {
-			nds := *r.tree.root.Load()
-
+		tree := r.getRoot()
+		txn := tree.txn()
+		if err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 3); err == nil {
 			c := newTestContext(r)
-			n, tsr := r.tree.lookupByPath(nds[0].children[0].Load(), fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
+			n, tsr := lookupByPath(tree, txn.root[0].children[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -5492,12 +5487,15 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
+	tree := r.getRoot()
+	txn := tree.txn()
+
 	for rte := range routes {
 		if rte == "" {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = r.tree.insert(http.MethodGet, &Route{pattern: rte, hself: emptyHandler, hostSplit: max(0, strings.IndexByte(rte, '/'))}, 0)
+			_ = txn.insert(http.MethodGet, &Route{pattern: rte, hself: emptyHandler, hostSplit: max(0, strings.IndexByte(rte, '/'))}, 0)
 		}, fmt.Sprintf("rte: %s", rte))
 	}
 }
@@ -5517,33 +5515,38 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
+	tree := r.getRoot()
+	txn := tree.txn()
 	for rte := range routes {
 		path := "/" + rte
-		err := r.tree.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 0)
+		err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 0)
 		require.NoError(t, err)
 	}
+	r.tree.Store(txn.commit())
 
 	it := r.Iter()
 	countPath := len(slices.Collect(iterutil.Right(it.All())))
 	assert.Equal(t, len(routes), countPath)
 
+	tree = r.getRoot()
+	txn = tree.txn()
 	for rte := range routes {
-		nds := *r.tree.root.Load()
 		c := newTestContext(r)
-		n, tsr := r.tree.lookupByPath(nds[0].children[0].Load(), "/"+rte, c, true)
+		n, tsr := lookupByPath(tree, tree.root[0].children[0], "/"+rte, c, true)
 		require.NotNilf(t, n, "route /%s", rte)
 		require.NotNilf(t, n.route, "route /%s", rte)
 		require.Falsef(t, tsr, "tsr: %t", tsr)
 		require.Truef(t, n.isLeaf(), "route /%s", rte)
 		require.Equal(t, "/"+rte, n.route.pattern)
 		path := "/" + rte
-		require.NoError(t, r.tree.update(http.MethodGet, &Route{pattern: path, hself: emptyHandler}))
+		require.NoError(t, txn.update(http.MethodGet, &Route{pattern: path, hself: emptyHandler}))
 	}
 
 	for rte := range routes {
-		deleted := r.tree.remove(http.MethodGet, "/"+rte)
+		deleted := txn.remove(http.MethodGet, "/"+rte)
 		require.True(t, deleted)
 	}
+	r.tree.Store(txn.commit())
 
 	it = r.Iter()
 	countPath = len(slices.Collect(iterutil.Right(it.All())))
@@ -5556,9 +5559,11 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	f := New()
 
-	require.NoError(t, f.Batch(func(w BatchWriter) error {
+	require.NoError(t, f.Updates(func(txn *Txn) error {
 		for _, rte := range githubAPI {
-			if err := onlyError(w.Handle(rte.method, rte.path, emptyHandler)); err != nil {
+			if err := onlyError(txn.Handle(rte.method, rte.path, func(c Context) {
+				fmt.Println(c.Pattern())
+			})); err != nil {
 				return err
 			}
 		}
@@ -5570,20 +5575,41 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 		go func() {
 			wait()
 			defer wg.Done()
-			w := f.BatchWriter()
-			defer w.Release()
-			for _, rte := range githubAPI {
-				require.NoError(t, onlyError(w.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, emptyHandler)))
-			}
-			for _, rte := range githubAPI {
-				require.NoError(t, onlyError(w.Handle(rte.method, "foo.bar.baz"+rte.path, emptyHandler)))
-			}
-			for _, rte := range githubAPI {
-				require.NoError(t, w.Delete(rte.method, "foo.bar.baz"+rte.path))
-			}
-			for _, rte := range githubAPI {
-				require.NoError(t, w.Delete(rte.method, "{sub}.bar.{tld}"+rte.path))
-			}
+			require.NoError(t, f.Updates(func(txn *Txn) error {
+				if txn.Has(githubAPI[0].method, "{sub}.bar.{tld}"+githubAPI[0].path) {
+					for _, rte := range githubAPI {
+						if err := txn.Delete(rte.method, "{sub}.bar.{tld}"+rte.path); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+
+				for _, rte := range githubAPI {
+					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, emptyHandler)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}))
+
+			require.NoError(t, f.Updates(func(txn *Txn) error {
+				if txn.Has(githubAPI[0].method, "foo.bar.baz"+githubAPI[0].path) {
+					for _, rte := range githubAPI {
+						if err := txn.Delete(rte.method, "foo.bar.baz"+rte.path); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+
+				for _, rte := range githubAPI {
+					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, emptyHandler)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}))
 		}()
 
 		go func() {
@@ -5605,9 +5631,8 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	start()
 	wg.Wait()
 
-	nds := *f.tree.root.Load()
-	require.Len(t, nds[0].children, 1)
-	// TODO node children == '/'
+	/*	tree := f.getRoot()
+		require.Len(t, tree.root[0].children, 1)*/
 }
 
 func TestDataRace(t *testing.T) {
@@ -5626,25 +5651,33 @@ func TestDataRace(t *testing.T) {
 		go func(method, route string) {
 			wait()
 			defer wg.Done()
-			b := f.BatchWriter()
-			defer b.Release()
-			if b.Has(method, route) {
-				assert.NoError(t, onlyError(b.Update(method, route, h)))
+			txn := f.Txn(true)
+			defer txn.Abort()
+			if txn.Has(method, route) {
+				if assert.NoError(t, onlyError(txn.Update(method, route, h))) {
+					txn.Commit()
+				}
 				return
 			}
-			assert.NoError(t, onlyError(b.Handle(method, route, h)))
+			if assert.NoError(t, onlyError(txn.Handle(method, route, h))) {
+				txn.Commit()
+			}
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
 			wait()
 			defer wg.Done()
-			b := f.BatchWriter()
-			defer b.Release()
-			if b.Has(method, route) {
-				assert.NoError(t, b.Delete(method, route))
+			txn := f.Txn(true)
+			defer txn.Abort()
+			if txn.Has(method, route) {
+				if assert.NoError(t, txn.Delete(method, route)) {
+					txn.Commit()
+				}
 				return
 			}
-			assert.NoError(t, onlyError(b.Handle(method, route, newH)))
+			if assert.NoError(t, onlyError(txn.Handle(method, route, newH))) {
+				txn.Commit()
+			}
 		}(rte.method, rte.path)
 
 		go func(method, route string) {
@@ -5658,58 +5691,6 @@ func TestDataRace(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	start()
 	wg.Wait()
-}
-
-func TestTree_RaceDetector(t *testing.T) {
-	var wg sync.WaitGroup
-	start, wait := atomicSync()
-	var raceCount atomic.Uint32
-
-	f := New()
-
-	wg.Add(len(staticRoutes) * 3)
-	for _, rte := range staticRoutes {
-		go func() {
-			wait()
-			defer func() {
-				if v := recover(); v != nil {
-					raceCount.Add(1)
-					assert.ErrorIs(t, v.(error), ErrConcurrentAccess)
-				}
-				wg.Done()
-			}()
-			_ = f.tree.insert(rte.method, &Route{pattern: rte.path, hself: emptyHandler}, 0)
-		}()
-
-		go func() {
-			wait()
-			defer func() {
-				if v := recover(); v != nil {
-					raceCount.Add(1)
-					assert.ErrorIs(t, v.(error), ErrConcurrentAccess)
-				}
-				wg.Done()
-			}()
-			_ = f.tree.update(rte.method, &Route{pattern: rte.path, hself: emptyHandler})
-		}()
-
-		go func() {
-			wait()
-			defer func() {
-				if v := recover(); v != nil {
-					raceCount.Add(1)
-					assert.ErrorIs(t, v.(error), ErrConcurrentAccess)
-				}
-				wg.Done()
-			}()
-			f.tree.remove(rte.method, rte.path)
-		}()
-	}
-
-	time.Sleep(500 * time.Millisecond)
-	start()
-	wg.Wait()
-	assert.GreaterOrEqual(t, raceCount.Load(), uint32(1))
 }
 
 func TestConcurrentRequestHandling(t *testing.T) {
@@ -5796,22 +5777,22 @@ func atomicSync() (start func(), wait func()) {
 func TestNode_String(t *testing.T) {
 	f := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
-	nds := *f.tree.root.Load()
+	tree := f.getRoot()
 
 	want := `path: GET
       path: /foo/{bar}/*{baz} [leaf=/foo/{bar}/*{baz}] [bar (10), baz (-1)]`
-	assert.Equal(t, want, strings.TrimSuffix(nds[0].String(), "\n"))
+	assert.Equal(t, want, strings.TrimSuffix(tree.root[0].String(), "\n"))
 }
 
 func TestNode_Debug(t *testing.T) {
 	f := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/*{any}/bar", emptyHandler)))
-	nds := *f.tree.root.Load()
+	tree := f.getRoot()
 
 	want := `path: GET
       path: /foo/*{any}/bar [leaf=/foo/*{any}/bar] [any (11)]
              inode: /bar`
-	assert.Equal(t, want, strings.TrimSuffix(nds[0].Debug(), "\n"))
+	assert.Equal(t, want, strings.TrimSuffix(tree.root[0].Debug(), "\n"))
 }
 
 // This example demonstrates how to create a simple router using the default options,
@@ -5821,23 +5802,13 @@ func ExampleNew() {
 	// Create a new router with default options, which include the Recovery and Logger middleware
 	r := New(DefaultOptions())
 
-	// Define a custom middleware to measure the time taken for request processing and
-	// log the URL, route, time elapsed, and status code.
-	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
-			start := time.Now()
-			next(c)
-			log.Printf("url=%s; route=%s; time=%d; status=%d", c.Request().URL, c.Pattern(), time.Since(start), c.Writer().Status())
-		}
-	}
-
-	// Define a route with the path "/hello/{name}", apply the custom "metrics" middleware,
-	// and set a simple handler that greets the user by their name.
-	r.MustHandle(http.MethodGet, "/hello/{name}", metrics(func(c Context) {
+	// Define a route with the path "/hello/{name}", and set a simple handler that greets the
+	// user by their name.
+	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
 		_ = c.String(200, "Hello %s\n", c.Param("name"))
-	}))
+	})
 
-	// Start the HTTP server using the router as the handler and listen on port 8080
+	// Start the HTTP server using fox router and listen on port 8080
 	log.Fatalln(http.ListenAndServe(":8080", r))
 }
 

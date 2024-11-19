@@ -39,7 +39,8 @@ func (it *rawIterator) hasNext() bool {
 		}
 
 		if len(elem.children) > 0 {
-			it.stack = append(it.stack, stack{edges: elem.getEdgesShallowCopy()})
+			// TODO probably elem.children is now OKAY for read only
+			it.stack = append(it.stack, stack{edges: elem.getEdges()})
 		}
 
 		it.current = elem
@@ -56,7 +57,9 @@ func (it *rawIterator) hasNext() bool {
 }
 
 type Iter struct {
-	t *Tree
+	tree     *iTree
+	root     root
+	maxDepth uint32
 }
 
 // Methods returns a range iterator over all HTTP methods registered in the routing tree.
@@ -64,10 +67,9 @@ type Iter struct {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (it Iter) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		nds := *it.t.root.Load()
-		for i := range nds {
-			if len(nds[i].children) > 0 {
-				if !yield(nds[i].key) {
+		for i := range it.root {
+			if len(it.root[i].children) > 0 {
+				if !yield(it.root[i].key) {
 					return
 				}
 			}
@@ -85,18 +87,12 @@ func (it Iter) Methods() iter.Seq[string] {
 // This API is EXPERIMENTAL and is likely to change in future release.
 func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		nds := *it.t.root.Load()
-		c := it.t.ctx.Get().(*cTx)
+		c := it.tree.ctx.Get().(*cTx)
 		defer c.Close()
 		for method := range methods {
 			c.resetNil()
-			index := findRootNode(method, nds)
-			if index < 0 || len(nds[index].children) == 0 {
-				continue
-			}
-
 			host, path := SplitHostPath(pattern)
-			n, tsr := it.t.lookup(nds[index], host, path, c, true)
+			n, tsr := it.root.lookup(it.tree, method, host, path, c, true)
 			if n != nil && !tsr && n.route.pattern == path {
 				if !yield(method, n.route) {
 					return
@@ -119,17 +115,11 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		nds := *it.t.root.Load()
-		c := it.t.ctx.Get().(*cTx)
+		c := it.tree.ctx.Get().(*cTx)
 		defer c.Close()
 		for method := range methods {
 			c.resetNil()
-			index := findRootNode(method, nds)
-			if index < 0 || len(nds[index].children) == 0 {
-				continue
-			}
-
-			n, tsr := it.t.lookup(nds[index], host, path, c, true)
+			n, tsr := it.root.lookup(it.tree, method, host, path, c, true)
 			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if !yield(method, n.route) {
 					return
@@ -149,22 +139,20 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 // This API is EXPERIMENTAL and may change in future releases.
 func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		nds := *it.t.root.Load()
-		maxDepth := it.t.maxDepth.Load()
 		var stacks []stack
-		if maxDepth < stackSizeThreshold {
+		if it.maxDepth < stackSizeThreshold {
 			stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
 		} else {
-			stacks = make([]stack, 0, maxDepth) // heap allocation
+			stacks = make([]stack, 0, it.maxDepth) // heap allocation
 		}
 
 		for method := range methods {
-			index := findRootNode(method, nds)
-			if index < 0 || len(nds[index].children) == 0 {
+			index := it.root.methodIndex(method)
+			if index < 0 || len(it.root[index].children) == 0 {
 				continue
 			}
 
-			result := it.t.search(nds[index], prefix)
+			result := it.root.search(it.root[index], prefix, false, it.maxDepth)
 			if !result.isExactMatch() && !result.isKeyMidEdge() {
 				continue
 			}
@@ -185,7 +173,7 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 				}
 
 				if len(elem.children) > 0 {
-					stacks = append(stacks, stack{edges: elem.getEdgesShallowCopy()})
+					stacks = append(stacks, stack{edges: elem.getEdges()})
 				}
 
 				if elem.isLeaf() {
