@@ -359,7 +359,7 @@ func (fox *Router) View(fn func(txn *Txn) error) error {
 	return fn(txn)
 }
 
-// Txn create a new read-write transaction. Each [Txn] must be finalized with [Txn.Commit] or [Txn.Abort].
+// Txn create a new read-write or read-only transaction. Each [Txn] must be finalized with [Txn.Commit] or [Txn.Abort].
 // It's safe to create transaction from multiple goroutine and while the router is serving request.
 // However, the returned [Txn] itself is NOT tread-safe.
 // See also [Router.Updates] and [Router.View] for managed read-write and 	read-only transaction.
@@ -367,10 +367,12 @@ func (fox *Router) Txn(write bool) *Txn {
 	if write {
 		fox.mu.Lock()
 	}
+
+	rootTxn := fox.getRoot().txn()
 	return &Txn{
 		fox:     fox,
 		write:   write,
-		rootTxn: fox.getRoot().txn(),
+		rootTxn: rootTxn,
 	}
 }
 
