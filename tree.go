@@ -17,14 +17,14 @@ const defaultModifiedCache = 4096
 // without any coordination.
 type iTree struct {
 	ctx       sync.Pool
-	root      root
+	root      roots
 	fox       *Router
 	maxParams uint32
 	maxDepth  uint32
 }
 
-func (t *iTree) txn() *txn {
-	return &txn{
+func (t *iTree) txn() *tXn {
+	return &tXn{
 		tree:      t,
 		root:      t.root,
 		maxParams: t.maxParams,
@@ -38,18 +38,18 @@ func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) (n *nod
 	return t.root.lookup(t, method, hostPort, path, c, lazy)
 }
 
-// txn is a transaction on the tree. This transaction is applied
+// tXn is a transaction on the tree. This transaction is applied
 // atomically and returns a new tree when committed. A transaction
 // is not thread safe, and should only be used by a single goroutine.
-type txn struct {
+type tXn struct {
 	tree      *iTree
 	writable  *simplelru.LRU[*node, any]
-	root      root
+	root      roots
 	maxParams uint32
 	maxDepth  uint32
 }
 
-func (t *txn) commit() *iTree {
+func (t *tXn) commit() *iTree {
 	nt := &iTree{
 		root:      t.root,
 		fox:       t.tree.fox,
@@ -68,10 +68,10 @@ func (t *txn) commit() *iTree {
 // clone capture a point-in-time clone of the transaction. The cloned transaction will contain
 // any uncommited writes in the original transaction but further mutations to either will be independent and result
 // in different tree on commit.
-func (t *txn) clone() *txn {
+func (t *tXn) clone() *tXn {
 	// reset the writable node cache to avoid leaking future writes into the clone
 	t.writable = nil
-	tx := &txn{
+	tx := &tXn{
 		tree:      t.tree,
 		root:      t.root,
 		maxParams: t.maxParams,
@@ -80,15 +80,15 @@ func (t *txn) clone() *txn {
 	return tx
 }
 
-// snapshot capture a point-in-time snapshot of the root tree. Further mutation to txn
+// snapshot capture a point-in-time snapshot of the roots tree. Further mutation to txn
 // will not be reflected on the snapshot.
-func (t *txn) snapshot() root {
+func (t *tXn) snapshot() roots {
 	t.writable = nil
 	return t.root
 }
 
 // insert is not safe for concurrent use
-func (t *txn) insert(method string, route *Route, paramsN uint32) error {
+func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 	if t.writable == nil {
 		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
 		if err != nil {
@@ -315,7 +315,7 @@ func (t *txn) insert(method string, route *Route, paramsN uint32) error {
 }
 
 // update is not safe for concurrent use
-func (t *txn) update(method string, route *Route) error {
+func (t *tXn) update(method string, route *Route) error {
 	if t.writable == nil {
 		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
 		if err != nil {
@@ -352,7 +352,7 @@ func (t *txn) update(method string, route *Route) error {
 }
 
 // remove is not safe for concurrent use.
-func (t *txn) remove(method, path string) bool {
+func (t *tXn) remove(method, path string) bool {
 	if t.writable == nil {
 		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
 		if err != nil {
@@ -493,7 +493,7 @@ func (t *txn) remove(method, path string) bool {
 }
 
 // addRoot append a new root node to the tree.
-func (t *txn) addRoot(n *node) {
+func (t *tXn) addRoot(n *node) {
 	nr := make([]*node, 0, len(t.root)+1)
 	nr = append(nr, t.root...)
 	nr = append(nr, n)
@@ -501,7 +501,7 @@ func (t *txn) addRoot(n *node) {
 }
 
 // updateRoot replaces a root node in the tree.
-func (t *txn) updateRoot(n *node) bool {
+func (t *tXn) updateRoot(n *node) bool {
 	// for root node, the key contains the HTTP verb.
 	index := t.root.methodIndex(n.key)
 	if index < 0 {
@@ -516,7 +516,7 @@ func (t *txn) updateRoot(n *node) bool {
 }
 
 // removeRoot remove a root node from the tree.
-func (t *txn) removeRoot(method string) bool {
+func (t *tXn) removeRoot(method string) bool {
 	index := t.root.methodIndex(method)
 	if index < 0 {
 		return false
@@ -530,10 +530,10 @@ func (t *txn) removeRoot(method string) bool {
 
 // truncate truncates the tree for the provided methods. If not methods are provided,
 // all methods are truncated.
-func (t *txn) truncate(methods []string) {
+func (t *tXn) truncate(methods []string) {
 	if len(methods) == 0 {
 		// Pre instantiate nodes for common http verb
-		nr := make(root, len(commonVerbs))
+		nr := make(roots, len(commonVerbs))
 		for i := range commonVerbs {
 			nr[i] = new(node)
 			nr[i].key = commonVerbs[i]
@@ -545,7 +545,7 @@ func (t *txn) truncate(methods []string) {
 	}
 
 	oldlen := len(t.root)
-	nr := make(root, len(t.root))
+	nr := make(roots, len(t.root))
 	copy(nr, t.root)
 
 	for _, method := range methods {
@@ -572,7 +572,7 @@ func (t *txn) truncate(methods []string) {
 // updateToRoot propagate update to the root by cloning any visited node that have not been cloned previously.
 // This effectively allow to create a fully isolated snapshot of the tree.
 // Note: This function should be guarded by mutex.
-func (t *txn) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
+func (t *tXn) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
 	last := n
 	if p != nil {
 		if _, ok := t.writable.Get(p); !ok {
@@ -652,14 +652,14 @@ func (t *txn) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
 }
 
 // updateMaxParams perform an update only if max is greater than the current
-func (t *txn) updateMaxParams(max uint32) {
+func (t *tXn) updateMaxParams(max uint32) {
 	if max > t.maxParams {
 		t.maxParams = max
 	}
 }
 
 // updateMaxDepth perform an update only if max is greater than the current
-func (t *txn) updateMaxDepth(max uint32) {
+func (t *tXn) updateMaxDepth(max uint32) {
 	if max > t.maxDepth {
 		t.maxDepth = max
 	}

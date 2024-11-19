@@ -13,9 +13,9 @@ import (
 	"strings"
 )
 
-type root []*node
+type roots []*node
 
-func (r root) methodIndex(method string) int {
+func (r roots) methodIndex(method string) int {
 	// Nodes for common http method are pre instantiated.
 	switch method {
 	case http.MethodGet:
@@ -36,7 +36,7 @@ func (r root) methodIndex(method string) int {
 	return -1
 }
 
-func (r root) search(rootNode *node, path string, write bool, maxDepth uint32) searchResult {
+func (r roots) search(rootNode *node, path string, write bool, maxDepth uint32) searchResult {
 	current := rootNode
 
 	var (
@@ -98,7 +98,7 @@ STOP:
 
 // lookup  returns the node matching the host and/or path. If lazy is false, it parses and record into c, path segment according to
 // the route definition. In case of indirect match, tsr is true and n != nil.
-func (r root) lookup(t *iTree, method, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+func (r roots) lookup(t *iTree, method, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	index := r.methodIndex(method)
 	if index < 0 || len(r[index].children) == 0 {
 		return nil, false

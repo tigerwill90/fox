@@ -60,7 +60,7 @@ func (it *rawIterator) hasNext() bool {
 // router or on the transaction from which the Iter is created.
 type Iter struct {
 	tree     *iTree
-	root     root
+	root     roots
 	maxDepth uint32
 }
 

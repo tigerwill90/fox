@@ -7,7 +7,7 @@ import (
 
 type Txn struct {
 	fox     *Router
-	rootTxn *txn
+	rootTxn *tXn
 	write   bool
 }
 
