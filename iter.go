@@ -141,13 +141,13 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 				continue
 			}
 
-			result := it.root.search(it.root[index], prefix, false, it.maxDepth)
-			if !result.isExactMatch() && !result.isKeyMidEdge() {
+			matched := it.root.search(it.root[index], prefix)
+			if matched == nil {
 				continue
 			}
 
 			stacks = append(stacks, stack{
-				edges: []*node{result.matched},
+				edges: []*node{matched},
 			})
 
 			for len(stacks) > 0 {

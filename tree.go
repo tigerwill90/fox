@@ -87,8 +87,9 @@ func (t *tXn) snapshot() roots {
 	return t.root
 }
 
-// insert is not safe for concurrent use
-func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
+// copyOnWriteSearch find the node that match the provided path. It clones from the root
+// every node visited for the first time, except the matching one.
+func (t *tXn) copyOnWriteSearch(rootNode *node, path string) searchResult {
 	if t.writable == nil {
 		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
 		if err != nil {
@@ -97,6 +98,70 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 		t.writable = lru
 	}
 
+	current := rootNode
+
+	var (
+		ppp                     *node
+		pp                      *node
+		p                       *node
+		charsMatched            int
+		charsMatchedInNodeFound int
+		depth                   uint32
+	)
+
+STOP:
+	for charsMatched < len(path) {
+		next := current.getEdge(path[charsMatched])
+		if next == nil {
+			break STOP
+		}
+
+		depth++
+		ppp = pp
+		pp = p
+		p = current
+		if p != nil {
+			if _, ok := t.writable.Get(p); !ok {
+				cp := p.clone()
+				t.writable.Add(cp, nil)
+				if pp == nil {
+					t.updateRoot(cp)
+				} else {
+					pp.updateEdge(cp)
+				}
+				p = cp
+			}
+		}
+		current = next
+		charsMatchedInNodeFound = 0
+		for i := 0; charsMatched < len(path); i++ {
+			if i >= len(current.key) {
+				break
+			}
+
+			if current.key[i] != path[charsMatched] {
+				break STOP
+			}
+
+			charsMatched++
+			charsMatchedInNodeFound++
+		}
+	}
+
+	return searchResult{
+		path:                    path,
+		matched:                 current,
+		charsMatched:            charsMatched,
+		charsMatchedInNodeFound: charsMatchedInNodeFound,
+		p:                       p,
+		pp:                      pp,
+		ppp:                     ppp,
+		depth:                   depth,
+	}
+}
+
+// insert is not safe for concurrent use
+func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 	var rootNode *node
 	index := t.root.methodIndex(method)
 	if index < 0 {
@@ -112,7 +177,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 	path := route.pattern
 
-	result := t.root.search(rootNode, path, true, t.maxDepth)
+	result := t.copyOnWriteSearch(rootNode, path)
 	switch result.classify() {
 	case exactMatch:
 		// e.g. matched exactly "te" node when inserting "te" key.
@@ -136,7 +201,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 		)
 
 		t.updateMaxParams(paramsN)
-		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
 		// te
@@ -177,7 +242,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 		t.updateMaxParams(paramsN)
 		t.updateMaxDepth(result.depth + 1)
-		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, parent)
+		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
 		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
 		// te
@@ -227,7 +292,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 			t.updateRoot(n)
 			break
 		}
-		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+		result.p.updateEdge(n)
 	case incompleteMatchToMiddleOfEdge:
 		// e.g. matched until "s" for "st" node but still have remaining char ("s") which does not match anything
 		// when inserting "tess" key.
@@ -306,7 +371,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 		t.updateMaxDepth(result.depth + addDepth)
 		t.updateMaxParams(paramsN)
-		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n3)
+		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type
 		panic("internal error: unexpected result type")
@@ -316,22 +381,13 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 // update is not safe for concurrent use
 func (t *tXn) update(method string, route *Route) error {
-	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
-		if err != nil {
-			panic(err)
-		}
-		t.writable = lru
-	}
-
 	path := route.pattern
-
 	index := t.root.methodIndex(method)
 	if index < 0 {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
 
-	result := t.root.search(t.root[index], path, true, t.maxDepth)
+	result := t.copyOnWriteSearch(t.root[index], path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
 		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
 	}
@@ -347,33 +403,21 @@ func (t *tXn) update(method string, route *Route) error {
 		result.matched.wildcardChildIndex,
 	)
 
-	t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+	result.p.updateEdge(n)
 	return nil
 }
 
 // remove is not safe for concurrent use.
 func (t *tXn) remove(method, path string) bool {
-	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
-		if err != nil {
-			panic(err)
-		}
-		t.writable = lru
-	}
-
 	index := t.root.methodIndex(method)
 	if index < 0 {
 		return false
 	}
 
-	result := t.root.search(t.root[index], path, true, t.maxDepth)
-	if result.classify() != exactMatch {
-		return false
-	}
-
-	// This node was created after a split (KEY_END_MID_EGGE operation), therefore we cannot delete
-	// this node.
-	if !result.matched.isLeaf() {
+	result := t.copyOnWriteSearch(t.root[index], path)
+	if !result.isExactMatch() || !result.matched.isLeaf() {
+		// Not and exact match or this node was created after a split (KEY_END_MID_EGGE operation),
+		// therefore we cannot delete it.
 		return false
 	}
 
@@ -387,7 +431,7 @@ func (t *tXn) remove(method, path string) bool {
 			result.matched.wildcardChildIndex,
 		)
 
-		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+		result.p.updateEdge(n)
 		return true
 	}
 
@@ -403,7 +447,7 @@ func (t *tXn) remove(method, path string) bool {
 			child.wildcardChildIndex,
 		)
 
-		t.updateToRoot(result.p, result.pp, result.ppp, result.visited, n)
+		result.p.updateEdge(n)
 		return true
 	}
 
@@ -454,7 +498,7 @@ func (t *tXn) remove(method, path string) bool {
 			return true
 		}
 
-		t.updateToRoot(nil, nil, result.ppp, result.visited, parent)
+		result.ppp.updateEdge(parent)
 		return true
 	}
 
@@ -488,7 +532,7 @@ func (t *tXn) remove(method, path string) bool {
 		return true
 	}
 
-	t.updateToRoot(nil, result.pp, result.ppp, result.visited, parent)
+	result.pp.updateEdge(parent)
 	return true
 }
 
@@ -569,88 +613,6 @@ func (t *tXn) truncate(methods []string) {
 	t.root = nr
 }
 
-// updateToRoot propagate update to the root by cloning any visited node that have not been cloned previously.
-// This effectively allow to create a fully isolated snapshot of the tree.
-// Note: This function should be guarded by mutex.
-func (t *tXn) updateToRoot(p, pp, ppp *node, visited []*node, n *node) {
-	last := n
-	if p != nil {
-		if _, ok := t.writable.Get(p); !ok {
-			p = p.clone()
-			t.writable.Add(p, nil)
-			// pc is root and has never been writen
-			if pp == nil {
-				p.updateEdge(n)
-				t.updateRoot(p)
-				return
-			}
-		}
-
-		// If it's a clone, it's not a root
-		p.updateEdge(n)
-		if pp == nil {
-			return
-		}
-		last = p
-	}
-
-	if pp != nil {
-		if _, ok := t.writable.Get(pp); !ok {
-			pp = pp.clone()
-			t.writable.Add(pp, nil)
-			// ppc is root and has never been writen
-			if ppp == nil {
-				pp.updateEdge(last)
-				t.updateRoot(pp)
-				return
-			}
-		}
-
-		// If it's a clone, it's not a root
-		pp.updateEdge(last)
-		if ppp == nil {
-			return
-		}
-		last = pp
-	}
-
-	if _, ok := t.writable.Get(ppp); !ok {
-		ppp = ppp.clone()
-		t.writable.Add(ppp, nil)
-		// pppc is root and has never been writen
-		if len(visited) == 0 {
-			ppp.updateEdge(last)
-			t.updateRoot(ppp)
-			return
-		}
-	}
-
-	// If it's a clone, it's not a root
-	ppp.updateEdge(last)
-	if len(visited) == 0 {
-		return
-	}
-
-	// Propagate update to the root node
-	current := ppp
-	for i := len(visited) - 1; i >= 0; i-- {
-		vNode := visited[i]
-
-		if _, ok := t.writable.Get(vNode); !ok {
-			vNode = vNode.clone()
-			t.writable.Add(vNode, nil)
-		}
-
-		vNode.updateEdge(current)
-		current = vNode
-	}
-
-	if current != visited[0] {
-		// root is a clone
-		t.updateRoot(current)
-	}
-}
-
 // updateMaxParams perform an update only if max is greater than the current
 func (t *tXn) updateMaxParams(max uint32) {
 	if max > t.maxParams {
@@ -721,4 +683,50 @@ func (t *iTree) allocateContext() *cTx {
 		// This is a read only value, no reset
 		fox: t.fox,
 	}
+}
+
+type resultType int
+
+const (
+	exactMatch resultType = iota
+	incompleteMatchToEndOfEdge
+	incompleteMatchToMiddleOfEdge
+	keyEndMidEdge
+)
+
+type searchResult struct {
+	matched                 *node
+	p                       *node
+	pp                      *node
+	ppp                     *node
+	path                    string
+	visited                 []*node
+	charsMatched            int
+	charsMatchedInNodeFound int
+	depth                   uint32
+}
+
+func (r searchResult) classify() resultType {
+	if r.charsMatched == len(r.path) {
+		if r.charsMatchedInNodeFound == len(r.matched.key) {
+			return exactMatch
+		}
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
+			return keyEndMidEdge
+		}
+	} else if r.charsMatched < len(r.path) {
+		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
+		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
+		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
+			return incompleteMatchToEndOfEdge
+		}
+		if r.charsMatchedInNodeFound < len(r.matched.key) {
+			return incompleteMatchToMiddleOfEdge
+		}
+	}
+	panic("internal error: cannot classify the result")
+}
+
+func (r searchResult) isExactMatch() bool {
+	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }

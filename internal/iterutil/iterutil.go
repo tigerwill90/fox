@@ -1,3 +1,7 @@
+// The code in this package is derivative of https://github.com/jub0bs/iterutil (all credit to jub0bs).
+// Mount of this source code is governed by a MIT License that can be found
+// at https://github.com/jub0bs/iterutil/blob/main/LICENSE.
+
 package iterutil
 
 import "iter"
@@ -40,4 +44,12 @@ func Map[A, B any](seq iter.Seq[A], f func(A) B) iter.Seq[B] {
 			}
 		}
 	}
+}
+
+func Len2[K, V any](seq iter.Seq2[K, V]) int {
+	var n int
+	for range seq {
+		n++
+	}
+	return n
 }

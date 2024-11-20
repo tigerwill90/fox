@@ -36,22 +36,13 @@ func (r roots) methodIndex(method string) int {
 	return -1
 }
 
-func (r roots) search(rootNode *node, path string, write bool, maxDepth uint32) searchResult {
+func (r roots) search(rootNode *node, path string) (matched *node) {
 	current := rootNode
 
 	var (
-		visited                 []*node
-		ppp                     *node
-		pp                      *node
-		p                       *node
 		charsMatched            int
 		charsMatchedInNodeFound int
-		depth                   uint32
 	)
-
-	if write {
-		visited = make([]*node, 0, min(15, maxDepth))
-	}
 
 STOP:
 	for charsMatched < len(path) {
@@ -60,13 +51,6 @@ STOP:
 			break STOP
 		}
 
-		depth++
-		if write && ppp != nil {
-			visited = append(visited, ppp)
-		}
-		ppp = pp
-		pp = p
-		p = current
 		current = next
 		charsMatchedInNodeFound = 0
 		for i := 0; charsMatched < len(path); i++ {
@@ -83,17 +67,17 @@ STOP:
 		}
 	}
 
-	return searchResult{
-		path:                    path,
-		matched:                 current,
-		charsMatched:            charsMatched,
-		charsMatchedInNodeFound: charsMatchedInNodeFound,
-		p:                       p,
-		pp:                      pp,
-		ppp:                     ppp,
-		visited:                 visited,
-		depth:                   depth,
+	if charsMatched == len(path) {
+		// Exact match
+		if charsMatchedInNodeFound == len(current.key) {
+			return current
+		}
+		// Key end mid-edge
+		if charsMatchedInNodeFound < len(current.key) {
+			return current
+		}
 	}
+	return nil
 }
 
 // lookup  returns the node matching the host and/or path. If lazy is false, it parses and record into c, path segment according to
@@ -941,54 +925,4 @@ func parseWildcard(segment string) []param {
 	}
 
 	return params
-}
-
-type resultType int
-
-const (
-	exactMatch resultType = iota
-	incompleteMatchToEndOfEdge
-	incompleteMatchToMiddleOfEdge
-	keyEndMidEdge
-)
-
-type searchResult struct {
-	matched                 *node
-	p                       *node
-	pp                      *node
-	ppp                     *node
-	path                    string
-	visited                 []*node
-	charsMatched            int
-	charsMatchedInNodeFound int
-	depth                   uint32
-}
-
-func (r searchResult) classify() resultType {
-	if r.charsMatched == len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.key) {
-			return exactMatch
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return keyEndMidEdge
-		}
-	} else if r.charsMatched < len(r.path) {
-		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
-		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
-		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
-			return incompleteMatchToEndOfEdge
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return incompleteMatchToMiddleOfEdge
-		}
-	}
-	panic("internal error: cannot classify the result")
-}
-
-func (r searchResult) isExactMatch() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
-}
-
-func (r searchResult) isKeyMidEdge() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound < len(r.matched.key)
 }
