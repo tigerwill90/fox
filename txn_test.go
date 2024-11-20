@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tigerwill90/fox/internal/iterutil"
@@ -156,10 +157,31 @@ func TestTxn_Isolation(t *testing.T) {
 		})
 	})
 
+	t.Run("txn snapshot does not observe further write", func(t *testing.T) {
+		f := New()
+		_ = f.Updates(func(txn *Txn) error {
+			for _, rte := range staticRoutes {
+				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
+			}
+			snapshot := txn.Snapshot()
+
+			for _, rte := range githubAPI {
+				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
+			}
+
+			assert.False(t, snapshot.Has(http.MethodGet, "/repos/{owner}/{repo}/comments"))
+			assert.False(t, snapshot.Has(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
+			assert.True(t, txn.Has(http.MethodGet, "/repos/{owner}/{repo}/comments"))
+			assert.True(t, txn.Has(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
+
+			return nil
+		})
+	})
+
 	t.Run("read only transaction are isolated from write", func(t *testing.T) {
 		f := New()
 		for _, rte := range staticRoutes {
-			f.MustHandle(rte.method, rte.path, emptyHandler)
+			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
 
 		want := 0
@@ -181,14 +203,14 @@ func TestTxn_Isolation(t *testing.T) {
 	t.Run("read only transaction can run uncoordinated", func(t *testing.T) {
 		f := New()
 		for _, rte := range staticRoutes {
-			f.MustHandle(rte.method, rte.path, emptyHandler)
+			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
 
 		txn1 := f.Txn(false)
 		defer txn1.Abort()
 
 		for _, rte := range githubAPI {
-			f.MustHandle(rte.method, rte.path, emptyHandler)
+			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
 
 		txn2 := f.Txn(false)
@@ -196,6 +218,24 @@ func TestTxn_Isolation(t *testing.T) {
 
 		assert.Equal(t, len(staticRoutes), iterutil.Len2(txn1.Iter().All()))
 		assert.Equal(t, len(staticRoutes)+len(githubAPI), iterutil.Len2(txn2.Iter().All()))
+	})
+
+	t.Run("aborted transaction does not write anything", func(t *testing.T) {
+		f := New()
+		for _, rte := range staticRoutes {
+			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+		}
+
+		want := errors.New("aborted")
+		err := f.Updates(func(txn *Txn) error {
+			for _, rte := range githubAPI {
+				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
+			}
+			assert.Equal(t, len(githubAPI)+len(staticRoutes), iterutil.Len2(txn.Iter().All()))
+			return want
+		})
+		assert.Equal(t, err, want)
+		assert.Equal(t, len(staticRoutes), iterutil.Len2(f.Iter().All()))
 	})
 }
 

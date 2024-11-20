@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+// Txn is a read or write transaction on the routing tree.
 type Txn struct {
 	fox     *Router
 	rootTxn *tXn
@@ -20,6 +21,10 @@ type Txn struct {
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To override an existing route, use [Txn.Update].
 func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	if !txn.write {
 		return nil, ErrReadOnlyTxn
 	}
@@ -50,6 +55,10 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To add a new handler, use [Txn.Handle].
 func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	if !txn.write {
 		return nil, ErrReadOnlyTxn
 	}
@@ -79,6 +88,10 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 func (txn *Txn) Delete(method, pattern string) error {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	if !txn.write {
 		return ErrReadOnlyTxn
 	}
@@ -100,6 +113,10 @@ func (txn *Txn) Delete(method, pattern string) error {
 }
 
 func (txn *Txn) Truncate(methods ...string) error {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	if !txn.write {
 		return ErrReadOnlyTxn
 	}
@@ -110,6 +127,10 @@ func (txn *Txn) Truncate(methods ...string) error {
 // Has allows to check if the given method and route pattern exactly match a registered route. This function is NOT
 // thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Route] as an alternative.
 func (txn *Txn) Has(method, pattern string) bool {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	return txn.Route(method, pattern) != nil
 }
 
@@ -117,6 +138,10 @@ func (txn *Txn) Has(method, pattern string) bool {
 // match is found or nil otherwise. This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Tree.Has] as an alternative.
 func (txn *Txn) Route(method, pattern string) *Route {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	tree := txn.rootTxn.tree
 	c := tree.ctx.Get().(*cTx)
 	c.resetNil()
@@ -135,6 +160,10 @@ func (txn *Txn) Route(method, pattern string) *Route {
 // (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Lookup] as an alternative.
 func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	tree := txn.rootTxn.tree
 	c := tree.ctx.Get().(*cTx)
 	c.resetNil()
@@ -152,6 +181,10 @@ func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
 // [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is NOT
 // thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Reverse] as an alternative.
 func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	tree := txn.rootTxn.tree
 	c := tree.ctx.Get().(*cTx)
 	c.resetWithWriter(w, r)
@@ -177,6 +210,10 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 // iterating is allowed, but the mutation will not be observed in the result returned by iterators collection.
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 func (txn *Txn) Iter() Iter {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
 	rt := txn.rootTxn.root
 	if txn.write {
 		rt = txn.rootTxn.snapshot()
@@ -228,4 +265,18 @@ func (txn *Txn) Abort() {
 	// Clear the txn
 	txn.rootTxn = nil
 	txn.fox.mu.Unlock()
+}
+
+// Snapshot returns a point in time snapshot of the current state of the transaction.
+// Returns a new read-only transaction or nil if the transaction is already aborted
+// or commited.
+func (txn *Txn) Snapshot() *Txn {
+	if txn.rootTxn == nil {
+		return nil
+	}
+
+	return &Txn{
+		fox:     txn.fox,
+		rootTxn: txn.rootTxn.clone(),
+	}
 }

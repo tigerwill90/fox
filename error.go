@@ -19,6 +19,7 @@ var (
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 	ErrNoClientIPStrategy      = errors.New("no client ip strategy")
 	ErrReadOnlyTxn             = errors.New("write on read-only transaction")
+	ErrSettledTxn              = errors.New("transaction settled")
 )
 
 // RouteConflictError is a custom error type used to represent conflicts when

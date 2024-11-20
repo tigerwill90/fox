@@ -184,7 +184,7 @@ func (fox *Router) ClientIPStrategyEnabled() bool {
 // It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.Update].
 func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	txn := fox.Txn(true)
+	txn := fox.txnWith(true, false)
 	defer txn.Abort()
 	rte, err := txn.Handle(method, pattern, handler, opts...)
 	if err != nil {
@@ -214,7 +214,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To add new handler, use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	txn := fox.Txn(true)
+	txn := fox.txnWith(true, false)
 	defer txn.Abort()
 	rte, err := txn.Update(method, pattern, handler, opts...)
 	if err != nil {
@@ -231,7 +231,7 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
 func (fox *Router) Delete(method, pattern string) error {
-	txn := fox.Txn(true)
+	txn := fox.txnWith(true, false)
 	defer txn.Abort()
 	if err := txn.Delete(method, pattern); err != nil {
 		return err
@@ -364,11 +364,15 @@ func (fox *Router) View(fn func(txn *Txn) error) error {
 // However, the returned [Txn] itself is NOT tread-safe.
 // See also [Router.Updates] and [Router.View] for managed read-write and 	read-only transaction.
 func (fox *Router) Txn(write bool) *Txn {
+	return fox.txnWith(write, true)
+}
+
+func (fox *Router) txnWith(write, cache bool) *Txn {
 	if write {
 		fox.mu.Lock()
 	}
 
-	rootTxn := fox.getRoot().txn()
+	rootTxn := fox.getRoot().txn(cache)
 	return &Txn{
 		fox:     fox,
 		write:   write,

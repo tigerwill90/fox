@@ -494,13 +494,13 @@ func BenchmarkStaticAll(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
+// BenchmarkInsertStatic-16    	    3975	    318519 ns/op	  335701 B/op	    4506 allocs/op
 func BenchmarkInsertStatic(b *testing.B) {
-	f := New()
-
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for range b.N {
+		f := New()
 		for _, route := range staticRoutes {
 			f.Handle(route.method, route.path, emptyHandler)
 		}
@@ -508,18 +508,19 @@ func BenchmarkInsertStatic(b *testing.B) {
 }
 
 func BenchmarkInsertStaticTx(b *testing.B) {
-	f := New()
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for range b.N {
+		f := New()
 		txn := f.Txn(true)
 		for _, route := range staticRoutes {
 			txn.Handle(route.method, route.path, emptyHandler)
 		}
 		txn.Commit()
 	}
+
 }
 
 func BenchmarkGithubParamsAll(b *testing.B) {
@@ -5478,7 +5479,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 		}
 		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
 		tree := r.getRoot()
-		txn := tree.txn()
+		txn := tree.txn(true)
 		if err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 3); err == nil {
 			c := newTestContext(r)
 			n, tsr := lookupByPath(tree, txn.root[0].children[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
@@ -5501,7 +5502,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 	f.Fuzz(&routes)
 
 	tree := r.getRoot()
-	txn := tree.txn()
+	txn := tree.txn(true)
 
 	for rte := range routes {
 		if rte == "" {
@@ -5529,7 +5530,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	f.Fuzz(&routes)
 
 	tree := r.getRoot()
-	txn := tree.txn()
+	txn := tree.txn(true)
 	for rte := range routes {
 		path := "/" + rte
 		err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 0)
@@ -5542,7 +5543,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	assert.Equal(t, len(routes), countPath)
 
 	tree = r.getRoot()
-	txn = tree.txn()
+	txn = tree.txn(true)
 	for rte := range routes {
 		c := newTestContext(r)
 		n, tsr := lookupByPath(tree, tree.root[0].children[0], "/"+rte, c, true)

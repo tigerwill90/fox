@@ -20,7 +20,7 @@ type rawIterator struct {
 	stack   []stack
 }
 
-const stackSizeThreshold = 15
+const stackSizeThreshold = 25
 
 type stack struct {
 	edges []*node

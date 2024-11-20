@@ -13,22 +13,23 @@ import (
 
 const defaultModifiedCache = 4096
 
-// iTree implements an immutable Radix Tree. The immutability means that it is safe to concurrently read from a Tree
-// without any coordination.
+// iTree implements an immutable Radix Tree. The immutability means that it is safe to
+// concurrently read from a Tree without any coordination.
 type iTree struct {
 	ctx       sync.Pool
-	root      roots
 	fox       *Router
+	root      roots
 	maxParams uint32
 	maxDepth  uint32
 }
 
-func (t *iTree) txn() *tXn {
+func (t *iTree) txn(cache bool) *tXn {
 	return &tXn{
 		tree:      t,
 		root:      t.root,
 		maxParams: t.maxParams,
 		maxDepth:  t.maxDepth,
+		cache:     cache,
 	}
 }
 
@@ -47,6 +48,7 @@ type tXn struct {
 	root      roots
 	maxParams uint32
 	maxDepth  uint32
+	cache     bool
 }
 
 func (t *tXn) commit() *iTree {
@@ -123,7 +125,9 @@ STOP:
 		if p != nil {
 			if _, ok := t.writable.Get(p); !ok {
 				cp := p.clone()
-				t.writable.Add(cp, nil)
+				if t.cache {
+					t.writable.Add(cp, nil)
+				}
 				if pp == nil {
 					t.updateRoot(cp)
 				} else {
@@ -288,7 +292,9 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 		if result.matched == rootNode {
 			n.key = method
-			t.writable.Add(n, nil)
+			if t.cache {
+				t.writable.Add(n, nil)
+			}
 			t.updateRoot(n)
 			break
 		}
@@ -493,7 +499,9 @@ func (t *tXn) remove(method, path string) bool {
 				return t.removeRoot(method)
 			}
 			parent.key = method
-			t.writable.Add(parent, nil)
+			if t.cache {
+				t.writable.Add(parent, nil)
+			}
 			t.updateRoot(parent)
 			return true
 		}
@@ -527,7 +535,9 @@ func (t *tXn) remove(method, path string) bool {
 			return t.removeRoot(method)
 		}
 		parent.key = method
-		t.writable.Add(parent, nil)
+		if t.cache {
+			t.writable.Add(parent, nil)
+		}
 		t.updateRoot(parent)
 		return true
 	}

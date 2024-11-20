@@ -69,6 +69,8 @@ type Context interface {
 	QueryParam(name string) string
 	// SetHeader sets the response header for the given key to the specified value.
 	SetHeader(key, value string)
+	// AddHeader add the response header for the given key to the specified value.
+	AddHeader(key, value string)
 	// Header retrieves the value of the request header for the given key.
 	Header(key string) string
 	// String sends a formatted string with the specified status code.
@@ -249,6 +251,11 @@ func (c *cTx) QueryParam(name string) string {
 // SetHeader sets the response header for the given key to the specified value.
 func (c *cTx) SetHeader(key, value string) {
 	c.w.Header().Set(key, value)
+}
+
+// AddHeader add the response header for the given key to the specified value.
+func (c *cTx) AddHeader(key, value string) {
+	c.w.Header().Add(key, value)
 }
 
 // Header retrieves the value of the request header for the given key.

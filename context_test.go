@@ -295,8 +295,10 @@ func TestContext_Header(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	fox, c := NewTestContext(w, r)
 	c.SetHeader(HeaderServer, "go")
+	c.AddHeader("foo", "bar")
 	fox.ServeHTTP(w, r)
 	assert.Equal(t, "go", w.Header().Get(HeaderServer))
+	assert.Equal(t, "bar", w.Header().Get("foo"))
 }
 
 func TestContext_GetHeader(t *testing.T) {
