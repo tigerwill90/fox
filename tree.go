@@ -710,7 +710,6 @@ type searchResult struct {
 	pp                      *node
 	ppp                     *node
 	path                    string
-	visited                 []*node
 	charsMatched            int
 	charsMatchedInNodeFound int
 	depth                   uint32
