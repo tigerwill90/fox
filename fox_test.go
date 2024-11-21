@@ -5711,14 +5711,22 @@ func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(c Context) {})
-	newH := HandlerFunc(func(c Context) {})
+	h := HandlerFunc(func(c Context) {
+		c.Pattern()
+		for range c.Params() {
+		}
+	})
+	newH := HandlerFunc(func(c Context) {
+		c.Pattern()
+		for range c.Params() {
+		}
+	})
 
 	f := New()
 
 	w := new(mockResponseWriter)
 
-	wg.Add(len(githubAPI) * 3)
+	wg.Add(len(githubAPI) * 4)
 	for _, rte := range githubAPI {
 		go func(method, route string) {
 			wait()
@@ -5752,11 +5760,22 @@ func TestDataRace(t *testing.T) {
 			}
 		}(rte.method, rte.path)
 
+		go func() {
+			wait()
+			defer wg.Done()
+			for route := range iterutil.Right(f.Iter().All()) {
+				route.Pattern()
+				for range route.Annotations() {
+
+				}
+			}
+		}()
+
 		go func(method, route string) {
 			wait()
+			defer wg.Done()
 			req := httptest.NewRequest(method, route, nil)
 			f.ServeHTTP(w, req)
-			wg.Done()
 		}(rte.method, rte.path)
 	}
 
