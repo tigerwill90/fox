@@ -2,7 +2,7 @@
 // Mount of this source code is governed by a BSD Zero Clause License that can be found
 // at https://github.com/realclientip/realclientip-go/blob/main/LICENSE.
 
-package strategy
+package clientip
 
 import (
 	"errors"
@@ -20,7 +20,7 @@ func TestRemoteAddrStrategy_ClientIP(t *testing.T) {
 	req.Header.Add("X-Forwarded-For", "1.1.1.1, 2001:db8:cafe::99%eth0, 3.3.3.3, 192.168.1.1")
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 
 	cases := []struct {
 		name     string
@@ -81,7 +81,7 @@ func TestSingleIPHeaderStrategy_ClientIP(t *testing.T) {
 	req.Header.Add("X-Real-IP", "5.5.5.5")
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 
 	s := NewSingleIPHeader("X-Real-IP")
 	ipAddr, err := s.ClientIP(c)
@@ -98,7 +98,7 @@ func TestLeftmostNonPrivateStrategy_ClientIP(t *testing.T) {
 	req.Header.Add("Forwarded", `For=fe80::abcd;By=fe80::1234, Proto=https;For=::ffff:188.0.2.128, For="[2001:db8:cafe::17]:4848", For=fc00::1`)
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 
 	s := NewLeftmostNonPrivate(ForwardedKey, ExcludeLoopback(true), ExcludeLinkLocal(true), ExcludePrivateNet(true))
 	assert.ElementsMatch(t, privateAndLocalRanges, s.blacklistedRanges)
@@ -117,7 +117,7 @@ func TestRightmostNonPrivateStrategy_ClientIP(t *testing.T) {
 	req.Header.Add("X-Forwarded-For", "1.1.1.1, 2001:db8:cafe::99%eth0, 3.3.3.3, 192.168.1.1")
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	s := NewRightmostNonPrivate(XForwardedForKey, TrustLoopback(true), TrustLinkLocal(true), TrustPrivateNet(true))
 	assert.ElementsMatch(t, privateAndLocalRanges, s.trustedRanges)
 	ipAddr, err := s.ClientIP(c)
@@ -141,7 +141,7 @@ func TestRightmostTrustedCountStrategy_ClientIP(t *testing.T) {
 	req.Header.Add("Forwarded", `For=fe80::abcd;By=fe80::1234, Proto=https;For=::ffff:188.0.2.128, For="[2001:db8:cafe::17]:4848", For=fc00::1`)
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	s := NewRightmostTrustedCount(ForwardedKey, 2)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestRightmostTrustedRangeStrategy_ClientIP(t *testing.T) {
 	req.Header.Add("X-Forwarded-For", "1.1.1.1, 2001:db8:cafe::99%eth0, 3.3.3.3, 192.168.1.1")
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	trustedRanges, _ := AddressesAndRangesToIPNets([]string{"192.168.0.0/16", "3.3.3.3"}...)
 	s := NewRightmostTrustedRange(XForwardedForKey, IPRangeResolverFunc(func() ([]net.IPNet, error) {
 		return trustedRanges, nil
@@ -202,7 +202,7 @@ func TestChainStrategy_ClientIP(t *testing.T) {
 	req.RemoteAddr = "192.0.2.1:8080"
 	w := httptest.NewRecorder()
 
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	s := NewChain(
 		NewSingleIPHeader("Cf-Connecting-IP"),
 		NewRemoteAddr(),
@@ -877,7 +877,7 @@ func TestRemoteAddrStrategy(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 	w := httptest.NewRecorder()
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := RemoteAddr{}
@@ -1088,7 +1088,7 @@ func TestSingleIPHeaderStrategy(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 	w := httptest.NewRecorder()
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var s fox.ClientIPStrategy
@@ -1331,7 +1331,7 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 	w := httptest.NewRecorder()
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var s fox.ClientIPStrategy
@@ -1575,7 +1575,7 @@ func TestRightmostNonPrivateStrategy(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 	w := httptest.NewRecorder()
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var s fox.ClientIPStrategy
@@ -1734,7 +1734,7 @@ func TestRightmostTrustedCountStrategy(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 	w := httptest.NewRecorder()
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var s fox.ClientIPStrategy
@@ -1929,7 +1929,7 @@ func TestRightmostTrustedRangeStrategy(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "https://example.com", nil)
 	w := httptest.NewRecorder()
-	c := fox.NewTestContextOnly(fox.New(), w, req)
+	c := fox.NewTestContextOnly(w, req)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 

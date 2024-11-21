@@ -20,7 +20,7 @@ func TestContext_Writer_ReadFrom(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	w := httptest.NewRecorder()
 
-	c := NewTestContextOnly(New(), w, req)
+	c := NewTestContextOnly(w, req)
 
 	n, err := c.Writer().ReadFrom(bytes.NewBuffer([]byte("foo bar")))
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestContext_SetWriter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	w := httptest.NewRecorder()
 
-	c := NewTestContextOnly(New(), w, req)
+	c := NewTestContextOnly(w, req)
 
 	newRec := new(recorder)
 	c.SetWriter(newRec)
@@ -45,7 +45,7 @@ func TestContext_SetRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	w := httptest.NewRecorder()
 
-	c := NewTestContextOnly(New(), w, req)
+	c := NewTestContextOnly(w, req)
 
 	newReq := new(http.Request)
 	c.SetRequest(newReq)
@@ -61,7 +61,7 @@ func TestContext_QueryParams(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTestContextTree(New().Tree())
+	c := newTestContext(New())
 	c.req = req
 	values := c.QueryParams()
 	assert.Equal(t, wantValues, values)
@@ -77,7 +77,7 @@ func TestContext_QueryParam(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTestContextTree(New().Tree())
+	c := newTestContext(New())
 	c.req = req
 	assert.Equal(t, "b", c.QueryParam("a"))
 	assert.Equal(t, "d", c.QueryParam("c"))
@@ -98,6 +98,32 @@ func TestContext_Route(t *testing.T) {
 	assert.Equal(t, "/foo", w.Body.String())
 }
 
+func TestContext_Path(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/{a}", func(c Context) {
+		_, _ = io.WriteString(c.Writer(), c.Path())
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	f.ServeHTTP(w, r)
+	assert.Equal(t, "/foo", w.Body.String())
+}
+
+func TestContext_Host(t *testing.T) {
+	t.Parallel()
+	f := New()
+	f.MustHandle(http.MethodGet, "/{a}", func(c Context) {
+		_, _ = io.WriteString(c.Writer(), c.Host())
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
+	f.ServeHTTP(w, r)
+	assert.Equal(t, "example.com", w.Body.String())
+}
+
 func TestContext_Annotations(t *testing.T) {
 	t.Parallel()
 	f := New()
@@ -108,7 +134,7 @@ func TestContext_Annotations(t *testing.T) {
 		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
 		WithAnnotations(Annotation{Key: "john", Value: 1}),
 	)
-	rte := f.Tree().Route(http.MethodGet, "/foo")
+	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.Equal(t, []Annotation{{Key: "foo", Value: "bar"}, {Key: "foo", Value: "baz"}, {Key: "john", Value: 1}}, slices.Collect(rte.Annotations()))
 }
@@ -209,7 +235,7 @@ func TestContext_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.RemoteAddr = "192.0.2.1:8080"
-	c := NewTestContextOnly(New(), w, r)
+	c := NewTestContextOnly(w, r)
 	_, err := c.ClientIP()
 	assert.ErrorIs(t, err, ErrNoClientIPStrategy)
 }
@@ -269,8 +295,10 @@ func TestContext_Header(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	fox, c := NewTestContext(w, r)
 	c.SetHeader(HeaderServer, "go")
+	c.AddHeader("foo", "bar")
 	fox.ServeHTTP(w, r)
 	assert.Equal(t, "go", w.Header().Get(HeaderServer))
+	assert.Equal(t, "bar", w.Header().Get("foo"))
 }
 
 func TestContext_GetHeader(t *testing.T) {
@@ -290,19 +318,6 @@ func TestContext_Fox(t *testing.T) {
 	f := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
 		assert.NotNil(t, c.Fox())
-	})))
-
-	f.ServeHTTP(w, req)
-}
-
-func TestContext_Tree(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
-
-	f := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
-		assert.NotNil(t, c.Tree())
 	})))
 
 	f.ServeHTTP(w, req)

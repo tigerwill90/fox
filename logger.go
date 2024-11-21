@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// LoggerWithHandler returns a middleware that logs request information using the provided slog.Handler.
+// LoggerWithHandler returns a middleware that logs request information using the provided [slog.Handler].
 // It logs details such as the remote or client IP, HTTP method, request path, status code and latency.
 func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 	log := slog.New(handler)
@@ -45,6 +45,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					ipStr,
 					slog.Int("status", c.Writer().Status()),
 					slog.String("method", req.Method),
+					slog.String("host", c.Host()),
 					slog.String("path", c.Request().URL.String()),
 					slog.Duration("latency", roundLatency(latency)),
 				)
@@ -55,6 +56,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 					ipStr,
 					slog.Int("status", c.Writer().Status()),
 					slog.String("method", req.Method),
+					slog.String("host", c.Host()),
 					slog.String("path", c.Request().URL.String()),
 					slog.Duration("latency", roundLatency(latency)),
 					slog.String("location", location),
@@ -64,7 +66,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 	}
 }
 
-// Logger returns a middleware that logs request information to os.Stdout or os.Stderr (for ERROR level).
+// Logger returns a middleware that logs request information to [os.Stdout] or [os.Stderr] (for ERROR level).
 // It logs details such as the remote or client IP, HTTP method, request path, status code and latency.
 func Logger() MiddlewareFunc {
 	return LoggerWithHandler(slogpretty.DefaultHandler)

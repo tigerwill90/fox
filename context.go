@@ -59,12 +59,18 @@ type Context interface {
 	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
+	// Path returns the request URL path.
+	Path() string
+	// Host returns the request host.
+	Host() string
 	// QueryParams parses the [http.Request] raw query and returns the corresponding values.
 	QueryParams() url.Values
 	// QueryParam returns the first query value associated with the given key.
 	QueryParam(name string) string
 	// SetHeader sets the response header for the given key to the specified value.
 	SetHeader(key, value string)
+	// AddHeader add the response header for the given key to the specified value.
+	AddHeader(key, value string)
 	// Header retrieves the value of the request header for the given key.
 	Header(key string) string
 	// String sends a formatted string with the specified status code.
@@ -85,25 +91,20 @@ type Context interface {
 	// Scope returns the [HandlerScope] associated with the current [Context].
 	// This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
 	Scope() HandlerScope
-	// Tree is a local copy of the [Tree] in use to serve the request.
-	Tree() *Tree
 	// Fox returns the [Router] instance.
 	Fox() *Router
 }
 
 // cTx holds request-related information and allows interaction with the [ResponseWriter].
 type cTx struct {
-	w         ResponseWriter
-	req       *http.Request
-	params    *Params
-	tsrParams *Params
-	skipNds   *skippedNodes
-	route     *Route
-
-	// tree at allocation (read-only, no reset)
-	tree *Tree
-	// router at allocation (read-only, no reset)
-	fox         *Router
+	w           ResponseWriter
+	req         *http.Request
+	params      *Params
+	tsrParams   *Params
+	skipNds     *skippedNodes
+	route       *Route
+	tree        *iTree  // no reset
+	fox         *Router // no reset
 	cachedQuery url.Values
 	rec         recorder
 	scope       HandlerScope
@@ -188,7 +189,6 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 // in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even
 // worthy of panicking.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (c *cTx) ClientIP() (*net.IPAddr, error) {
 	// We may be in a handler which does not match a route like NotFound handler.
 	if c.route == nil {
@@ -227,6 +227,16 @@ func (c *cTx) Param(name string) string {
 	return ""
 }
 
+// Path returns the request URL path.
+func (c *cTx) Path() string {
+	return c.req.URL.Path
+}
+
+// Host returns the request host.
+func (c *cTx) Host() string {
+	return c.req.Host
+}
+
 // QueryParams parses the [http.Request] raw query and returns the corresponding values.
 func (c *cTx) QueryParams() url.Values {
 	return c.getQueries()
@@ -240,6 +250,11 @@ func (c *cTx) QueryParam(name string) string {
 // SetHeader sets the response header for the given key to the specified value.
 func (c *cTx) SetHeader(key, value string) {
 	c.w.Header().Set(key, value)
+}
+
+// AddHeader add the response header for the given key to the specified value.
+func (c *cTx) AddHeader(key, value string) {
+	c.w.Header().Add(key, value)
 }
 
 // Header retrieves the value of the request header for the given key.
@@ -295,11 +310,6 @@ func (c *cTx) Redirect(code int, url string) error {
 	return nil
 }
 
-// Tree is a local copy of the [Tree] in use to serve the request.
-func (c *cTx) Tree() *Tree {
-	return c.tree
-}
-
 // Fox returns the [Router] instance.
 func (c *cTx) Fox() *Router {
 	return c.fox
@@ -312,7 +322,6 @@ func (c *cTx) Clone() Context {
 		rec:   c.rec,
 		req:   c.req.Clone(c.req.Context()),
 		fox:   c.fox,
-		tree:  c.tree,
 		route: c.route,
 		scope: c.scope,
 		tsr:   c.tsr,
@@ -356,19 +365,25 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	return cp
 }
 
-// Scope returns the HandlerScope associated with the current Context.
-// This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
+func copyWithResize[S ~[]T, T any](dst, src *S) {
+	if len(*src) > len(*dst) {
+		// Grow dst cap to a least len(src)
+		*dst = slices.Grow(*dst, len(*src)-len(*dst))
+	}
+	// cap(dst) >= len(src)
+	// now constraint into len(src) & cap(dst)
+	*dst = (*dst)[:len(*src):cap(*dst)]
+	copy(*dst, *src)
+}
+
+// Scope returns the [HandlerScope] associated with the current [Context].
+// This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
 func (c *cTx) Scope() HandlerScope {
 	return c.scope
 }
 
 // Close releases the context to be reused later.
 func (c *cTx) Close() {
-	// Put back the context, if not extended more than max params or max depth, allowing
-	// the slice to naturally grow within the constraint.
-	if cap(*c.params) > int(c.tree.maxParams.Load()) || cap(*c.skipNds) > int(c.tree.maxDepth.Load()) {
-		return
-	}
 	c.tree.ctx.Put(c)
 }
 
@@ -383,7 +398,7 @@ func (c *cTx) getQueries() url.Values {
 	return c.cachedQuery
 }
 
-// WrapF is an adapter for wrapping http.HandlerFunc and returns a HandlerFunc function.
+// WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {

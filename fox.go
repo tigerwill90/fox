@@ -5,6 +5,7 @@
 package fox
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"net"
@@ -19,6 +20,13 @@ import (
 )
 
 const verb = 4
+
+const (
+	slashDelim   byte = '/'
+	dotDelim     byte = '.'
+	bracketDelim byte = '{'
+	starDelim    byte = '*'
+)
 
 var (
 	// regEnLetter matches english letters for http method name.
@@ -49,7 +57,7 @@ type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 // chosen and tuned for your network configuration. This should result in the strategy never returning an error
 // i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
 // an application error, perhaps even worthy of panicking. Builtin best practices strategies can be found in the
-// github.com/tigerwill90/fox/strategy package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
+// github.com/tigerwill90/fox/clientip package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
 // how to choose the right strategy for your use-case and network.
 type ClientIPStrategy interface {
 	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
@@ -93,9 +101,10 @@ type Router struct {
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
-	tree                   atomic.Pointer[Tree]
+	tree                   atomic.Pointer[iTree]
 	ipStrategy             ClientIPStrategy
 	mws                    []middleware
+	mu                     sync.Mutex
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
@@ -128,87 +137,38 @@ func New(opts ...GlobalOption) *Router {
 	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler)
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
-	r.tree.Store(r.NewTree())
+	r.tree.Store(r.newTree())
 	return r
 }
 
 // MethodNotAllowedEnabled returns whether the router is configured to handle
 // requests with methods that are not allowed.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) MethodNotAllowedEnabled() bool {
 	return fox.handleMethodNotAllowed
 }
 
 // AutoOptionsEnabled returns whether the router is configured to automatically
 // respond to OPTIONS requests.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) AutoOptionsEnabled() bool {
 	return fox.handleOptions
 }
 
 // RedirectTrailingSlashEnabled returns whether the router is configured to automatically
 // redirect requests that include or omit a trailing slash.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) RedirectTrailingSlashEnabled() bool {
 	return fox.redirectTrailingSlash
 }
 
 // IgnoreTrailingSlashEnabled returns whether the router is configured to ignore
 // trailing slashes in requests when matching routes.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 	return fox.ignoreTrailingSlash
 }
 
-// ClientIPStrategyEnabled returns whether the router is configured with a ClientIPStrategy.
-// This api is EXPERIMENTAL and is likely to change in future release.
+// ClientIPStrategyEnabled returns whether the router is configured with a [ClientIPStrategy].
 func (fox *Router) ClientIPStrategyEnabled() bool {
 	_, ok := fox.ipStrategy.(noClientIPStrategy)
 	return !ok
-}
-
-// NewTree returns a fresh routing [Tree] that inherits all registered router options. It's safe to create multiple [Tree]
-// concurrently. However, a Tree itself is not thread-safe and all its APIs that perform write operations should be run
-// serially. Note that a [Tree] give direct access to the underlying [sync.Mutex].
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) NewTree() *Tree {
-	tree := new(Tree)
-	tree.fox = fox
-
-	// Pre instantiate nodes for common http verb
-	nds := make([]*node, len(commonVerbs))
-	for i := range commonVerbs {
-		nds[i] = new(node)
-		nds[i].key = commonVerbs[i]
-		nds[i].paramChildIndex = -1
-		nds[i].wildcardChildIndex = -1
-	}
-	tree.nodes.Store(&nds)
-
-	tree.ctx = sync.Pool{
-		New: func() any {
-			return tree.allocateContext()
-		},
-	}
-
-	return tree
-}
-
-// Tree atomically loads and return the currently in-use routing tree.
-// This API is EXPERIMENTAL and is likely to change in future release.
-func (fox *Router) Tree() *Tree {
-	return fox.tree.Load()
-}
-
-// Swap atomically replaces the currently in-use routing tree with the provided new tree, and returns the previous tree.
-// Note that the swap will panic if the current tree belongs to a different instance of the router, preventing accidental
-// replacement of trees from different routers.
-func (fox *Router) Swap(new *Tree) (old *Tree) {
-	current := fox.tree.Load()
-	if current.fox != new.fox {
-		panic("swap failed: current and new routing trees belong to different router instances")
-	}
-	return fox.tree.Swap(new)
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -217,19 +177,23 @@ func (fox *Router) Swap(new *Tree) (old *Tree) {
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
-// It's safe to add a new handler while the tree is in use for serving requests. This function is safe for concurrent
-// use by multiple goroutine. To override an existing route, use [Router.Update].
+// It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine. To override an existing route, use [Router.Update].
 func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	t := fox.Tree()
-	t.Lock()
-	defer t.Unlock()
-	return t.Handle(method, pattern, handler, opts...)
+	txn := fox.txnWith(true, false)
+	defer txn.Abort()
+	rte, err := txn.Handle(method, pattern, handler, opts...)
+	if err != nil {
+		return nil, err
+	}
+	txn.Commit()
+	return rte, nil
 }
 
 // MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
-// add a new handler while the tree is in use for serving requests. This function is safe for concurrent use by multiple
-// goroutines. To override an existing route, use [Router.Update].
+// add a new handler while the router is serving requests. This function is safe for concurrent use by multiple goroutines.
+// To override an existing route, use [Router.Update].
 func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
 	rte, err := fox.Handle(method, pattern, handler, opts...)
 	if err != nil {
@@ -243,45 +207,223 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
-// It's safe to update a handler while the tree is in use for serving requests. This function is safe for concurrent
-// use by multiple goroutine. To add new handler, use [Router.Handle] method.
+// It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine. To add new handler, use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	t := fox.Tree()
-	t.Lock()
-	defer t.Unlock()
-	return t.Update(method, pattern, handler, opts...)
+	txn := fox.txnWith(true, false)
+	defer txn.Abort()
+	rte, err := txn.Update(method, pattern, handler, opts...)
+	if err != nil {
+		return nil, err
+	}
+	txn.Commit()
+	return rte, nil
 }
 
 // Delete deletes an existing handler for the given method and route pattern. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
-// It's safe to delete a handler while the tree is in use for serving requests. This function is safe for concurrent
-// use by multiple goroutine.
+// It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine.
 func (fox *Router) Delete(method, pattern string) error {
-	t := fox.Tree()
-	t.Lock()
-	defer t.Unlock()
-	return t.Delete(method, pattern)
+	txn := fox.txnWith(true, false)
+	defer txn.Abort()
+	if err := txn.Delete(method, pattern); err != nil {
+		return err
+	}
+	txn.Commit()
+	return nil
+}
+
+// Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for
+// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Route] as an alternative.
+func (fox *Router) Has(method, pattern string) bool {
+	return fox.Route(method, pattern) != nil
+}
+
+// Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
+// match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
+// mutation on route are ongoing. See also [Router.Has] as an alternative.
+func (fox *Router) Route(method, pattern string) *Route {
+	tree := fox.getRoot()
+	c := tree.ctx.Get().(*cTx)
+	c.resetNil()
+
+	host, path := SplitHostPath(pattern)
+	n, tsr := tree.lookup(method, host, path, c, true)
+	tree.ctx.Put(c)
+	if n != nil && !tsr && n.route.pattern == pattern {
+		return n.route
+	}
+	return nil
+}
+
+// Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]
+// (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
+// (trailing slash action recommended). If the path is empty, a default slash is automatically added. This function
+// is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Lookup]
+// as an alternative.
+func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
+	tree := fox.getRoot()
+	c := tree.ctx.Get().(*cTx)
+	c.resetNil()
+	n, tsr := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
+	tree.ctx.Put(c)
+	if n != nil {
+		return n.route, tsr
+	}
+	return nil, false
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
 // [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
 // [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
-// concurrent use by multiple goroutine and while mutation on [Tree] are ongoing. See also [Tree.Reverse] as an alternative.
-// This API is EXPERIMENTAL and is likely to change in future release.
+// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Reverse] as an alternative.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
-	tree := fox.Tree()
-	return tree.Lookup(w, r)
+	tree := fox.getRoot()
+	c := tree.ctx.Get().(*cTx)
+	c.resetWithWriter(w, r)
+
+	path := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		path = r.URL.RawPath
+	}
+
+	n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
+	if n != nil {
+		c.route = n.route
+		c.tsr = tsr
+		return n.route, c, tsr
+	}
+	tree.ctx.Put(c)
+	return nil, nil, tsr
 }
 
-// Iter returns an iterator that provides access to a collection of iterators for traversing the routing tree.
-// This function is safe for concurrent use by multiple goroutines and can operate while the [Tree] is being modified.
-// This API is EXPERIMENTAL and may change in future releases.
+// Iter returns a collection of range iterators for traversing registered methods and routes. It creates a
+// point-in-time snapshot of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent
+// write on the router. This function is safe for concurrent use by multiple goroutine and while mutation on
+// routes are ongoing.
 func (fox *Router) Iter() Iter {
-	tree := fox.Tree()
-	return tree.Iter()
+	rt := fox.getRoot()
+	return Iter{
+		tree:     rt,
+		root:     rt.root,
+		maxDepth: rt.maxDepth,
+	}
+}
+
+// Updates executes a function within the context of a read-write managed transaction. If no error is returned from the
+// function then the transaction is committed. If an error is returned then the entire transaction is aborted.
+// Updates returns any error returned by fn. This function is safe for concurrent use by multiple goroutine and while
+// the router is serving request. However [Txn] itself is NOT tread-safe.
+// See also [Router.Txn] for unmanaged transaction and [Router.View] for managed read-only transaction.
+func (fox *Router) Updates(fn func(txn *Txn) error) error {
+	txn := fox.Txn(true)
+	defer func() {
+		if p := recover(); p != nil {
+			txn.Abort()
+			panic(p)
+		}
+		txn.Abort()
+	}()
+	if err := fn(txn); err != nil {
+		return err
+	}
+	txn.Commit()
+	return nil
+}
+
+// View executes a function within the context of a read-only managed transaction. View returns any error returned
+// by fn. This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
+// However [Txn] itself is NOT tread-safe.
+// See also [Router.Txn] for unmanaged transaction and [Router.Updates] for managed read-write transaction.
+func (fox *Router) View(fn func(txn *Txn) error) error {
+	txn := fox.Txn(false)
+	defer func() {
+		if p := recover(); p != nil {
+			txn.Abort()
+			panic(p)
+		}
+		txn.Abort()
+	}()
+	return fn(txn)
+}
+
+// Txn create a new read-write or read-only transaction. Each [Txn] must be finalized with [Txn.Commit] or [Txn.Abort].
+// It's safe to create transaction from multiple goroutine and while the router is serving request.
+// However, the returned [Txn] itself is NOT tread-safe.
+// See also [Router.Updates] and [Router.View] for managed read-write and 	read-only transaction.
+func (fox *Router) Txn(write bool) *Txn {
+	return fox.txnWith(write, true)
+}
+
+func (fox *Router) txnWith(write, cache bool) *Txn {
+	if write {
+		fox.mu.Lock()
+	}
+
+	return &Txn{
+		fox:     fox,
+		write:   write,
+		rootTxn: fox.getRoot().txn(cache),
+	}
+}
+
+// newTree returns a fresh routing tree that inherits all registered router options.
+func (fox *Router) newTree() *iTree {
+	tree := new(iTree)
+	tree.fox = fox
+
+	// Pre instantiate nodes for common http verb
+	nr := make(roots, len(commonVerbs))
+	for i := range commonVerbs {
+		nr[i] = new(node)
+		nr[i].key = commonVerbs[i]
+		nr[i].paramChildIndex = -1
+		nr[i].wildcardChildIndex = -1
+	}
+	tree.root = nr
+	tree.ctx = sync.Pool{
+		New: func() any {
+			return tree.allocateContext()
+		},
+	}
+
+	return tree
+}
+
+// newRoute create a new route, apply route options and apply middleware on the handler.
+func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, uint32, error) {
+	n, endHost, err := parseRoute(pattern)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rte := &Route{
+		ipStrategy:            fox.ipStrategy,
+		hbase:                 handler,
+		pattern:               pattern,
+		mws:                   fox.mws,
+		redirectTrailingSlash: fox.redirectTrailingSlash,
+		ignoreTrailingSlash:   fox.ignoreTrailingSlash,
+		hostSplit:             endHost, // 0 if no host
+	}
+
+	for _, opt := range opts {
+		opt.applyRoute(rte)
+	}
+	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
+
+	return rte, n, nil
+}
+
+// getRoot load the tree atomically.
+func (fox *Router) getRoot() *iTree {
+	r := fox.tree.Load()
+	return r
 }
 
 // DefaultNotFoundHandler is a simple [HandlerFunc] that replies to each request
@@ -339,26 +481,16 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.RawPath
 	}
 
-	tree := fox.tree.Load()
+	tree := fox.getRoot()
 	c := tree.ctx.Get().(*cTx)
 	c.reset(w, r)
 
-	nds := *tree.nodes.Load()
-	index := findRootNode(r.Method, nds)
-	if index < 0 || len(nds[index].children) == 0 {
-		goto NoMethodFallback
-	}
-
-	n, tsr = tree.lookup(nds[index], r.Host, path, c, false)
+	n, tsr = tree.lookup(r.Method, r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.route
 		c.tsr = tsr
 		n.route.hall(c)
-		// Put back the context, if not extended more than max params or max depth, allowing
-		// the slice to naturally grow within the constraint.
-		if cap(*c.params) <= int(tree.maxParams.Load()) && cap(*c.skipNds) <= int(tree.maxDepth.Load()) {
-			c.tree.ctx.Put(c)
-		}
+		tree.ctx.Put(c)
 		return
 	}
 
@@ -367,7 +499,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.route = n.route
 			c.tsr = tsr
 			n.route.hall(c)
-			c.Close()
+			tree.ctx.Put(c)
 			return
 		}
 
@@ -378,7 +510,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.tsr = false
 			c.scope = RedirectHandler
 			fox.tsrRedirect(c)
-			c.Close()
+			tree.ctx.Put(c)
 			return
 		}
 	}
@@ -389,30 +521,27 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.route = nil
 	c.tsr = false
 
-NoMethodFallback:
 	if r.Method == http.MethodOptions && fox.handleOptions {
 		var sb strings.Builder
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 		if path == "*" {
-			for i := 0; i < len(nds); i++ {
-				if nds[i].key != http.MethodOptions && len(nds[i].children) > 0 {
+			for i := 0; i < len(tree.root); i++ {
+				if tree.root[i].key != http.MethodOptions && len(tree.root[i].children) > 0 {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(nds[i].key)
+					sb.WriteString(tree.root[i].key)
 				}
 			}
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-			for i := 0; i < len(nds); i++ {
-				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
-						if sb.Len() > 0 {
-							sb.WriteString(", ")
-						}
-						sb.WriteString(nds[i].key)
+			for i := 0; i < len(tree.root); i++ {
+				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if sb.Len() > 0 {
+						sb.WriteString(", ")
 					}
+					sb.WriteString(tree.root[i].key)
 				}
 			}
 		}
@@ -422,57 +551,41 @@ NoMethodFallback:
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = OptionsHandler
 			fox.autoOptions(c)
-			c.Close()
+			tree.ctx.Put(c)
 			return
 		}
 	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
-		for i := 0; i < len(nds); i++ {
-			if nds[i].key != r.Method {
-				if len(nds[i].children) > 0 {
-					if n, tsr := tree.lookup(nds[i], r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
-						if sb.Len() > 0 {
-							sb.WriteString(", ")
-						}
-						sb.WriteString(nds[i].key)
+		hasOptions := false
+		for i := 0; i < len(tree.root); i++ {
+			if tree.root[i].key != r.Method {
+				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+					if sb.Len() > 0 {
+						sb.WriteString(", ")
 					}
+					if tree.root[i].key == http.MethodOptions {
+						hasOptions = true
+					}
+					sb.WriteString(tree.root[i].key)
 				}
 			}
 		}
 		if sb.Len() > 0 {
-			// TODO maybe should add OPTIONS ?
+			if fox.handleOptions && !hasOptions {
+				sb.WriteString(", ")
+				sb.WriteString(http.MethodOptions)
+			}
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
 			fox.noMethod(c)
-			c.Close()
+			tree.ctx.Put(c)
 			return
 		}
 	}
 
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
-	c.Close()
-}
-
-func findRootNode(method string, nodes []*node) int {
-	// Nodes for common http method are pre instantiated.
-	switch method {
-	case http.MethodGet:
-		return 0
-	case http.MethodPost:
-		return 1
-	case http.MethodPut:
-		return 2
-	case http.MethodDelete:
-		return 3
-	}
-
-	for i, nd := range nodes[verb:] {
-		if nd.key == method {
-			return i + verb
-		}
-	}
-	return -1
+	tree.ctx.Put(c)
 }
 
 const (
@@ -482,17 +595,17 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func parseRoute(url string) (uint32, error) {
+func parseRoute(url string) (uint32, int, error) {
 
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {
-		return 0, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
+		return 0, -1, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
 	}
 	if strings.HasPrefix(url, ".") {
-		return 0, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
+		return 0, -1, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
 	}
 	if strings.HasPrefix(url, "-") {
-		return 0, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
+		return 0, -1, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
 	}
 
 	var delim byte
@@ -518,12 +631,12 @@ func parseRoute(url string) (uint32, error) {
 		case stateParam:
 			if url[i] == '}' {
 				if !inParam {
-					return 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
+					return 0, -1, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
 
 				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
-					return 0, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
+					return 0, -1, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if i < endHost {
@@ -538,23 +651,23 @@ func parseRoute(url string) (uint32, error) {
 			}
 
 			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
+				return 0, -1, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
 		case stateCatchAll:
 			if url[i] == '}' {
 				if !inParam {
-					return 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
+					return 0, -1, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
 				}
 				inParam = false
 
 				if i+1 < len(url) && url[i+1] != '/' {
-					return 0, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
+					return 0, -1, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if previous == stateCatchAll && countStatic <= 1 {
-					return 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
+					return 0, -1, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
 				}
 
 				countStatic = 0
@@ -565,7 +678,7 @@ func parseRoute(url string) (uint32, error) {
 			}
 
 			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
+				return 0, -1, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
@@ -580,7 +693,7 @@ func parseRoute(url string) (uint32, error) {
 				paramCnt++
 			} else if url[i] == '*' {
 				if i < endHost {
-					return 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
+					return 0, -1, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
 				}
 				state = stateCatchAll
 				i++
@@ -599,33 +712,33 @@ func parseRoute(url string) (uint32, error) {
 					case c == '-':
 						// Byte before dash cannot be dot.
 						if last == '.' {
-							return 0, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
+							return 0, -1, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
 						}
 						partlen++
 						nonNumeric = true
 					case c == '.':
 						// Byte before dot cannot be dot.
 						if last == '.' && url[i-1] != '}' {
-							return 0, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
+							return 0, -1, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
 						}
 						// Byte before dot cannot be dash.
 						if last == '-' {
-							return 0, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
+							return 0, -1, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
 						}
 						if partlen > 63 {
-							return 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+							return 0, -1, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
 						}
 						totallen += partlen + 1 // +1 count the current dot
 						partlen = 0
 					default:
-						return 0, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
+						return 0, -1, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
 					}
 					last = c
 				}
 			}
 
 			if paramCnt > math.MaxUint16 {
-				return 0, fmt.Errorf("%w: too many params (%d)", ErrInvalidRoute, paramCnt)
+				return 0, -1, fmt.Errorf("%w: too many params (%d)", ErrInvalidRoute, paramCnt)
 			}
 
 			i++
@@ -635,52 +748,34 @@ func parseRoute(url string) (uint32, error) {
 	if endHost > 0 {
 		totallen += partlen
 		if last == '-' {
-			return 0, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
+			return 0, -1, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
 		}
 		if url[endHost-1] == '.' {
-			return 0, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
+			return 0, -1, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
 		}
 		if !nonNumeric {
-			return 0, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
+			return 0, -1, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
 		}
 		if partlen > 63 {
-			return 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+			return 0, -1, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
 		}
 		if totallen > 255 {
-			return 0, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
+			return 0, -1, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
 		}
 	}
 
 	if state == stateParam {
-		return 0, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
+		return 0, -1, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
 	}
 
 	if state == stateCatchAll {
 		if url[len(url)-1] == '*' {
-			return 0, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
+			return 0, -1, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
 		}
-		return 0, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
+		return 0, -1, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
 	}
 
-	return paramCnt, nil
-}
-
-func getRouteConflict(n *node) []string {
-	routes := make([]string, 0)
-	it := newRawIterator(n)
-	for it.hasNext() {
-		routes = append(routes, it.current.route.pattern)
-	}
-	return routes
-}
-
-func isRemovable(method string) bool {
-	for _, verb := range commonVerbs {
-		if verb == method {
-			return false
-		}
-	}
-	return true
+	return paramCnt, endHost, nil
 }
 
 func applyMiddleware(scope HandlerScope, mws []middleware, h HandlerFunc) HandlerFunc {

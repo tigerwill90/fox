@@ -2,7 +2,7 @@
 // Mount of this source code is governed by a BSD Zero Clause License that can be found
 // at https://github.com/realclientip/realclientip-go/blob/main/LICENSE.
 
-package strategy
+package clientip
 
 import (
 	"errors"
@@ -36,9 +36,9 @@ type TrustedIPRange interface {
 }
 
 // The IPRangeResolverFunc type is an adapter to allow the use of
-// ordinary functions as TrustedIPRange. If f is a function
+// ordinary functions as [TrustedIPRange]. If f is a function
 // with the appropriate signature, IPRangeResolverFunc() is a
-// TrustedIPRange that calls f.
+// [TrustedIPRange] that calls f.
 type IPRangeResolverFunc func() ([]net.IPNet, error)
 
 // TrustedIPRange calls f().
@@ -66,7 +66,7 @@ type Chain struct {
 	strategies []fox.ClientIPStrategy
 }
 
-// NewChain creates a Chain that attempts to use the given strategies to
+// NewChain creates a [Chain] that attempts to use the given strategies to
 // derive the client IP, stopping when the first one succeeds.
 func NewChain(strategies ...fox.ClientIPStrategy) Chain {
 	return Chain{strategies: strategies}
@@ -100,9 +100,9 @@ func NewRemoteAddr() RemoteAddr {
 	return RemoteAddr{}
 }
 
-// ClientIP derives the client IP using the RemoteAddr strategy. The returned net.IPAddr may contain a zone identifier.
+// ClientIP derives the client IP using the [RemoteAddr] strategy. The returned [net.IPAddr] may contain a zone identifier.
 // This should only happen if remoteAddr has been modified to something illegal, or if the server is accepting connections
-// on a Unix domain socket (in which case RemoteAddr is "@"). If no valid IP can be derived, an error is returned.
+// on a Unix domain socket (in which case [RemoteAddr] is "@"). If no valid IP can be derived, an error is returned.
 func (s RemoteAddr) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddr, err := ParseIPAddr(c.Request().RemoteAddr)
 	if err != nil {
@@ -121,7 +121,7 @@ type SingleIPHeader struct {
 	headerName string
 }
 
-// NewSingleIPHeader creates a SingleIPHeader strategy that uses the headerName request header to get the client IP.
+// NewSingleIPHeader creates a [SingleIPHeader] strategy that uses the headerName request header to get the client IP.
 func NewSingleIPHeader(headerName string) SingleIPHeader {
 	if headerName == "" {
 		panic(errors.New("header must not be empty"))
@@ -138,7 +138,7 @@ func NewSingleIPHeader(headerName string) SingleIPHeader {
 	return SingleIPHeader{headerName: headerName}
 }
 
-// ClientIP derives the client IP using the SingleIPHeader. The returned net.IPAddr may contain a zone identifier.
+// ClientIP derives the client IP using the [SingleIPHeader]. The returned [net.IPAddr] may contain a zone identifier.
 // If no valid IP can be derived, an error is returned.
 func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	// RFC 2616 does not allow multiple instances of single-IP headers (or any non-list header).
@@ -164,7 +164,7 @@ type LeftmostNonPrivate struct {
 	blacklistedRanges []net.IPNet
 }
 
-// NewLeftmostNonPrivate creates a LeftmostNonPrivate strategy. By default, loopback, link local and private net ip range
+// NewLeftmostNonPrivate creates a [LeftmostNonPrivate] strategy. By default, loopback, link local and private net ip range
 // are blacklisted.
 func NewLeftmostNonPrivate(key HeaderKey, opts ...BlacklistRangeOption) LeftmostNonPrivate {
 	if key > 1 {
@@ -179,8 +179,8 @@ func NewLeftmostNonPrivate(key HeaderKey, opts ...BlacklistRangeOption) Leftmost
 	return LeftmostNonPrivate{headerName: key.String(), blacklistedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges)}
 }
 
-// ClientIP derives the client IP using the LeftmostNonPrivate.
-// The returned net.IPAddr may contain a zone identifier. If no valid IP can be derived, an error returned.
+// ClientIP derives the client IP using the [LeftmostNonPrivate].
+// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
 func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
 	for _, ip := range ipAddrs {
@@ -202,7 +202,7 @@ type RightmostNonPrivate struct {
 	trustedRanges []net.IPNet
 }
 
-// NewRightmostNonPrivate creates a RightmostNonPrivate strategy. By default, loopback, link local and private net ip range
+// NewRightmostNonPrivate creates a [RightmostNonPrivate] strategy. By default, loopback, link local and private net ip range
 // are trusted.
 func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) RightmostNonPrivate {
 	if key > 1 {
@@ -220,8 +220,8 @@ func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) Rightmost
 	}
 }
 
-// ClientIP derives the client IP using the RightmostNonPrivate.
-// The returned net.IPAddr may contain a zone identifier. If no valid IP can be derived, an error returned.
+// ClientIP derives the client IP using the [RightmostNonPrivate].
+// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
 	// Look backwards through the list of IP addresses
@@ -244,7 +244,7 @@ type RightmostTrustedCount struct {
 	trustedCount int
 }
 
-// NewRightmostTrustedCount creates a RightmostTrustedCount strategy. trustedCount is the number of trusted reverse proxies.
+// NewRightmostTrustedCount creates a [RightmostTrustedCount] strategy. trustedCount is the number of trusted reverse proxies.
 // The IP returned will be the (trustedCount-1)th from the right. For example, if there's only one trusted proxy, this
 // strategy will return the last (rightmost) IP address.
 func NewRightmostTrustedCount(key HeaderKey, trustedCount int) RightmostTrustedCount {
@@ -259,8 +259,8 @@ func NewRightmostTrustedCount(key HeaderKey, trustedCount int) RightmostTrustedC
 	return RightmostTrustedCount{headerName: key.String(), trustedCount: trustedCount}
 }
 
-// ClientIP derives the client IP using the RightmostTrustedCount.
-// The returned net.IPAddr may contain a zone identifier. If no valid IP can be derived, an error returned.
+// ClientIP derives the client IP using the [RightmostTrustedCount].
+// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
 
@@ -297,7 +297,7 @@ type RightmostTrustedRange struct {
 	headerName string
 }
 
-// NewRightmostTrustedRange creates a RightmostTrustedRange strategy. headerName must be "X-Forwarded-For"
+// NewRightmostTrustedRange creates a [RightmostTrustedRange] strategy. headerName must be "X-Forwarded-For"
 // or "Forwarded". trustedRanges must contain all trusted reverse proxies on the path to this server and can
 // be private/internal or external (for example, if a third-party reverse proxy is used).
 func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) RightmostTrustedRange {
@@ -312,8 +312,8 @@ func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) RightmostT
 	return RightmostTrustedRange{headerName: key.String(), resolver: resolver}
 }
 
-// ClientIP derives the client IP using the RightmostTrustedRange.
-// The returned net.IPAddr may contain a zone identifier. If no valid IP can be derived, an error is returned.
+// ClientIP derives the client IP using the [RightmostTrustedRange].
+// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error is returned.
 func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	trustedRange, err := s.resolver.TrustedIPRange()
 	if err != nil {
@@ -340,7 +340,7 @@ func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	return nil, fmt.Errorf("%w: unable to find a valid IP address", ErrRightmostTrustedRange)
 }
 
-// MustParseIPAddr panics if ParseIPAddr fails.
+// MustParseIPAddr panics if [ParseIPAddr] fails.
 func MustParseIPAddr(ipStr string) *net.IPAddr {
 	ipAddr, err := ParseIPAddr(ipStr)
 	if err != nil {
@@ -349,12 +349,13 @@ func MustParseIPAddr(ipStr string) *net.IPAddr {
 	return ipAddr
 }
 
-// ParseIPAddr safely parses the given string into a net.IPAddr. It also returns an error for unspecified (like "::") and zero-value
-// addresses (like "0.0.0.0"). These are nominally valid IPs (net.ParseIP will accept them), but they are never valid "real" client IPs.
+// ParseIPAddr safely parses the given string into a [net.IPAddr]. It also returns an error for unspecified (like "::")
+// and zero-value addresses (like "0.0.0.0"). These are nominally valid IPs ([net.ParseIP] will accept them), but they
+// are never valid "real" client IPs.
 //
 // The function returns the following errors:
-// - ErrInvalidIpAddress: if the IP address cannot be parsed.
-// - ErrUnspecifiedIpAddress: if the IP address is unspecified (e.g., "::" or "0.0.0.0").
+// - [ErrInvalidIpAddress]: if the IP address cannot be parsed.
+// - [ErrUnspecifiedIpAddress]: if the IP address is unspecified (e.g., "::" or "0.0.0.0").
 func ParseIPAddr(ip string) (*net.IPAddr, error) {
 	host, _, err := net.SplitHostPort(ip)
 	if err == nil {
@@ -387,7 +388,7 @@ func ParseIPAddr(ip string) (*net.IPAddr, error) {
 }
 
 // AddressesAndRangesToIPNets converts a slice of strings with IPv4 and IPv6 addresses and CIDR ranges (prefixes) to
-// net.IPNet instances. If net.ParseCIDR or net.ParseIP fail, an error will be returned. Zones in addresses or ranges
+// [net.IPNet] instances. If [net.ParseCIDR] or [net.ParseIP] fail, an error will be returned. Zones in addresses or ranges
 // are not allowed and will result in an error.
 func AddressesAndRangesToIPNets(ranges ...string) ([]net.IPNet, error) {
 	var result []net.IPNet

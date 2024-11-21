@@ -45,8 +45,8 @@ func (o optionFunc) applyRoute(r *Route) {
 	o(nil, r)
 }
 
-// WithNoRouteHandler register an HandlerFunc which is called when no matching route is found.
-// By default, the DefaultNotFoundHandler is used.
+// WithNoRouteHandler register an [HandlerFunc] which is called when no matching route is found.
+// By default, the [DefaultNotFoundHandler] is used.
 func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		if handler != nil {
@@ -55,10 +55,10 @@ func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
-// WithNoMethodHandler register an HandlerFunc which is called when the request cannot be routed,
+// WithNoMethodHandler register an [HandlerFunc] which is called when the request cannot be routed,
 // but the same route exist for other methods. The "Allow" header it automatically set before calling the
-// handler. By default, the DefaultMethodNotAllowedHandler is used. Note that this option automatically
-// enable WithNoMethod.
+// handler. By default, the [DefaultMethodNotAllowedHandler] is used. Note that this option automatically
+// enable [WithNoMethod].
 func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		if handler != nil {
@@ -68,10 +68,10 @@ func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
-// WithOptionsHandler register an HandlerFunc which is called on automatic OPTIONS requests. By default, the router
+// WithOptionsHandler register an [HandlerFunc] which is called on automatic OPTIONS requests. By default, the router
 // respond with a 200 OK status code. The "Allow" header it automatically set before calling the handler. Note that custom OPTIONS
-// handler take priority over automatic replies. By default, DefaultOptionsHandler is used. Note that this option
-// automatically enable WithAutoOptions.
+// handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
+// automatically enable [WithAutoOptions].
 func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		if handler != nil {
@@ -108,8 +108,9 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
-// Possible scopes include RouteHandler (regular routes), NoRouteHandler, NoMethodHandler, RedirectHandler, OptionsHandler,
-// and any combination of these. Use this option when you need fine-grained control over where the middleware is applied.
+// Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectHandler],
+// [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
+// middleware is applied.
 func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		for i := range m {
@@ -121,7 +122,7 @@ func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 // WithNoMethod enable to returns 405 Method Not Allowed instead of 404 Not Found
 // when the route exist for another http verb. The "Allow" header it automatically set before calling the
 // handler. Note that this option is automatically enabled when providing a custom handler with the
-// option WithNoMethodHandler.
+// option [WithNoMethodHandler].
 func WithNoMethod(enable bool) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		r.handleMethodNotAllowed = enable
@@ -129,10 +130,10 @@ func WithNoMethod(enable bool) GlobalOption {
 }
 
 // WithAutoOptions enables automatic response to OPTIONS requests with, by default, a 200 OK status code.
-// Use the WithOptionsHandler option to customize the response. When this option is enabled, the router automatically
+// Use the [WithOptionsHandler] option to customize the response. When this option is enabled, the router automatically
 // determines the "Allow" header value based on the methods registered for the given route. Note that custom OPTIONS
 // handler take priority over automatic replies. This option is automatically enabled when providing a custom handler with
-// the option WithOptionsHandler.
+// the option [WithOptionsHandler].
 func WithAutoOptions(enable bool) GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		r.handleOptions = enable
@@ -150,8 +151,8 @@ func WithAutoOptions(enable bool) GlobalOption {
 //   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
 //     to the global configuration for trailing slash behavior.
 //
-// Note that this option is mutually exclusive with WithIgnoreTrailingSlash, and if enabled will
-// automatically deactivate WithIgnoreTrailingSlash.
+// Note that this option is mutually exclusive with [WithIgnoreTrailingSlash], and if enabled will
+// automatically deactivate [WithIgnoreTrailingSlash].
 func WithRedirectTrailingSlash(enable bool) Option {
 	return optionFunc(func(router *Router, route *Route) {
 		if router != nil {
@@ -179,8 +180,8 @@ func WithRedirectTrailingSlash(enable bool) Option {
 //   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
 //     to the global configuration for trailing slash behavior.
 //
-// Note that this option is mutually exclusive with
-// WithRedirectTrailingSlash, and if enabled will automatically deactivate WithRedirectTrailingSlash.
+// Note that this option is mutually exclusive with [WithRedirectTrailingSlash], and if enabled will automatically
+// deactivate [WithRedirectTrailingSlash].
 func WithIgnoreTrailingSlash(enable bool) Option {
 	return optionFunc(func(router *Router, route *Route) {
 		if router != nil {
@@ -199,10 +200,10 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 }
 
 // WithClientIPStrategy sets the strategy for obtaining the "real" client IP address from HTTP requests.
-// This strategy is used by the Context.ClientIP method. The strategy must be chosen and tuned for your network
+// This strategy is used by the [Context.ClientIP] method. The strategy must be chosen and tuned for your network
 // configuration to ensure it never returns an error -- i.e., never fails to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even worthy of panicking.
-// There is no sane default, so if no strategy is configured, Context.ClientIP returns ErrNoClientIPStrategy.
+// There is no sane default, so if no strategy is configured, [Context.ClientIP] returns [ErrNoClientIPStrategy].
 //
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
@@ -233,9 +234,9 @@ func WithAnnotations(annotations ...Annotation) RouteOption {
 	})
 }
 
-// DefaultOptions configure the router to use the Recovery middleware for the RouteHandler scope, the Logger middleware
-// for AllHandlers scope and enable automatic OPTIONS response. Note that DefaultOptions push the Recovery and Logger middleware
-// respectively to the first and second position of the middleware chains.
+// DefaultOptions configure the router to use the [Recovery] middleware for the [RouteHandler] scope, the [Logger] middleware
+// for [AllHandlers] scope and enable automatic OPTIONS response. Note that DefaultOptions push the [Recovery] and [Logger]
+// middleware respectively to the first and second position of the middleware chains.
 func DefaultOptions() GlobalOption {
 	return globOptionFunc(func(r *Router) {
 		r.mws = append([]middleware{

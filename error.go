@@ -18,7 +18,8 @@ var (
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 	ErrNoClientIPStrategy      = errors.New("no client ip strategy")
-	ErrConcurrentAccess        = errors.New("concurrent access violation: multiple writes detected on tree")
+	ErrReadOnlyTxn             = errors.New("write on read-only transaction")
+	ErrSettledTxn              = errors.New("transaction settled")
 )
 
 // RouteConflictError is a custom error type used to represent conflicts when
@@ -41,7 +42,7 @@ func newConflictErr(method, path string, matched []string) *RouteConflictError {
 	}
 }
 
-// Error returns a formatted error message for the RouteConflictError.
+// Error returns a formatted error message for the [RouteConflictError].
 func (e *RouteConflictError) Error() string {
 	if !e.isUpdate {
 		return e.insertError()
@@ -58,7 +59,7 @@ func (e *RouteConflictError) updateError() string {
 
 }
 
-// Unwrap returns the sentinel value ErrRouteConflict.
+// Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
 	return e.err
 }

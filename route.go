@@ -12,8 +12,7 @@ type Annotation struct {
 	Value any
 }
 
-// Route represent a registered route in the route tree.
-// Most of the Route API is EXPERIMENTAL and is likely to change in future release.
+// Route represent a registered route in the router.
 type Route struct {
 	ipStrategy            ClientIPStrategy
 	hbase                 HandlerFunc
@@ -22,11 +21,12 @@ type Route struct {
 	pattern               string
 	mws                   []middleware
 	annots                []Annotation
+	hostSplit             int // 0 if no host
 	redirectTrailingSlash bool
 	ignoreTrailingSlash   bool
 }
 
-// Handle calls the handler with the provided [Context]. See also [HandleMiddleware].
+// Handle calls the handler with the provided [Context]. See also [Route.HandleMiddleware].
 func (r *Route) Handle(c Context) {
 	r.hbase(c)
 }
@@ -43,6 +43,16 @@ func (r *Route) Pattern() string {
 	return r.pattern
 }
 
+// Hostname returns the hostname part of the registered pattern if any.
+func (r *Route) Hostname() string {
+	return r.pattern[:r.hostSplit]
+}
+
+// Path returns the path part of the registered pattern.
+func (r *Route) Path() string {
+	return r.pattern[r.hostSplit:]
+}
+
 // Annotations returns a range iterator over annotations associated with the route.
 func (r *Route) Annotations() iter.Seq[Annotation] {
 	return func(yield func(Annotation) bool) {
@@ -56,20 +66,17 @@ func (r *Route) Annotations() iter.Seq[Annotation] {
 
 // RedirectTrailingSlashEnabled returns whether the route is configured to automatically
 // redirect requests that include or omit a trailing slash.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (r *Route) RedirectTrailingSlashEnabled() bool {
 	return r.redirectTrailingSlash
 }
 
 // IgnoreTrailingSlashEnabled returns whether the route is configured to ignore
 // trailing slashes in requests when matching routes.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (r *Route) IgnoreTrailingSlashEnabled() bool {
 	return r.ignoreTrailingSlash
 }
 
 // ClientIPStrategyEnabled returns whether the route is configured with a [ClientIPStrategy].
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (r *Route) ClientIPStrategyEnabled() bool {
 	_, ok := r.ipStrategy.(noClientIPStrategy)
 	return !ok

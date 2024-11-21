@@ -6,11 +6,10 @@
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/fox)
 # Fox
 Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
-that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a 
-[Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that support **lock-free 
-reads** while allowing **concurrent writes**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
+that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a Radix Tree that support **lock-free 
+reads** while allowing **concurrent write**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
 
-Fox supports various use cases, but it is especially designed for applications that require changes at runtime to their 
+Fox supports various use cases, but it is especially designed for applications that require frequent changes at runtime to their 
 routing structure based on user input, configuration changes, or other runtime events.
 
 ## Disclaimer
@@ -23,14 +22,9 @@ request!
 **Wildcard pattern:** Route can be registered using wildcard parameters. The matched segment can then be easily retrieved by 
 name. Due to Fox design, wildcard route are cheap and scale really well.
 
-**Detect panic:** Comes with a ready-to-use, efficient Recovery middleware that gracefully handles panics.
+**Hostname matching:** Fox supports hostname-based routing with wildcard matching.
 
-**Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
-observability middleware like open telemetry.
-
-**Hostname routing:** Fox supports hostname-based routing with wildcard matching.
-
-**Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear 
+**Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear
 priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
 
 **Redirect trailing slashes:** Redirect automatically the client, at no extra cost, if another route matches, with or without a trailing slash.
@@ -40,7 +34,12 @@ or missing trailing slash, at no extra cost.
 
 **Automatic OPTIONS replies:** Fox has built-in native support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
 
+**Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
+observability middleware like open telemetry.
+
 **Client IP Derivation:** Accurately determine the "real" client IP address using best practices tailored to your network topology.
+
+**Rich middleware ecosystem:** Fox offers a robust ecosystem of prebuilt, high-quality middlewares, ready to integrate into your application.
 
 Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
 
@@ -252,20 +251,14 @@ func Hello(c fox.Context) {
 ````
 
 ## Concurrency
-Fox implements a [Concurrent Radix Tree](https://github.com/npgall/concurrent-trees/blob/master/documentation/TreeDesign.md) that supports **lock-free** 
-reads while allowing **concurrent writes**, by calculating the changes which would be made to the tree were it mutable, and assembling those changes 
-into a **patch**, which is then applied to the tree in a **single atomic operation**.
+Fox implements an immutable Radix Tree that supports uncoordinated read while allowing a single writer to make progress.
+Updates are applied by calculating the change which would be made to the tree were it mutable, assembling those changes
+into a **patch** which is propagated to the root and applied in a **single atomic operation**. The result is a shallow copy 
+of the tree, where only the modified path and its ancestors are cloned, ensuring efficient updates and minimal memory overhead.
+Multiple patches can be applied in a single transaction, with intermediate nodes cached during the process to prevent 
+redundant cloning.
 
-For example, here we are inserting the new key `toast` into to the tree which require an existing node to be split:
-
-<p align="center" width="100%">
-    <img width="100%" src="https://raw.githubusercontent.com/tigerwill90/concurrent-trees/master/documentation/images/tree-apply-patch.png">
-</p>
-
-When traversing the tree during a patch, reading threads will either see the **old version** or the **new version** of the (sub-)tree, but both version are 
-consistent view of the tree.
-
-#### Other key points
+### Other key points
 
 - Routing requests is lock-free (reading thread never block, even while writes are ongoing)
 - The router always see a consistent version of the tree while routing request
@@ -343,102 +336,74 @@ func main() {
 }
 ````
 
-#### Tree swapping
-Fox also enables you to replace the entire tree in a single atomic operation using the `Swap` methods.
-Note that router's options apply automatically on the new tree.
+#### ACID Transaction
+Fox supports read-write and read-only transactions (with Atomicity, Consistency, and Isolation; Durability is not supported 
+as transactions are in memory). Thread that route requests always see a consistent version of the routing tree and are 
+fully isolated from an ongoing transaction until committed. Read-only transactions capture a point-in-time snapshot of 
+the tree, ensuring they do not observe any ongoing or committed changes made after their creation.
 
+#### Managed read-write transaction
 ````go
-package main
+// Updates executes a function within the context of a read-write managed transaction. If no error is returned
+// from the function then the transaction is committed. If an error is returned then the entire transaction is
+// aborted.
+if err := f.Updates(func(txn *fox.Txn) error {
+	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+		return err
+	}
 
-import (
-	"errors"
-	"github.com/tigerwill90/fox"
-	"log"
-	"net/http"
-	"time"
-)
-
-func Reload(r *fox.Router) {
-	for ; true; <-time.Tick(10 * time.Second) {
-		routes := GetRoutes()
-		tree := r.NewTree()
-		for _, rte := range routes {
-			if _, err := tree.Handle(rte.Method, rte.Path, rte.Handler); err != nil {
-				log.Printf("failed to register route: %s\n", err)
-				continue
-			}
+	// Iter returns a collection of range iterators for traversing registered routes.
+	it := txn.Iter()
+	// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
+	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
+	// observed in the result returned by Prefix (or any other iterator).
+	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
+		if err := f.Delete(method, route.Pattern()); err != nil {
+			return err
 		}
-		// Swap the currently in-use routing tree with the new provided.
-		r.Swap(tree)
-		log.Println("route reloaded!")
 	}
-}
-
-func main() {
-	f := fox.New(fox.DefaultOptions())
-
-	go Reload(f)
-
-	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalln(err)
-	}
+	return nil
+}); err != nil {
+	log.Printf("transaction aborted: %s", err)
 }
 ````
 
-#### Advanced usage: consistent view updates
-In certain situations, it's necessary to maintain a consistent view of the tree while performing updates.
-The `Tree` API allow you to take control of the internal `sync.Mutex` to prevent concurrent writes from
-other threads. **Remember that all write operation should be run serially.**
-
-In the following example, the `Upsert` function needs to perform a lookup on the tree to check if a handler
-is already registered for the provided method and route pattern. By locking the `Tree`, this operation ensures
-atomicity, as it prevents other threads from modifying the tree between the lookup and the write operation.
-Note that all read operation on the tree remain lock-free.
+#### Unmanaged read-write transaction
 ````go
-func Upsert(t *fox.Tree, method, pattern string, handler fox.HandlerFunc) (*fox.Route, error) {
-    t.Lock()
-    defer t.Unlock()
-    if t.Has(method, pattern) {
-        return t.Update(method, pattern, handler)
-    }
-    return t.Handle(method, pattern, handler)
+// Txn create an unmanaged read-write or read-only transaction.
+txn := f.Txn(true)
+defer txn.Abort()
+
+if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+	log.Printf("error inserting route: %s", err)
+	return
 }
+
+// Iter returns a collection of range iterators for traversing registered routes.
+it := txn.Iter()
+// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
+// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
+// observed in the result returned by Prefix (or any other iterator).
+for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
+	if err := f.Delete(method, route.Pattern()); err != nil {
+		log.Printf("error deleting route: %s", err)
+		return
+	}
+}
+// Finalize the transaction
+txn.Commit()
 ````
 
-#### Concurrent safety and proper usage of Tree APIs
-When working with the `Tree` API, it's important to keep some considerations in mind. Each instance has its 
-own `sync.Mutex` that can be used to serialize writes. However, unlike the router API, the lower-level `Tree` API 
-does not automatically lock the tree when writing to it. Therefore, it is the user's responsibility to ensure 
-all writes are executed serially.
-
-Moreover, since the router tree may be swapped at any given time, you MUST always copy the pointer locally to 
-avoid inadvertently causing a deadlock by locking/unlocking the wrong `Tree`.
-
+#### Managed read-only transaction
 ````go
-// Good
-t := r.Tree()
-t.Lock()
-defer t.Unlock()
-
-// Dramatically bad, may cause deadlock
-r.Tree().Lock()
-defer r.Tree().Unlock()
-
-// Dramatically bad, may cause deadlock
-func handle(c fox.Context) {
-    c.Fox().Tree().Lock()
-    defer c.Fox().Tree().Unlock()
-}
-```` 
-
-Note that `fox.Context` carries a local copy of the `Tree` that is being used to serve the handler, thereby eliminating 
-the risk of deadlock when using the `Tree` within the context.
-````go
-// Ok
-func handle(c fox.Context) {
-    c.Tree().Lock()
-    defer c.Tree().Unlock()
-}
+_ = f.View(func(txn *fox.Txn) error {
+	if txn.Has(http.MethodGet, "/foo") {
+		if txn.Has(http.MethodGet, "/bar") {
+			// do something
+		}
+	}
+	return nil
+})
 ````
 
 ## Working with http.Handler
@@ -574,22 +539,22 @@ The sub-package `github.com/tigerwill90/fox/strategy` provides a set of best pra
 
 ````go
 f := fox.New(
-    fox.DefaultOptions(),
-    fox.WithClientIPStrategy(
-        // We are behind one or many trusted proxies that have all private-space IP addresses.
-        strategy.NewRightmostNonPrivate(strategy.XForwardedForKey),
-    ),
+	fox.DefaultOptions(),
+	fox.WithClientIPStrategy(
+		// We are behind one or many trusted proxies that have all private-space IP addresses.
+		clientip.NewRightmostNonPrivate(clientip.XForwardedForKey),
+	),
 )
 
 f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
-    ipAddr, err := c.ClientIP()
-        if err != nil {
-            // If the current strategy is not able to derive the client IP, an error
-            // will be returned rather than falling back on an untrustworthy IP. It
-            // should be treated as an application issue or a misconfiguration.
-            panic(err)
-        }
-    fmt.Println(ipAddr.String())
+	ipAddr, err := c.ClientIP()
+	if err != nil {
+		// If the current strategy is not able to derive the client IP, an error
+		// will be returned rather than falling back on an untrustworthy IP. It
+		// should be treated as an application issue or a misconfiguration.
+		panic(err)
+	}
+	fmt.Println(ipAddr.String())
 })
 ````
 
@@ -597,17 +562,16 @@ It is also possible to create a chain with multiple strategies that attempt to d
 
 ````go
 f = fox.New(
-    fox.DefaultOptions(),
-    fox.WithClientIPStrategy(
-        // A common use for this is if a server is both directly connected to the 
-        // internet and expecting a header to check.
-        strategy.NewChain(
-            strategy.NewLeftmostNonPrivate(strategy.ForwardedKey),
-            strategy.NewRemoteAddr(),
-        ),
-    ),
+	fox.DefaultOptions(),
+	fox.WithClientIPStrategy(
+		// A common use for this is if a server is both directly connected to the
+		// internet and expecting a header to check.
+		clientip.NewChain(
+			clientip.NewLeftmostNonPrivate(clientip.ForwardedKey),
+			clientip.NewRemoteAddr(),
+		),
+	),
 )
-
 ````
 
 Note that there is no "sane" default strategy, so calling `Context.ClientIP` without a strategy configured will return an `ErrNoClientIPStrategy`.
