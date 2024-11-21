@@ -4749,6 +4749,50 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 	}
 }
 
+func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
+	f := New(WithNoMethod(true), WithAutoOptions(true))
+
+	// Support for ignore Trailing slash
+	cases := []struct {
+		name    string
+		target  string
+		path    string
+		req     string
+		want    string
+		methods []string
+	}{
+		{
+			name:    "all route except the last one",
+			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead},
+			path:    "/foo/bar",
+			req:     "/foo/bar",
+			target:  http.MethodTrace,
+			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+		},
+		{
+			name:    "all route except the first one and inferred options from auto options",
+			methods: []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodHead, http.MethodTrace},
+			path:    "/foo/baz/",
+			req:     "/foo/baz/",
+			target:  http.MethodGet,
+			want:    "POST, PUT, DELETE, PATCH, CONNECT, HEAD, TRACE, OPTIONS",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range tc.methods {
+				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+			}
+			req := httptest.NewRequest(tc.target, tc.req, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+		})
+	}
+}
+
 func TestRouterWithAllowedMethodAndIgnoreTsDisable(t *testing.T) {
 	f := New(WithNoMethod(true))
 
@@ -5215,6 +5259,39 @@ func TestRouter_Lookup(t *testing.T) {
 	route, cc, _ = f.Lookup(newResponseWriter(mockResponseWriter{}), req)
 	assert.Nil(t, route)
 	assert.Nil(t, cc)
+}
+
+func TestRouter_Reverse(t *testing.T) {
+	t.Run("reverse no tsr", func(t *testing.T) {
+		f := New()
+		for _, rte := range staticRoutes {
+			require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+		}
+		for _, rte := range staticRoutes {
+			route, tsr := f.Reverse(rte.method, "", rte.path)
+			assert.False(t, tsr)
+			require.NotNil(t, route)
+			assert.Equal(t, rte.path, route.Pattern())
+		}
+	})
+
+	t.Run("reverse with tsr", func(t *testing.T) {
+		f := New()
+		for _, rte := range staticRoutes {
+			if rte.path == "/" {
+				continue
+			}
+			require.NoError(t, onlyError(f.Handle(rte.method, rte.path+"/", emptyHandler)))
+		}
+		for _, rte := range staticRoutes {
+			if rte.path == "/" {
+				continue
+			}
+			route, tsr := f.Reverse(rte.method, "", rte.path)
+			require.True(t, tsr)
+			assert.Equal(t, rte.path+"/", route.Pattern())
+		}
+	})
 }
 
 func TestTree_Has(t *testing.T) {

@@ -12,8 +12,7 @@ type Annotation struct {
 	Value any
 }
 
-// Route represent a registered route in the route tree.
-// Most of the Route API is EXPERIMENTAL and is likely to change in future release.
+// Route represent a registered route in the router.
 type Route struct {
 	ipStrategy            ClientIPStrategy
 	hbase                 HandlerFunc
@@ -67,20 +66,17 @@ func (r *Route) Annotations() iter.Seq[Annotation] {
 
 // RedirectTrailingSlashEnabled returns whether the route is configured to automatically
 // redirect requests that include or omit a trailing slash.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (r *Route) RedirectTrailingSlashEnabled() bool {
 	return r.redirectTrailingSlash
 }
 
 // IgnoreTrailingSlashEnabled returns whether the route is configured to ignore
 // trailing slashes in requests when matching routes.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (r *Route) IgnoreTrailingSlashEnabled() bool {
 	return r.ignoreTrailingSlash
 }
 
 // ClientIPStrategyEnabled returns whether the route is configured with a [ClientIPStrategy].
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (r *Route) ClientIPStrategyEnabled() bool {
 	_, ok := r.ipStrategy.(noClientIPStrategy)
 	return !ok

@@ -14,7 +14,7 @@ import (
 const defaultModifiedCache = 4096
 
 // iTree implements an immutable Radix Tree. The immutability means that it is safe to
-// concurrently read from a Tree without any coordination.
+// concurrently read from a tree without any coordination.
 type iTree struct {
 	ctx       sync.Pool
 	fox       *Router

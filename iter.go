@@ -65,7 +65,7 @@ type Iter struct {
 }
 
 // Methods returns a range iterator over all HTTP methods registered in the routing tree at the time [Iter] is created.
-// been created. This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
+// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for i := range it.root {
@@ -106,7 +106,7 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // If WithIgnoreTrailingSlash or WithRedirectTrailingSlash option is enabled on a route, Reverse will match it regardless
 // of whether a trailing slash is present.
 //
-// This function is safe for concurrent use by multiple goroutine and while mutation on Tree are ongoing.
+// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		c := it.tree.ctx.Get().(*cTx)
@@ -125,7 +125,7 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 
 // Prefix returns a range iterator over all routes in the routing tree that match a given prefix and HTTP methods at
 // the time [Iter] is created. This function is safe for concurrent use by multiple goroutine and while mutation
-// on Tree are ongoing.
+// on routes are ongoing.
 func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		var stacks []stack
@@ -175,9 +175,8 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 	}
 }
 
-// All returns a range iterator over all routes registered in the routing tree for all HTTP methods at
-// the time [Iter] is created. This function is safe for concurrent use by multiple goroutine and while
-// mutation on Tree are ongoing.
+// All returns a range iterator over all routes registered in the routing tree at the time [Iter] is created.
+// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		for method, route := range it.Prefix(it.Methods(), "") {

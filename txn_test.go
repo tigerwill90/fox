@@ -249,3 +249,31 @@ func TestTxn_WriteOnReadTransaction(t *testing.T) {
 	assert.ErrorIs(t, txn.Truncate(), ErrReadOnlyTxn)
 	txn.Commit()
 }
+
+func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
+	f := New()
+	txn := f.Txn(true)
+	txn.Abort()
+	assert.Panics(t, func() {
+		_, _ = txn.Handle(http.MethodGet, "/foo", emptyHandler)
+	})
+	assert.Panics(t, func() {
+		_, _ = txn.Update(http.MethodGet, "/foo", emptyHandler)
+	})
+	assert.Panics(t, func() {
+		_ = txn.Delete(http.MethodGet, "/foo")
+	})
+	assert.Panics(t, func() {
+		txn.Has(http.MethodGet, "/foo")
+	})
+	assert.Panics(t, func() {
+		txn.Reverse(http.MethodGet, "host", "/foo")
+	})
+	assert.Panics(t, func() {
+		txn.Lookup(nil, nil)
+	})
+	assert.NotPanics(t, func() {
+		txn.Commit()
+		txn.Abort()
+	})
+}

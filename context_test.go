@@ -20,7 +20,7 @@ func TestContext_Writer_ReadFrom(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	w := httptest.NewRecorder()
 
-	c := NewTestContextOnly(New(), w, req)
+	c := NewTestContextOnly(w, req)
 
 	n, err := c.Writer().ReadFrom(bytes.NewBuffer([]byte("foo bar")))
 	require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestContext_SetWriter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	w := httptest.NewRecorder()
 
-	c := NewTestContextOnly(New(), w, req)
+	c := NewTestContextOnly(w, req)
 
 	newRec := new(recorder)
 	c.SetWriter(newRec)
@@ -45,7 +45,7 @@ func TestContext_SetRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	w := httptest.NewRecorder()
 
-	c := NewTestContextOnly(New(), w, req)
+	c := NewTestContextOnly(w, req)
 
 	newReq := new(http.Request)
 	c.SetRequest(newReq)
@@ -235,7 +235,7 @@ func TestContext_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.RemoteAddr = "192.0.2.1:8080"
-	c := NewTestContextOnly(New(), w, r)
+	c := NewTestContextOnly(w, r)
 	_, err := c.ClientIP()
 	assert.ErrorIs(t, err, ErrNoClientIPStrategy)
 }

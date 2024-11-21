@@ -189,7 +189,6 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 // in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even
 // worthy of panicking.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (c *cTx) ClientIP() (*net.IPAddr, error) {
 	// We may be in a handler which does not match a route like NotFound handler.
 	if c.route == nil {

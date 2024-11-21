@@ -10,14 +10,15 @@ import (
 )
 
 // NewTestContext returns a new Router and its associated Context, designed only for testing purpose.
-func NewTestContext(w http.ResponseWriter, r *http.Request) (*Router, Context) {
-	fox := New()
-	c := NewTestContextOnly(fox, w, r)
+func NewTestContext(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) (*Router, Context) {
+	fox := New(opts...)
+	c := newTextContextOnly(fox, w, r)
 	return fox, c
 }
 
 // NewTestContextOnly returns a new Context associated with the provided Router, designed only for testing purpose.
-func NewTestContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) Context {
+func NewTestContextOnly(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) Context {
+	fox := New(opts...)
 	return newTextContextOnly(fox, w, r)
 }
 
@@ -25,10 +26,7 @@ func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cT
 	tree := fox.getRoot()
 	c := tree.allocateContext()
 	c.resetNil()
-	c.req = r
-	c.rec.reset(w)
-	c.w = &c.rec
-	c.scope = AllHandlers
+	c.reset(w, r)
 	return c
 }
 

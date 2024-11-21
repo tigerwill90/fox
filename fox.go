@@ -142,34 +142,29 @@ func New(opts ...GlobalOption) *Router {
 
 // MethodNotAllowedEnabled returns whether the router is configured to handle
 // requests with methods that are not allowed.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) MethodNotAllowedEnabled() bool {
 	return fox.handleMethodNotAllowed
 }
 
 // AutoOptionsEnabled returns whether the router is configured to automatically
 // respond to OPTIONS requests.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) AutoOptionsEnabled() bool {
 	return fox.handleOptions
 }
 
 // RedirectTrailingSlashEnabled returns whether the router is configured to automatically
 // redirect requests that include or omit a trailing slash.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) RedirectTrailingSlashEnabled() bool {
 	return fox.redirectTrailingSlash
 }
 
 // IgnoreTrailingSlashEnabled returns whether the router is configured to ignore
 // trailing slashes in requests when matching routes.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 	return fox.ignoreTrailingSlash
 }
 
 // ClientIPStrategyEnabled returns whether the router is configured with a ClientIPStrategy.
-// This api is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) ClientIPStrategyEnabled() bool {
 	_, ok := fox.ipStrategy.(noClientIPStrategy)
 	return !ok
@@ -242,7 +237,6 @@ func (fox *Router) Delete(method, pattern string) error {
 
 // Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Route] as an alternative.
-// This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Has(method, pattern string) bool {
 	return fox.Route(method, pattern) != nil
 }
@@ -250,7 +244,6 @@ func (fox *Router) Has(method, pattern string) bool {
 // Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
 // mutation on route are ongoing. See also [Router.Has] as an alternative.
-// This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Route(method, pattern string) *Route {
 	tree := fox.getRoot()
 	c := tree.ctx.Get().(*cTx)
@@ -269,7 +262,6 @@ func (fox *Router) Route(method, pattern string) *Route {
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
 // mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
-// This API is EXPERIMENTAL and is likely to change in future release.
 func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := fox.getRoot()
 	c := tree.ctx.Get().(*cTx)
@@ -286,8 +278,7 @@ func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 // [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
 // [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
-// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Tree.Reverse] as an alternative.
-// This API is EXPERIMENTAL and is likely to change in future release.
+// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Reverse] as an alternative.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.getRoot()
 	c := tree.ctx.Get().(*cTx)
@@ -372,21 +363,20 @@ func (fox *Router) txnWith(write, cache bool) *Txn {
 		fox.mu.Lock()
 	}
 
-	rootTxn := fox.getRoot().txn(cache)
 	return &Txn{
 		fox:     fox,
 		write:   write,
-		rootTxn: rootTxn,
+		rootTxn: fox.getRoot().txn(cache),
 	}
 }
 
-// newTree returns a fresh routing Tree that inherits all registered router options.
+// newTree returns a fresh routing tree that inherits all registered router options.
 func (fox *Router) newTree() *iTree {
 	tree := new(iTree)
 	tree.fox = fox
 
 	// Pre instantiate nodes for common http verb
-	nr := make([]*node, len(commonVerbs))
+	nr := make(roots, len(commonVerbs))
 	for i := range commonVerbs {
 		nr[i] = new(node)
 		nr[i].key = commonVerbs[i]
@@ -564,18 +554,25 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
+		hasOptions := false
 		for i := 0; i < len(tree.root); i++ {
 			if tree.root[i].key != r.Method {
 				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
+					if tree.root[i].key == http.MethodOptions {
+						hasOptions = true
+					}
 					sb.WriteString(tree.root[i].key)
 				}
 			}
 		}
 		if sb.Len() > 0 {
-			// TODO maybe should add OPTIONS ?
+			if fox.handleOptions && !hasOptions {
+				sb.WriteString(", ")
+				sb.WriteString(http.MethodOptions)
+			}
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
 			fox.noMethod(c)
