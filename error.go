@@ -42,7 +42,7 @@ func newConflictErr(method, path string, matched []string) *RouteConflictError {
 	}
 }
 
-// Error returns a formatted error message for the RouteConflictError.
+// Error returns a formatted error message for the [RouteConflictError].
 func (e *RouteConflictError) Error() string {
 	if !e.isUpdate {
 		return e.insertError()
@@ -59,7 +59,7 @@ func (e *RouteConflictError) updateError() string {
 
 }
 
-// Unwrap returns the sentinel value ErrRouteConflict.
+// Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
 	return e.err
 }

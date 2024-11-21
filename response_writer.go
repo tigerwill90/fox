@@ -33,7 +33,7 @@ var copyBufPool = sync.Pool{
 	},
 }
 
-// ResponseWriter extends http.ResponseWriter and provides methods to retrieve the recorded status code,
+// ResponseWriter extends [http.ResponseWriter] and provides methods to retrieve the recorded status code,
 // written state, and response size.
 type ResponseWriter interface {
 	http.ResponseWriter
@@ -46,23 +46,23 @@ type ResponseWriter interface {
 	// Size returns the size of the written response.
 	Size() int
 	// FlushError flushes buffered data to the client. If flush is not supported, FlushError returns an error
-	// matching http.ErrNotSupported. See http.Flusher for more details.
+	// matching [http.ErrNotSupported]. See [http.Flusher] for more details.
 	FlushError() error
 	// Hijack lets the caller take over the connection. If hijacking the connection is not supported, Hijack returns
-	// an error matching http.ErrNotSupported. See http.Hijacker for more details.
+	// an error matching [http.ErrNotSupported]. See [http.Hijacker] for more details.
 	Hijack() (net.Conn, *bufio.ReadWriter, error)
-	// Push initiates an HTTP/2 server push. Push returns http.ErrNotSupported if the client has disabled push or if push
-	// is not supported on the underlying connection. See http.Pusher for more details.
+	// Push initiates an HTTP/2 server push. Push returns [http.ErrNotSupported] if the client has disabled push or if push
+	// is not supported on the underlying connection. See [http.Pusher] for more details.
 	Push(target string, opts *http.PushOptions) error
 	// SetReadDeadline sets the deadline for reading the entire request, including the body. Reads from the request
 	// body after the deadline has been exceeded will return an error. A zero value means no deadline. Setting the read
 	// deadline after it has been exceeded will not extend it. If SetReadDeadline is not supported, it returns
-	// an error matching http.ErrNotSupported.
+	// an error matching [http.ErrNotSupported].
 	SetReadDeadline(deadline time.Time) error
 	// SetWriteDeadline sets the deadline for writing the response. Writes to the response body after the deadline has
 	// been exceeded will not block, but may succeed if the data has been buffered. A zero value means no deadline.
 	// Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
-	// it returns an error matching http.ErrNotSupported.
+	// it returns an error matching [http.ErrNotSupported].
 	SetWriteDeadline(deadline time.Time) error
 }
 
@@ -105,7 +105,7 @@ func (r *recorder) Unwrap() http.ResponseWriter {
 }
 
 // WriteHeader sends an HTTP response header with the provided
-// status code. See http.ResponseWriter for more details.
+// status code. See [http.ResponseWriter] for more details.
 func (r *recorder) WriteHeader(code int) {
 	if r.hijacked {
 		caller := relevantCaller()
@@ -132,7 +132,7 @@ func (r *recorder) WriteHeader(code int) {
 }
 
 // Write writes the data to the connection as part of an HTTP reply.
-// See http.ResponseWriter for more details.
+// See [http.ResponseWriter] for more details.
 func (r *recorder) Write(buf []byte) (n int, err error) {
 	if r.hijacked {
 		if len(buf) > 0 {
@@ -197,7 +197,7 @@ func (r *recorder) ReadFrom(src io.Reader) (n int64, err error) {
 }
 
 // FlushError flushes buffered data to the client. If flush is not supported, FlushError returns an error
-// matching http.ErrNotSupported. See http.Flusher for more details.
+// matching [http.ErrNotSupported]. See [http.Flusher] for more details.
 func (r *recorder) FlushError() error {
 	switch flusher := r.ResponseWriter.(type) {
 	case interface{ FlushError() error }:
@@ -216,8 +216,8 @@ func (r *recorder) FlushError() error {
 	}
 }
 
-// Push initiates an HTTP/2 server push. Push returns http.ErrNotSupported if the client has disabled push or if push
-// is not supported on the underlying connection. See http.Pusher for more details.
+// Push initiates an HTTP/2 server push. Push returns [http.ErrNotSupported] if the client has disabled push or if push
+// is not supported on the underlying connection. See [http.Pusher] for more details.
 func (r *recorder) Push(target string, opts *http.PushOptions) error {
 	if pusher, ok := r.ResponseWriter.(http.Pusher); ok {
 		return pusher.Push(target, opts)
@@ -226,7 +226,7 @@ func (r *recorder) Push(target string, opts *http.PushOptions) error {
 }
 
 // Hijack lets the caller take over the connection. If hijacking the connection is not supported, Hijack returns
-// an error matching http.ErrNotSupported. See http.Hijacker for more details.
+// an error matching [http.ErrNotSupported]. See [http.Hijacker] for more details.
 func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if hijacker, ok := r.ResponseWriter.(http.Hijacker); ok {
 		r.hijacked = true
@@ -238,7 +238,7 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // SetReadDeadline sets the deadline for reading the entire request, including the body. Reads from the request
 // body after the deadline has been exceeded will return an error. A zero value means no deadline. Setting the read
 // deadline after it has been exceeded will not extend it. If SetReadDeadline is not supported, it returns
-// an error matching http.ErrNotSupported.
+// an error matching [http.ErrNotSupported].
 func (r *recorder) SetReadDeadline(deadline time.Time) error {
 	if w, ok := r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }); ok {
 		return w.SetReadDeadline(deadline)
@@ -249,7 +249,7 @@ func (r *recorder) SetReadDeadline(deadline time.Time) error {
 // SetWriteDeadline sets the deadline for writing the response. Writes to the response body after the deadline has
 // been exceeded will not block, but may succeed if the data has been buffered. A zero value means no deadline.
 // Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
-// it returns an error matching http.ErrNotSupported.
+// it returns an error matching [http.ErrNotSupported].
 func (r *recorder) SetWriteDeadline(deadline time.Time) error {
 	if w, ok := r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		return w.SetWriteDeadline(deadline)

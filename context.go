@@ -376,8 +376,8 @@ func copyWithResize[S ~[]T, T any](dst, src *S) {
 	copy(*dst, *src)
 }
 
-// Scope returns the HandlerScope associated with the current Context.
-// This indicates the scope in which the handler is being executed, such as RouteHandler, NoRouteHandler, etc.
+// Scope returns the [HandlerScope] associated with the current [Context].
+// This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
 func (c *cTx) Scope() HandlerScope {
 	return c.scope
 }
@@ -398,7 +398,7 @@ func (c *cTx) getQueries() url.Values {
 	return c.cachedQuery
 }
 
-// WrapF is an adapter for wrapping http.HandlerFunc and returns a HandlerFunc function.
+// WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {

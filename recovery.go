@@ -23,7 +23,7 @@ import (
 // handling of an HTTP request.
 type RecoveryFunc func(c Context, err any)
 
-// CustomRecoveryWithLogHandler returns a middleware for a given slog.Handler that recovers from any panics,
+// CustomRecoveryWithLogHandler returns a middleware for a given [slog.Handler] that recovers from any panics,
 // logs the error, request details, and stack trace, and then calls the provided handle function to handle the recovery.
 func CustomRecoveryWithLogHandler(handler slog.Handler, handle RecoveryFunc) MiddlewareFunc {
 	slogger := slog.New(handler)
@@ -47,7 +47,7 @@ func Recovery() MiddlewareFunc {
 	return CustomRecovery(DefaultHandleRecovery)
 }
 
-// DefaultHandleRecovery is a default implementation of the RecoveryFunc.
+// DefaultHandleRecovery is a default implementation of the [RecoveryFunc].
 // It responds with a status code 500 and writes a generic error message.
 func DefaultHandleRecovery(c Context, _ any) {
 	http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

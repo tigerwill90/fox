@@ -5,6 +5,7 @@
 package fox
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"net"
@@ -56,7 +57,7 @@ type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 // chosen and tuned for your network configuration. This should result in the strategy never returning an error
 // i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
 // an application error, perhaps even worthy of panicking. Builtin best practices strategies can be found in the
-// github.com/tigerwill90/fox/strategy package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
+// github.com/tigerwill90/fox/clientip package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
 // how to choose the right strategy for your use-case and network.
 type ClientIPStrategy interface {
 	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
@@ -164,7 +165,7 @@ func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 	return fox.ignoreTrailingSlash
 }
 
-// ClientIPStrategyEnabled returns whether the router is configured with a ClientIPStrategy.
+// ClientIPStrategyEnabled returns whether the router is configured with a [ClientIPStrategy].
 func (fox *Router) ClientIPStrategyEnabled() bool {
 	_, ok := fox.ipStrategy.(noClientIPStrategy)
 	return !ok
@@ -191,7 +192,7 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 
 // MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
-// add a new handler while the router serving requests. This function is safe for concurrent use by multiple goroutines.
+// add a new handler while the router is serving requests. This function is safe for concurrent use by multiple goroutines.
 // To override an existing route, use [Router.Update].
 func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
 	rte, err := fox.Handle(method, pattern, handler, opts...)
@@ -260,13 +261,14 @@ func (fox *Router) Route(method, pattern string) *Route {
 
 // Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
-// (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
-// mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
+// (trailing slash action recommended). If the path is empty, a default slash is automatically added. This function
+// is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Lookup]
+// as an alternative.
 func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := fox.getRoot()
 	c := tree.ctx.Get().(*cTx)
 	c.resetNil()
-	n, tsr := tree.lookup(method, host, path, c, true)
+	n, tsr := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
 	tree.ctx.Put(c)
 	if n != nil {
 		return n.route, tsr

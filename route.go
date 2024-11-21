@@ -26,7 +26,7 @@ type Route struct {
 	ignoreTrailingSlash   bool
 }
 
-// Handle calls the handler with the provided [Context]. See also [HandleMiddleware].
+// Handle calls the handler with the provided [Context]. See also [Route.HandleMiddleware].
 func (r *Route) Handle(c Context) {
 	r.hbase(c)
 }

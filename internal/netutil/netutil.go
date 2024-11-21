@@ -20,7 +20,7 @@ func SplitHostZone(s string) (host, zone string) {
 
 // SplitHostPort separates host and port. If the port is not valid, it returns
 // the entire input as host, and it doesn't check the validity of the host.
-// Unlike net.SplitHostPort, but per RFC 3986, it requires ports to be numeric.
+// Unlike [net.SplitHostPort], but per RFC 3986, it requires ports to be numeric.
 func SplitHostPort(hostPort string) (host, port string) {
 	host = hostPort
 

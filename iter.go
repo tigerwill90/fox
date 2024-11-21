@@ -5,6 +5,7 @@
 package fox
 
 import (
+	"cmp"
 	"iter"
 )
 
@@ -99,12 +100,12 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 }
 
 // Reverse returns a range iterator over all routes registered in the routing tree that match the given host and path
-// for the provided HTTP methods. Unlike Routes, which matches an exact route, Reverse is used to match an url
+// for the provided HTTP methods. Unlike [Iter.Routes], which matches an exact route, Reverse is used to match an url
 // (e.g., a path from an incoming request) to a registered routes in the tree. The iterator reflect a snapshot of the
 // routing tree at the time [Iter] is created.
 //
-// If WithIgnoreTrailingSlash or WithRedirectTrailingSlash option is enabled on a route, Reverse will match it regardless
-// of whether a trailing slash is present.
+// If [WithIgnoreTrailingSlash] or [WithRedirectTrailingSlash] option is enabled on a route, Reverse will match it regardless
+// of whether a trailing slash is present. If the path is empty, a default slash is automatically added.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
@@ -113,7 +114,7 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 		defer c.Close()
 		for method := range methods {
 			c.resetNil()
-			n, tsr := it.root.lookup(it.tree, method, host, path, c, true)
+			n, tsr := it.root.lookup(it.tree, method, host, cmp.Or(path, "/"), c, true)
 			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
 				if !yield(method, n.route) {
 					return
