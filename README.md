@@ -9,7 +9,7 @@ Fox is a zero allocation, lightweight, high performance HTTP request router for 
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a Radix Tree that support **lock-free 
 reads** while allowing **concurrent write**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
 
-Fox supports various use cases, but it is especially designed for applications that require changes at runtime to their 
+Fox supports various use cases, but it is especially designed for applications that require frequent changes at runtime to their 
 routing structure based on user input, configuration changes, or other runtime events.
 
 ## Disclaimer
