@@ -2,7 +2,7 @@
 // Mount of this source code is governed by a BSD Zero Clause License that can be found
 // at https://github.com/realclientip/realclientip-go/blob/main/LICENSE.
 
-package strategy
+package clientip
 
 import (
 	"errors"

@@ -494,35 +494,6 @@ func BenchmarkStaticAll(b *testing.B) {
 	benchRoutes(b, r, staticRoutes)
 }
 
-// BenchmarkInsertStatic-16    	    3975	    318519 ns/op	  335701 B/op	    4506 allocs/op
-func BenchmarkInsertStatic(b *testing.B) {
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for range b.N {
-		f := New()
-		for _, route := range staticRoutes {
-			f.Handle(route.method, route.path, emptyHandler)
-		}
-	}
-}
-
-func BenchmarkInsertStaticTx(b *testing.B) {
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for range b.N {
-		f := New()
-		txn := f.Txn(true)
-		for _, route := range staticRoutes {
-			txn.Handle(route.method, route.path, emptyHandler)
-		}
-		txn.Commit()
-	}
-
-}
-
 func BenchmarkGithubParamsAll(b *testing.B) {
 	r := New()
 	for _, route := range githubAPI {
@@ -5924,7 +5895,7 @@ func ExampleRouter_Lookup() {
 }
 
 // This example demonstrates how to do a reverse lookup on the tree.
-func ExampleTree_Reverse() {
+func ExampleRouter_Reverse() {
 	f := New()
 	f.MustHandle(http.MethodGet, "exemple.com/hello/{name}", emptyHandler)
 	route, _ := f.Reverse(http.MethodGet, "exemple.com", "/hello/fox")
@@ -5932,11 +5903,83 @@ func ExampleTree_Reverse() {
 }
 
 // This example demonstrates how to check if a given route is registered in the tree.
-func ExampleTree_Has() {
+func ExampleRouter_Has() {
 	f := New()
 	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)
 	exist := f.Has(http.MethodGet, "/hello/{name}")
 	fmt.Println(exist) // true
+}
+
+// This example demonstrate how to create a managed read-write transaction.
+func ExampleRouter_Updates() {
+	f := New()
+
+	// Updates executes a function within the context of a read-write managed transaction. If no error is returned
+	// from the function then the transaction is committed. If an error is returned then the entire transaction is
+	// aborted.
+	if err := f.Updates(func(txn *Txn) error {
+		if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c Context) {
+			_ = c.String(http.StatusOK, "hello %s", c.Param("name"))
+		}); err != nil {
+			return err
+		}
+
+		// Iter returns a collection of range iterators for traversing registered routes.
+		it := txn.Iter()
+		// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
+		// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
+		// observed in the result returned by Prefix (or any other iterator).
+		for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
+			if err := f.Delete(method, route.Pattern()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Printf("transaction aborted: %s", err)
+	}
+}
+
+// This example demonstrate how to create an unmanaged read-write transaction.
+func ExampleRouter_Txn() {
+	f := New()
+
+	// Txn create an unmanaged read-write or read-only transaction.
+	txn := f.Txn(true)
+	defer txn.Abort()
+
+	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c Context) {
+		_ = c.String(http.StatusOK, "hello %s", c.Param("name"))
+	}); err != nil {
+		log.Printf("error inserting route: %s", err)
+		return
+	}
+
+	// Iter returns a collection of range iterators for traversing registered routes.
+	it := txn.Iter()
+	// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
+	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
+	// observed in the result returned by Prefix (or any other iterator).
+	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
+		if err := f.Delete(method, route.Pattern()); err != nil {
+			log.Printf("error deleting route: %s", err)
+			return
+		}
+	}
+	// Finalize the transaction
+	txn.Commit()
+}
+
+func ExampleRouter_View() {
+	f := New()
+
+	// View executes a function within the context of a read-only managed transaction.
+	_ = f.View(func(txn *Txn) error {
+		if txn.Has(http.MethodGet, "/foo") && txn.Has(http.MethodGet, "/bar") {
+			// Do something
+		}
+		return nil
+	})
 }
 
 func onlyError[T any](_ T, err error) error {

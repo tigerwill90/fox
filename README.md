@@ -258,7 +258,7 @@ of the tree, where only the modified path and its ancestors are cloned, ensuring
 Multiple patches can be applied in a single transaction, with intermediate nodes cached during the process to prevent 
 redundant cloning.
 
-#### Other key points
+### Other key points
 
 - Routing requests is lock-free (reading thread never block, even while writes are ongoing)
 - The router always see a consistent version of the tree while routing request
@@ -394,7 +394,17 @@ for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
 txn.Commit()
 ````
 
-#### Managed read-write transaction
+#### Managed read-only transaction
+````go
+_ = f.View(func(txn *fox.Txn) error {
+	if txn.Has(http.MethodGet, "/foo") {
+		if txn.Has(http.MethodGet, "/bar") {
+			// do something
+		}
+	}
+	return nil
+})
+````
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
@@ -529,22 +539,22 @@ The sub-package `github.com/tigerwill90/fox/strategy` provides a set of best pra
 
 ````go
 f := fox.New(
-    fox.DefaultOptions(),
-    fox.WithClientIPStrategy(
-        // We are behind one or many trusted proxies that have all private-space IP addresses.
-        strategy.NewRightmostNonPrivate(strategy.XForwardedForKey),
-    ),
+	fox.DefaultOptions(),
+	fox.WithClientIPStrategy(
+		// We are behind one or many trusted proxies that have all private-space IP addresses.
+		clientip.NewRightmostNonPrivate(clientip.XForwardedForKey),
+	),
 )
 
 f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
-    ipAddr, err := c.ClientIP()
-        if err != nil {
-            // If the current strategy is not able to derive the client IP, an error
-            // will be returned rather than falling back on an untrustworthy IP. It
-            // should be treated as an application issue or a misconfiguration.
-            panic(err)
-        }
-    fmt.Println(ipAddr.String())
+	ipAddr, err := c.ClientIP()
+	if err != nil {
+		// If the current strategy is not able to derive the client IP, an error
+		// will be returned rather than falling back on an untrustworthy IP. It
+		// should be treated as an application issue or a misconfiguration.
+		panic(err)
+	}
+	fmt.Println(ipAddr.String())
 })
 ````
 
@@ -552,17 +562,16 @@ It is also possible to create a chain with multiple strategies that attempt to d
 
 ````go
 f = fox.New(
-    fox.DefaultOptions(),
-    fox.WithClientIPStrategy(
-        // A common use for this is if a server is both directly connected to the 
-        // internet and expecting a header to check.
-        strategy.NewChain(
-            strategy.NewLeftmostNonPrivate(strategy.ForwardedKey),
-            strategy.NewRemoteAddr(),
-        ),
-    ),
+	fox.DefaultOptions(),
+	fox.WithClientIPStrategy(
+		// A common use for this is if a server is both directly connected to the
+		// internet and expecting a header to check.
+		clientip.NewChain(
+			clientip.NewLeftmostNonPrivate(clientip.ForwardedKey),
+			clientip.NewRemoteAddr(),
+		),
+	),
 )
-
 ````
 
 Note that there is no "sane" default strategy, so calling `Context.ClientIP` without a strategy configured will return an `ErrNoClientIPStrategy`.
