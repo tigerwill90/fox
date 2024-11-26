@@ -640,8 +640,9 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 				}
 				inParam = false
 
-				if len(url[startParam:i]) > int(fox.maxParamKeyBytes) {
-					return 0, -1, fmt.Errorf("%w: parameter key too large", ErrInvalidRoute)
+				paramLen := len(url[startParam:i])
+				if paramLen > int(fox.maxParamKeyBytes) {
+					return 0, -1, fmt.Errorf("%w: parameter key too large: max=%d got=%d", ErrInvalidRoute, fox.maxParamKeyBytes, paramLen)
 				}
 
 				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
@@ -671,8 +672,9 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 				}
 				inParam = false
 
-				if len(url[startParam:i]) > int(fox.maxParamKeyBytes) {
-					return 0, -1, fmt.Errorf("%w: parameter key too large", ErrInvalidRoute)
+				paramLen := len(url[startParam:i])
+				if paramLen > int(fox.maxParamKeyBytes) {
+					return 0, -1, fmt.Errorf("%w: parameter key too large: max=%d got=%d", ErrInvalidRoute, fox.maxParamKeyBytes, paramLen)
 				}
 
 				if i+1 < len(url) && url[i+1] != '/' {
@@ -753,7 +755,7 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 			}
 
 			if paramCnt > uint32(fox.maxParams) {
-				return 0, -1, fmt.Errorf("%w: too many params (%d)", ErrInvalidRoute, paramCnt)
+				return 0, -1, fmt.Errorf("%w: too many params: max=%d got=%d", ErrInvalidRoute, fox.maxParams, paramCnt)
 			}
 
 			i++

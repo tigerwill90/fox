@@ -2891,8 +2891,6 @@ func TestInfixWildcardTsr(t *testing.T) {
 
 			tree := f.getRoot()
 
-			fmt.Println(tree.root[0])
-
 			c := newTestContext(f)
 			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			require.NotNil(t, n)
@@ -3993,7 +3991,7 @@ func TestParseRouteParamsConstraint(t *testing.T) {
 		assert.Error(t, err)
 		_, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abc}/*{abcd}")
+		_, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
 		assert.Error(t, err)
 	})
 }
