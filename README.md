@@ -122,12 +122,12 @@ Pattern /users/uuid:{id}/config
 Named parameters are also supported in hostname. Note that the path portion must still include at least `/`.
 
 ````
-Pattern exemple.com/avengers
+Pattern example.com/avengers
 
-exemple.com/avengers/avengers   matches
-{sub}.com/avengers/avengers     matches
-exemple.{tld}/avengers          matches
-{sub}.exemple.com/avengers      no matches
+example.com/avengers            matches
+{sub}.com/avengers              matches
+example.{tld}/avengers          matches
+{sub}.example.com/avengers      no matches
 ````
 
 #### Catch-all parameter
