@@ -100,7 +100,7 @@ func (txn *Txn) Delete(method, pattern string) error {
 		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	_, _, err := parseRoute(pattern)
+	_, _, err := txn.fox.parseRoute(pattern)
 	if err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (txn *Txn) Iter() Iter {
 	return Iter{
 		tree:     txn.rootTxn.tree,
 		root:     rt,
-		maxDepth: txn.rootTxn.maxDepth,
+		maxDepth: txn.rootTxn.depth,
 	}
 }
 
