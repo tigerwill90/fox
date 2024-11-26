@@ -535,7 +535,7 @@ The strategy used must be chosen and tuned for your network configuration. This 
 an error and if it does, it should be treated as an application issue or a misconfiguration, rather than defaulting to an 
 untrustworthy IP.
 
-The sub-package `github.com/tigerwill90/fox/strategy` provides a set of best practices strategies that should cover most use cases.
+The sub-package `github.com/tigerwill90/fox/clientip` provides a set of best practices strategies that should cover most use cases.
 
 ````go
 f := fox.New(
