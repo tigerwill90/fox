@@ -20,7 +20,7 @@ type iTree struct {
 	fox       *Router
 	root      roots
 	maxParams uint32
-	maxDepth  uint32
+	depth     uint32
 }
 
 func (t *iTree) txn(cache bool) *tXn {
@@ -28,7 +28,7 @@ func (t *iTree) txn(cache bool) *tXn {
 		tree:      t,
 		root:      t.root,
 		maxParams: t.maxParams,
-		maxDepth:  t.maxDepth,
+		depth:     t.depth,
 		cache:     cache,
 	}
 }
@@ -47,7 +47,7 @@ type tXn struct {
 	writable  *simplelru.LRU[*node, any]
 	root      roots
 	maxParams uint32
-	maxDepth  uint32
+	depth     uint32
 	cache     bool
 }
 
@@ -56,7 +56,7 @@ func (t *tXn) commit() *iTree {
 		root:      t.root,
 		fox:       t.tree.fox,
 		maxParams: t.maxParams,
-		maxDepth:  t.maxDepth,
+		depth:     t.depth,
 	}
 	nt.ctx = sync.Pool{
 		New: func() any {
@@ -77,7 +77,7 @@ func (t *tXn) clone() *tXn {
 		tree:      t.tree,
 		root:      t.root,
 		maxParams: t.maxParams,
-		maxDepth:  t.maxDepth,
+		depth:     t.depth,
 	}
 	return tx
 }
@@ -632,8 +632,8 @@ func (t *tXn) updateMaxParams(max uint32) {
 
 // updateMaxDepth perform an update only if max is greater than the current
 func (t *tXn) updateMaxDepth(max uint32) {
-	if max > t.maxDepth {
-		t.maxDepth = max
+	if max > t.depth {
+		t.depth = max
 	}
 }
 
@@ -682,7 +682,7 @@ func isRemovable(method string) bool {
 func (t *iTree) allocateContext() *cTx {
 	params := make(Params, 0, t.maxParams)
 	tsrParams := make(Params, 0, t.maxParams)
-	skipNds := make(skippedNodes, 0, t.maxDepth)
+	skipNds := make(skippedNodes, 0, t.depth)
 	return &cTx{
 		params:    &params,
 		skipNds:   &skipNds,

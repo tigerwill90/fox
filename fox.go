@@ -105,6 +105,8 @@ type Router struct {
 	ipStrategy             ClientIPStrategy
 	mws                    []middleware
 	mu                     sync.Mutex
+	maxParams              uint16
+	maxParamKeyBytes       uint16
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	redirectTrailingSlash  bool
@@ -127,6 +129,8 @@ func New(opts ...GlobalOption) *Router {
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
 	r.ipStrategy = noClientIPStrategy{}
+	r.maxParams = math.MaxUint16
+	r.maxParamKeyBytes = math.MaxUint16
 
 	for _, opt := range opts {
 		opt.applyGlob(r)
@@ -311,7 +315,7 @@ func (fox *Router) Iter() Iter {
 	return Iter{
 		tree:     rt,
 		root:     rt.root,
-		maxDepth: rt.maxDepth,
+		maxDepth: rt.depth,
 	}
 }
 
@@ -397,7 +401,7 @@ func (fox *Router) newTree() *iTree {
 
 // newRoute create a new route, apply route options and apply middleware on the handler.
 func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, uint32, error) {
-	n, endHost, err := parseRoute(pattern)
+	n, endHost, err := fox.parseRoute(pattern)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -595,7 +599,7 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func parseRoute(url string) (uint32, int, error) {
+func (fox *Router) parseRoute(url string) (uint32, int, error) {
 
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {
@@ -619,6 +623,7 @@ func parseRoute(url string) (uint32, int, error) {
 	previous := stateDefault
 	paramCnt := uint32(0)
 	countStatic := 0
+	startParam := 0
 	inParam := false
 	nonNumeric := false // true once we've seen a letter or hyphen
 	partlen := 0
@@ -634,6 +639,11 @@ func parseRoute(url string) (uint32, int, error) {
 					return 0, -1, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
+
+				paramLen := len(url[startParam:i])
+				if paramLen > int(fox.maxParamKeyBytes) {
+					return 0, -1, fmt.Errorf("%w: parameter key too large: max=%d got=%d", ErrInvalidRoute, fox.maxParamKeyBytes, paramLen)
+				}
 
 				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
 					return 0, -1, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
@@ -661,6 +671,11 @@ func parseRoute(url string) (uint32, int, error) {
 					return 0, -1, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
 				}
 				inParam = false
+
+				paramLen := len(url[startParam:i])
+				if paramLen > int(fox.maxParamKeyBytes) {
+					return 0, -1, fmt.Errorf("%w: parameter key too large: max=%d got=%d", ErrInvalidRoute, fox.maxParamKeyBytes, paramLen)
+				}
 
 				if i+1 < len(url) && url[i+1] != '/' {
 					return 0, -1, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
@@ -690,6 +705,7 @@ func parseRoute(url string) (uint32, int, error) {
 
 			if url[i] == '{' {
 				state = stateParam
+				startParam = i + 1
 				paramCnt++
 			} else if url[i] == '*' {
 				if i < endHost {
@@ -697,6 +713,7 @@ func parseRoute(url string) (uint32, int, error) {
 				}
 				state = stateCatchAll
 				i++
+				startParam = i + 1
 				paramCnt++
 			} else {
 				countStatic++
@@ -737,8 +754,8 @@ func parseRoute(url string) (uint32, int, error) {
 				}
 			}
 
-			if paramCnt > math.MaxUint16 {
-				return 0, -1, fmt.Errorf("%w: too many params (%d)", ErrInvalidRoute, paramCnt)
+			if paramCnt > uint32(fox.maxParams) {
+				return 0, -1, fmt.Errorf("%w: too many params: max=%d got=%d", ErrInvalidRoute, fox.maxParams, paramCnt)
 			}
 
 			i++

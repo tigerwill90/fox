@@ -2891,8 +2891,6 @@ func TestInfixWildcardTsr(t *testing.T) {
 
 			tree := f.getRoot()
 
-			fmt.Println(tree.root[0])
-
 			c := newTestContext(f)
 			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
 			require.NotNil(t, n)
@@ -3542,6 +3540,7 @@ func TestUpdateRoute(t *testing.T) {
 }
 
 func TestParseRoute(t *testing.T) {
+	f := New()
 	cases := []struct {
 		wantErr error
 		name    string
@@ -3963,20 +3962,48 @@ func TestParseRoute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, _, err := parseRoute(tc.path)
+			n, _, err := f.parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
 		})
 	}
 }
 
+func TestParseRouteParamsConstraint(t *testing.T) {
+	t.Run("param limit", func(t *testing.T) {
+		f := New(WithMaxParams(3))
+		_, _, err := f.parseRoute("/{1}/{2}/{3}")
+		assert.NoError(t, err)
+		_, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
+		assert.Error(t, err)
+		_, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
+		assert.Error(t, err)
+	})
+	t.Run("param key limit", func(t *testing.T) {
+		f := New(WithMaxParamKeyBytes(3))
+		_, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
+		assert.NoError(t, err)
+		_, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
+		assert.Error(t, err)
+		_, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
+		assert.Error(t, err)
+		_, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
+		assert.Error(t, err)
+		_, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
+		assert.Error(t, err)
+		_, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
+		assert.Error(t, err)
+	})
+}
+
 func TestParseRouteMalloc(t *testing.T) {
+	f := New()
 	var (
 		n   uint32
 		err error
 	)
 	allocs := testing.AllocsPerRun(100, func() {
-		n, _, err = parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
+		n, _, err = f.parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
 	})
 	assert.Equal(t, float64(0), allocs)
 	assert.NoError(t, err)

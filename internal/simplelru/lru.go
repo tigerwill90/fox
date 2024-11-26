@@ -1,5 +1,6 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+// Copyright 2014 HashiCorp, Inc. All rights reserved.
+// Use of this source code is governed by a MPL 2.0
+// license that can be found in the LICENSE_list file.
 
 package simplelru
 

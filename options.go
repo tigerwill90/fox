@@ -81,6 +81,21 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
+// WithMaxParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
+func WithMaxParams(max uint16) GlobalOption {
+	return globOptionFunc(func(router *Router) {
+		router.maxParams = max
+	})
+}
+
+// WithMaxParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
+// math.MaxUint16.
+func WithMaxParamKeyBytes(max uint16) GlobalOption {
+	return globOptionFunc(func(router *Router) {
+		router.maxParamKeyBytes = max
+	})
+}
+
 // WithMiddleware attaches middleware to the router or to a specific route. The middlewares are executed
 // in the order they are added. When applied globally, the middleware affects all handlers, including special handlers
 // such as NotFound, MethodNotAllowed, AutoOption, and the internal redirect handler.
