@@ -64,6 +64,18 @@ type ResponseWriter interface {
 	// Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
 	// it returns an error matching [http.ErrNotSupported].
 	SetWriteDeadline(deadline time.Time) error
+	// EnableFullDuplex indicates that the request handler will interleave reads from [http.Request.Body]
+	// with writes to the [ResponseWriter].
+	//
+	// For HTTP/1 requests, the Go HTTP server by default consumes any unread portion of
+	// the request body before beginning to write the response, preventing handlers from
+	// concurrently reading from the request and writing the response.
+	// Calling EnableFullDuplex disables this behavior and permits handlers to continue to read
+	// from the request while concurrently writing the response.
+	//
+	// For HTTP/2 requests, the Go HTTP server always permits concurrent reads and responses.
+	// If EnableFullDuplex is not supported, it returns an error matching [http.ErrNotSupported].
+	EnableFullDuplex() error
 }
 
 const notWritten = -1
@@ -253,6 +265,24 @@ func (r *recorder) SetReadDeadline(deadline time.Time) error {
 func (r *recorder) SetWriteDeadline(deadline time.Time) error {
 	if w, ok := r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		return w.SetWriteDeadline(deadline)
+	}
+	return ErrNotSupported()
+}
+
+// EnableFullDuplex indicates that the request handler will interleave reads from [http.Request.Body]
+// with writes to the [ResponseWriter].
+//
+// For HTTP/1 requests, the Go HTTP server by default consumes any unread portion of
+// the request body before beginning to write the response, preventing handlers from
+// concurrently reading from the request and writing the response.
+// Calling EnableFullDuplex disables this behavior and permits handlers to continue to read
+// from the request while concurrently writing the response.
+//
+// For HTTP/2 requests, the Go HTTP server always permits concurrent reads and responses.
+// If EnableFullDuplex is not supported, it returns an error matching [http.ErrNotSupported].
+func (r *recorder) EnableFullDuplex() error {
+	if w, ok := r.ResponseWriter.(interface{ EnableFullDuplex() error }); ok {
+		return w.EnableFullDuplex()
 	}
 	return ErrNotSupported()
 }

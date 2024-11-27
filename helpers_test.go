@@ -17,8 +17,9 @@ import (
 func TestNewTestContext(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 	w := httptest.NewRecorder()
-	_, c := NewTestContext(w, req)
+	f, c := NewTestContext(w, req)
 
+	assert.NotNil(t, f)
 	flusher, ok := c.Writer().(interface{ Unwrap() http.ResponseWriter }).Unwrap().(http.Flusher)
 	require.True(t, ok)
 
@@ -43,5 +44,8 @@ func TestNewTestContext(t *testing.T) {
 	assert.ErrorIs(t, err, http.ErrNotSupported)
 
 	err = c.Writer().SetWriteDeadline(time.Time{})
+	assert.ErrorIs(t, err, http.ErrNotSupported)
+
+	err = c.Writer().EnableFullDuplex()
 	assert.ErrorIs(t, err, http.ErrNotSupported)
 }
