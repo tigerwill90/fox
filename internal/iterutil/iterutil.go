@@ -58,21 +58,35 @@ func Len2[K, V any](seq iter.Seq2[K, V]) int {
 	return n
 }
 
-func SplitSeqN(s, sep string, n uint) iter.Seq[string] {
-	return splitSeqN(s, sep, 0, n)
+// SplitSeq returns an iterator over all substrings of s separated by sep.
+// The iterator yields the same strings that would be returned by Split(s, sep),
+// but without constructing the slice. It returns a single-use iterator.
+// TODO we should use the strings package when SplitSeq land in 1.24.
+func SplitSeq(s, sep string) iter.Seq[string] {
+	return splitSeq(s, sep, 0)
 }
 
-func splitSeqN(s, sep string, sepSave int, n uint) iter.Seq[string] {
-	if len(sep) == 0 {
-		return explodeSeqN(s, n)
-	}
-
+// explodeSeq returns an iterator over the runes in s.
+func explodeSeq(s string) iter.Seq[string] {
 	return func(yield func(string) bool) {
-		if n == 0 {
-			return
+		for len(s) > 0 {
+			_, size := utf8.DecodeRuneInString(s)
+			if !yield(s[:size]) {
+				return
+			}
+			s = s[size:]
 		}
-		var j uint
-		for j < n-1 {
+	}
+}
+
+// splitSeq is SplitSeq or SplitAfterSeq, configured by how many
+// bytes of sep to include in the results (none or all).
+func splitSeq(s, sep string, sepSave int) iter.Seq[string] {
+	if len(sep) == 0 {
+		return explodeSeq(s)
+	}
+	return func(yield func(string) bool) {
+		for {
 			i := strings.Index(s, sep)
 			if i < 0 {
 				break
@@ -82,29 +96,7 @@ func splitSeqN(s, sep string, sepSave int, n uint) iter.Seq[string] {
 				return
 			}
 			s = s[i+len(sep):]
-			j++
 		}
 		yield(s)
-	}
-}
-
-func explodeSeqN(s string, n uint) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		l := uint(utf8.RuneCountInString(s))
-		if n > l {
-			n = l
-		}
-
-		ni := int(n)
-		for i := 0; i < ni-1; i++ {
-			_, size := utf8.DecodeRuneInString(s)
-			if !yield(s[:size]) {
-				return
-			}
-			s = s[size:]
-		}
-		if ni > 0 {
-			yield(s)
-		}
 	}
 }

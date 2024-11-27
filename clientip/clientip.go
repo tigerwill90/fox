@@ -499,7 +499,11 @@ func getIPAddrList(headers http.Header, headerName string) []*net.IPAddr {
 	// Note that Go's Header map uses canonicalized keys.
 	for _, h := range headers[headerName] {
 		// We now have a sequence of comma-separated list items.
-		for rawListItem := range iterutil.SplitSeqN(h, ",", maxIpPerHeaderLine) {
+		j := 0
+		for rawListItem := range iterutil.SplitSeq(h, ",") {
+			if j >= maxIpPerHeaderLine {
+				break
+			}
 			// The IPs are often comma-space separated, so we'll need to trim the string
 			rawListItem = strings.TrimSpace(rawListItem)
 
@@ -511,9 +515,9 @@ func getIPAddrList(headers http.Header, headerName string) []*net.IPAddr {
 			} else { // == XFF
 				ipAddr, _ = ParseIPAddr(rawListItem)
 			}
-
 			// ipAddr is nil if not valid
 			result = append(result, ipAddr)
+			j++
 		}
 	}
 
@@ -539,7 +543,12 @@ func parseForwardedListItem(fwd string) *net.IPAddr {
 	// A valid syntax have at most 4 section, e.g. by=<identifier>;for=<identifier>;host=<host>;proto=<http|https>
 	// Find the "for=" part, since that has the IP we want (maybe)
 	var forPart string
-	for fp := range iterutil.SplitSeqN(fwd, ";", 4) {
+	j := 0
+	for fp := range iterutil.SplitSeq(fwd, ";") {
+		if j >= 4 {
+			break
+		}
+		j++
 		// Whitespace is allowed around the semicolons
 		fp = strings.TrimSpace(fp)
 
