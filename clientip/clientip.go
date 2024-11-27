@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox"
+	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 	"net"
 	"net/http"
@@ -18,6 +19,12 @@ const (
 	xForwardedForHdr = "X-Forwarded-For"
 	forwardedHdr     = "Forwarded"
 )
+
+// maxIpPerHeaderLine defines the maximum number of IP addresses allowed per line in the `X-Forwarded-For` header.
+// This limit is set for security reasons to prevent unbounded splitting of the header line, which could lead to
+// excessive heap allocations when processing a maliciously crafted header. The value of 25 is an arbitrary but
+// conservative choice. In realistic scenarios, having more than 5 to 10 proxies in a chain is already exceptional.
+const maxIpPerHeaderLine = 25
 
 var (
 	ErrInvalidIpAddress      = errors.New("invalid ip address")
@@ -491,8 +498,8 @@ func getIPAddrList(headers http.Header, headerName string) []*net.IPAddr {
 	// splitting. Doing it that way would use more memory.
 	// Note that Go's Header map uses canonicalized keys.
 	for _, h := range headers[headerName] {
-		// We now have a string with comma-separated list items
-		for _, rawListItem := range strings.Split(h, ",") {
+		// We now have a sequence of comma-separated list items.
+		for rawListItem := range iterutil.SplitSeqN(h, ",", maxIpPerHeaderLine) {
 			// The IPs are often comma-space separated, so we'll need to trim the string
 			rawListItem = strings.TrimSpace(rawListItem)
 
@@ -529,17 +536,16 @@ func parseForwardedListItem(fwd string) *net.IPAddr {
 	//	for=192.0.2.43
 
 	// First split up "for=", "by=", "host=", etc.
-	fwdParts := strings.Split(fwd, ";")
-
+	// A valid syntax have at most 4 section, e.g. by=<identifier>;for=<identifier>;host=<host>;proto=<http|https>
 	// Find the "for=" part, since that has the IP we want (maybe)
 	var forPart string
-	for _, fp := range fwdParts {
+	for fp := range iterutil.SplitSeqN(fwd, ";", 4) {
 		// Whitespace is allowed around the semicolons
 		fp = strings.TrimSpace(fp)
 
-		fpSplit := strings.Split(fp, "=")
+		fpSplit := strings.SplitN(fp, "=", 2)
 		if len(fpSplit) != 2 {
-			// There are too many or too few equal signs in this part
+			// There are too few equal signs in this part
 			continue
 		}
 
