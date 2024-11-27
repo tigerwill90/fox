@@ -527,6 +527,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions && fox.handleOptions {
 		var sb strings.Builder
+		// Grow sb to a reasonable size that should prevent new allocation in most case.
+		sb.Grow(min((len(tree.root)+1)*5, 150))
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 		if path == "*" {
@@ -560,6 +562,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
+		// Grow sb to a reasonable size that should prevent new allocation in most case.
+		sb.Grow(min((len(tree.root)+1)*5, 150))
 		hasOptions := false
 		for i := 0; i < len(tree.root); i++ {
 			if tree.root[i].key != r.Method {
