@@ -196,7 +196,7 @@ func TestContext_Redirect(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	require.NoError(t, c.Redirect(http.StatusTemporaryRedirect, "https://example.com/foo/bar"))
 	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	assert.Equal(t, "https://example.com/foo/bar", w.Header().Get(HeaderLocation))
@@ -206,7 +206,7 @@ func TestContext_Blob(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	buf := []byte("foobar")
 	require.NoError(t, c.Blob(http.StatusCreated, MIMETextPlain, buf))
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -222,11 +222,11 @@ func TestContext_RemoteIP(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.RemoteAddr = "192.0.2.1:8080"
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	assert.Equal(t, "192.0.2.1", c.RemoteIP().String())
 
 	r.RemoteAddr = "[::1]:80"
-	_, c = NewTestContext(w, r)
+	c = NewTestContextOnly(w, r)
 	assert.Equal(t, "::1", c.RemoteIP().String())
 }
 
@@ -237,14 +237,14 @@ func TestContext_ClientIP(t *testing.T) {
 	r.RemoteAddr = "192.0.2.1:8080"
 	c := NewTestContextOnly(w, r)
 	_, err := c.ClientIP()
-	assert.ErrorIs(t, err, ErrNoClientIPStrategy)
+	assert.ErrorIs(t, err, ErrNoClientIPResolver)
 }
 
 func TestContext_Stream(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	buf := []byte("foobar")
 	require.NoError(t, c.Stream(http.StatusCreated, MIMETextPlain, bytes.NewBuffer(buf)))
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -259,7 +259,7 @@ func TestContext_String(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	s := "foobar"
 	require.NoError(t, c.String(http.StatusCreated, s))
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -274,7 +274,7 @@ func TestContext_Writer(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	buf := []byte("foobar")
 	c.Writer().WriteHeader(http.StatusCreated)
 	assert.Equal(t, 0, c.Writer().Size())
@@ -306,7 +306,7 @@ func TestContext_GetHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	r.Header.Set(HeaderAccept, MIMEApplicationJSON)
-	_, c := NewTestContext(w, r)
+	c := NewTestContextOnly(w, r)
 	assert.Equal(t, MIMEApplicationJSON, c.Header(HeaderAccept))
 }
 
@@ -438,7 +438,7 @@ func TestWrapF(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-			_, c := NewTestContext(w, r)
+			c := NewTestContextOnly(w, r)
 
 			params := make(Params, 0)
 			if tc.params != nil {
@@ -498,7 +498,7 @@ func TestWrapH(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-			_, c := NewTestContext(w, r)
+			c := NewTestContextOnly(w, r)
 
 			params := make(Params, 0)
 			if tc.params != nil {

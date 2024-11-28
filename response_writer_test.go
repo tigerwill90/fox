@@ -51,6 +51,10 @@ func (f deadlineWriterFunc) SetWriteDeadline(deadline time.Time) error {
 	return f(deadline)
 }
 
+type duplexWriterFunc func() error
+
+func (f duplexWriterFunc) EnableFullDuplex() error { return f() }
+
 func TestRecorder_FlushError(t *testing.T) {
 	type flushError interface {
 		FlushError() error
@@ -280,6 +284,52 @@ func TestRecorder_SetWriteDeadline(t *testing.T) {
 			},
 			assert: func(t *testing.T, w ResponseWriter) {
 				err := w.SetWriteDeadline(time.Now())
+				assert.ErrorIs(t, err, http.ErrNotSupported)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.assert(t, tc.rec)
+		})
+	}
+}
+
+func TestRecorder_EnableFullDuplex(t *testing.T) {
+	type duplexWriter interface {
+		EnableFullDuplex() error
+	}
+
+	cases := []struct {
+		name   string
+		rec    *recorder
+		assert func(t *testing.T, w ResponseWriter)
+	}{
+		{
+			name: "implements EnableFullDuplex and returns no error",
+			rec: &recorder{
+				ResponseWriter: struct {
+					http.ResponseWriter
+					duplexWriter
+				}{
+					ResponseWriter: httptest.NewRecorder(),
+					duplexWriter: duplexWriterFunc(func() error {
+						return nil
+					}),
+				},
+			},
+			assert: func(t *testing.T, w ResponseWriter) {
+				assert.NoError(t, w.EnableFullDuplex())
+			},
+		},
+		{
+			name: "does not implement EnableFullDuplex and returns http.ErrNotSupported",
+			rec: &recorder{
+				ResponseWriter: httptest.NewRecorder(),
+			},
+			assert: func(t *testing.T, w ResponseWriter) {
+				err := w.EnableFullDuplex()
 				assert.ErrorIs(t, err, http.ErrNotSupported)
 			},
 		},

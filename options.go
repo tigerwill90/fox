@@ -81,16 +81,16 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
-// WithMaxParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
-func WithMaxParams(max uint16) GlobalOption {
+// WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
+func WithMaxRouteParams(max uint16) GlobalOption {
 	return globOptionFunc(func(router *Router) {
 		router.maxParams = max
 	})
 }
 
-// WithMaxParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
+// WithMaxRouteParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
 // math.MaxUint16.
-func WithMaxParamKeyBytes(max uint16) GlobalOption {
+func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 	return globOptionFunc(func(router *Router) {
 		router.maxParamKeyBytes = max
 	})
@@ -214,27 +214,27 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 	})
 }
 
-// WithClientIPStrategy sets the strategy for obtaining the "real" client IP address from HTTP requests.
-// This strategy is used by the [Context.ClientIP] method. The strategy must be chosen and tuned for your network
+// WithClientIPResolver sets the resolver for obtaining the "real" client IP address from HTTP requests.
+// This resolver is used by the [Context.ClientIP] method. The resolver must be chosen and tuned for your network
 // configuration to ensure it never returns an error -- i.e., never fails to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even worthy of panicking.
-// There is no sane default, so if no strategy is configured, [Context.ClientIP] returns [ErrNoClientIPStrategy].
+// There is no sane default, so if no resolver is configured, [Context.ClientIP] returns [ErrNoClientIPResolver].
 //
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
 //   - If applied to a specific route, it will override the global setting for that route.
 //   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
-//     to the global client IP strategy (if one is configured).
-//   - Setting the strategy to nil is equivalent to no strategy configured.
-func WithClientIPStrategy(strategy ClientIPStrategy) Option {
+//     to the global client IP resolver (if one is configured).
+//   - Setting the resolver to nil is equivalent to no resolver configured.
+func WithClientIPResolver(resolver ClientIPResolver) Option {
 	return optionFunc(func(router *Router, route *Route) {
-		if router != nil && strategy != nil {
-			router.ipStrategy = strategy
+		if router != nil && resolver != nil {
+			router.clientip = resolver
 		}
 
 		if route != nil {
-			// Apply no strategy if nil provided.
-			route.ipStrategy = cmp.Or(strategy, ClientIPStrategy(noClientIPStrategy{}))
+			// Apply no resolver if nil provided.
+			route.clientip = cmp.Or(resolver, ClientIPResolver(noClientIPResolver{}))
 		}
 	})
 }

@@ -4,7 +4,11 @@
 
 package iterutil
 
-import "iter"
+import (
+	"golang.org/x/exp/constraints"
+	"iter"
+	"strings"
+)
 
 func Left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {
 	return func(yield func(K) bool) {
@@ -52,4 +56,80 @@ func Len2[K, V any](seq iter.Seq2[K, V]) int {
 		n++
 	}
 	return n
+}
+
+func Take[I constraints.Integer, E any](seq iter.Seq[E], count I) iter.Seq[E] {
+	return func(yield func(E) bool) {
+		count += 1
+		for e := range seq {
+			count--
+			if count <= 0 || !yield(e) {
+				return
+			}
+		}
+	}
+}
+
+func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
+	if n < 0 {
+		panic("cannot be negative")
+	}
+	for v := range seq {
+		if 0 < n {
+			n--
+			continue
+		}
+		e = v
+		ok = true
+		return
+	}
+	return
+}
+
+func SplitSeq(s, sep string) iter.Seq[string] {
+	if len(sep) == 0 {
+		panic("separator cannot be empty")
+	}
+	return splitSeq(s, sep)
+}
+
+func splitSeq(s, sep string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for {
+			i := strings.Index(s, sep)
+			if i < 0 {
+				break
+			}
+			frag := s[:i]
+			if !yield(frag) {
+				return
+			}
+			s = s[i+len(sep):]
+		}
+		yield(s)
+	}
+}
+
+func BackwardSplitSeq(s, sep string) iter.Seq[string] {
+	if len(sep) == 0 {
+		panic("separator cannot be empty")
+	}
+	return backwardSplitSeq(s, sep)
+}
+
+func backwardSplitSeq(s, sep string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for {
+			i := strings.LastIndex(s, sep)
+			if i < 0 {
+				break
+			}
+			frag := s[i+len(sep):]
+			if !yield(frag) {
+				return
+			}
+			s = s[:i]
+		}
+		yield(s)
+	}
 }

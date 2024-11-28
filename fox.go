@@ -53,25 +53,24 @@ type HandlerFunc func(c Context)
 // be thread-safe, as they will be called concurrently.
 type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
-// ClientIPStrategy define a strategy for obtaining the "real" client IP from HTTP requests. The strategy used must be
-// chosen and tuned for your network configuration. This should result in the strategy never returning an error
+// ClientIPResolver define a resolver for obtaining the "real" client IP from HTTP requests. The resolver used must be
+// chosen and tuned for your network configuration. This should result in a resolver never returning an error
 // i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
-// an application error, perhaps even worthy of panicking. Builtin best practices strategies can be found in the
-// github.com/tigerwill90/fox/clientip package. See https://adam-p.ca/blog/2022/03/x-forwarded-for/ for more details on
-// how to choose the right strategy for your use-case and network.
-type ClientIPStrategy interface {
-	// ClientIP returns the "real" client IP according to the implemented strategy. It returns an error if no valid IP
-	// address can be derived using the strategy. This is typically considered a misconfiguration error, unless the strategy
-	// involves obtaining an untrustworthy or optional value.
+// an application error, perhaps even worthy of panicking. Builtin best practices resolver can be found in the
+// github.com/tigerwill90/fox/clientip package.
+type ClientIPResolver interface {
+	// ClientIP returns the "real" client IP according to the implemented resolver. It returns an error if no valid IP
+	// address can be derived. This is typically considered a misconfiguration error, unless the resolver involves
+	// obtaining an untrustworthy or optional value.
 	ClientIP(c Context) (*net.IPAddr, error)
 }
 
-// The ClientIPStrategyFunc type is an adapter to allow the use of ordinary functions as [ClientIPStrategy]. If f is a
-// function with the appropriate signature, ClientIPStrategyFunc(f) is a ClientIPStrategyFunc that calls f.
-type ClientIPStrategyFunc func(c Context) (*net.IPAddr, error)
+// The ClientIPResolverFunc type is an adapter to allow the use of ordinary functions as [ClientIPResolver]. If f is a
+// function with the appropriate signature, ClientIPResolverFunc(f) is a ClientIPResolverFunc that calls f.
+type ClientIPResolverFunc func(c Context) (*net.IPAddr, error)
 
 // ClientIP calls f(c).
-func (f ClientIPStrategyFunc) ClientIP(c Context) (*net.IPAddr, error) {
+func (f ClientIPResolverFunc) ClientIP(c Context) (*net.IPAddr, error) {
 	return f(c)
 }
 
@@ -102,7 +101,7 @@ type Router struct {
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
 	tree                   atomic.Pointer[iTree]
-	ipStrategy             ClientIPStrategy
+	clientip               ClientIPResolver
 	mws                    []middleware
 	mu                     sync.Mutex
 	maxParams              uint16
@@ -128,7 +127,7 @@ func New(opts ...GlobalOption) *Router {
 	r.noRoute = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
-	r.ipStrategy = noClientIPStrategy{}
+	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
 
@@ -169,9 +168,9 @@ func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 	return fox.ignoreTrailingSlash
 }
 
-// ClientIPStrategyEnabled returns whether the router is configured with a [ClientIPStrategy].
-func (fox *Router) ClientIPStrategyEnabled() bool {
-	_, ok := fox.ipStrategy.(noClientIPStrategy)
+// ClientIPResolverEnabled returns whether the router is configured with a [ClientIPResolver].
+func (fox *Router) ClientIPResolverEnabled() bool {
+	_, ok := fox.clientip.(noClientIPResolver)
 	return !ok
 }
 
@@ -407,7 +406,7 @@ func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	}
 
 	rte := &Route{
-		ipStrategy:            fox.ipStrategy,
+		clientip:              fox.clientip,
 		hbase:                 handler,
 		pattern:               pattern,
 		mws:                   fox.mws,
@@ -527,6 +526,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions && fox.handleOptions {
 		var sb strings.Builder
+		// Grow sb to a reasonable size that should prevent new allocation in most case.
+		sb.Grow(min((len(tree.root)+1)*5, 150))
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 		if path == "*" {
@@ -560,6 +561,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
+		// Grow sb to a reasonable size that should prevent new allocation in most case.
+		sb.Grow(min((len(tree.root)+1)*5, 150))
 		hasOptions := false
 		for i := 0; i < len(tree.root); i++ {
 			if tree.root[i].key != r.Method {
@@ -892,8 +895,8 @@ func htmlEscape(s string) string {
 	return htmlReplacer.Replace(s)
 }
 
-type noClientIPStrategy struct{}
+type noClientIPResolver struct{}
 
-func (s noClientIPStrategy) ClientIP(_ Context) (*net.IPAddr, error) {
-	return nil, ErrNoClientIPStrategy
+func (s noClientIPResolver) ClientIP(_ Context) (*net.IPAddr, error) {
+	return nil, ErrNoClientIPResolver
 }

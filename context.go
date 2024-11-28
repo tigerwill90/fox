@@ -40,12 +40,12 @@ type Context interface {
 	// RemoteIP parses the IP from [http.Request.RemoteAddr], normalizes it, and returns an IP address. The returned [net.IPAddr]
 	// may contain a zone identifier. RemoteIP never returns nil, even if parsing the IP fails.
 	RemoteIP() *net.IPAddr
-	// ClientIP returns the "real" client IP address based on the configured [ClientIPStrategy].
-	// The strategy is set using the [WithClientIPStrategy] option. There is no sane default, so if no strategy is configured,
-	// the method returns [ErrNoClientIPStrategy].
+	// ClientIP returns the "real" client IP address based on the configured [ClientIPResolver].
+	// The resolver is set using the [WithClientIPResolver] option. There is no sane default, so if no resolver is configured,
+	// the method returns [ErrNoClientIPResolver].
 	//
-	// The strategy used must be chosen and tuned for your network configuration. This should result
-	// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
+	// The resolver used must be chosen and tuned for your network configuration. This should result
+	// in a resolver never returning an error -- i.e., never failing to find a candidate for the "real" IP.
 	// Consequently, getting an error result should be treated as an application error, perhaps even
 	// worthy of panicking.
 	//
@@ -181,21 +181,21 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 	return ipAddr
 }
 
-// ClientIP returns the "real" client IP address based on the configured [ClientIPStrategy].
-// The strategy is set using the [WithClientIPStrategy] option. If no strategy is configured,
-// the method returns error [ErrNoClientIPStrategy].
+// ClientIP returns the "real" client IP address based on the configured [ClientIPResolver].
+// The resolver is set using the [WithClientIPResolver] option. If no resolver is configured,
+// the method returns error [ErrNoClientIPResolver].
 //
-// The strategy used must be chosen and tuned for your network configuration. This should result
-// in the strategy never returning an error -- i.e., never failing to find a candidate for the "real" IP.
+// The resolver used must be chosen and tuned for your network configuration. This should result
+// in a resolver never returning an error -- i.e., never failing to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even
 // worthy of panicking.
 func (c *cTx) ClientIP() (*net.IPAddr, error) {
 	// We may be in a handler which does not match a route like NotFound handler.
 	if c.route == nil {
-		ipStrategy := c.fox.ipStrategy
-		return ipStrategy.ClientIP(c)
+		resolver := c.fox.clientip
+		return resolver.ClientIP(c)
 	}
-	return c.route.ipStrategy.ClientIP(c)
+	return c.route.clientip.ClientIP(c)
 }
 
 // Params returns an iterator over the matched wildcard parameters for the current route.
