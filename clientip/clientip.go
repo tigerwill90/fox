@@ -24,15 +24,17 @@ const (
 var (
 	ErrInvalidIpAddress      = errors.New("invalid ip address")
 	ErrUnspecifiedIpAddress  = errors.New("unspecified ip address")
-	ErrRemoteAddress         = errors.New("remote address strategy")
-	ErrSingleIPHeader        = errors.New("single ip header strategy")
-	ErrLeftmostNonPrivate    = errors.New("leftmost non private strategy")
-	ErrRightmostNonPrivate   = errors.New("rightmost non private strategy")
-	ErrRightmostTrustedCount = errors.New("rightmost trusted count strategy")
-	ErrRightmostTrustedRange = errors.New("rightmost trusted range strategy")
+	ErrRemoteAddress         = errors.New("remote address resolver")
+	ErrSingleIPHeader        = errors.New("single ip header resolver")
+	ErrLeftmostNonPrivate    = errors.New("leftmost non private resolver")
+	ErrRightmostNonPrivate   = errors.New("rightmost non private resolver")
+	ErrRightmostTrustedCount = errors.New("rightmost trusted count resolver")
+	ErrRightmostTrustedRange = errors.New("rightmost trusted range resolver")
 )
 
 // TrustedIPRange returns a set of trusted IP ranges.
+// Implementations of this interface must be thread-safe as it will be invoked
+// whenever the client IP needs to be resolved, potentially from multiple goroutines.
 type TrustedIPRange interface {
 	TrustedIPRange() ([]net.IPNet, error)
 }
@@ -59,29 +61,37 @@ const (
 	ForwardedKey
 )
 
-// Chain attempts to use the given strategies in order. If the first one returns an error, the second one is
-// tried, and so on, until a good IP is found or the strategies are exhausted. A common use for this is if a server is
+// Must is a helper that wraps a call to a function returning (R, error)
+// and panics if the error is non-nil. It is intended for use in variable initializations
+// such as:
+//
+//	var r = clientip.Must(clientip.NewSingleIPHeader("True-Client-IP"))
+func Must[R fox.ClientIPResolver](resolver R, err error) R {
+	if err != nil {
+		panic(err)
+	}
+	return resolver
+}
+
+// Chain attempts to use the given resolvers in order. If the first one returns an error, the second one is
+// tried, and so on, until a good IP is found or the resolvers are exhausted. A common use for this is if a server is
 // both directly connected to the internet and expecting a header to check. It might be called like:
 //
-//	NewChain(NewLeftmostNonPrivate(XForwardedForKey), NewRemoteAddr())
+//	var chain = NewChain(NewLeftmostNonPrivate(XForwardedForKey), NewRemoteAddr())
 type Chain struct {
-	strategies []fox.ClientIPStrategy
+	resolvers []fox.ClientIPResolver
 }
 
-// NewChain creates a [Chain] that attempts to use the given strategies to
-// derive the client IP, stopping when the first one succeeds.
-func NewChain(strategies ...fox.ClientIPStrategy) Chain {
-	return Chain{strategies: strategies}
+// NewChain creates a [Chain] that attempts to use the given resolvers to derive the client IP, stopping when the
+// first one succeeds.
+func NewChain(resolvers ...fox.ClientIPResolver) Chain {
+	return Chain{resolvers: resolvers}
 }
 
-// ClientIP derives the client IP using this strategy.
-// headers is expected to be like http.Request.Header.
-// remoteAddr is expected to be like http.Request.RemoteAddr.
-// The returned IP may contain a zone identifier.
-// If all chained strategies fail to derive a valid IP, an empty string is returned.
+// ClientIP try to derive the client IP using this resolver chain.
 func (s Chain) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	var errs error
-	for _, sub := range s.strategies {
+	for _, sub := range s.resolvers {
 		ipAddr, err := sub.ClientIP(c)
 		if err == nil {
 			return ipAddr, nil
@@ -93,8 +103,7 @@ func (s Chain) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RemoteAddr returns the client socket IP, stripped of port.
-// This strategy should be used if the server accept direct connections, rather than
-// through a reverse proxy.
+// This resolver should be used if the server accept direct connections, rather than through a reverse proxy.
 type RemoteAddr struct{}
 
 // NewRemoteAddr that uses request remote address to get the client IP.
@@ -102,8 +111,8 @@ func NewRemoteAddr() RemoteAddr {
 	return RemoteAddr{}
 }
 
-// ClientIP derives the client IP using the [RemoteAddr] strategy. The returned [net.IPAddr] may contain a zone identifier.
-// This should only happen if remoteAddr has been modified to something illegal, or if the server is accepting connections
+// ClientIP derives the client IP using the [RemoteAddr] resolver. The returned [net.IPAddr] may contain a zone identifier.
+// This should only happen if the remote address has been modified to something illegal, or if the server is accepting connections
 // on a Unix domain socket (in which case [RemoteAddr] is "@"). If no valid IP can be derived, an error is returned.
 func (s RemoteAddr) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ipAddr, err := ParseIPAddr(c.Request().RemoteAddr)
@@ -114,33 +123,30 @@ func (s RemoteAddr) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // SingleIPHeader derives an IP address from a single-IP header. A non-exhaustive list of such single-IP headers
-// is: X-Real-IP, CF-Connecting-IP, True-Client-IP, Fastly-Client-IP, X-Azure-ClientIP, X-Azure-SocketIP. This strategy
+// is: X-Real-IP, CF-Connecting-IP, True-Client-IP, Fastly-Client-IP, X-Azure-ClientIP, X-Azure-SocketIP. This resolver
 // should be used when the given header is added by a trusted reverse proxy. You must ensure that this header is not
 // spoofable (as is possible with Akamai's use of True-Client-IP, Fastly's default use of Fastly-Client-IP,
 // and Azure's X-Azure-ClientIP).
-// See the single-IP wiki page for more info: https://github.com/realclientip/realclientip-go/wiki/Single-IP-Headers
 type SingleIPHeader struct {
 	headerName string
 }
 
-// NewSingleIPHeader creates a [SingleIPHeader] strategy that uses the headerName request header to get the client IP.
-func NewSingleIPHeader(headerName string) SingleIPHeader {
+// NewSingleIPHeader creates a [SingleIPHeader] resolver that uses the headerName request header to get the client IP.
+func NewSingleIPHeader(headerName string) (SingleIPHeader, error) {
 	if headerName == "" {
-		panic(errors.New("header must not be empty"))
+		return SingleIPHeader{}, errors.New("empty header name")
 	}
 
-	// We will be using the headerName for lookups in the http.Header map, which is keyed
-	// by canonicalized header name. We'll canonicalize here so we only have to do it once.
 	headerName = http.CanonicalHeaderKey(headerName)
 
 	if headerName == xForwardedForHdr || headerName == forwardedHdr {
-		panic(fmt.Errorf("header must not be %s or %s", xForwardedForHdr, forwardedHdr))
+		return SingleIPHeader{}, fmt.Errorf("header %s not allowed", headerName)
 	}
 
-	return SingleIPHeader{headerName: headerName}
+	return SingleIPHeader{headerName: headerName}, nil
 }
 
-// ClientIP derives the client IP using the [SingleIPHeader]. The returned [net.IPAddr] may contain a zone identifier.
+// ClientIP derives the client IP using the [SingleIPHeader] resolver. The returned [net.IPAddr] may contain a zone identifier.
 // If no valid IP can be derived, an error is returned.
 func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	// RFC 2616 does not allow multiple instances of single-IP headers (or any non-list header).
@@ -158,7 +164,7 @@ func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // LeftmostNonPrivate derives the client IP from the leftmost valid and non-private/non-internal IP address in the X-Forwarded-For
-// or Forwarded header. This strategy should be used when a valid, non-private IP closest to the client is desired. By default,
+// or Forwarded header. This resolver should be used when a valid, non-private IP closest to the client is desired. By default,
 // loopback, link local and private net ip range are blacklisted. Note that this MUST NOT BE USED FOR SECURITY PURPOSES.
 // This IP can be TRIVIALLY SPOOFED.
 type LeftmostNonPrivate struct {
@@ -167,12 +173,12 @@ type LeftmostNonPrivate struct {
 	limit             uint
 }
 
-// NewLeftmostNonPrivate creates a [LeftmostNonPrivate] strategy. By default, loopback, link local and private net ip range
-// are blacklisted. A sensible limit on the number of IPs to parse must be set to prevent excessive resource usage from
+// NewLeftmostNonPrivate creates a [LeftmostNonPrivate] resolver. By default, loopback, link local and private net ip range
+// are blacklisted. A reasonable limit on the number of IPs to parse must be provided to prevent excessive resource usage from
 // adversarial headers.
-func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOption) LeftmostNonPrivate {
+func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOption) (LeftmostNonPrivate, error) {
 	if key > 1 {
-		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
+		return LeftmostNonPrivate{}, errors.New("invalid header key")
 	}
 
 	cfg := new(config)
@@ -184,11 +190,11 @@ func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOpti
 		headerName:        key.String(),
 		blacklistedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges),
 		limit:             limit,
-	}
+	}, nil
 }
 
-// ClientIP derives the client IP using the [LeftmostNonPrivate].
-// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
+// ClientIP derives the client IP using the [LeftmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
+// zone identifier. If no valid IP can be derived, an error returned.
 func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	for ip := range iterutil.Take(ipAddrSeq(c.Request().Header, s.headerName), s.limit) {
 		if ip != nil && !isIPContainedInRanges(ip.IP, s.blacklistedRanges) {
@@ -202,18 +208,18 @@ func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RightmostNonPrivate derives the client IP from the rightmost valid, non-private/non-internal IP address in
-// the X-Fowarded-For or Forwarded header. This strategy should be used when all reverse proxies between the internet
+// the X-Fowarded-For or Forwarded header. This resolver should be used when all reverse proxies between the internet
 // and the server have private-space IP addresses. By default, loopback, link local and private net ip range are trusted.
 type RightmostNonPrivate struct {
 	headerName    string
 	trustedRanges []net.IPNet
 }
 
-// NewRightmostNonPrivate creates a [RightmostNonPrivate] strategy. By default, loopback, link local and private net ip range
+// NewRightmostNonPrivate creates a [RightmostNonPrivate] resolver. By default, loopback, link local and private net ip range
 // are trusted.
-func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) RightmostNonPrivate {
+func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) (RightmostNonPrivate, error) {
 	if key > 1 {
-		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
+		return RightmostNonPrivate{}, errors.New("invalid header key")
 	}
 
 	cfg := new(config)
@@ -224,11 +230,11 @@ func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) Rightmost
 	return RightmostNonPrivate{
 		headerName:    key.String(),
 		trustedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges),
-	}
+	}, nil
 }
 
-// ClientIP derives the client IP using the [RightmostNonPrivate].
-// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
+// ClientIP derives the client IP using the [RightmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
+// zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	for ip := range backwardIpAddrSeq(c.Request().Header, s.headerName) {
 		if ip != nil && !isIPContainedInRanges(ip.IP, s.trustedRanges) {
@@ -241,30 +247,29 @@ func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RightmostTrustedCount derives the client IP from the valid IP address added by the first trusted reverse
-// proxy to the X-Forwarded-For or Forwarded header. This strategy should be used when there is a fixed number of
+// proxy to the X-Forwarded-For or Forwarded header. This resolver should be used when there is a fixed number of
 // trusted reverse proxies that are appending IP addresses to the header.
 type RightmostTrustedCount struct {
 	headerName   string
-	trustedCount int
+	trustedCount uint
 }
 
-// NewRightmostTrustedCount creates a [RightmostTrustedCount] strategy. trustedCount is the number of trusted reverse proxies.
+// NewRightmostTrustedCount creates a [RightmostTrustedCount] resolver. trustedCount is the number of trusted reverse proxies.
 // The IP returned will be the (trustedCount-1)th from the right. For example, if there's only one trusted proxy, this
-// strategy will return the last (rightmost) IP address.
-func NewRightmostTrustedCount(key HeaderKey, trustedCount int) RightmostTrustedCount {
+// resolver will return the last (rightmost) IP address.
+func NewRightmostTrustedCount(key HeaderKey, trustedCount uint) (RightmostTrustedCount, error) {
 	if key > 1 {
-		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
+		return RightmostTrustedCount{}, errors.New("invalid header key")
 	}
 
-	if trustedCount <= 0 {
-		panic(fmt.Errorf("count must be greater than zero"))
+	if trustedCount == 0 {
+		return RightmostTrustedCount{}, errors.New("invalid trusted count: expect greater than zero")
 	}
-
-	return RightmostTrustedCount{headerName: key.String(), trustedCount: trustedCount}
+	return RightmostTrustedCount{headerName: key.String(), trustedCount: trustedCount}, nil
 }
 
-// ClientIP derives the client IP using the [RightmostTrustedCount].
-// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
+// ClientIP derives the client IP using the [RightmostTrustedCount] resolver. The returned [net.IPAddr] may contain a
+// zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	ip, ok := iterutil.At(backwardIpAddrSeq(c.Request().Header, s.headerName), s.trustedCount-1)
 	if !ok {
@@ -282,7 +287,7 @@ func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
 }
 
 // RightmostTrustedRange derives the client IP from the rightmost valid IP address in the X-Forwarded-For or Forwarded
-// header which is not in a set of trusted IP ranges. This strategy should be used when the IP ranges of the reverse
+// header which is not in a set of trusted IP ranges. This resolver should be used when the IP ranges of the reverse
 // proxies between the internet and the server are known. If a third-party WAF, CDN, etc., is used, you SHOULD use a
 // method of verifying its access to your origin that is stronger than checking its IP address (e.g., using authenticated pulls).
 // Failure to do so can result in scenarios like: You use AWS CloudFront in front of a server you host elsewhere. An
@@ -293,23 +298,23 @@ type RightmostTrustedRange struct {
 	headerName string
 }
 
-// NewRightmostTrustedRange creates a [RightmostTrustedRange] strategy. headerName must be "X-Forwarded-For"
+// NewRightmostTrustedRange creates a [RightmostTrustedRange] resolver. headerName must be "X-Forwarded-For"
 // or "Forwarded". trustedRanges must contain all trusted reverse proxies on the path to this server and can
 // be private/internal or external (for example, if a third-party reverse proxy is used).
-func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) RightmostTrustedRange {
+func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) (RightmostTrustedRange, error) {
 	if key > 1 {
-		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
+		return RightmostTrustedRange{}, errors.New("invalid header key")
 	}
 
 	if resolver == nil {
-		panic(errors.New("no ip range resolver provided"))
+		return RightmostTrustedRange{}, errors.New("invalid nil resolver")
 	}
 
-	return RightmostTrustedRange{headerName: key.String(), resolver: resolver}
+	return RightmostTrustedRange{headerName: key.String(), resolver: resolver}, nil
 }
 
-// ClientIP derives the client IP using the [RightmostTrustedRange].
-// The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error is returned.
+// ClientIP derives the client IP using the [RightmostTrustedRange] resolver. The returned [net.IPAddr] may contain a
+// zone identifier. If no valid IP can be derived, an error is returned.
 func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	trustedRange, err := s.resolver.TrustedIPRange()
 	if err != nil {

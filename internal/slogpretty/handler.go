@@ -104,7 +104,7 @@ func (h *Handler) Handle(_ context.Context, record slog.Record) error {
 	buf = append(buf, " | "...)
 	// Write the log message.
 	if record.Message == "unknown" {
-		// special case if the ip cannot be found using the ClientIPStrategy.
+		// special case if the ip cannot be found using the ClientIPResolver
 		buf = append(buf, ansi.FgRed...)
 		buf = append(buf, record.Message...)
 		buf = append(buf, ansi.Reset...)

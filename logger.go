@@ -32,7 +32,7 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 			ip, err := c.ClientIP()
 			if err == nil {
 				ipStr = ip.String()
-			} else if errors.Is(err, ErrNoClientIPStrategy) {
+			} else if errors.Is(err, ErrNoClientIPResolver) {
 				ipStr = c.RemoteIP().String()
 			} else {
 				ipStr = "unknown"

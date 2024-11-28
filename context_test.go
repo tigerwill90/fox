@@ -237,7 +237,7 @@ func TestContext_ClientIP(t *testing.T) {
 	r.RemoteAddr = "192.0.2.1:8080"
 	c := NewTestContextOnly(w, r)
 	_, err := c.ClientIP()
-	assert.ErrorIs(t, err, ErrNoClientIPStrategy)
+	assert.ErrorIs(t, err, ErrNoClientIPResolver)
 }
 
 func TestContext_Stream(t *testing.T) {

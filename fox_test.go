@@ -4221,11 +4221,11 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 	}
 }
 
-func TestRouterWithClientIPStrategy(t *testing.T) {
-	c1 := ClientIPStrategyFunc(func(c Context) (*net.IPAddr, error) {
+func TestRouterWithClientIP(t *testing.T) {
+	c1 := ClientIPResolverFunc(func(c Context) (*net.IPAddr, error) {
 		return c.RemoteIP(), nil
 	})
-	f := New(WithClientIPStrategy(c1), WithNoRouteHandler(func(c Context) {
+	f := New(WithClientIPResolver(c1), WithNoRouteHandler(func(c Context) {
 		assert.Empty(t, c.Pattern())
 		ip, err := c.ClientIP()
 		assert.NoError(t, err)
@@ -4233,18 +4233,18 @@ func TestRouterWithClientIPStrategy(t *testing.T) {
 		DefaultNotFoundHandler(c)
 	}))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
-	assert.True(t, f.ClientIPStrategyEnabled())
+	assert.True(t, f.ClientIPResolverEnabled())
 
 	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.True(t, rte.ClientIPStrategyEnabled())
+	assert.True(t, rte.ClientIPResolverEnabled())
 
-	require.NoError(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPStrategy(nil))))
+	require.NoError(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPResolver(nil))))
 	rte = f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.False(t, rte.ClientIPStrategyEnabled())
+	assert.False(t, rte.ClientIPResolverEnabled())
 
-	// On not found handler, fallback to global ip strategy
+	// On not found handler, fallback to global ip resolver
 	req := httptest.NewRequest(http.MethodGet, "/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
