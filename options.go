@@ -81,16 +81,16 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
-// WithMaxParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
-func WithMaxParams(max uint16) GlobalOption {
+// WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
+func WithMaxRouteParams(max uint16) GlobalOption {
 	return globOptionFunc(func(router *Router) {
 		router.maxParams = max
 	})
 }
 
-// WithMaxParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
+// WithMaxRouteParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
 // math.MaxUint16.
-func WithMaxParamKeyBytes(max uint16) GlobalOption {
+func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 	return globOptionFunc(func(router *Router) {
 		router.maxParamKeyBytes = max
 	})

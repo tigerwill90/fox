@@ -567,7 +567,7 @@ f = fox.New(
 		// A common use for this is if a server is both directly connected to the
 		// internet and expecting a header to check.
 		clientip.NewChain(
-			clientip.NewLeftmostNonPrivate(clientip.ForwardedKey),
+			clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10),
 			clientip.NewRemoteAddr(),
 		),
 	),

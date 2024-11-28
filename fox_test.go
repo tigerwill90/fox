@@ -3971,7 +3971,7 @@ func TestParseRoute(t *testing.T) {
 
 func TestParseRouteParamsConstraint(t *testing.T) {
 	t.Run("param limit", func(t *testing.T) {
-		f := New(WithMaxParams(3))
+		f := New(WithMaxRouteParams(3))
 		_, _, err := f.parseRoute("/{1}/{2}/{3}")
 		assert.NoError(t, err)
 		_, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
@@ -3980,7 +3980,7 @@ func TestParseRouteParamsConstraint(t *testing.T) {
 		assert.Error(t, err)
 	})
 	t.Run("param key limit", func(t *testing.T) {
-		f := New(WithMaxParamKeyBytes(3))
+		f := New(WithMaxRouteParamKeyBytes(3))
 		_, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
 		assert.NoError(t, err)
 		_, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
