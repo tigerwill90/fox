@@ -1,7 +1,7 @@
 .idea
-.prof
-.test
-.out
+*.prof
+*.test
+*.out
 go.work
 go.work.sum
 qodana.yaml

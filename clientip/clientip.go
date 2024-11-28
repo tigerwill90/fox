@@ -168,7 +168,8 @@ type LeftmostNonPrivate struct {
 }
 
 // NewLeftmostNonPrivate creates a [LeftmostNonPrivate] strategy. By default, loopback, link local and private net ip range
-// are blacklisted. The number of IPs parsed is limited by the limit field to prevent excessive processing and potential abuse.
+// are blacklisted. A sensible limit on the number of IPs to parse must be set to prevent excessive resource usage from
+// adversarial headers.
 func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOption) LeftmostNonPrivate {
 	if key > 1 {
 		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
