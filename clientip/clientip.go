@@ -10,6 +10,7 @@ import (
 	"github.com/tigerwill90/fox"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
+	"iter"
 	"net"
 	"net/http"
 	"strings"
@@ -19,12 +20,6 @@ const (
 	xForwardedForHdr = "X-Forwarded-For"
 	forwardedHdr     = "Forwarded"
 )
-
-// maxIpPerHeaderLine defines the maximum number of IP addresses allowed per line in the `X-Forwarded-For` header.
-// This limit is set for security reasons to prevent unbounded splitting of the header line, which could lead to
-// excessive heap allocations when processing a maliciously crafted header. The value of 25 is an arbitrary but
-// conservative choice. In realistic scenarios, having more than 5 to 10 proxies in a chain is already exceptional.
-const maxIpPerHeaderLine = 25
 
 var (
 	ErrInvalidIpAddress      = errors.New("invalid ip address")
@@ -169,11 +164,12 @@ func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 type LeftmostNonPrivate struct {
 	headerName        string
 	blacklistedRanges []net.IPNet
+	limit             uint
 }
 
 // NewLeftmostNonPrivate creates a [LeftmostNonPrivate] strategy. By default, loopback, link local and private net ip range
-// are blacklisted.
-func NewLeftmostNonPrivate(key HeaderKey, opts ...BlacklistRangeOption) LeftmostNonPrivate {
+// are blacklisted. The number of IPs parsed is limited by the limit field to prevent excessive processing and potential abuse.
+func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOption) LeftmostNonPrivate {
 	if key > 1 {
 		panic(fmt.Errorf("header must be %s or %s", xForwardedForHdr, forwardedHdr))
 	}
@@ -183,14 +179,17 @@ func NewLeftmostNonPrivate(key HeaderKey, opts ...BlacklistRangeOption) Leftmost
 		opt.applyLeft(cfg)
 	}
 
-	return LeftmostNonPrivate{headerName: key.String(), blacklistedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges)}
+	return LeftmostNonPrivate{
+		headerName:        key.String(),
+		blacklistedRanges: orSlice(cfg.ipRanges, privateAndLocalRanges),
+		limit:             limit,
+	}
 }
 
 // ClientIP derives the client IP using the [LeftmostNonPrivate].
 // The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
 func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
-	for _, ip := range ipAddrs {
+	for ip := range iterutil.Take(ipAddrSeq(c.Request().Header, s.headerName), s.limit) {
 		if ip != nil && !isIPContainedInRanges(ip.IP, s.blacklistedRanges) {
 			// This is the leftmost valid, non-private IP
 			return ip, nil
@@ -230,12 +229,9 @@ func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) Rightmost
 // ClientIP derives the client IP using the [RightmostNonPrivate].
 // The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
-	// Look backwards through the list of IP addresses
-	for i := len(ipAddrs) - 1; i >= 0; i-- {
-		if ipAddrs[i] != nil && !isIPContainedInRanges(ipAddrs[i].IP, s.trustedRanges) {
-			// This is the rightmost non-private IP
-			return ipAddrs[i], nil
+	for ip := range backwardIpAddrSeq(c.Request().Header, s.headerName) {
+		if ip != nil && !isIPContainedInRanges(ip.IP, s.trustedRanges) {
+			return ip, nil
 		}
 	}
 
@@ -269,27 +265,19 @@ func NewRightmostTrustedCount(key HeaderKey, trustedCount int) RightmostTrustedC
 // ClientIP derives the client IP using the [RightmostTrustedCount].
 // The returned [net.IPAddr] may contain a zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
-
-	// We want the (N-1)th from the rightmost. For example, if there's only one
-	// trusted proxy, we want the last.
-	rightmostIndex := len(ipAddrs) - 1
-	targetIndex := rightmostIndex - (s.trustedCount - 1)
-
-	if targetIndex < 0 {
+	ip, ok := iterutil.At(backwardIpAddrSeq(c.Request().Header, s.headerName), s.trustedCount-1)
+	if !ok {
 		// This is a misconfiguration error. There were fewer IPs than we expected.
-		return nil, fmt.Errorf("%w: expected %d IP(s) but found %d", ErrRightmostTrustedCount, s.trustedCount, len(ipAddrs))
+		return nil, fmt.Errorf("%w: expected at least %d IP(s)", ErrRightmostTrustedCount, s.trustedCount)
 	}
 
-	ipAddr := ipAddrs[targetIndex]
-
-	if ipAddr == nil {
+	if ip == nil {
 		// This is a misconfiguration error. Our first trusted proxy didn't add a
 		// valid IP address to the header.
 		return nil, fmt.Errorf("%w: invalid IP address from the first trusted proxy", ErrRightmostTrustedCount)
 	}
 
-	return ipAddr, nil
+	return ip, nil
 }
 
 // RightmostTrustedRange derives the client IP from the rightmost valid IP address in the X-Forwarded-For or Forwarded
@@ -327,20 +315,18 @@ func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
 		return nil, fmt.Errorf("%w: unable to resolve trusted ip range: %w", ErrRightmostTrustedRange, err)
 	}
 
-	ipAddrs := getIPAddrList(c.Request().Header, s.headerName)
-	// Look backwards through the list of IP addresses
-	for i := len(ipAddrs) - 1; i >= 0; i-- {
-		if ipAddrs[i] != nil && isIPContainedInRanges(ipAddrs[i].IP, trustedRange) {
+	for ip := range backwardIpAddrSeq(c.Request().Header, s.headerName) {
+		if ip != nil && isIPContainedInRanges(ip.IP, trustedRange) {
 			// This IP is trusted
 			continue
 		}
 
 		// At this point we have found the first-from-the-rightmost untrusted IP
-		if ipAddrs[i] == nil {
+		if ip == nil {
 			return nil, fmt.Errorf("%w: unable to find a valid IP address", ErrRightmostTrustedRange)
 		}
 
-		return ipAddrs[i], nil
+		return ip, nil
 	}
 
 	// Either there are no addresses or they are all in our trusted ranges
@@ -486,48 +472,61 @@ func lastHeader(headers http.Header, headerName string) string {
 	return matches[len(matches)-1]
 }
 
-// getIPAddrList creates a single list of all the X-Forwarded-For or Forwarded header
-// values, in order. Any invalid IPs will result in nil elements. headerName must already
+// backwardIpAddrSeq returns a range iterator over the X-Forwarded-For or Forwarded header
+// values, in reverse order. Any invalid IPs will result in nil elements. headerName must already
 // be canonicalized.
-func getIPAddrList(headers http.Header, headerName string) []*net.IPAddr {
-	var result []*net.IPAddr
+func backwardIpAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPAddr] {
+	return func(yield func(*net.IPAddr) bool) {
+		values := headers[headerName]
+		for i := len(values) - 1; i >= 0; i-- {
+			for rawListItem := range iterutil.BackwardSplitSeq(values[i], ",") {
+				// The IPs are often comma-space separated, so we'll need to trim the string
+				rawListItem = strings.TrimSpace(rawListItem)
 
-	// There may be multiple XFF headers present. We need to iterate through them all,
-	// in order, and collect all the IPs.
-	// Note that we're not joining all the headers into a single string and then
-	// splitting. Doing it that way would use more memory.
-	// Note that Go's Header map uses canonicalized keys.
-	for _, h := range headers[headerName] {
-		// We now have a sequence of comma-separated list items.
-		j := 0
-		for rawListItem := range iterutil.SplitSeq(h, ",") {
-			if j >= maxIpPerHeaderLine {
-				break
-			}
-			// The IPs are often comma-space separated, so we'll need to trim the string
-			rawListItem = strings.TrimSpace(rawListItem)
+				var ipAddr *net.IPAddr
+				// If this is the XFF header, rawListItem is just an IP;
+				// if it's the Forwarded header, then there's more parsing to do.
+				if headerName == forwardedHdr {
+					ipAddr = parseForwardedListItem(rawListItem)
+				} else { // == XFF
+					ipAddr, _ = ParseIPAddr(rawListItem)
+				}
 
-			var ipAddr *net.IPAddr
-			// If this is the XFF header, rawListItem is just an IP;
-			// if it's the Forwarded header, then there's more parsing to do.
-			if headerName == forwardedHdr {
-				ipAddr = parseForwardedListItem(rawListItem)
-			} else { // == XFF
-				ipAddr, _ = ParseIPAddr(rawListItem)
+				if !yield(ipAddr) {
+					return
+				}
 			}
-			// ipAddr is nil if not valid
-			result = append(result, ipAddr)
-			j++
 		}
 	}
+}
 
-	// Possible performance improvements:
-	// Here we are parsing _all_ of the IPs in the XFF headers, but we don't need all of
-	// them. Instead, we could start from the left or the right (depending on strategy),
-	// parse as we go, and stop when we've come to the one we want. But that would make
-	// the various strategies somewhat more complex.
+// ipAddrSeq returns a range iterator over the X-Forwarded-For or Forwarded header
+// values, in order. Any invalid IPs will result in nil elements. headerName must already
+// be canonicalized.
+func ipAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPAddr] {
+	return func(yield func(*net.IPAddr) bool) {
+		for _, h := range headers[headerName] {
+			// We now have a sequence of comma-separated list items.
+			for rawListItem := range iterutil.SplitSeq(h, ",") {
+				// The IPs are often comma-space separated, so we'll need to trim the string
+				rawListItem = strings.TrimSpace(rawListItem)
 
-	return result
+				var ipAddr *net.IPAddr
+				// If this is the XFF header, rawListItem is just an IP;
+				// if it's the Forwarded header, then there's more parsing to do.
+				if headerName == forwardedHdr {
+					ipAddr = parseForwardedListItem(rawListItem)
+				} else { // == XFF
+					ipAddr, _ = ParseIPAddr(rawListItem)
+				}
+
+				// ipAddr is nil if not valid
+				if !yield(ipAddr) {
+					return
+				}
+			}
+		}
+	}
 }
 
 // parseForwardedListItem parses a Forwarded header list item, and returns the "for" IP
@@ -543,12 +542,7 @@ func parseForwardedListItem(fwd string) *net.IPAddr {
 	// A valid syntax have at most 4 section, e.g. by=<identifier>;for=<identifier>;host=<host>;proto=<http|https>
 	// Find the "for=" part, since that has the IP we want (maybe)
 	var forPart string
-	j := 0
-	for fp := range iterutil.SplitSeq(fwd, ";") {
-		if j >= 4 {
-			break
-		}
-		j++
+	for fp := range iterutil.Take(iterutil.SplitSeq(fwd, ";"), 4) {
 		// Whitespace is allowed around the semicolons
 		fp = strings.TrimSpace(fp)
 

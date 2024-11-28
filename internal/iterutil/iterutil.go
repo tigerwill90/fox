@@ -5,9 +5,9 @@
 package iterutil
 
 import (
+	"golang.org/x/exp/constraints"
 	"iter"
 	"strings"
-	"unicode/utf8"
 )
 
 func Left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {
@@ -58,44 +58,77 @@ func Len2[K, V any](seq iter.Seq2[K, V]) int {
 	return n
 }
 
-// SplitSeq returns an iterator over all substrings of s separated by sep.
-// The iterator yields the same strings that would be returned by Split(s, sep),
-// but without constructing the slice. It returns a single-use iterator.
-// TODO we should use the strings package when SplitSeq land in 1.24.
-func SplitSeq(s, sep string) iter.Seq[string] {
-	return splitSeq(s, sep, 0)
-}
-
-// explodeSeq returns an iterator over the runes in s.
-func explodeSeq(s string) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		for len(s) > 0 {
-			_, size := utf8.DecodeRuneInString(s)
-			if !yield(s[:size]) {
+func Take[I constraints.Integer, E any](seq iter.Seq[E], count I) iter.Seq[E] {
+	return func(yield func(E) bool) {
+		count += 1
+		for e := range seq {
+			count--
+			if count <= 0 || !yield(e) {
 				return
 			}
-			s = s[size:]
 		}
 	}
 }
 
-// splitSeq is SplitSeq or SplitAfterSeq, configured by how many
-// bytes of sep to include in the results (none or all).
-func splitSeq(s, sep string, sepSave int) iter.Seq[string] {
-	if len(sep) == 0 {
-		return explodeSeq(s)
+func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
+	if n < 0 {
+		panic("cannot be negative")
 	}
+	for v := range seq {
+		if 0 < n {
+			n--
+			continue
+		}
+		e = v
+		ok = true
+		return
+	}
+	return
+}
+
+func SplitSeq(s, sep string) iter.Seq[string] {
+	if len(sep) == 0 {
+		panic("separator cannot be empty")
+	}
+	return splitSeq(s, sep)
+}
+
+func splitSeq(s, sep string) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for {
 			i := strings.Index(s, sep)
 			if i < 0 {
 				break
 			}
-			frag := s[:i+sepSave]
+			frag := s[:i]
 			if !yield(frag) {
 				return
 			}
 			s = s[i+len(sep):]
+		}
+		yield(s)
+	}
+}
+
+func BackwardSplitSeq(s, sep string) iter.Seq[string] {
+	if len(sep) == 0 {
+		panic("separator cannot be empty")
+	}
+	return backwardSplitSeq(s, sep)
+}
+
+func backwardSplitSeq(s, sep string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for {
+			i := strings.LastIndex(s, sep)
+			if i < 0 {
+				break
+			}
+			frag := s[i+len(sep):]
+			if !yield(frag) {
+				return
+			}
+			s = s[:i]
 		}
 		yield(s)
 	}

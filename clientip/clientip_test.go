@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
 
@@ -100,7 +101,7 @@ func TestLeftmostNonPrivateStrategy_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(w, req)
 
-	s := NewLeftmostNonPrivate(ForwardedKey, ExcludeLoopback(true), ExcludeLinkLocal(true), ExcludePrivateNet(true))
+	s := NewLeftmostNonPrivate(ForwardedKey, 100, ExcludeLoopback(true), ExcludeLinkLocal(true), ExcludePrivateNet(true))
 	assert.ElementsMatch(t, privateAndLocalRanges, s.blacklistedRanges)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
@@ -150,7 +151,7 @@ func TestRightmostTrustedCountStrategy_ClientIP(t *testing.T) {
 	req.Header.Set("Forwarded", `For=fc00::1`)
 	_, err = s.ClientIP(c)
 	assert.ErrorIs(t, err, ErrRightmostTrustedCount)
-	assert.ErrorContains(t, err, "expected 2 IP(s) but found 1")
+	assert.ErrorContains(t, err, "expected at least 2 IP(s)")
 
 	req.Header.Set("Forwarded", `For=fe80::abcd;By=fe80::1234, Proto=https;For=::ffff:188.0.2.128, For="invalid", For=fc00::1`)
 	_, err = s.ClientIP(c)
@@ -720,7 +721,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := getIPAddrList(tt.args.headers, tt.args.headerName)
+			got := slices.Collect(ipAddrSeq(tt.args.headers, tt.args.headerName))
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -1337,12 +1338,12 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 			var s fox.ClientIPStrategy
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = NewLeftmostNonPrivate(tt.args.headerType)
+					s = NewLeftmostNonPrivate(tt.args.headerType, 100)
 				})
 				return
 			}
 
-			s = NewLeftmostNonPrivate(tt.args.headerType)
+			s = NewLeftmostNonPrivate(tt.args.headerType, 100)
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
