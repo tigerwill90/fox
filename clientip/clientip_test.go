@@ -1357,6 +1357,28 @@ func TestLeftmostNonPrivateStrategy(t *testing.T) {
 	}
 }
 
+func TestLeftmostNonPrivateLimit(t *testing.T) {
+	t.Run("limit exactly match the target ip", func(t *testing.T) {
+		s := NewLeftmostNonPrivate(XForwardedForKey, 3)
+		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+		req.Header.Set(fox.HeaderXForwardedFor, "192.168.1.15, 10.8.1.2, 115.45.98.3")
+		w := httptest.NewRecorder()
+		c := fox.NewTestContextOnly(w, req)
+		ip, err := s.ClientIP(c)
+		require.NoError(t, err)
+		assert.Equal(t, "115.45.98.3", ip.String())
+	})
+	t.Run("limit under the target ip", func(t *testing.T) {
+		s := NewLeftmostNonPrivate(XForwardedForKey, 2)
+		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+		req.Header.Set(fox.HeaderXForwardedFor, "192.168.1.15, 10.8.1.2, 115.45.98.3")
+		w := httptest.NewRecorder()
+		c := fox.NewTestContextOnly(w, req)
+		_, err := s.ClientIP(c)
+		assert.Error(t, err)
+	})
+}
+
 func TestRightmostNonPrivateStrategy(t *testing.T) {
 	// Ensure the strategy interface is implemented
 	var _ fox.ClientIPStrategy = RightmostNonPrivate{}
