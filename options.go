@@ -229,12 +229,12 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 func WithClientIPResolver(resolver ClientIPResolver) Option {
 	return optionFunc(func(router *Router, route *Route) {
 		if router != nil && resolver != nil {
-			router.ipResolver = resolver
+			router.clientip = resolver
 		}
 
 		if route != nil {
 			// Apply no resolver if nil provided.
-			route.ipResolver = cmp.Or(resolver, ClientIPResolver(noClientIPResolver{}))
+			route.clientip = cmp.Or(resolver, ClientIPResolver(noClientIPResolver{}))
 		}
 	})
 }

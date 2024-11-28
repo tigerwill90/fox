@@ -524,7 +524,7 @@ f := fox.New(
 )
 ````
 
-## Client IP Derivation
+## Resolving Client IP
 The `WithClientIPResolver` option allows you to set up strategies to resolve the client IP address based on your 
 use case and network topology. Accurately determining the client IP is hard, particularly in environments with proxies or 
 load balancers. For example, the leftmost IP in the `X-Forwarded-For` header is commonly used and is often regarded as the 

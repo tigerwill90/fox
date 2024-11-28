@@ -14,7 +14,7 @@ type Annotation struct {
 
 // Route represent a registered route in the router.
 type Route struct {
-	ipResolver            ClientIPResolver
+	clientip              ClientIPResolver
 	hbase                 HandlerFunc
 	hself                 HandlerFunc
 	hall                  HandlerFunc
@@ -78,6 +78,6 @@ func (r *Route) IgnoreTrailingSlashEnabled() bool {
 
 // ClientIPResolverEnabled returns whether the route is configured with a [ClientIPResolver].
 func (r *Route) ClientIPResolverEnabled() bool {
-	_, ok := r.ipResolver.(noClientIPResolver)
+	_, ok := r.clientip.(noClientIPResolver)
 	return !ok
 }

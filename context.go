@@ -192,10 +192,10 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 func (c *cTx) ClientIP() (*net.IPAddr, error) {
 	// We may be in a handler which does not match a route like NotFound handler.
 	if c.route == nil {
-		resolver := c.fox.ipResolver
+		resolver := c.fox.clientip
 		return resolver.ClientIP(c)
 	}
-	return c.route.ipResolver.ClientIP(c)
+	return c.route.clientip.ClientIP(c)
 }
 
 // Params returns an iterator over the matched wildcard parameters for the current route.

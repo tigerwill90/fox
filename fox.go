@@ -101,7 +101,7 @@ type Router struct {
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
 	tree                   atomic.Pointer[iTree]
-	ipResolver             ClientIPResolver
+	clientip               ClientIPResolver
 	mws                    []middleware
 	mu                     sync.Mutex
 	maxParams              uint16
@@ -127,7 +127,7 @@ func New(opts ...GlobalOption) *Router {
 	r.noRoute = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
-	r.ipResolver = noClientIPResolver{}
+	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
 
@@ -170,7 +170,7 @@ func (fox *Router) IgnoreTrailingSlashEnabled() bool {
 
 // ClientIPResolverEnabled returns whether the router is configured with a [ClientIPResolver].
 func (fox *Router) ClientIPResolverEnabled() bool {
-	_, ok := fox.ipResolver.(noClientIPResolver)
+	_, ok := fox.clientip.(noClientIPResolver)
 	return !ok
 }
 
@@ -406,7 +406,7 @@ func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	}
 
 	rte := &Route{
-		ipResolver:            fox.ipResolver,
+		clientip:              fox.clientip,
 		hbase:                 handler,
 		pattern:               pattern,
 		mws:                   fox.mws,
