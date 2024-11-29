@@ -5,7 +5,7 @@
 package iterutil
 
 import (
-	"golang.org/x/exp/constraints"
+	"github.com/tigerwill90/fox/internal/constraints"
 	"iter"
 	"strings"
 )

@@ -1,4 +1,4 @@
-This license applies to list.go
+This license applies to simplelru/list.go & constraints/constraints.go
 
 Copyright (c) 2009 The Go Authors. All rights reserved.
 
@@ -28,7 +28,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-This license apply to lru.go and lru_test.go
+This license apply to simplelru/lru.go and simplelru/lru_test.go
 
 Copyright (c) 2014 HashiCorp, Inc.
 
