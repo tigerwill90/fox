@@ -193,6 +193,9 @@ func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOpti
 	}, nil
 }
 
+// Avoid allocating this error since it may happen a lot on adversary header.
+var errLeftmostNonPrivate = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
+
 // ClientIP derives the client IP using the [LeftmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
 func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
@@ -204,7 +207,7 @@ func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	}
 
 	// We failed to find any valid, non-private IP
-	return nil, fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
+	return nil, errLeftmostNonPrivate
 }
 
 // RightmostNonPrivate derives the client IP from the rightmost valid, non-private/non-internal IP address in
@@ -485,7 +488,7 @@ func backwardIpAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPA
 	return func(yield func(*net.IPAddr) bool) {
 		values := headers[headerName]
 		for i := len(values) - 1; i >= 0; i-- {
-			for rawListItem := range iterutil.BackwardSplitSeq(values[i], ",") {
+			for rawListItem := range iterutil.BackwardSplitStringSeq(values[i], ",") {
 				// The IPs are often comma-space separated, so we'll need to trim the string
 				rawListItem = strings.TrimSpace(rawListItem)
 
@@ -513,7 +516,7 @@ func ipAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPAddr] {
 	return func(yield func(*net.IPAddr) bool) {
 		for _, h := range headers[headerName] {
 			// We now have a sequence of comma-separated list items.
-			for rawListItem := range iterutil.SplitSeq(h, ",") {
+			for rawListItem := range iterutil.SplitStringSeq(h, ",") {
 				// The IPs are often comma-space separated, so we'll need to trim the string
 				rawListItem = strings.TrimSpace(rawListItem)
 
@@ -548,7 +551,7 @@ func parseForwardedListItem(fwd string) *net.IPAddr {
 	// A valid syntax have at most 4 section, e.g. by=<identifier>;for=<identifier>;host=<host>;proto=<http|https>
 	// Find the "for=" part, since that has the IP we want (maybe)
 	var forPart string
-	for fp := range iterutil.Take(iterutil.SplitSeq(fwd, ";"), 4) {
+	for fp := range iterutil.Take(iterutil.SplitStringSeq(fwd, ";"), 4) {
 		// Whitespace is allowed around the semicolons
 		fp = strings.TrimSpace(fp)
 

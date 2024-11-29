@@ -53,7 +53,7 @@ func TestSplitSeq(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := slices.Collect(SplitSeq(tc.s, tc.sep))
+			got := slices.Collect(SplitStringSeq(tc.s, tc.sep))
 			assert.Equal(t, tc.want, got)
 			assert.Equal(t, tc.wantLen, len(got))
 		})
@@ -61,7 +61,7 @@ func TestSplitSeq(t *testing.T) {
 
 	t.Run("panic on empty sep", func(t *testing.T) {
 		assert.Panics(t, func() {
-			SplitSeq("a,b,c", "")
+			SplitStringSeq("a,b,c", "")
 		})
 	})
 }
@@ -113,7 +113,7 @@ func TestBackwardSplitSeq(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := slices.Collect(BackwardSplitSeq(tc.s, tc.sep))
+			got := slices.Collect(BackwardSplitStringSeq(tc.s, tc.sep))
 			assert.Equal(t, tc.want, got)
 			assert.Equal(t, tc.wantLen, len(got))
 		})
@@ -121,7 +121,7 @@ func TestBackwardSplitSeq(t *testing.T) {
 
 	t.Run("panic on empty sep", func(t *testing.T) {
 		assert.Panics(t, func() {
-			BackwardSplitSeq("a,b,c", "")
+			BackwardSplitStringSeq("a,b,c", "")
 		})
 	})
 }

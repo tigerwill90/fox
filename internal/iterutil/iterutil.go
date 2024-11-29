@@ -86,7 +86,7 @@ func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
 	return
 }
 
-func SplitSeq(s, sep string) iter.Seq[string] {
+func SplitStringSeq(s, sep string) iter.Seq[string] {
 	if len(sep) == 0 {
 		panic("separator cannot be empty")
 	}
@@ -110,7 +110,7 @@ func splitSeq(s, sep string) iter.Seq[string] {
 	}
 }
 
-func BackwardSplitSeq(s, sep string) iter.Seq[string] {
+func BackwardSplitStringSeq(s, sep string) iter.Seq[string] {
 	if len(sep) == 0 {
 		panic("separator cannot be empty")
 	}

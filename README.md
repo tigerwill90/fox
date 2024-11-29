@@ -542,7 +542,7 @@ f := fox.New(
 	fox.DefaultOptions(),
 	fox.WithClientIPResolver(
 		// We are behind one or many trusted proxies that have all private-space IP addresses.
-		clientip.NewRightmostNonPrivate(clientip.XForwardedForKey),
+		clientip.Must(clientip.NewRightmostNonPrivate(clientip.XForwardedForKey)),
 	),
 )
 
@@ -567,7 +567,7 @@ f = fox.New(
 		// A common use for this is if a server is both directly connected to the
 		// internet and expecting a header to check.
 		clientip.NewChain(
-			clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10),
+			clientip.Must(clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10)),
 			clientip.NewRemoteAddr(),
 		),
 	),
