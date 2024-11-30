@@ -112,6 +112,17 @@ type Router struct {
 	ignoreTrailingSlash    bool
 }
 
+// RouterInfo hold information on the configured global options.
+type RouterInfo struct {
+	MaxRouteParams        uint16
+	MaxRouteParamKeyBytes uint16
+	MethodNotAllowed      bool
+	AutoOptions           bool
+	RedirectTrailingSlash bool
+	IgnoreTrailingSlash   bool
+	ClientIP              bool
+}
+
 type middleware struct {
 	m     MiddlewareFunc
 	scope HandlerScope
@@ -142,36 +153,6 @@ func New(opts ...GlobalOption) *Router {
 
 	r.tree.Store(r.newTree())
 	return r
-}
-
-// MethodNotAllowedEnabled returns whether the router is configured to handle
-// requests with methods that are not allowed.
-func (fox *Router) MethodNotAllowedEnabled() bool {
-	return fox.handleMethodNotAllowed
-}
-
-// AutoOptionsEnabled returns whether the router is configured to automatically
-// respond to OPTIONS requests.
-func (fox *Router) AutoOptionsEnabled() bool {
-	return fox.handleOptions
-}
-
-// RedirectTrailingSlashEnabled returns whether the router is configured to automatically
-// redirect requests that include or omit a trailing slash.
-func (fox *Router) RedirectTrailingSlashEnabled() bool {
-	return fox.redirectTrailingSlash
-}
-
-// IgnoreTrailingSlashEnabled returns whether the router is configured to ignore
-// trailing slashes in requests when matching routes.
-func (fox *Router) IgnoreTrailingSlashEnabled() bool {
-	return fox.ignoreTrailingSlash
-}
-
-// ClientIPResolverEnabled returns whether the router is configured with a [ClientIPResolver].
-func (fox *Router) ClientIPResolverEnabled() bool {
-	_, ok := fox.clientip.(noClientIPResolver)
-	return !ok
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -359,6 +340,20 @@ func (fox *Router) View(fn func(txn *Txn) error) error {
 		txn.Abort()
 	}()
 	return fn(txn)
+}
+
+// Stats returns information on the configured global option.
+func (fox *Router) Stats() RouterInfo {
+	_, ok := fox.clientip.(noClientIPResolver)
+	return RouterInfo{
+		MaxRouteParams:        fox.maxParams,
+		MaxRouteParamKeyBytes: fox.maxParamKeyBytes,
+		MethodNotAllowed:      fox.handleMethodNotAllowed,
+		AutoOptions:           fox.handleOptions,
+		RedirectTrailingSlash: fox.redirectTrailingSlash,
+		IgnoreTrailingSlash:   fox.ignoreTrailingSlash,
+		ClientIP:              !ok,
+	}
 }
 
 // Txn create a new read-write or read-only transaction. Each [Txn] must be finalized with [Txn.Commit] or [Txn.Abort].

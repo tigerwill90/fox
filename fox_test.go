@@ -4208,7 +4208,8 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := New(WithIgnoreTrailingSlash(true))
-			require.True(t, f.IgnoreTrailingSlashEnabled())
+			rf := f.Stats()
+			require.True(t, rf.IgnoreTrailingSlash)
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c Context) {
 					_ = c.String(http.StatusOK, c.Pattern())
@@ -4241,7 +4242,8 @@ func TestRouterWithClientIP(t *testing.T) {
 		DefaultNotFoundHandler(c)
 	}))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
-	assert.True(t, f.ClientIPResolverEnabled())
+	rf := f.Stats()
+	assert.True(t, rf.ClientIP)
 
 	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
@@ -4387,7 +4389,8 @@ func TestRedirectTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := New(WithRedirectTrailingSlash(true))
-			require.True(t, f.RedirectTrailingSlashEnabled())
+			rf := f.Stats()
+			require.True(t, rf.RedirectTrailingSlash)
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(tc.method, path, emptyHandler)))
 				rte := f.Route(tc.method, path)
@@ -4725,7 +4728,8 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 	}
 
-	require.True(t, f.MethodNotAllowedEnabled())
+	rf := f.Stats()
+	require.True(t, rf.MethodNotAllowed)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
@@ -4943,7 +4947,8 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := New(WithAutoOptions(true))
-			require.True(t, f.AutoOptionsEnabled())
+			rf := f.Stats()
+			require.True(t, rf.AutoOptions)
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
 					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
