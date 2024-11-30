@@ -60,12 +60,15 @@ func Len2[K, V any](seq iter.Seq2[K, V]) int {
 
 func Take[I constraints.Integer, E any](seq iter.Seq[E], count I) iter.Seq[E] {
 	return func(yield func(E) bool) {
-		count += 1
 		for e := range seq {
-			count--
-			if count <= 0 || !yield(e) {
-				return
+			if count > 0 {
+				if !yield(e) {
+					return
+				}
+				count--
+				continue
 			}
+			return
 		}
 	}
 }
