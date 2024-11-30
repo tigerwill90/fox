@@ -305,6 +305,12 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 	return nil, nil, tsr
 }
 
+// Len returns the number of registered route.
+func (fox *Router) Len() int {
+	tree := fox.getRoot()
+	return tree.size
+}
+
 // Iter returns a collection of range iterators for traversing registered methods and routes. It creates a
 // point-in-time snapshot of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent
 // write on the router. This function is safe for concurrent use by multiple goroutine and while mutation on

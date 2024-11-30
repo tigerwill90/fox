@@ -643,6 +643,8 @@ func TestStaticRoute(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
 	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
 
 func TestStaticRouteTxn(t *testing.T) {
@@ -664,6 +666,8 @@ func TestStaticRouteTxn(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
 	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
 
 func TestStaticRouteWithStaticDomain(t *testing.T) {
@@ -681,6 +685,8 @@ func TestStaticRouteWithStaticDomain(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
 	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
 
 func TestStaticRouteWithStaticDomainTxn(t *testing.T) {
@@ -703,6 +709,8 @@ func TestStaticRouteWithStaticDomainTxn(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
 	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
 
 func TestStaticRouteMalloc(t *testing.T) {

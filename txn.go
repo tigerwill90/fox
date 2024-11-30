@@ -226,6 +226,11 @@ func (txn *Txn) Iter() Iter {
 	}
 }
 
+// Len returns the number of registered route.
+func (txn *Txn) Len() int {
+	return txn.rootTxn.size
+}
+
 // Commit finalize the transaction. This is a noop for read transactions, already aborted or
 // committed transactions. This function is NOT thread-safe and should be run serially,
 // along with all other [Txn] APIs.

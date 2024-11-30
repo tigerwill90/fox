@@ -237,6 +237,27 @@ func TestTxn_Isolation(t *testing.T) {
 		assert.Equal(t, err, want)
 		assert.Equal(t, len(staticRoutes), iterutil.Len2(f.Iter().All()))
 	})
+
+	t.Run("track registered route", func(t *testing.T) {
+		f := New()
+		require.NoError(t, f.Updates(func(txn *Txn) error {
+			for _, rte := range staticRoutes {
+				if _, err := txn.Handle(rte.method, "example.com"+rte.path, emptyHandler); err != nil {
+					return err
+				}
+			}
+			assert.Equal(t, len(staticRoutes), txn.Len())
+
+			for _, rte := range staticRoutes {
+				if err := txn.Delete(rte.method, "example.com"+rte.path); err != nil {
+					return err
+				}
+			}
+			assert.Zero(t, txn.Len())
+
+			return nil
+		}))
+	})
 }
 
 func TestTxn_WriteOnReadTransaction(t *testing.T) {

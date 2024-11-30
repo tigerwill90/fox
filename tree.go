@@ -19,6 +19,7 @@ type iTree struct {
 	ctx       sync.Pool
 	fox       *Router
 	root      roots
+	size      int
 	maxParams uint32
 	depth     uint32
 }
@@ -27,6 +28,7 @@ func (t *iTree) txn(cache bool) *tXn {
 	return &tXn{
 		tree:      t,
 		root:      t.root,
+		size:      t.size,
 		maxParams: t.maxParams,
 		depth:     t.depth,
 		cache:     cache,
@@ -46,6 +48,7 @@ type tXn struct {
 	tree      *iTree
 	writable  *simplelru.LRU[*node, any]
 	root      roots
+	size      int
 	maxParams uint32
 	depth     uint32
 	cache     bool
@@ -55,6 +58,7 @@ func (t *tXn) commit() *iTree {
 	nt := &iTree{
 		root:      t.root,
 		fox:       t.tree.fox,
+		size:      t.size,
 		maxParams: t.maxParams,
 		depth:     t.depth,
 	}
@@ -76,6 +80,7 @@ func (t *tXn) clone() *tXn {
 	tx := &tXn{
 		tree:      t.tree,
 		root:      t.root,
+		size:      t.size,
 		maxParams: t.maxParams,
 		depth:     t.depth,
 	}
@@ -204,6 +209,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 			result.matched.wildcardChildIndex,
 		)
 
+		t.size++
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
@@ -244,6 +250,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 			[]*node{child},
 		)
 
+		t.size++
 		t.updateMaxParams(paramsN)
 		t.updateMaxDepth(result.depth + 1)
 		result.p.updateEdge(parent)
@@ -287,6 +294,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 			edges,
 		)
 
+		t.size++
 		t.updateMaxDepth(result.depth + addDepth)
 		t.updateMaxParams(paramsN)
 
@@ -375,6 +383,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 		// n3 children never start with a param
 		n3 := newNode(cPrefix, nil, []*node{n1, n2}) // intermediary node
 
+		t.size++
 		t.updateMaxDepth(result.depth + addDepth)
 		t.updateMaxParams(paramsN)
 		result.p.updateEdge(n3)
@@ -427,6 +436,7 @@ func (t *tXn) remove(method, path string) bool {
 		return false
 	}
 
+	t.size--
 	if len(result.matched.children) > 1 {
 		n := newNodeFromRef(
 			result.matched.key,
