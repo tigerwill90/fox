@@ -20,6 +20,8 @@ var (
 	ErrNoClientIPResolver      = errors.New("no client ip resolver")
 	ErrReadOnlyTxn             = errors.New("write on read-only transaction")
 	ErrSettledTxn              = errors.New("transaction settled")
+	ErrParamKeyTooLarge        = errors.New("parameter key too large")
+	ErrTooManyParams           = errors.New("too many params")
 )
 
 // RouteConflictError is a custom error type used to represent conflicts when
