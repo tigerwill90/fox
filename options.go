@@ -27,11 +27,9 @@ func (o globOptionFunc) applyGlob(r *Router) {
 	o(r)
 }
 
-// nolint:unused
-type pathOptionFunc func(*Route)
+type routeOptionFunc func(*Route)
 
-// nolint:unused
-func (o pathOptionFunc) applyRoute(r *Route) {
+func (o routeOptionFunc) applyRoute(r *Route) {
 	o(r)
 }
 
@@ -244,7 +242,7 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
 // Annotations must be explicitly reapplied when updating a route.
 func WithAnnotations(annotations ...Annotation) RouteOption {
-	return pathOptionFunc(func(route *Route) {
+	return routeOptionFunc(func(route *Route) {
 		route.annots = append(route.annots, annotations...)
 	})
 }

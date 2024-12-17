@@ -84,7 +84,7 @@ func TestSingleIPHeader_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(w, req)
 
-	s := Must(NewSingleIPHeader("X-Real-IP"))
+	s := must(NewSingleIPHeader("X-Real-IP"))
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "5.5.5.5", ipAddr.String())
@@ -101,7 +101,7 @@ func TestLeftmostNonPrivate_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(w, req)
 
-	s := Must(NewLeftmostNonPrivate(ForwardedKey, 100, ExcludeLoopback(true), ExcludeLinkLocal(true), ExcludePrivateNet(true)))
+	s := must(NewLeftmostNonPrivate(ForwardedKey, 100, ExcludeLoopback(true), ExcludeLinkLocal(true), ExcludePrivateNet(true)))
 	assert.ElementsMatch(t, privateAndLocalRanges, s.blacklistedRanges)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestRightmostNonPrivate_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(w, req)
-	s := Must(NewRightmostNonPrivate(XForwardedForKey, TrustLoopback(true), TrustLinkLocal(true), TrustPrivateNet(true)))
+	s := must(NewRightmostNonPrivate(XForwardedForKey, TrustLoopback(true), TrustLinkLocal(true), TrustPrivateNet(true)))
 	assert.ElementsMatch(t, privateAndLocalRanges, s.trustedRanges)
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestRightmostTrustedCount_ClientIP(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	c := fox.NewTestContextOnly(w, req)
-	s := Must(NewRightmostTrustedCount(ForwardedKey, 2))
+	s := must(NewRightmostTrustedCount(ForwardedKey, 2))
 	ipAddr, err := s.ClientIP(c)
 	require.NoError(t, err)
 	assert.Equal(t, "2001:db8:cafe::17", ipAddr.String())
@@ -166,7 +166,7 @@ func TestRightmostTrustedRange_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(w, req)
 	trustedRanges, _ := AddressesAndRangesToIPNets([]string{"192.168.0.0/16", "3.3.3.3"}...)
-	s := Must(NewRightmostTrustedRange(XForwardedForKey, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+	s := must(NewRightmostTrustedRange(XForwardedForKey, IPRangeResolverFunc(func() ([]net.IPNet, error) {
 		return trustedRanges, nil
 	})))
 	ipAddr, err := s.ClientIP(c)
@@ -193,7 +193,7 @@ func TestRightmostTrustedRange_ClientIP(t *testing.T) {
 	assert.ErrorIs(t, err, resolverErr)
 
 	assert.Panics(t, func() {
-		s = Must(NewRightmostTrustedRange(XForwardedForKey, nil))
+		s = must(NewRightmostTrustedRange(XForwardedForKey, nil))
 	})
 }
 
@@ -205,7 +205,7 @@ func TestChain_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(w, req)
 	s := NewChain(
-		Must(NewSingleIPHeader("Cf-Connecting-IP")),
+		must(NewSingleIPHeader("Cf-Connecting-IP")),
 		NewRemoteAddr(),
 	)
 	ipAddr, err := s.ClientIP(c)
@@ -322,7 +322,7 @@ func TestAddressesAndRangesToIPNets(t *testing.T) {
 func TestMustParseIPAddr(t *testing.T) {
 	// We test the non-panic path elsewhere, but we need to specifically check the panic case
 	assert.Panics(t, func() {
-		MustParseIPAddr("nope")
+		mustParseIPAddr("nope")
 	})
 }
 
@@ -423,63 +423,63 @@ func Test_parseForwardedListItem(t *testing.T) {
 			// This is the correct form for IPv6 wit port
 			name: "IPv6 with port and quotes",
 			fwd:  `For="[2607:f8b0:4004:83f::200e]:4711"`,
-			want: MustParseIPAddr("2607:f8b0:4004:83f::200e"),
+			want: mustParseIPAddr("2607:f8b0:4004:83f::200e"),
 		},
 		{
 			// This is the correct form for IP with no port
 			name: "IPv6 with quotes, brackets and no port",
 			fwd:  `fOR="[2607:f8b0:4004:83f::200e]"`,
-			want: MustParseIPAddr("2607:f8b0:4004:83f::200e"),
+			want: mustParseIPAddr("2607:f8b0:4004:83f::200e"),
 		},
 		{
 			// RFC deviation: missing brackets
 			name: "IPv6 with quotes, no brackets, and no port",
 			fwd:  `for="2607:f8b0:4004:83f::200e"`,
-			want: MustParseIPAddr("2607:f8b0:4004:83f::200e"),
+			want: mustParseIPAddr("2607:f8b0:4004:83f::200e"),
 		},
 		{
 			// RFC deviation: missing quotes
 			name: "IPv6 with brackets, no quotes, and no port",
 			fwd:  `FOR=[2607:f8b0:4004:83f::200e]`,
-			want: MustParseIPAddr("2607:f8b0:4004:83f::200e"),
+			want: mustParseIPAddr("2607:f8b0:4004:83f::200e"),
 		},
 		{
 			// RFC deviation: missing quotes
 			name: "IPv6 with port and no quotes",
 			fwd:  `For=[2607:f8b0:4004:83f::200e]:4711`,
-			want: MustParseIPAddr("2607:f8b0:4004:83f::200e"),
+			want: mustParseIPAddr("2607:f8b0:4004:83f::200e"),
 		},
 		{
 			name: "IPv6 with port, quotes, and zone",
 			fwd:  `For="[fe80::abcd%zone]:4711"`,
-			want: MustParseIPAddr("fe80::abcd%zone"),
+			want: mustParseIPAddr("fe80::abcd%zone"),
 		},
 		{
 			// RFC deviation: missing brackets
 			name: "IPv6 with zone, no quotes, no port",
 			fwd:  `For="fe80::abcd%zone"`,
-			want: MustParseIPAddr("fe80::abcd%zone"),
+			want: mustParseIPAddr("fe80::abcd%zone"),
 		},
 		{
 			// RFC deviation: missing quotes
 			name: "IPv4 with port",
 			fwd:  `FoR=192.0.2.60:4711`,
-			want: MustParseIPAddr("192.0.2.60"),
+			want: mustParseIPAddr("192.0.2.60"),
 		},
 		{
 			name: "IPv4 with no port",
 			fwd:  `for=192.0.2.60`,
-			want: MustParseIPAddr("192.0.2.60"),
+			want: mustParseIPAddr("192.0.2.60"),
 		},
 		{
 			name: "IPv4 with quotes",
 			fwd:  `for="192.0.2.60"`,
-			want: MustParseIPAddr("192.0.2.60"),
+			want: mustParseIPAddr("192.0.2.60"),
 		},
 		{
 			name: "IPv4 with port and quotes",
 			fwd:  `for="192.0.2.60:4823"`,
-			want: MustParseIPAddr("192.0.2.60"),
+			want: mustParseIPAddr("192.0.2.60"),
 		},
 		{
 			name: "Error: invalid IPv4",
@@ -504,49 +504,49 @@ func Test_parseForwardedListItem(t *testing.T) {
 		{
 			name: "Multiple IPv4 directives",
 			fwd:  `by=1.1.1.1; for=2.2.2.2;host=myhost; proto=https`,
-			want: MustParseIPAddr("2.2.2.2"),
+			want: mustParseIPAddr("2.2.2.2"),
 		},
 		{
 			// RFC deviation: missing quotes around IPv6
 			name: "Multiple IPv6 directives",
 			fwd:  `by=1::1;host=myhost;for=2::2;proto=https`,
-			want: MustParseIPAddr("2::2"),
+			want: mustParseIPAddr("2::2"),
 		},
 		{
 			// RFC deviation: missing quotes around IPv6
 			name: "Multiple mixed directives",
 			fwd:  `by=1::1;host=myhost;proto=https;for=2.2.2.2`,
-			want: MustParseIPAddr("2.2.2.2"),
+			want: mustParseIPAddr("2.2.2.2"),
 		},
 		{
 			name: "IPv4-mapped IPv6",
 			fwd:  `for="[::ffff:188.0.2.128]"`,
-			want: MustParseIPAddr("188.0.2.128"),
+			want: mustParseIPAddr("188.0.2.128"),
 		},
 		{
 			name: "IPv4-mapped IPv6 with port and quotes",
 			fwd:  `for="[::ffff:188.0.2.128]:49428"`,
-			want: MustParseIPAddr("188.0.2.128"),
+			want: mustParseIPAddr("188.0.2.128"),
 		},
 		{
 			name: "IPv4-mapped IPv6 in IPv6 form",
 			fwd:  `for="[0:0:0:0:0:ffff:bc15:0006]"`,
-			want: MustParseIPAddr("188.21.0.6"),
+			want: mustParseIPAddr("188.21.0.6"),
 		},
 		{
 			name: "NAT64 IPv4-mapped IPv6",
 			fwd:  `for="[64:ff9b::188.0.2.128]"`,
-			want: MustParseIPAddr("64:ff9b::188.0.2.128"),
+			want: mustParseIPAddr("64:ff9b::188.0.2.128"),
 		},
 		{
 			name: "IPv4 loopback",
 			fwd:  `for=127.0.0.1`,
-			want: MustParseIPAddr("127.0.0.1"),
+			want: mustParseIPAddr("127.0.0.1"),
 		},
 		{
 			name: "IPv6 loopback",
 			fwd:  `for="[::1]"`,
-			want: MustParseIPAddr("::1"),
+			want: mustParseIPAddr("::1"),
 		},
 		{
 			// RFC deviation: quotes must be matched
@@ -582,7 +582,7 @@ func Test_parseForwardedListItem(t *testing.T) {
 			// have full syntax support yet.
 			name: "RFC deviation: Incorrect whitespace",
 			fwd:  `for= 1.1.1.1`,
-			want: MustParseIPAddr("1.1.1.1"),
+			want: mustParseIPAddr("1.1.1.1"),
 		},
 	}
 	for _, tt := range tests {
@@ -624,7 +624,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// There are really only two values, so we actually want: {nil, "4.4.4.4"}
-			want: []*net.IPAddr{nil, MustParseIPAddr("2.2.2.2"), nil, MustParseIPAddr("4.4.4.4")},
+			want: []*net.IPAddr{nil, mustParseIPAddr("2.2.2.2"), nil, mustParseIPAddr("4.4.4.4")},
 		},
 		{
 			// Per 7239, the opening unmatched quote makes the whole rest of the header invalid.
@@ -637,7 +637,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// There are really only two values, so the RFC would require: {nil} (or empty slice?)
-			want: []*net.IPAddr{nil, MustParseIPAddr("2.2.2.2")},
+			want: []*net.IPAddr{nil, mustParseIPAddr("2.2.2.2")},
 		},
 		{
 			// The invalid non-For parameter should invalidate the whole item, but we're
@@ -648,7 +648,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// Only the last value is valid, so it should be: {nil, "2.2.2.2"}
-			want: []*net.IPAddr{MustParseIPAddr("1.1.1.1"), MustParseIPAddr("2.2.2.2")},
+			want: []*net.IPAddr{mustParseIPAddr("1.1.1.1"), mustParseIPAddr("2.2.2.2")},
 		},
 		{
 			// The duplicate "For=" parameter should invalidate the whole item but we don't check for it
@@ -658,7 +658,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// Only the last value is valid, so it should be: {nil, "3.3.3.3"}
-			want: []*net.IPAddr{MustParseIPAddr("1.1.1.1"), MustParseIPAddr("3.3.3.3")},
+			want: []*net.IPAddr{mustParseIPAddr("1.1.1.1"), mustParseIPAddr("3.3.3.3")},
 		},
 		{
 			// An escaped character in quotes should be unescaped, but we're not doing it.
@@ -682,7 +682,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// Neither value is valid, so it should be: {nil, nil}
-			want: []*net.IPAddr{nil, MustParseIPAddr("3.3.3.3")},
+			want: []*net.IPAddr{nil, mustParseIPAddr("3.3.3.3")},
 		},
 		{
 			// Disallowed characters are only allowed in quoted strings. This means
@@ -693,7 +693,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// Value is invalid without quotes, so should be {nil}
-			want: []*net.IPAddr{MustParseIPAddr("2607:f8b0:4004:83f::200e")},
+			want: []*net.IPAddr{mustParseIPAddr("2607:f8b0:4004:83f::200e")},
 		},
 		{
 			// IPv6 addresses are required to be contained in square brackets. We don't
@@ -704,7 +704,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// IPv6 is invalid without brackets, so should be {nil}
-			want: []*net.IPAddr{MustParseIPAddr("2607:f8b0:4004:83f::200e")},
+			want: []*net.IPAddr{mustParseIPAddr("2607:f8b0:4004:83f::200e")},
 		},
 		{
 			// IPv4 addresses are _not_ supposed to be in square brackets, but we trim
@@ -715,7 +715,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 				headerName: "Forwarded",
 			},
 			// IPv4 is invalid with brackets, so should be {nil}
-			want: []*net.IPAddr{MustParseIPAddr("1.1.1.1")},
+			want: []*net.IPAddr{mustParseIPAddr("1.1.1.1")},
 		},
 	}
 
@@ -1093,12 +1093,12 @@ func TestSingleIPHeader(t *testing.T) {
 			var s fox.ClientIPResolver
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = Must(NewSingleIPHeader(tt.args.headerName))
+					s = must(NewSingleIPHeader(tt.args.headerName))
 				})
 				return
 			}
 
-			s = Must(NewSingleIPHeader(tt.args.headerName))
+			s = must(NewSingleIPHeader(tt.args.headerName))
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1335,12 +1335,12 @@ func TestLeftmostNonPrivate(t *testing.T) {
 			var s fox.ClientIPResolver
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = Must(NewLeftmostNonPrivate(tt.args.headerType, 100))
+					s = must(NewLeftmostNonPrivate(tt.args.headerType, 100))
 				})
 				return
 			}
 
-			s = Must(NewLeftmostNonPrivate(tt.args.headerType, 100))
+			s = must(NewLeftmostNonPrivate(tt.args.headerType, 100))
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1356,7 +1356,7 @@ func TestLeftmostNonPrivate(t *testing.T) {
 
 func TestLeftmostNonPrivateLimit(t *testing.T) {
 	t.Run("limit exactly match the target ip", func(t *testing.T) {
-		s := Must(NewLeftmostNonPrivate(XForwardedForKey, 3))
+		s := must(NewLeftmostNonPrivate(XForwardedForKey, 3))
 		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 		req.Header.Set(fox.HeaderXForwardedFor, "192.168.1.15, 10.8.1.2, 115.45.98.3")
 		w := httptest.NewRecorder()
@@ -1366,7 +1366,7 @@ func TestLeftmostNonPrivateLimit(t *testing.T) {
 		assert.Equal(t, "115.45.98.3", ip.String())
 	})
 	t.Run("limit under the target ip", func(t *testing.T) {
-		s := Must(NewLeftmostNonPrivate(XForwardedForKey, 2))
+		s := must(NewLeftmostNonPrivate(XForwardedForKey, 2))
 		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 		req.Header.Set(fox.HeaderXForwardedFor, "192.168.1.15, 10.8.1.2, 115.45.98.3")
 		w := httptest.NewRecorder()
@@ -1600,12 +1600,12 @@ func TestRightmostNonPrivate(t *testing.T) {
 			var s fox.ClientIPResolver
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = Must(NewRightmostNonPrivate(tt.args.headerType))
+					s = must(NewRightmostNonPrivate(tt.args.headerType))
 				})
 				return
 			}
 
-			s = Must(NewRightmostNonPrivate(tt.args.headerType))
+			s = must(NewRightmostNonPrivate(tt.args.headerType))
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1746,12 +1746,12 @@ func TestRightmostTrustedCount(t *testing.T) {
 			var s fox.ClientIPResolver
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = Must(NewRightmostTrustedCount(tt.args.headerType, tt.args.trustedCount))
+					s = must(NewRightmostTrustedCount(tt.args.headerType, tt.args.trustedCount))
 				})
 				return
 			}
 
-			s = Must(NewRightmostTrustedCount(tt.args.headerType, tt.args.trustedCount))
+			s = must(NewRightmostTrustedCount(tt.args.headerType, tt.args.trustedCount))
 
 			c.Request().Header = tt.args.headers
 			c.Request().RemoteAddr = tt.args.remoteAddr
@@ -1947,14 +1947,14 @@ func TestRightmostTrustedRange(t *testing.T) {
 			var s fox.ClientIPResolver
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = Must(NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+					s = must(NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
 						return ranges, nil
 					})))
 				})
 				return
 			}
 
-			s = Must(NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+			s = must(NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
 				return ranges, nil
 			})))
 

@@ -32,6 +32,11 @@ var (
 	ErrRightmostTrustedRange = errors.New("rightmost trusted range resolver")
 )
 
+// Avoid allocating those errors each time since it may happen a lot on adversary header.
+var (
+	errLeftmostNonPrivate = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
+)
+
 // TrustedIPRange returns a set of trusted IP ranges.
 // Implementations of this interface must be thread-safe as it will be invoked
 // whenever the client IP needs to be resolved, potentially from multiple goroutines.
@@ -60,18 +65,6 @@ const (
 	XForwardedForKey HeaderKey = iota
 	ForwardedKey
 )
-
-// Must is a helper that wraps a call to a function returning (R, error)
-// and panics if the error is non-nil. It is intended for use in variable initializations
-// such as:
-//
-//	var r = clientip.Must(clientip.NewSingleIPHeader("True-Client-IP"))
-func Must[R fox.ClientIPResolver](resolver R, err error) R {
-	if err != nil {
-		panic(err)
-	}
-	return resolver
-}
 
 // Chain attempts to use the given resolvers in order. If the first one returns an error, the second one is
 // tried, and so on, until a good IP is found or the resolvers are exhausted. A common use for this is if a server is
@@ -180,6 +173,9 @@ func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOpti
 	if key > 1 {
 		return LeftmostNonPrivate{}, errors.New("invalid header key")
 	}
+	if limit == 0 {
+		return LeftmostNonPrivate{}, errors.New("invalid limit: expect greater than zero")
+	}
 
 	cfg := new(config)
 	for _, opt := range opts {
@@ -192,9 +188,6 @@ func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOpti
 		limit:             limit,
 	}, nil
 }
-
-// Avoid allocating this error since it may happen a lot on adversary header.
-var errLeftmostNonPrivate = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
 
 // ClientIP derives the client IP using the [LeftmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
@@ -340,15 +333,6 @@ func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
 
 	// Either there are no addresses or they are all in our trusted ranges
 	return nil, fmt.Errorf("%w: unable to find a valid IP address", ErrRightmostTrustedRange)
-}
-
-// MustParseIPAddr panics if [ParseIPAddr] fails.
-func MustParseIPAddr(ipStr string) *net.IPAddr {
-	ipAddr, err := ParseIPAddr(ipStr)
-	if err != nil {
-		panic(fmt.Sprintf("ParseIPAddr failed: %v", err))
-	}
-	return ipAddr
 }
 
 // ParseIPAddr safely parses the given string into a [net.IPAddr]. It also returns an error for unspecified (like "::")
@@ -594,6 +578,15 @@ func parseForwardedListItem(fwd string) *net.IPAddr {
 	return ipAddr
 }
 
+// mustParseIPAddr panics if [ParseIPAddr] fails.
+func mustParseIPAddr(ipStr string) *net.IPAddr {
+	ipAddr, err := ParseIPAddr(ipStr)
+	if err != nil {
+		panic(fmt.Sprintf("ParseIPAddr failed: %v", err))
+	}
+	return ipAddr
+}
+
 // mustParseCIDR panics if net.ParseCIDR fails
 func mustParseCIDR(s string) net.IPNet {
 	_, ipNet, err := net.ParseCIDR(s)
@@ -601,6 +594,13 @@ func mustParseCIDR(s string) net.IPNet {
 		panic(err)
 	}
 	return *ipNet
+}
+
+func must[T fox.ClientIPResolver](s T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return s
 }
 
 // privateAndLocalRanges net.IPNets that are loopback, private, link local, default unicast.
