@@ -22,6 +22,7 @@ var (
 	ErrSettledTxn              = errors.New("transaction settled")
 	ErrParamKeyTooLarge        = errors.New("parameter key too large")
 	ErrTooManyParams           = errors.New("too many params")
+	ErrInvalidConfig           = errors.New("invalid config")
 )
 
 // RouteConflictError is a custom error type used to represent conflicts when

@@ -3006,19 +3006,6 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 		},
 	}
 
-	insertAnnot := Annotation{
-		Key:   "foo",
-		Value: "bar",
-	}
-	updateAnnot := Annotation{
-		Key:   "john",
-		Value: "doe",
-	}
-	updateAnnot2 := Annotation{
-		Key:   "billi",
-		Value: "boulou",
-	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := New()
@@ -3026,15 +3013,15 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 			copy(routeCopy, tc.routes)
 
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.path, emptyHandler, WithAnnotations(insertAnnot))))
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.path, emptyHandler, WithAnnotation("foo", "bar"))))
 			}
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot))))
+				require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotation("foo", "bar"))))
 			}
 			for _, rte := range tc.routes {
 				r := f.Route(http.MethodGet, rte.path)
 				require.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path)
-				assert.Equal(t, []Annotation{updateAnnot}, slices.Collect(r.Annotations()))
+				assert.Equal(t, "bar", r.Annotation("foo").(string))
 			}
 
 			for _, rte := range tc.routes {
@@ -3042,12 +3029,12 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				routeCopy = slices.Delete(routeCopy, 0, 1)
 				assert.Falsef(t, f.Has(http.MethodGet, rte.path), "found method=%s;path=%s", http.MethodGet, rte.path)
 				for _, rte := range routeCopy {
-					require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot2))))
+					require.NoError(t, onlyError(f.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotation("john", "doe"))))
 				}
 				for _, rte := range routeCopy {
 					r := f.Route(http.MethodGet, rte.path)
 					require.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path)
-					assert.Equal(t, []Annotation{updateAnnot2}, slices.Collect(r.Annotations()))
+					assert.Equal(t, "doe", r.Annotation("john").(string))
 				}
 			}
 
@@ -3176,19 +3163,6 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 		},
 	}
 
-	insertAnnot := Annotation{
-		Key:   "foo",
-		Value: "bar",
-	}
-	updateAnnot := Annotation{
-		Key:   "john",
-		Value: "doe",
-	}
-	updateAnnot2 := Annotation{
-		Key:   "billi",
-		Value: "boulou",
-	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := New()
@@ -3197,7 +3171,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				for _, rte := range tc.routes {
-					if err := onlyError(txn.Handle(http.MethodGet, rte.path, emptyHandler, WithAnnotations(insertAnnot))); err != nil {
+					if err := onlyError(txn.Handle(http.MethodGet, rte.path, emptyHandler, WithAnnotation("foo", "bar"))); err != nil {
 						return err
 					}
 				}
@@ -3205,7 +3179,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			}))
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				for _, rte := range tc.routes {
-					if err := onlyError(txn.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot))); err != nil {
+					if err := onlyError(txn.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotation("foo", "bar"))); err != nil {
 						return err
 					}
 				}
@@ -3215,7 +3189,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			for _, rte := range tc.routes {
 				r := f.Route(http.MethodGet, rte.path)
 				require.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path)
-				assert.Equal(t, []Annotation{updateAnnot}, slices.Collect(r.Annotations()))
+				assert.Equal(t, "bar", r.Annotation("foo").(string))
 			}
 
 			require.NoError(t, f.Updates(func(txn *Txn) error {
@@ -3226,14 +3200,14 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 					routeCopy = slices.Delete(routeCopy, 0, 1)
 					assert.Falsef(t, txn.Has(http.MethodGet, rte.path), "found method=%s;path=%s", http.MethodGet, rte.path)
 					for _, rte := range routeCopy {
-						if err := onlyError(txn.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotations(updateAnnot2))); err != nil {
+						if err := onlyError(txn.Update(http.MethodGet, rte.path, emptyHandler, WithAnnotation("john", "doe"))); err != nil {
 							return err
 						}
 					}
 					for _, rte := range routeCopy {
 						r := txn.Route(http.MethodGet, rte.path)
 						if !assert.NotNilf(t, r, "missing method=%s;path=%s", http.MethodGet, rte.path) {
-							assert.Equal(t, []Annotation{updateAnnot2}, slices.Collect(r.Annotations()))
+							assert.Equal(t, "doe", r.Annotation("john").(string))
 						}
 					}
 				}
@@ -5805,9 +5779,7 @@ func TestDataRace(t *testing.T) {
 			defer wg.Done()
 			for route := range iterutil.Right(f.Iter().All()) {
 				route.Pattern()
-				for range route.Annotations() {
-
-				}
+				route.Annotation("foo")
 			}
 		}()
 

@@ -6,6 +6,7 @@ package fox
 
 import (
 	"cmp"
+	"reflect"
 )
 
 type Option interface {
@@ -237,13 +238,21 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 	})
 }
 
-// WithAnnotations attach arbitrary metadata to routes. Annotations are key-value pairs that allow middleware, handler or
+// WithAnnotation attach arbitrary metadata to routes. Annotations are key-value pairs that allow middleware, handler or
 // any other components to modify behavior based on the attached metadata. Unlike context-based metadata, which is tied to
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
-// Annotations must be explicitly reapplied when updating a route.
-func WithAnnotations(annotations ...Annotation) RouteOption {
+// The provided key must be comparable and should not be of type string or any other built-in type to avoid collisions between
+// packages that use route annotation. Annotations must be explicitly reapplied when updating a route.
+func WithAnnotation(key, value any) RouteOption {
 	return routeOptionFunc(func(route *Route) {
-		route.annots = append(route.annots, annotations...)
+		if !reflect.TypeOf(key).Comparable() {
+			// TODO returns errors
+			panic("key is not comparable")
+		}
+		if route.annots == nil {
+			route.annots = make(map[any]any, 1)
+		}
+		route.annots[key] = value
 	})
 }
 

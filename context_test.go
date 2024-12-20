@@ -131,12 +131,13 @@ func TestContext_Annotations(t *testing.T) {
 		http.MethodGet,
 		"/foo",
 		emptyHandler,
-		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
-		WithAnnotations(Annotation{Key: "john", Value: 1}),
+		WithAnnotation("foo", "bar"),
+		WithAnnotation("john", 1),
 	)
 	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.Equal(t, []Annotation{{Key: "foo", Value: "bar"}, {Key: "foo", Value: "baz"}, {Key: "john", Value: 1}}, slices.Collect(rte.Annotations()))
+	assert.Equal(t, "bar", rte.Annotation("foo").(string))
+	assert.Equal(t, 1, rte.Annotation("john").(int))
 }
 
 func TestContext_Clone(t *testing.T) {
