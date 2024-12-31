@@ -513,3 +513,22 @@ func TestWrapH(t *testing.T) {
 		})
 	}
 }
+
+// BenchmarkWrapF-16    	 2211204	       559.8 ns/op	     696 B/op	      10 allocs/op
+func BenchmarkWrapF(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
+	w := httptest.NewRecorder()
+
+	f := New()
+	f.MustHandle(http.MethodGet, "/{a}/{b}/{c}", WrapF(func(w http.ResponseWriter, r *http.Request) {
+
+	}))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		f.ServeHTTP(w, req)
+	}
+
+}

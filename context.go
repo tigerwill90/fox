@@ -219,12 +219,28 @@ func (c *cTx) Params() iter.Seq[Param] {
 
 // Param retrieve a matching wildcard segment by name.
 func (c *cTx) Param(name string) string {
-	for p := range c.Params() {
-		if p.Key == name {
-			return p.Value
+	if c.tsr {
+		for i := range *c.tsrParams {
+			if (*c.tsrParams)[i].Key == name {
+				return (*c.tsrParams)[i].Value
+			}
+		}
+		return ""
+	}
+
+	for i := range *c.params {
+		if (*c.params)[i].Key == name {
+			return (*c.params)[i].Value
 		}
 	}
 	return ""
+}
+
+func (c *cTx) ParamsLen() int {
+	if c.tsr {
+		return len(*c.tsrParams)
+	}
+	return len(*c.params)
 }
 
 // Path returns the request URL path.
@@ -402,7 +418,14 @@ func (c *cTx) getQueries() url.Values {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {
-		var params Params = slices.Collect(c.Params())
+
+		var params Params
+		if ps, ok := c.(interface{ ParamsLen() int }); ok {
+			params = make(Params, 0, ps.ParamsLen())
+			params = slices.AppendSeq(params, c.Params())
+		} else {
+			params = slices.Collect(c.Params())
+		}
 		if len(params) > 0 {
 			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))

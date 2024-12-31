@@ -112,6 +112,8 @@ func (txn *Txn) Delete(method, pattern string) error {
 	return nil
 }
 
+// Truncate remove all routes for the provided methods. If not methods are provided,
+// all routes are truncated.
 func (txn *Txn) Truncate(methods ...string) error {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
@@ -228,6 +230,9 @@ func (txn *Txn) Iter() Iter {
 
 // Len returns the number of registered route.
 func (txn *Txn) Len() int {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
 	return txn.rootTxn.size
 }
 
