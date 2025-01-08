@@ -112,7 +112,7 @@ func (txn *Txn) Delete(method, pattern string) error {
 	return nil
 }
 
-// Truncate remove all routes for the provided methods. If not methods are provided,
+// Truncate remove all routes for the provided methods. If no methods are provided,
 // all routes are truncated.
 func (txn *Txn) Truncate(methods ...string) error {
 	if txn.rootTxn == nil {
