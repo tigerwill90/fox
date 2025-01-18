@@ -246,7 +246,6 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 func WithAnnotation(key, value any) RouteOption {
 	return routeOptionFunc(func(route *Route) {
 		if !reflect.TypeOf(key).Comparable() {
-			// TODO returns errors
 			panic("key is not comparable")
 		}
 		if route.annots == nil {
