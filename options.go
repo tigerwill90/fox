@@ -50,7 +50,7 @@ func (o optionFunc) applyRoute(r *Route) error {
 func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) error {
 		if handler == nil {
-			return fmt.Errorf("%w: no route handler cannot be nil", ErrInvalidRoute)
+			return fmt.Errorf("%w: no route handler cannot be nil", ErrInvalidConfig)
 		}
 		r.noRoute = handler
 		return nil
@@ -64,7 +64,7 @@ func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) error {
 		if handler == nil {
-			return fmt.Errorf("%w: no method handler cannot be nil", ErrInvalidRoute)
+			return fmt.Errorf("%w: no method handler cannot be nil", ErrInvalidConfig)
 		}
 		r.noMethod = handler
 		r.handleMethodNotAllowed = true
@@ -79,7 +79,7 @@ func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) error {
 		if handler == nil {
-			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidRoute)
+			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidConfig)
 		}
 		r.autoOptions = handler
 		r.handleOptions = true
@@ -119,7 +119,7 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 		if router != nil {
 			for i := range m {
 				if m[i] == nil {
-					return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidRoute)
+					return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidConfig)
 				}
 				router.mws = append(router.mws, middleware{m[i], AllHandlers, true})
 			}
@@ -127,7 +127,7 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 		if route != nil {
 			for i := range m {
 				if m[i] == nil {
-					return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidRoute)
+					return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidConfig)
 				}
 				route.mws = append(route.mws, middleware{m[i], RouteHandler, false})
 			}
@@ -145,7 +145,7 @@ func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 	return globOptionFunc(func(r *Router) error {
 		for i := range m {
 			if m[i] == nil {
-				return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidRoute)
+				return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidConfig)
 			}
 			r.mws = append(r.mws, middleware{m[i], scope, true})
 		}
@@ -271,7 +271,7 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 func WithAnnotation(key, value any) RouteOption {
 	return routeOptionFunc(func(route *Route) error {
 		if !reflect.TypeOf(key).Comparable() {
-			return fmt.Errorf("%w: annotation key is not comparable", ErrInvalidRoute)
+			return fmt.Errorf("%w: annotation key is not comparable", ErrInvalidConfig)
 		}
 		if route.annots == nil {
 			route.annots = make(map[any]any, 1)

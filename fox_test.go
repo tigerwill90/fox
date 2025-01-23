@@ -4848,10 +4848,11 @@ func TestRouterWithAllowedMethodAndIgnoreTsDisable(t *testing.T) {
 }
 
 func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
-	f, _ := New(WithNoMethodHandler(func(c Context) {
+	f, err := New(WithNoMethodHandler(func(c Context) {
 		c.SetHeader("FOO", "BAR")
 		c.Writer().WriteHeader(http.StatusMethodNotAllowed)
 	}))
+	require.NoError(t, err)
 
 	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/foo/bar", emptyHandler)))
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
@@ -4860,6 +4861,9 @@ func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 	assert.Equal(t, "POST", w.Header().Get("Allow"))
 	assert.Equal(t, "BAR", w.Header().Get("FOO"))
+
+	f, err = New(WithNoMethodHandler(nil))
+	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
 
 func TestRouterWithAutomaticOptions(t *testing.T) {
@@ -5053,11 +5057,12 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 }
 
 func TestRouterWithOptionsHandler(t *testing.T) {
-	f, _ := New(WithOptionsHandler(func(c Context) {
+	f, err := New(WithOptionsHandler(func(c Context) {
 		assert.Equal(t, "", c.Pattern())
 		assert.Empty(t, slices.Collect(c.Params()))
 		c.Writer().WriteHeader(http.StatusNoContent)
 	}))
+	require.NoError(t, err)
 
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler)))
 	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/foo/{bar}", emptyHandler)))
@@ -5067,6 +5072,8 @@ func TestRouterWithOptionsHandler(t *testing.T) {
 	f.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.Equal(t, "GET, POST, OPTIONS", w.Header().Get("Allow"))
+	f, err = New(WithOptionsHandler(nil))
+	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
 
 func TestDefaultOptions(t *testing.T) {
@@ -5075,9 +5082,17 @@ func TestDefaultOptions(t *testing.T) {
 			next(c)
 		}
 	})
-	r, _ := New(WithMiddleware(m), DefaultOptions())
+	r, err := New(WithMiddleware(m), DefaultOptions())
+	require.NoError(t, err)
 	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[2].m).Pointer())
 	assert.True(t, r.handleOptions)
+}
+
+func TestInvalidAnnotation(t *testing.T) {
+	var nonComparableKey = []int{1, 2, 3}
+	f, err := New()
+	require.NoError(t, err)
+	assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler, WithAnnotation(nonComparableKey, nil))), ErrInvalidConfig)
 }
 
 func TestWithScopedMiddleware(t *testing.T) {
@@ -5168,7 +5183,8 @@ func TestRouteMiddleware(t *testing.T) {
 			next(c)
 		}
 	})
-	f, _ := New(WithMiddleware(m0))
+	f, err := New(WithMiddleware(m0))
+	require.NoError(t, err)
 	f.MustHandle(http.MethodGet, "/1", emptyHandler, WithMiddleware(m1))
 	f.MustHandle(http.MethodGet, "/2", emptyHandler, WithMiddleware(m2))
 
@@ -5210,6 +5226,16 @@ func TestRouteMiddleware(t *testing.T) {
 	assert.True(t, c2)
 }
 
+func TestInvalidMiddleware(t *testing.T) {
+	_, err := New(WithMiddleware(Logger(), nil))
+	assert.ErrorIs(t, err, ErrInvalidConfig)
+	_, err = New(WithMiddlewareFor(NoRouteHandler, nil, Logger()))
+	assert.ErrorIs(t, err, ErrInvalidConfig)
+	f, err := New()
+	require.NoError(t, err)
+	require.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMiddleware(nil))), ErrInvalidConfig)
+}
+
 func TestMiddlewareLength(t *testing.T) {
 	f, _ := New(DefaultOptions())
 	r := f.MustHandle(http.MethodGet, "/", emptyHandler, WithMiddleware(Recovery(), Logger()))
@@ -5222,7 +5248,8 @@ func TestWithNotFoundHandler(t *testing.T) {
 		_ = c.String(http.StatusNotFound, "NOT FOUND\n")
 	}
 
-	f, _ := New(WithNoRouteHandler(notFound))
+	f, err := New(WithNoRouteHandler(notFound))
+	require.NoError(t, err)
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler)))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
@@ -5231,6 +5258,9 @@ func TestWithNotFoundHandler(t *testing.T) {
 	f.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Equal(t, "NOT FOUND\n", w.Body.String())
+
+	f, err = New(WithNoRouteHandler(nil))
+	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
 
 func TestRouter_Lookup(t *testing.T) {

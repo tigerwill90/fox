@@ -81,9 +81,10 @@ func main() {
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another.
 Instead, it returns the following error values:
 ```go
-ErrRouteExist    = errors.New("route already registered")
-ErrRouteConflict = errors.New("route conflict")
-ErrInvalidRoute  = errors.New("invalid route")
+var ErrRouteExist = errors.New("route already registered")
+var ErrRouteConflict = errors.New("route conflict")
+var ErrInvalidRoute = errors.New("invalid route")
+var ErrInvalidConfig = errors.New("invalid config")
 ```
 
 Conflict error may be unwrapped to retrieve conflicting route.
