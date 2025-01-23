@@ -132,7 +132,7 @@ type middleware struct {
 var _ http.Handler = (*Router)(nil)
 
 // New returns a ready to use instance of Fox router.
-func New(opts ...GlobalOption) *Router {
+func New(opts ...GlobalOption) (*Router, error) {
 	r := new(Router)
 
 	r.noRoute = DefaultNotFoundHandler
@@ -143,7 +143,9 @@ func New(opts ...GlobalOption) *Router {
 	r.maxParamKeyBytes = math.MaxUint16
 
 	for _, opt := range opts {
-		opt.applyGlob(r)
+		if err := opt.applyGlob(r); err != nil {
+			return nil, err
+		}
 	}
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
@@ -152,7 +154,7 @@ func New(opts ...GlobalOption) *Router {
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
-	return r
+	return r, nil
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].

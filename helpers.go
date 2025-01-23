@@ -11,15 +11,21 @@ import (
 
 // NewTestContext returns a new [Router] and its associated [Context], designed only for testing purpose.
 func NewTestContext(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) (*Router, Context) {
-	fox := New(opts...)
-	c := newTextContextOnly(fox, w, r)
-	return fox, c
+	f, err := New(opts...)
+	if err != nil {
+		panic(err)
+	}
+	c := newTextContextOnly(f, w, r)
+	return f, c
 }
 
 // NewTestContextOnly returns a new [Context] designed only for testing purpose.
 func NewTestContextOnly(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) Context {
-	fox := New(opts...)
-	return newTextContextOnly(fox, w, r)
+	f, err := New(opts...)
+	if err != nil {
+		panic(err)
+	}
+	return newTextContextOnly(f, w, r)
 }
 
 func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cTx {

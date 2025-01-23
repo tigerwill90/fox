@@ -12,7 +12,7 @@ import (
 
 func TestLoggerWithHandler(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
-	f := New(
+	f, _ := New(
 		WithRedirectTrailingSlash(true),
 		WithMiddleware(LoggerWithHandler(slog.NewTextHandler(buf, &slog.HandlerOptions{
 			Level: slog.LevelDebug,

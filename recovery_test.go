@@ -20,7 +20,7 @@ func TestAbortHandler(t *testing.T) {
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
 
-	f := New(WithMiddleware(m))
+	f, _ := New(WithMiddleware(m))
 
 	h := func(c Context) {
 		func() { panic(http.ErrAbortHandler) }()
@@ -55,7 +55,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
 
-	f := New(WithMiddleware(m))
+	f, _ := New(WithMiddleware(m))
 
 	const errMsg = "unexpected error"
 	h := func(c Context) {
@@ -85,7 +85,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 	for errno, expectMsg := range expectMsgs {
 		t.Run(expectMsg, func(t *testing.T) {
-			f := New(WithMiddleware(CustomRecoveryWithLogHandler(&slogpretty.Handler{
+			f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(&slogpretty.Handler{
 				We:  weBuf,
 				Wo:  woBuf,
 				Lvl: slog.LevelDebug,
