@@ -9,7 +9,7 @@ import (
 )
 
 func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
-	f := New()
+	f, _ := New()
 	for _, rte := range githubAPI {
 		require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 	}
@@ -65,7 +65,7 @@ func TestRoute_HostnamePath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := New()
+			f, _ := New()
 			r, err := f.Handle(http.MethodGet, tc.pattern, emptyHandler)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantHost, r.Hostname())

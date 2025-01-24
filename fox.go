@@ -132,7 +132,7 @@ type middleware struct {
 var _ http.Handler = (*Router)(nil)
 
 // New returns a ready to use instance of Fox router.
-func New(opts ...GlobalOption) *Router {
+func New(opts ...GlobalOption) (*Router, error) {
 	r := new(Router)
 
 	r.noRoute = DefaultNotFoundHandler
@@ -143,7 +143,9 @@ func New(opts ...GlobalOption) *Router {
 	r.maxParamKeyBytes = math.MaxUint16
 
 	for _, opt := range opts {
-		opt.applyGlob(r)
+		if err := opt.applyGlob(r); err != nil {
+			return nil, err
+		}
 	}
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
@@ -152,7 +154,7 @@ func New(opts ...GlobalOption) *Router {
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
-	return r
+	return r, nil
 }
 
 // Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -160,6 +162,7 @@ func New(opts ...GlobalOption) *Router {
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
 //
 // It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.Update].
@@ -190,6 +193,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
 //
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To add new handler, use [Router.Handle] method.
@@ -417,7 +421,9 @@ func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	}
 
 	for _, opt := range opts {
-		opt.applyRoute(rte)
+		if err = opt.applyRoute(rte); err != nil {
+			return nil, 0, err
+		}
 	}
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 

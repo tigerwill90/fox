@@ -61,7 +61,8 @@ func TestContext_QueryParams(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTestContext(New())
+	f, _ := New()
+	c := newTestContext(f)
 	c.req = req
 	values := c.QueryParams()
 	assert.Equal(t, wantValues, values)
@@ -77,7 +78,8 @@ func TestContext_QueryParam(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTestContext(New())
+	f, _ := New()
+	c := newTestContext(f)
 	c.req = req
 	assert.Equal(t, "b", c.QueryParam("a"))
 	assert.Equal(t, "d", c.QueryParam("c"))
@@ -86,7 +88,7 @@ func TestContext_QueryParam(t *testing.T) {
 
 func TestContext_Route(t *testing.T) {
 	t.Parallel()
-	f := New()
+	f, _ := New()
 	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
 		require.NotNil(t, c.Route())
 		_, _ = io.WriteString(c.Writer(), c.Route().Pattern())
@@ -100,7 +102,7 @@ func TestContext_Route(t *testing.T) {
 
 func TestContext_Path(t *testing.T) {
 	t.Parallel()
-	f := New()
+	f, _ := New()
 	f.MustHandle(http.MethodGet, "/{a}", func(c Context) {
 		_, _ = io.WriteString(c.Writer(), c.Path())
 	})
@@ -113,7 +115,7 @@ func TestContext_Path(t *testing.T) {
 
 func TestContext_Host(t *testing.T) {
 	t.Parallel()
-	f := New()
+	f, _ := New()
 	f.MustHandle(http.MethodGet, "/{a}", func(c Context) {
 		_, _ = io.WriteString(c.Writer(), c.Host())
 	})
@@ -126,17 +128,18 @@ func TestContext_Host(t *testing.T) {
 
 func TestContext_Annotations(t *testing.T) {
 	t.Parallel()
-	f := New()
+	f, _ := New()
 	f.MustHandle(
 		http.MethodGet,
 		"/foo",
 		emptyHandler,
-		WithAnnotations(Annotation{Key: "foo", Value: "bar"}, Annotation{Key: "foo", Value: "baz"}),
-		WithAnnotations(Annotation{Key: "john", Value: 1}),
+		WithAnnotation("foo", "bar"),
+		WithAnnotation("john", 1),
 	)
 	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.Equal(t, []Annotation{{Key: "foo", Value: "bar"}, {Key: "foo", Value: "baz"}, {Key: "john", Value: 1}}, slices.Collect(rte.Annotations()))
+	assert.Equal(t, "bar", rte.Annotation("foo").(string))
+	assert.Equal(t, 1, rte.Annotation("john").(int))
 }
 
 func TestContext_Clone(t *testing.T) {
@@ -148,7 +151,8 @@ func TestContext_Clone(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	c := newTextContextOnly(New(), httptest.NewRecorder(), req)
+	f, _ := New()
+	c := newTextContextOnly(f, httptest.NewRecorder(), req)
 	*c.params = Params{{Key: "foo", Value: "bar"}}
 
 	buf := []byte("foo bar")
@@ -174,7 +178,8 @@ func TestContext_CloneWith(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	c := newTextContextOnly(New(), w, req)
+	f, _ := New()
+	c := newTextContextOnly(f, w, req)
 	*c.params = Params{{Key: "foo", Value: "bar"}}
 
 	cp := c.CloneWith(c.Writer(), c.Request())
@@ -315,7 +320,7 @@ func TestContext_Fox(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
-	f := New()
+	f, _ := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
 		assert.NotNil(t, c.Fox())
 	})))
@@ -326,7 +331,7 @@ func TestContext_Fox(t *testing.T) {
 func TestContext_Scope(t *testing.T) {
 	t.Parallel()
 
-	f := New(
+	f, _ := New(
 		WithRedirectTrailingSlash(true),
 		WithMiddlewareFor(RedirectHandler, func(next HandlerFunc) HandlerFunc {
 			return func(c Context) {
@@ -511,4 +516,23 @@ func TestWrapH(t *testing.T) {
 			assert.Equal(t, "fox", w.Body.String())
 		})
 	}
+}
+
+// BenchmarkWrapF-16    	 2211204	       559.8 ns/op	     696 B/op	      10 allocs/op
+func BenchmarkWrapF(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
+	w := httptest.NewRecorder()
+
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/{a}/{b}/{c}", WrapF(func(w http.ResponseWriter, r *http.Request) {
+
+	}))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		f.ServeHTTP(w, req)
+	}
+
 }

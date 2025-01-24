@@ -1,17 +1,5 @@
 package fox
 
-import (
-	"iter"
-)
-
-// Annotation represents a single key-value pair that provides metadata for a route.
-// Annotations are typically used to store information that can be leveraged by middleware, handlers, or external
-// libraries to modify or customize route behavior.
-type Annotation struct {
-	Key   string
-	Value any
-}
-
 // Route represent a registered route in the router.
 type Route struct {
 	clientip              ClientIPResolver
@@ -20,7 +8,7 @@ type Route struct {
 	hall                  HandlerFunc
 	pattern               string
 	mws                   []middleware
-	annots                []Annotation
+	annots                map[any]any
 	hostSplit             int // 0 if no host
 	redirectTrailingSlash bool
 	ignoreTrailingSlash   bool
@@ -53,15 +41,10 @@ func (r *Route) Path() string {
 	return r.pattern[r.hostSplit:]
 }
 
-// Annotations returns a range iterator over annotations associated with the route.
-func (r *Route) Annotations() iter.Seq[Annotation] {
-	return func(yield func(Annotation) bool) {
-		for _, a := range r.annots {
-			if !yield(a) {
-				return
-			}
-		}
-	}
+// Annotation returns the value associated with this [Route] for key, or nil if no value is associated with key.
+// Successive calls to Annotation with the same key returns the same result.
+func (r *Route) Annotation(key any) any {
+	return r.annots[key]
 }
 
 // RedirectTrailingSlashEnabled returns whether the route is configured to automatically

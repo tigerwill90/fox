@@ -62,7 +62,10 @@ import (
 )
 
 func main() {
-	f := fox.New(fox.DefaultOptions())
+	f, err := fox.New(fox.DefaultOptions())
+	if err != nil {
+		panic(err)
+	}
 
 	f.MustHandle(http.MethodGet, "/hello/{name}", func(c fox.Context) {
 		_ = c.String(http.StatusOK, "hello %s\n", c.Param("name"))
@@ -78,9 +81,10 @@ func main() {
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another.
 Instead, it returns the following error values:
 ```go
-ErrRouteExist    = errors.New("route already registered")
-ErrRouteConflict = errors.New("route conflict")
-ErrInvalidRoute  = errors.New("invalid route")
+var ErrRouteExist = errors.New("route already registered")
+var ErrRouteConflict = errors.New("route conflict")
+var ErrInvalidRoute = errors.New("invalid route")
+var ErrInvalidConfig = errors.New("invalid config")
 ```
 
 Conflict error may be unwrapped to retrieve conflicting route.
@@ -327,9 +331,13 @@ func Action(c fox.Context) {
 }
 
 func main() {
-	f := fox.New(fox.DefaultOptions())
+	f, err := fox.New(fox.DefaultOptions())
+	if err != nil {
+		panic(err)
+	}
+
 	f.MustHandle(http.MethodPost, "/routes/{action}", Action)
-	
+
 	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalln(err)
 	}
@@ -358,7 +366,7 @@ if err := f.Updates(func(txn *fox.Txn) error {
 	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 	// observed in the result returned by Prefix (or any other iterator).
 	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-		if err := f.Delete(method, route.Pattern()); err != nil {
+		if err := txn.Delete(method, route.Pattern()); err != nil {
 			return err
 		}
 	}
@@ -385,7 +393,7 @@ it := txn.Iter()
 // It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 // observed in the result returned by Prefix (or any other iterator).
 for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-	if err := f.Delete(method, route.Pattern()); err != nil {
+	if err := txn.Delete(method, route.Pattern()); err != nil {
 		log.Printf("error deleting route: %s", err)
 		return
 	}
@@ -419,7 +427,7 @@ articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     _, _ = fmt.Fprintf(w, "Article id: %s\n", params.Get("id"))
 })
 
-f := fox.New(fox.DefaultOptions())
+f, _ := fox.New(fox.DefaultOptions())
 f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
 ```
 
@@ -451,7 +459,10 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 }
 
 func main() {
-	f := fox.New(fox.WithMiddleware(Logger))
+	f, err := fox.New(fox.WithMiddleware(Logger))
+	if err != nil {
+		panic(err)
+	}
 
 	f.MustHandle(http.MethodGet, "/", func(c fox.Context) {
 		resp, err := http.Get("https://api.coindesk.com/v1/bpi/currentprice.json")
@@ -472,8 +483,7 @@ only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regul
 `fox.RedirectHandler`, `fox.OptionsHandler` and any combination of these.
 
 ````go
-f := fox.New(
-    fox.WithNoMethod(true),
+f, _ := fox.New(
     fox.WithMiddlewareFor(fox.RouteHandler, fox.Recovery(), Logger),
     fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
 )
@@ -483,7 +493,7 @@ Finally, it's also possible to attaches middleware on a per-route basis. Note th
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
 ````go
-f := fox.New(
+f, _ := fox.New(
 	fox.WithMiddleware(fox.Logger()),
 )
 f.MustHandle("GET", "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
@@ -510,7 +520,7 @@ header with the appropriate value. To customize how OPTIONS requests are handled
 `fox.OptionsHandler` scope or override the default handler.
 
 ````go
-f := fox.New(
+f, _ := fox.New(
     fox.WithOptionsHandler(func(c fox.Context) {
         if c.Header("Access-Control-Request-Method") != "" {
             // Setting CORS headers.
@@ -538,36 +548,54 @@ untrustworthy IP.
 The sub-package `github.com/tigerwill90/fox/clientip` provides a set of best practices resolvers that should cover most use cases.
 
 ````go
-f := fox.New(
-	fox.DefaultOptions(),
-	fox.WithClientIPResolver(
-		// We are behind one or many trusted proxies that have all private-space IP addresses.
-		clientip.Must(clientip.NewRightmostNonPrivate(clientip.XForwardedForKey)),
-	),
+package main
+
+import (
+	"fmt"
+	"github.com/tigerwill90/fox"
+	"github.com/tigerwill90/fox/clientip"
+	"net/http"
 )
 
-f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
-	ipAddr, err := c.ClientIP()
+func main() {
+	resolver, err := clientip.NewRightmostNonPrivate(clientip.XForwardedForKey)
 	if err != nil {
-		// If the current resolver is not able to derive the client IP, an error
-		// will be returned rather than falling back on an untrustworthy IP. It
-		// should be treated as an application issue or a misconfiguration.
 		panic(err)
 	}
-	fmt.Println(ipAddr.String())
-})
+	f, err := fox.New(
+		fox.DefaultOptions(),
+		fox.WithClientIPResolver(
+			resolver,
+		),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
+		ipAddr, err := c.ClientIP()
+		if err != nil {
+			// If the current resolver is not able to derive the client IP, an error
+			// will be returned rather than falling back on an untrustworthy IP. It
+			// should be treated as an application issue or a misconfiguration.
+			panic(err)
+		}
+		fmt.Println(ipAddr.String())
+	})
+}
 ````
 
 It is also possible to create a chain with multiple resolvers that attempt to derive the client IP, stopping when the first one succeeds.
 
 ````go
-f = fox.New(
+resolver, _ := clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10)
+f, _ = fox.New(
 	fox.DefaultOptions(),
 	fox.WithClientIPResolver(
 		// A common use for this is if a server is both directly connected to the
 		// internet and expecting a header to check.
 		clientip.NewChain(
-			clientip.Must(clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10)),
+			resolver,
 			clientip.NewRemoteAddr(),
 		),
 	),

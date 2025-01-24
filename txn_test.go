@@ -73,7 +73,7 @@ func TestTxn_Truncate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := New()
+			f, _ := New()
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 			}
@@ -104,7 +104,7 @@ func TestTxn_Truncate(t *testing.T) {
 }
 
 func TestTxn_TruncateAll(t *testing.T) {
-	f := New()
+	f, _ := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/bar", emptyHandler)))
 	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/foo/bar", emptyHandler)))
 	require.NoError(t, onlyError(f.Handle(http.MethodDelete, "/foo/bar", emptyHandler)))
@@ -129,7 +129,7 @@ func TestTxn_TruncateAll(t *testing.T) {
 
 func TestTxn_Isolation(t *testing.T) {
 	t.Run("txn iterator does not observe update once created", func(t *testing.T) {
-		f := New()
+		f, _ := New()
 		_ = f.Updates(func(txn *Txn) error {
 			assert.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab", emptyHandler)))
 			assert.NoError(t, onlyError(txn.Handle(http.MethodGet, "/ab/cd", emptyHandler)))
@@ -158,7 +158,7 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("txn snapshot does not observe further write", func(t *testing.T) {
-		f := New()
+		f, _ := New()
 		_ = f.Updates(func(txn *Txn) error {
 			for _, rte := range staticRoutes {
 				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
@@ -179,7 +179,7 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("read only transaction are isolated from write", func(t *testing.T) {
-		f := New()
+		f, _ := New()
 		for _, rte := range staticRoutes {
 			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
@@ -201,7 +201,7 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("read only transaction can run uncoordinated", func(t *testing.T) {
-		f := New()
+		f, _ := New()
 		for _, rte := range staticRoutes {
 			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
@@ -221,7 +221,7 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("aborted transaction does not write anything", func(t *testing.T) {
-		f := New()
+		f, _ := New()
 		for _, rte := range staticRoutes {
 			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
@@ -239,7 +239,7 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("track registered route", func(t *testing.T) {
-		f := New()
+		f, _ := New()
 		require.NoError(t, f.Updates(func(txn *Txn) error {
 			for _, rte := range staticRoutes {
 				if _, err := txn.Handle(rte.method, "example.com"+rte.path, emptyHandler); err != nil {
@@ -261,7 +261,7 @@ func TestTxn_Isolation(t *testing.T) {
 }
 
 func TestTxn_WriteOnReadTransaction(t *testing.T) {
-	f := New()
+	f, _ := New()
 	txn := f.Txn(false)
 	defer txn.Abort()
 	assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/foo", emptyHandler)), ErrReadOnlyTxn)
@@ -272,7 +272,7 @@ func TestTxn_WriteOnReadTransaction(t *testing.T) {
 }
 
 func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
-	f := New()
+	f, _ := New()
 	txn := f.Txn(true)
 	txn.Abort()
 	assert.Panics(t, func() {

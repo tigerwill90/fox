@@ -17,6 +17,7 @@ type Txn struct {
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To override an existing route, use [Txn.Update].
@@ -51,6 +52,7 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To add a new handler, use [Txn.Handle].
@@ -112,6 +114,8 @@ func (txn *Txn) Delete(method, pattern string) error {
 	return nil
 }
 
+// Truncate remove all routes for the provided methods. If no methods are provided,
+// all routes are truncated.
 func (txn *Txn) Truncate(methods ...string) error {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
@@ -228,6 +232,9 @@ func (txn *Txn) Iter() Iter {
 
 // Len returns the number of registered route.
 func (txn *Txn) Len() int {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
 	return txn.rootTxn.size
 }
 
