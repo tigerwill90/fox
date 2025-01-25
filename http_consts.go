@@ -51,7 +51,6 @@ const (
 	HeaderXForwardedProto     = "X-Forwarded-Proto"
 	HeaderXForwardedProtocol  = "X-Forwarded-Protocol"
 	HeaderXForwardedSsl       = "X-Forwarded-Ssl"
-	HeaderXRealIP             = "X-Real-Ip"
 	HeaderXUrlScheme          = "X-Url-Scheme"
 	HeaderXHTTPMethodOverride = "X-HTTP-Method-Override"
 	HeaderXRequestID          = "X-Request-Id"
@@ -92,6 +91,7 @@ const (
 	HeaderXAzureSocketIP       = "X-Azure-SocketIP"
 	HeaderXAppengineRemoteAddr = "X-Appengine-Remote-Addr"
 	HeaderFlyClientIP          = "Fly-Client-IP"
+	HeaderXRealIP              = "X-Real-Ip"
 )
 
 // nolint:gosec
