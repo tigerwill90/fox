@@ -218,7 +218,7 @@ func TestChain_ClientIP(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSingleIPHeader)
 	assert.ErrorIs(t, err, ErrRemoteAddress)
 	assert.ErrorIs(t, err, ErrInvalidIpAddress)
-	assert.ErrorContains(t, err, "header \"Cf-Connecting-Ip\" not found")
+	assert.ErrorContains(t, err, "header not found")
 }
 
 func TestAddressesAndRangesToIPNets(t *testing.T) {
@@ -721,7 +721,7 @@ func Test_forwardedHeaderRFCDeviations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := slices.Collect(ipAddrSeq(tt.args.headers, tt.args.headerName))
+			got := slices.Collect(ipAddrSeq(tt.args.headers[tt.args.headerName], tt.args.headerName))
 			assert.Equal(t, tt.want, got)
 		})
 	}
