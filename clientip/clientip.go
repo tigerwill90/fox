@@ -32,9 +32,11 @@ var (
 	ErrRightmostTrustedRange = errors.New("rightmost trusted range resolver")
 )
 
-// Avoid allocating those errors each time since it may happen a lot on adversary header.
+// Avoid allocating those errors each time since it may happen a lot on adversary header or when using multiple single ip
+// header resolver in order to find the right match.
 var (
 	errLeftmostNonPrivate = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
+	errSingleIPHeader     = fmt.Errorf("%w: header not found", ErrSingleIPHeader)
 )
 
 // TrustedIPRange returns a set of trusted IP ranges.
@@ -150,7 +152,7 @@ func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
 	// in theory it should be the newest value.)
 	ipStr := lastHeader(c.Request().Header, s.headerName)
 	if ipStr == "" {
-		return nil, fmt.Errorf("%w: header %q not found", ErrSingleIPHeader, s.headerName)
+		return nil, errSingleIPHeader
 	}
 
 	return ParseIPAddr(ipStr)
@@ -192,13 +194,14 @@ func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOpti
 // ClientIP derives the client IP using the [LeftmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
 func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	for ip := range iterutil.Take(ipAddrSeq(c.Request().Header, s.headerName), s.limit) {
-		if ip != nil && !isIPContainedInRanges(ip.IP, s.blacklistedRanges) {
-			// This is the leftmost valid, non-private IP
-			return ip, nil
+	if values, ok := c.Request().Header[s.headerName]; ok && len(values) > 0 {
+		for ip := range iterutil.Take(ipAddrSeq(values, s.headerName), s.limit) {
+			if ip != nil && !isIPContainedInRanges(ip.IP, s.blacklistedRanges) {
+				// This is the leftmost valid, non-private IP
+				return ip, nil
+			}
 		}
 	}
-
 	// We failed to find any valid, non-private IP
 	return nil, errLeftmostNonPrivate
 }
@@ -232,12 +235,13 @@ func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) (Rightmos
 // ClientIP derives the client IP using the [RightmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	for ip := range backwardIpAddrSeq(c.Request().Header, s.headerName) {
-		if ip != nil && !isIPContainedInRanges(ip.IP, s.trustedRanges) {
-			return ip, nil
+	if values, ok := c.Request().Header[s.headerName]; ok && len(values) > 0 {
+		for ip := range backwardIpAddrSeq(values, s.headerName) {
+			if ip != nil && !isIPContainedInRanges(ip.IP, s.trustedRanges) {
+				return ip, nil
+			}
 		}
 	}
-
 	// We failed to find any valid, non-private IP
 	return nil, fmt.Errorf("%w: unable to find a valid or non-private IP", ErrRightmostNonPrivate)
 }
@@ -267,7 +271,7 @@ func NewRightmostTrustedCount(key HeaderKey, trustedCount uint) (RightmostTruste
 // ClientIP derives the client IP using the [RightmostTrustedCount] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
 func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
-	ip, ok := iterutil.At(backwardIpAddrSeq(c.Request().Header, s.headerName), s.trustedCount-1)
+	ip, ok := iterutil.At(backwardIpAddrSeq(c.Request().Header[s.headerName], s.headerName), s.trustedCount-1)
 	if !ok {
 		// This is a misconfiguration error. There were fewer IPs than we expected.
 		return nil, fmt.Errorf("%w: expected at least %d IP(s)", ErrRightmostTrustedCount, s.trustedCount)
@@ -317,7 +321,7 @@ func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
 		return nil, fmt.Errorf("%w: unable to resolve trusted ip range: %w", ErrRightmostTrustedRange, err)
 	}
 
-	for ip := range backwardIpAddrSeq(c.Request().Header, s.headerName) {
+	for ip := range backwardIpAddrSeq(c.Request().Header[s.headerName], s.headerName) {
 		if ip != nil && isIPContainedInRanges(ip.IP, trustedRange) {
 			// This IP is trusted
 			continue
@@ -467,10 +471,9 @@ func lastHeader(headers http.Header, headerName string) string {
 
 // backwardIpAddrSeq returns a range iterator over the X-Forwarded-For or Forwarded header
 // values, in reverse order. Any invalid IPs will result in nil elements. headerName must already
-// be canonicalized.
-func backwardIpAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPAddr] {
+// be in canonical form.
+func backwardIpAddrSeq(values []string, headerName string) iter.Seq[*net.IPAddr] {
 	return func(yield func(*net.IPAddr) bool) {
-		values := headers[headerName]
 		for i := len(values) - 1; i >= 0; i-- {
 			for rawListItem := range iterutil.BackwardSplitStringSeq(values[i], ",") {
 				// The IPs are often comma-space separated, so we'll need to trim the string
@@ -495,12 +498,12 @@ func backwardIpAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPA
 
 // ipAddrSeq returns a range iterator over the X-Forwarded-For or Forwarded header
 // values, in order. Any invalid IPs will result in nil elements. headerName must already
-// be canonicalized.
-func ipAddrSeq(headers http.Header, headerName string) iter.Seq[*net.IPAddr] {
+// be in canonical form.
+func ipAddrSeq(values []string, headerName string) iter.Seq[*net.IPAddr] {
 	return func(yield func(*net.IPAddr) bool) {
-		for _, h := range headers[headerName] {
+		for _, v := range values {
 			// We now have a sequence of comma-separated list items.
-			for rawListItem := range iterutil.SplitStringSeq(h, ",") {
+			for rawListItem := range iterutil.SplitStringSeq(v, ",") {
 				// The IPs are often comma-space separated, so we'll need to trim the string
 				rawListItem = strings.TrimSpace(rawListItem)
 
