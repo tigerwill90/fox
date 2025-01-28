@@ -16,43 +16,48 @@ type Option interface {
 }
 
 type GlobalOption interface {
-	applyGlob(*Router) error
+	applyGlob(sealedOption) error
 }
 
 type RouteOption interface {
-	applyRoute(*Route) error
+	applyRoute(sealedOption) error
 }
 
-type globOptionFunc func(*Router) error
-
-func (o globOptionFunc) applyGlob(r *Router) error {
-	return o(r)
+type sealedOption struct {
+	router *Router
+	route  *Route
 }
 
-type routeOptionFunc func(*Route) error
+type globOptionFunc func(sealedOption) error
 
-func (o routeOptionFunc) applyRoute(r *Route) error {
-	return o(r)
+func (o globOptionFunc) applyGlob(s sealedOption) error {
+	return o(s)
 }
 
-type optionFunc func(*Router, *Route) error
+type routeOptionFunc func(sealedOption) error
 
-func (o optionFunc) applyGlob(r *Router) error {
-	return o(r, nil)
+func (o routeOptionFunc) applyRoute(s sealedOption) error {
+	return o(s)
 }
 
-func (o optionFunc) applyRoute(r *Route) error {
-	return o(nil, r)
+type optionFunc func(sealedOption) error
+
+func (o optionFunc) applyGlob(s sealedOption) error {
+	return o(s)
+}
+
+func (o optionFunc) applyRoute(s sealedOption) error {
+	return o(s)
 }
 
 // WithNoRouteHandler register an [HandlerFunc] which is called when no matching route is found.
 // By default, the [DefaultNotFoundHandler] is used.
 func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
-	return globOptionFunc(func(r *Router) error {
+	return globOptionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: no route handler cannot be nil", ErrInvalidConfig)
 		}
-		r.noRoute = handler
+		s.router.noRoute = handler
 		return nil
 	})
 }
@@ -62,12 +67,12 @@ func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 // handler. By default, the [DefaultMethodNotAllowedHandler] is used. Note that this option automatically
 // enable [WithNoMethod].
 func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
-	return globOptionFunc(func(r *Router) error {
+	return globOptionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: no method handler cannot be nil", ErrInvalidConfig)
 		}
-		r.noMethod = handler
-		r.handleMethodNotAllowed = true
+		s.router.noMethod = handler
+		s.router.handleMethodNotAllowed = true
 		return nil
 	})
 }
@@ -77,20 +82,20 @@ func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 // handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
 // automatically enable [WithAutoOptions].
 func WithOptionsHandler(handler HandlerFunc) GlobalOption {
-	return globOptionFunc(func(r *Router) error {
+	return globOptionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidConfig)
 		}
-		r.autoOptions = handler
-		r.handleOptions = true
+		s.router.autoOptions = handler
+		s.router.handleOptions = true
 		return nil
 	})
 }
 
 // WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
 func WithMaxRouteParams(max uint16) GlobalOption {
-	return globOptionFunc(func(router *Router) error {
-		router.maxParams = max
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.maxParams = max
 		return nil
 	})
 }
@@ -98,8 +103,8 @@ func WithMaxRouteParams(max uint16) GlobalOption {
 // WithMaxRouteParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
 // math.MaxUint16.
 func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
-	return globOptionFunc(func(router *Router) error {
-		router.maxParamKeyBytes = max
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.maxParamKeyBytes = max
 		return nil
 	})
 }
@@ -115,21 +120,21 @@ func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 // Route-specific middleware must be explicitly reapplied when updating a route. If not, any middleware will be removed,
 // and the route will fall back to using only global middleware (if any).
 func WithMiddleware(m ...MiddlewareFunc) Option {
-	return optionFunc(func(router *Router, route *Route) error {
-		if router != nil {
+	return optionFunc(func(s sealedOption) error {
+		if s.router != nil {
 			for i := range m {
 				if m[i] == nil {
 					return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidConfig)
 				}
-				router.mws = append(router.mws, middleware{m[i], AllHandlers, true})
+				s.router.mws = append(s.router.mws, middleware{m[i], AllHandlers, true})
 			}
 		}
-		if route != nil {
+		if s.route != nil {
 			for i := range m {
 				if m[i] == nil {
 					return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidConfig)
 				}
-				route.mws = append(route.mws, middleware{m[i], RouteHandler, false})
+				s.route.mws = append(s.route.mws, middleware{m[i], RouteHandler, false})
 			}
 		}
 		return nil
@@ -142,12 +147,12 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 // [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
 // middleware is applied.
 func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
-	return globOptionFunc(func(r *Router) error {
+	return globOptionFunc(func(s sealedOption) error {
 		for i := range m {
 			if m[i] == nil {
 				return fmt.Errorf("%w: middleware cannot be nil", ErrInvalidConfig)
 			}
-			r.mws = append(r.mws, middleware{m[i], scope, true})
+			s.router.mws = append(s.router.mws, middleware{m[i], scope, true})
 		}
 		return nil
 	})
@@ -158,8 +163,8 @@ func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 // handler. Note that this option is automatically enabled when providing a custom handler with the
 // option [WithNoMethodHandler].
 func WithNoMethod(enable bool) GlobalOption {
-	return globOptionFunc(func(r *Router) error {
-		r.handleMethodNotAllowed = enable
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.handleMethodNotAllowed = enable
 		return nil
 	})
 }
@@ -170,8 +175,8 @@ func WithNoMethod(enable bool) GlobalOption {
 // handler take priority over automatic replies. This option is automatically enabled when providing a custom handler with
 // the option [WithOptionsHandler].
 func WithAutoOptions(enable bool) GlobalOption {
-	return globOptionFunc(func(r *Router) error {
-		r.handleOptions = enable
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.handleOptions = enable
 		return nil
 	})
 }
@@ -190,17 +195,17 @@ func WithAutoOptions(enable bool) GlobalOption {
 // Note that this option is mutually exclusive with [WithIgnoreTrailingSlash], and if enabled will
 // automatically deactivate [WithIgnoreTrailingSlash].
 func WithRedirectTrailingSlash(enable bool) Option {
-	return optionFunc(func(router *Router, route *Route) error {
-		if router != nil {
-			router.redirectTrailingSlash = enable
+	return optionFunc(func(s sealedOption) error {
+		if s.router != nil {
+			s.router.redirectTrailingSlash = enable
 			if enable {
-				router.ignoreTrailingSlash = false
+				s.router.ignoreTrailingSlash = false
 			}
 		}
-		if route != nil {
-			route.redirectTrailingSlash = enable
+		if s.route != nil {
+			s.route.redirectTrailingSlash = enable
 			if enable {
-				route.ignoreTrailingSlash = false
+				s.route.ignoreTrailingSlash = false
 			}
 		}
 		return nil
@@ -220,17 +225,17 @@ func WithRedirectTrailingSlash(enable bool) Option {
 // Note that this option is mutually exclusive with [WithRedirectTrailingSlash], and if enabled will automatically
 // deactivate [WithRedirectTrailingSlash].
 func WithIgnoreTrailingSlash(enable bool) Option {
-	return optionFunc(func(router *Router, route *Route) error {
-		if router != nil {
-			router.ignoreTrailingSlash = enable
+	return optionFunc(func(s sealedOption) error {
+		if s.router != nil {
+			s.router.ignoreTrailingSlash = enable
 			if enable {
-				router.redirectTrailingSlash = false
+				s.router.redirectTrailingSlash = false
 			}
 		}
-		if route != nil {
-			route.ignoreTrailingSlash = enable
+		if s.route != nil {
+			s.route.ignoreTrailingSlash = enable
 			if enable {
-				route.redirectTrailingSlash = false
+				s.route.redirectTrailingSlash = false
 			}
 		}
 		return nil
@@ -250,14 +255,14 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 //     to the global client IP resolver (if one is configured).
 //   - Setting the resolver to nil is equivalent to no resolver configured.
 func WithClientIPResolver(resolver ClientIPResolver) Option {
-	return optionFunc(func(router *Router, route *Route) error {
-		if router != nil && resolver != nil {
-			router.clientip = resolver
+	return optionFunc(func(s sealedOption) error {
+		if s.router != nil && resolver != nil {
+			s.router.clientip = resolver
 		}
 
-		if route != nil {
+		if s.route != nil {
 			// Apply no resolver if nil provided.
-			route.clientip = cmp.Or(resolver, ClientIPResolver(noClientIPResolver{}))
+			s.route.clientip = cmp.Or(resolver, ClientIPResolver(noClientIPResolver{}))
 		}
 		return nil
 	})
@@ -269,14 +274,14 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 // The provided key must be comparable and should not be of type string or any other built-in type to avoid collisions between
 // packages that use route annotation. Annotations must be explicitly reapplied when updating a route.
 func WithAnnotation(key, value any) RouteOption {
-	return routeOptionFunc(func(route *Route) error {
+	return routeOptionFunc(func(s sealedOption) error {
 		if !reflect.TypeOf(key).Comparable() {
 			return fmt.Errorf("%w: annotation key is not comparable", ErrInvalidConfig)
 		}
-		if route.annots == nil {
-			route.annots = make(map[any]any, 1)
+		if s.route.annots == nil {
+			s.route.annots = make(map[any]any, 1)
 		}
-		route.annots[key] = value
+		s.route.annots[key] = value
 		return nil
 	})
 }
@@ -285,12 +290,12 @@ func WithAnnotation(key, value any) RouteOption {
 // for [AllHandlers] scope and enable automatic OPTIONS response. Note that DefaultOptions push the [Recovery] and [Logger]
 // middleware respectively to the first and second position of the middleware chains.
 func DefaultOptions() GlobalOption {
-	return globOptionFunc(func(r *Router) error {
-		r.mws = append([]middleware{
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.mws = append([]middleware{
 			{Recovery(), RouteHandler, true},
 			{Logger(), AllHandlers, true},
-		}, r.mws...)
-		r.handleOptions = true
+		}, s.router.mws...)
+		s.router.handleOptions = true
 		return nil
 	})
 }

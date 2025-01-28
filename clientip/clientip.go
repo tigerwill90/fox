@@ -35,8 +35,9 @@ var (
 // Avoid allocating those errors each time since it may happen a lot on adversary header or when using multiple single ip
 // header resolver in order to find the right match.
 var (
-	errLeftmostNonPrivate = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
-	errSingleIPHeader     = fmt.Errorf("%w: header not found", ErrSingleIPHeader)
+	errLeftmostNonPrivate  = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrLeftmostNonPrivate)
+	errRightmostNonPrivate = fmt.Errorf("%w: unable to find a valid or non-private IP", ErrRightmostNonPrivate)
+	errSingleIPHeader      = fmt.Errorf("%w: header not found", ErrSingleIPHeader)
 )
 
 // TrustedIPRange returns a set of trusted IP ranges.
@@ -243,7 +244,7 @@ func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
 		}
 	}
 	// We failed to find any valid, non-private IP
-	return nil, fmt.Errorf("%w: unable to find a valid or non-private IP", ErrRightmostNonPrivate)
+	return nil, errRightmostNonPrivate
 }
 
 // RightmostTrustedCount derives the client IP from the valid IP address added by the first trusted reverse

@@ -143,7 +143,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.maxParamKeyBytes = math.MaxUint16
 
 	for _, opt := range opts {
-		if err := opt.applyGlob(r); err != nil {
+		if err := opt.applyGlob(sealedOption{router: r}); err != nil {
 			return nil, err
 		}
 	}
@@ -421,7 +421,7 @@ func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	}
 
 	for _, opt := range opts {
-		if err = opt.applyRoute(rte); err != nil {
+		if err = opt.applyRoute(sealedOption{route: rte}); err != nil {
 			return nil, 0, err
 		}
 	}

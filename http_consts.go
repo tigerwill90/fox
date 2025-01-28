@@ -58,6 +58,7 @@ const (
 	HeaderXRequestedWith      = "X-Requested-With"
 	HeaderServer              = "Server"
 	HeaderOrigin              = "Origin"
+	HeaderHost                = "Host"
 	HeaderCacheControl        = "Cache-Control"
 	HeaderConnection          = "Connection"
 	HeaderETag                = "ETag"
