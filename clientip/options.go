@@ -1,6 +1,8 @@
 package clientip
 
-import "net"
+import (
+	"net"
+)
 
 type config struct {
 	ipRanges []net.IPNet
