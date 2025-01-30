@@ -43,8 +43,35 @@ observability middleware like open telemetry.
 
 Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
 
+---
+* [Getting started](#getting-started)
+  * [Install](#install)
+  * [Basic example](#basic-example)
+  * [Route Validation and Error Handling](#route-validation-and-error-handling)
+  * [Named parameters](#named-parameters)
+  * [Catch-all parameters](#catch-all-parameters)
+  * [Hostname validation & restrictions](#hostname-validation--restrictions)
+  * [Priority rules](#priority-rules)
+  * [Hostname routing](#hostname-routing)
+  * [Warning about context](#warning-about-context)
+* [Concurrency](#concurrency)
+  * [Managing routes a runtime](#managing-routes-a-runtime)
+  * [ACID Transaction](#acid-transaction)
+  * [Managed read-write transaction](#managed-read-write-transaction)
+  * [Unmanaged read-write transaction](#unmanaged-read-write-transaction)
+  * [Managed read-only transaction](#managed-read-only-transaction)
+* [Working with http.Handler](#working-with-httphandler)
+  * [Official middlewares](#official-middlewares)
+* [Middleware](#middleware)
+* [Handling OPTIONS Requests and CORS Automatically](#handling-options-requests-and-cors-automatically)
+* [Resolving Client IP](#resolving-client-ip)
+* [Benchmark](#benchmark)
+* [Road to v1](#road-to-v1)
+* [Contributions](#contributions)
+---
+
 ## Getting started
-#### Installation
+#### Install
 With a [correctly configured](https://go.dev/doc/install#testing) Go toolchain:
 ```shell
 go get -u github.com/tigerwill90/fox
@@ -76,8 +103,7 @@ func main() {
 	}
 }
 ````
-#### Error handling
-
+#### Route Validation and Error Handling
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another.
 Instead, it returns the following error values:
 ```go
@@ -134,7 +160,7 @@ example.{tld}/avengers          matches
 {sub}.example.com/avengers      no matches
 ````
 
-#### Catch-all parameter
+#### Catch-all parameters
 Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** route segments, 
 including slashes. The matching segment are also accessible via `fox.Context`. Catch-all parameters are supported anywhere 
 in the route, but only one parameter is allowed per segment and must appear at the end of the segment. Consecutive catch-all 
