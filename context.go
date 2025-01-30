@@ -236,13 +236,6 @@ func (c *cTx) Param(name string) string {
 	return ""
 }
 
-func (c *cTx) ParamsLen() int {
-	if c.tsr {
-		return len(*c.tsrParams)
-	}
-	return len(*c.params)
-}
-
 // Path returns the request URL path.
 func (c *cTx) Path() string {
 	return c.req.URL.Path
@@ -418,12 +411,8 @@ func (c *cTx) getQueries() url.Values {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
 	return func(c Context) {
-		var params Params
-		if ps, ok := c.(interface{ ParamsLen() int }); ok {
-			params = make(Params, 0, ps.ParamsLen())
-		}
-		params = slices.AppendSeq(params, c.Params())
-		if len(params) > 0 {
+		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
+			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
 			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return
@@ -437,12 +426,8 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
 	return func(c Context) {
-		var params Params
-		if ps, ok := c.(interface{ ParamsLen() int }); ok {
-			params = make(Params, 0, ps.ParamsLen())
-		}
-		params = slices.AppendSeq(params, c.Params())
-		if len(params) > 0 {
+		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
+			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
 			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
 			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
 			return

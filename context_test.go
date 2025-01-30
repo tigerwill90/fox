@@ -442,13 +442,16 @@ func TestWrapF(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-			c := NewTestContextOnly(w, r)
+			r := httptest.NewRequest(http.MethodGet, "https://example.com/{foo}", nil)
+			f, c := NewTestContext(w, r)
+			rte, err := f.NewRoute("/{foo}", emptyHandler)
+			require.NoError(t, err)
+			c.SetRoute(rte)
 
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.clone()
-				c.(*cTx).params = &params
+				c.SetParams(params)
 			}
 
 			WrapF(tc.handler(params))(c)
@@ -502,13 +505,16 @@ func TestWrapH(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-			c := NewTestContextOnly(w, r)
+			r := httptest.NewRequest(http.MethodGet, "https://example.com/{foo}", nil)
+			f, c := NewTestContext(w, r)
+			rte, err := f.NewRoute("/{foo}", emptyHandler)
+			require.NoError(t, err)
+			c.SetRoute(rte)
 
 			params := make(Params, 0)
 			if tc.params != nil {
 				params = tc.params.clone()
-				c.(*cTx).params = &params
+				c.SetParams(params)
 			}
 
 			WrapH(tc.handler(params))(c)
@@ -518,7 +524,6 @@ func TestWrapH(t *testing.T) {
 	}
 }
 
-// BenchmarkWrapF-16    	 2211204	       559.8 ns/op	     696 B/op	      10 allocs/op
 func BenchmarkWrapF(b *testing.B) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
 	w := httptest.NewRecorder()

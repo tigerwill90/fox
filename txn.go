@@ -18,14 +18,14 @@ type Txn struct {
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
-// To override an existing route, use [Txn.Update].
+// To override an existing handler, use [Txn.Update].
 func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
-
 	if !txn.write {
 		return nil, ErrReadOnlyTxn
 	}
@@ -37,15 +37,41 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
 	}
 
-	rte, n, err := txn.fox.newRoute(pattern, handler, opts...)
+	rte, err := txn.fox.NewRoute(pattern, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = txn.rootTxn.insert(method, rte, n); err != nil {
+	if err = txn.rootTxn.insert(method, rte); err != nil {
 		return nil, err
 	}
 	return rte, nil
+}
+
+// HandleRoute registers a new route for the given method. If an error occurs, it returns one of the following:
+//   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteConflict]: If the route conflicts with another.
+//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrReadOnlyTxn]: On write in a read-only transaction.
+//
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
+// To override an existing route, use [Txn.UpdateRoute].
+func (txn *Txn) HandleRoute(method string, route *Route) error {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+	if !txn.write {
+		return ErrReadOnlyTxn
+	}
+
+	if route == nil {
+		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
+	}
+	if matched := regEnLetter.MatchString(method); !matched {
+		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+	}
+	return txn.rootTxn.insert(method, route)
 }
 
 // Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
@@ -53,8 +79,11 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
-// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
+// Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
+// be removed, and the route will fall back to using global configuration (if any). This function is NOT thread-safe
+// and should be run serially, along with all other [Txn] APIs.
 // To add a new handler, use [Txn.Handle].
 func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if txn.rootTxn == nil {
@@ -72,7 +101,7 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
-	rte, _, err := txn.fox.newRoute(pattern, handler, opts...)
+	rte, err := txn.fox.NewRoute(pattern, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,9 +113,36 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 	return rte, nil
 }
 
+// UpdateRoute override an existing route for the given method and new route.
+// If an error occurs, it returns one of the following:
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrReadOnlyTxn]: On write in a read-only transaction.
+//
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
+// To add a new route, use [Txn.HandleRoute].
+func (txn *Txn) UpdateRoute(method string, route *Route) error {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+	if !txn.write {
+		return ErrReadOnlyTxn
+	}
+
+	if route == nil {
+		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
+	}
+	if method == "" {
+		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	}
+	return txn.rootTxn.update(method, route)
+}
+
 // Delete deletes an existing handler for the given method and router pattern. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 func (txn *Txn) Delete(method, pattern string) error {
@@ -115,7 +171,7 @@ func (txn *Txn) Delete(method, pattern string) error {
 }
 
 // Truncate remove all routes for the provided methods. If no methods are provided,
-// all routes are truncated.
+// all routes are truncated. Truncating on a read-only transaction returns ErrReadOnlyTxn.
 func (txn *Txn) Truncate(methods ...string) error {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)

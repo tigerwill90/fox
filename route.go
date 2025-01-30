@@ -1,15 +1,16 @@
 package fox
 
-// Route represent a registered route in the router.
+// Route represents an immutable HTTP route with associated handlers and settings.
 type Route struct {
 	clientip              ClientIPResolver
 	hbase                 HandlerFunc
 	hself                 HandlerFunc
 	hall                  HandlerFunc
+	annots                map[any]any
 	pattern               string
 	mws                   []middleware
-	annots                map[any]any
 	hostSplit             int // 0 if no host
+	psLen                 uint32
 	redirectTrailingSlash bool
 	ignoreTrailingSlash   bool
 }
@@ -59,8 +60,15 @@ func (r *Route) IgnoreTrailingSlashEnabled() bool {
 	return r.ignoreTrailingSlash
 }
 
-// ClientIPResolverEnabled returns whether the route is configured with a [ClientIPResolver].
-func (r *Route) ClientIPResolverEnabled() bool {
-	_, ok := r.clientip.(noClientIPResolver)
-	return !ok
+// ClientIPResolver returns the [ClientIPResolver] configured for the route, if any.
+func (r *Route) ClientIPResolver() ClientIPResolver {
+	if _, ok := r.clientip.(noClientIPResolver); ok {
+		return nil
+	}
+	return r.clientip
+}
+
+// ParamsLen returns the number of wildcard parameter for the route.
+func (r *Route) ParamsLen() int {
+	return int(r.psLen)
 }

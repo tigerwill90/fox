@@ -86,11 +86,11 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 	return func(yield func(string, *Route) bool) {
 		c := it.tree.ctx.Get().(*cTx)
 		defer c.Close()
+		host, path := SplitHostPath(pattern)
 		for method := range methods {
 			c.resetNil()
-			host, path := SplitHostPath(pattern)
 			n, tsr := it.root.lookup(it.tree, method, host, path, c, true)
-			if n != nil && !tsr && n.route.pattern == path {
+			if n != nil && !tsr && n.route.pattern == pattern {
 				if !yield(method, n.route) {
 					return
 				}

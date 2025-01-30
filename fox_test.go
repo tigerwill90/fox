@@ -893,6 +893,44 @@ func TestParamsRouteMalloc(t *testing.T) {
 	}
 }
 
+func TestHandleRoute(t *testing.T) {
+	f, _ := New()
+
+	t.Run("handle and update route with some option", func(t *testing.T) {
+		want, err := f.NewRoute("/foo", emptyHandler, WithAnnotation("foo", "bar"), WithRedirectTrailingSlash(true))
+		require.NoError(t, err)
+		require.NoError(t, f.HandleRoute(http.MethodGet, want))
+		got := f.Route(http.MethodGet, "/foo")
+		assert.Equal(t, want, got)
+		assert.True(t, got.RedirectTrailingSlashEnabled())
+
+		want, err = f.NewRoute("/foo", emptyHandler, WithAnnotation("baz", "baz"))
+		require.NoError(t, err)
+		require.NoError(t, f.UpdateRoute(http.MethodGet, want))
+		got = f.Route(http.MethodGet, "/foo")
+		assert.Equal(t, want, got)
+		assert.False(t, got.RedirectTrailingSlashEnabled())
+	})
+
+	t.Run("handle route with invalid method", func(t *testing.T) {
+		rte, err := f.NewRoute("/bar", emptyHandler)
+		require.NoError(t, err)
+		assert.ErrorIs(t, f.HandleRoute("", rte), ErrInvalidRoute)
+	})
+
+	t.Run("update route with invalid method", func(t *testing.T) {
+		rte, err := f.NewRoute("/baz", emptyHandler)
+		require.NoError(t, err)
+		require.NoError(t, f.HandleRoute(http.MethodGet, rte))
+		assert.ErrorIs(t, f.UpdateRoute("", rte), ErrInvalidRoute)
+	})
+
+	t.Run("handle and update route with nil route", func(t *testing.T) {
+		assert.ErrorIs(t, f.HandleRoute("/john", nil), ErrInvalidRoute)
+		assert.ErrorIs(t, f.UpdateRoute("/foo", nil), ErrInvalidRoute)
+	})
+}
+
 func TestParamsRouteWithDomainMalloc(t *testing.T) {
 	r, _ := New()
 	for _, route := range githubAPI {
@@ -4221,12 +4259,12 @@ func TestRouterWithClientIP(t *testing.T) {
 
 	rte := f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.True(t, rte.ClientIPResolverEnabled())
+	assert.NotNil(t, rte.ClientIPResolver())
 
 	require.NoError(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPResolver(nil))))
 	rte = f.Route(http.MethodGet, "/foo")
 	require.NotNil(t, rte)
-	assert.False(t, rte.ClientIPResolverEnabled())
+	assert.Nil(t, rte.ClientIPResolver())
 
 	// On not found handler, fallback to global ip resolver
 	req := httptest.NewRequest(http.MethodGet, "/bar", nil)
@@ -5572,7 +5610,7 @@ func TestFuzzInsertLookupParam(t *testing.T) {
 		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
 		tree := r.getRoot()
 		txn := tree.txn(true)
-		if err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 3); err == nil {
+		if err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler, psLen: 3}); err == nil {
 			c := newTestContext(r)
 			n, tsr := lookupByPath(tree, txn.root[0].children[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
 			require.NotNil(t, n)
@@ -5601,7 +5639,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 			continue
 		}
 		require.NotPanicsf(t, func() {
-			_ = txn.insert(http.MethodGet, &Route{pattern: rte, hself: emptyHandler, hostSplit: max(0, strings.IndexByte(rte, '/'))}, 0)
+			_ = txn.insert(http.MethodGet, &Route{pattern: rte, hself: emptyHandler, hostSplit: max(0, strings.IndexByte(rte, '/'))})
 		}, fmt.Sprintf("rte: %s", rte))
 	}
 }
@@ -5625,7 +5663,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	txn := tree.txn(true)
 	for rte := range routes {
 		path := "/" + rte
-		err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler}, 0)
+		err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler})
 		require.NoError(t, err)
 	}
 	r.tree.Store(txn.commit())
