@@ -116,9 +116,6 @@ func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 // This option can be applied on a per-route basis or globally:
 // - If applied globally, the middleware will be applied to all routes and handlers by default.
 // - If applied to a specific route, the middleware will only apply to that route and will be chained after any global middleware.
-//
-// Route-specific middleware must be explicitly reapplied when updating a route. If not, any middleware will be removed,
-// and the route will fall back to using only global middleware (if any).
 func WithMiddleware(m ...MiddlewareFunc) Option {
 	return optionFunc(func(s sealedOption) error {
 		if s.router != nil {
@@ -189,8 +186,6 @@ func WithAutoOptions(enable bool) GlobalOption {
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
 //   - If applied to a specific route, it will override the global setting for that route.
-//   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
-//     to the global configuration for trailing slash behavior.
 //
 // Note that this option is mutually exclusive with [WithIgnoreTrailingSlash], and if enabled will
 // automatically deactivate [WithIgnoreTrailingSlash].
@@ -219,8 +214,6 @@ func WithRedirectTrailingSlash(enable bool) Option {
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
 //   - If applied to a specific route, it will override the global setting for that route.
-//   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
-//     to the global configuration for trailing slash behavior.
 //
 // Note that this option is mutually exclusive with [WithRedirectTrailingSlash], and if enabled will automatically
 // deactivate [WithRedirectTrailingSlash].
@@ -251,8 +244,6 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
 //   - If applied to a specific route, it will override the global setting for that route.
-//   - The option must be explicitly reapplied when updating a route. If not, the route will fall back
-//     to the global client IP resolver (if one is configured).
 //   - Setting the resolver to nil is equivalent to no resolver configured.
 func WithClientIPResolver(resolver ClientIPResolver) Option {
 	return optionFunc(func(s sealedOption) error {
@@ -272,7 +263,7 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 // any other components to modify behavior based on the attached metadata. Unlike context-based metadata, which is tied to
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
 // The provided key must be comparable and should not be of type string or any other built-in type to avoid collisions between
-// packages that use route annotation. Annotations must be explicitly reapplied when updating a route.
+// packages that use route annotation.
 func WithAnnotation(key, value any) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
 		if !reflect.TypeOf(key).Comparable() {

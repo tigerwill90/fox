@@ -7,6 +7,7 @@ package fox
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -48,4 +49,17 @@ func TestNewTestContext(t *testing.T) {
 
 	err = c.Writer().EnableFullDuplex()
 	assert.ErrorIs(t, err, http.ErrNotSupported)
+
+	rte, err := f.NewRoute("/foo", emptyHandler)
+	require.NoError(t, err)
+	c.SetRoute(rte)
+	assert.Equal(t, rte, c.Route())
+	assert.Equal(t, RouteHandler, c.Scope())
+
+	c.SetScope(NoRouteHandler)
+	assert.Equal(t, NoRouteHandler, c.Scope())
+
+	wantPs := Params{{"foo", "bar"}, {"baz", "bar"}}
+	c.SetParams(wantPs)
+	assert.Equal(t, wantPs, Params(slices.Collect(c.Params())))
 }

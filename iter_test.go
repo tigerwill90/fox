@@ -53,6 +53,7 @@ func TestIter_RoutesWithHostname(t *testing.T) {
 	}
 
 	want := []string{"exemple.com/foo/bar/{baz}/{name}"}
+	assert.Len(t, results, 3)
 	for key := range results {
 		assert.ElementsMatch(t, want, results[key])
 	}

@@ -157,26 +157,6 @@ func New(opts ...GlobalOption) (*Router, error) {
 	return r, nil
 }
 
-// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
-// If an error occurs, it returns one of the following:
-//   - [ErrRouteExist]: If the route is already registered.
-//   - [ErrRouteConflict]: If the route conflicts with another.
-//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
-//   - [ErrInvalidConfig]: If the provided route options are invalid.
-//
-// It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
-// multiple goroutine. To override an existing route, use [Router.Update].
-func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	txn := fox.txnWith(true, false)
-	defer txn.Abort()
-	rte, err := txn.Handle(method, pattern, handler, opts...)
-	if err != nil {
-		return nil, err
-	}
-	txn.Commit()
-	return rte, nil
-}
-
 // MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
 // add a new handler while the router is serving requests. This function is safe for concurrent use by multiple goroutines.
@@ -189,14 +169,54 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 	return rte
 }
 
+// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
+// If an error occurs, it returns one of the following:
+//   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteConflict]: If the route conflicts with another.
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//
+// It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine. To override an existing handler, use [Router.Update].
+func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+	txn := fox.txnWith(true, false)
+	defer txn.Abort()
+	rte, err := txn.Handle(method, pattern, handler, opts...)
+	if err != nil {
+		return nil, err
+	}
+	txn.Commit()
+	return rte, nil
+}
+
+// HandleRoute registers a new route for the given method. If an error occurs, it returns one of the following:
+//   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteConflict]: If the route conflicts with another.
+//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//
+// It's safe to add a new route while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine. To override an existing route, use [Router.UpdateRoute].
+func (fox *Router) HandleRoute(method string, route *Route) error {
+	txn := fox.txnWith(true, false)
+	defer txn.Abort()
+	if err := txn.HandleRoute(method, route); err != nil {
+		return err
+	}
+	txn.Commit()
+	return nil
+}
+
 // Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //
-// It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
-// multiple goroutine. To add new handler, use [Router.Handle] method.
+// Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
+// be removed, and the route will fall back to using global configuration (if any). It's safe to update a handler while
+// the router is serving requests. This function is safe for concurrent use by multiple goroutine. To add new handler,
+// use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	txn := fox.txnWith(true, false)
 	defer txn.Abort()
@@ -206,6 +226,24 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 	}
 	txn.Commit()
 	return rte, nil
+}
+
+// UpdateRoute override an existing route for the given method and new route.
+// If an error occurs, it returns one of the following:
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//
+// It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine. To add new route, use [Router.HandleRoute] method.
+func (fox *Router) UpdateRoute(method string, route *Route) error {
+	txn := fox.txnWith(true, false)
+	defer txn.Abort()
+	if err := txn.UpdateRoute(method, route); err != nil {
+		return err
+	}
+	txn.Commit()
+	return nil
 }
 
 // Delete deletes an existing handler for the given method and route pattern. If an error occurs, it returns one of the following:
@@ -288,6 +326,37 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 	}
 	tree.ctx.Put(c)
 	return nil, nil, tsr
+}
+
+// NewRoute create a new [Route], configured with the provided options.
+// If an error occurs, it returns one of the following:
+//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+	n, endHost, err := fox.parseRoute(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	rte := &Route{
+		clientip:              fox.clientip,
+		hbase:                 handler,
+		pattern:               pattern,
+		mws:                   fox.mws,
+		redirectTrailingSlash: fox.redirectTrailingSlash,
+		ignoreTrailingSlash:   fox.ignoreTrailingSlash,
+		psLen:                 n,
+		hostSplit:             endHost, // 0 if no host
+	}
+
+	for _, opt := range opts {
+		if err = opt.applyRoute(sealedOption{route: rte}); err != nil {
+			return nil, err
+		}
+	}
+	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
+
+	return rte, nil
 }
 
 // Len returns the number of registered route.
@@ -401,33 +470,6 @@ func (fox *Router) newTree() *iTree {
 	}
 
 	return tree
-}
-
-// newRoute create a new route, apply route options and apply middleware on the handler.
-func (fox *Router) newRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, uint32, error) {
-	n, endHost, err := fox.parseRoute(pattern)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	rte := &Route{
-		clientip:              fox.clientip,
-		hbase:                 handler,
-		pattern:               pattern,
-		mws:                   fox.mws,
-		redirectTrailingSlash: fox.redirectTrailingSlash,
-		ignoreTrailingSlash:   fox.ignoreTrailingSlash,
-		hostSplit:             endHost, // 0 if no host
-	}
-
-	for _, opt := range opts {
-		if err = opt.applyRoute(sealedOption{route: rte}); err != nil {
-			return nil, 0, err
-		}
-	}
-	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
-
-	return rte, n, nil
 }
 
 // getRoot load the tree atomically.

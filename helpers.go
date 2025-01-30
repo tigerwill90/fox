@@ -9,23 +9,47 @@ import (
 	"testing"
 )
 
+type TestContext struct {
+	*cTx
+}
+
+// SetRoute affect the provided route to this context. It also set the [RouteHandler] scope.
+func (c *TestContext) SetRoute(route *Route) {
+	if route != nil {
+		c.route = route
+		c.scope = RouteHandler
+	}
+}
+
+// SetParams affect the provided params to this context.
+func (c *TestContext) SetParams(params Params) {
+	if params != nil {
+		c.params = &params
+	}
+}
+
+// SetScope affect the provided scope to this context.
+func (c *TestContext) SetScope(scope HandlerScope) {
+	c.scope = scope
+}
+
 // NewTestContext returns a new [Router] and its associated [Context], designed only for testing purpose.
-func NewTestContext(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) (*Router, Context) {
+func NewTestContext(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) (*Router, *TestContext) {
 	f, err := New(opts...)
 	if err != nil {
 		panic(err)
 	}
-	c := newTextContextOnly(f, w, r)
-	return f, c
+	tc := &TestContext{newTextContextOnly(f, w, r)}
+	return f, tc
 }
 
 // NewTestContextOnly returns a new [Context] designed only for testing purpose.
-func NewTestContextOnly(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) Context {
+func NewTestContextOnly(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) *TestContext {
 	f, err := New(opts...)
 	if err != nil {
 		panic(err)
 	}
-	return newTextContextOnly(f, w, r)
+	return &TestContext{newTextContextOnly(f, w, r)}
 }
 
 func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cTx {

@@ -170,7 +170,7 @@ STOP:
 }
 
 // insert is not safe for concurrent use
-func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
+func (t *tXn) insert(method string, route *Route) error {
 	var rootNode *node
 	index := t.root.methodIndex(method)
 	if index < 0 {
@@ -210,7 +210,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 		)
 
 		t.size++
-		t.updateMaxParams(paramsN)
+		t.updateMaxParams(route.psLen)
 		result.p.updateEdge(n)
 	case keyEndMidEdge:
 		// e.g. matched until "s" for "st" node when inserting "tes" key.
@@ -251,7 +251,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 		)
 
 		t.size++
-		t.updateMaxParams(paramsN)
+		t.updateMaxParams(route.psLen)
 		t.updateMaxDepth(result.depth + 1)
 		result.p.updateEdge(parent)
 	case incompleteMatchToEndOfEdge:
@@ -296,7 +296,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 		t.size++
 		t.updateMaxDepth(result.depth + addDepth)
-		t.updateMaxParams(paramsN)
+		t.updateMaxParams(route.psLen)
 
 		if result.matched == rootNode {
 			n.key = method
@@ -385,7 +385,7 @@ func (t *tXn) insert(method string, route *Route, paramsN uint32) error {
 
 		t.size++
 		t.updateMaxDepth(result.depth + addDepth)
-		t.updateMaxParams(paramsN)
+		t.updateMaxParams(route.psLen)
 		result.p.updateEdge(n3)
 	default:
 		// safeguard against introducing a new result type
