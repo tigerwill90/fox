@@ -197,23 +197,21 @@ func appendAttr(level slog.Level, buf []byte, attr slog.Attr) []byte {
 	buf = append(buf, ansi.NormalIntensity...)
 
 	var addWhitespace bool
-	if _, isErr := attr.Value.Any().(error); isErr {
+	switch attr.Key {
+	case "method":
+		buf = append(buf, ansi.BgBlue...)
+		addWhitespace = true
+	case "status":
+		buf = append(buf, levelColor(level)...)
+		addWhitespace = true
+	case "location":
+		buf = append(buf, ansi.FgYellow...)
+	case "latency":
+		buf = append(buf, latencyColor(attr.Value.Duration())...)
+	case "error":
 		buf = append(buf, ansi.FgRed...)
-	} else {
-		switch attr.Key {
-		case "method":
-			buf = append(buf, ansi.BgBlue...)
-			addWhitespace = true
-		case "status":
-			buf = append(buf, levelColor(level)...)
-			addWhitespace = true
-		case "location":
-			buf = append(buf, ansi.FgYellow...)
-		case "latency":
-			buf = append(buf, latencyColor(attr.Value.Duration())...)
-		default:
-			buf = append(buf, ansi.FgCyan...)
-		}
+	default:
+		buf = append(buf, ansi.FgCyan...)
 	}
 
 	if addWhitespace {
