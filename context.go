@@ -59,6 +59,8 @@ type Context interface {
 	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
+	// Method returns the request method.
+	Method() string
 	// Path returns the request URL path.
 	Path() string
 	// Host returns the request host.
@@ -234,6 +236,11 @@ func (c *cTx) Param(name string) string {
 		}
 	}
 	return ""
+}
+
+// Method returns the request method.
+func (c *cTx) Method() string {
+	return c.req.Method
 }
 
 // Path returns the request URL path.

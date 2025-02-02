@@ -55,8 +55,8 @@ func DefaultHandleRecovery(c Context, _ any) {
 
 func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 	if err := recover(); err != nil {
-		if abortErr, ok := err.(error); ok && errors.Is(abortErr, http.ErrAbortHandler) {
-			panic(abortErr)
+		if e, ok := err.(error); ok && errors.Is(e, http.ErrAbortHandler) {
+			panic(e)
 		}
 
 		var sb strings.Builder
@@ -83,11 +83,18 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 
 		params := slices.Collect(mapParamsToAttr(c.Params()))
 
+		var errAttr slog.Attr
+		if e, ok := err.(error); ok {
+			errAttr = slog.String("error", e.Error())
+		} else {
+			errAttr = slog.Any("error", errAttr)
+		}
+
 		logger.Error(
 			sb.String(),
 			slog.String("route", c.Pattern()),
 			slog.Group("params", params...),
-			slog.Any("error", err),
+			errAttr,
 		)
 
 		if !c.Writer().Written() && !connIsBroken(err) {
