@@ -343,7 +343,7 @@ func Action(c fox.Context) {
 			_ = c.String(http.StatusOK, text)
 		})
 	case "delete":
-		err = c.Fox().Delete(method, path)
+		_, err = c.Fox().Delete(method, path)
 	default:
 		http.Error(c.Writer(), fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
 		return
@@ -392,7 +392,7 @@ if err := f.Updates(func(txn *fox.Txn) error {
 	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 	// observed in the result returned by Prefix (or any other iterator).
 	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-		if err := txn.Delete(method, route.Pattern()); err != nil {
+		if _, err := txn.Delete(method, route.Pattern()); err != nil {
 			return err
 		}
 	}
@@ -419,7 +419,7 @@ it := txn.Iter()
 // It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 // observed in the result returned by Prefix (or any other iterator).
 for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-	if err := txn.Delete(method, route.Pattern()); err != nil {
+	if _, err := txn.Delete(method, route.Pattern()); err != nil {
 		log.Printf("error deleting route: %s", err)
 		return
 	}
