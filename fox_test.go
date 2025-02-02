@@ -4648,7 +4648,7 @@ func TestTree_DeleteRoot(t *testing.T) {
 
 func TestRouter_DeleteError(t *testing.T) {
 	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/bar", emptyHandler)))
 	t.Run("delete with empty method", func(t *testing.T) {
 		r, err := f.Delete("", "/foo/bar")
 		assert.ErrorIs(t, err, ErrInvalidRoute)
@@ -4661,6 +4661,11 @@ func TestRouter_DeleteError(t *testing.T) {
 	})
 	t.Run("route does not exist", func(t *testing.T) {
 		r, err := f.Delete(http.MethodGet, "/foo/bar/")
+		assert.ErrorIs(t, err, ErrRouteNotFound)
+		assert.Nil(t, r)
+	})
+	t.Run("method does not exist", func(t *testing.T) {
+		r, err := f.Delete(http.MethodPost, "/foo/bar")
 		assert.ErrorIs(t, err, ErrRouteNotFound)
 		assert.Nil(t, r)
 	})
