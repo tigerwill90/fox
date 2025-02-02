@@ -4665,7 +4665,7 @@ func TestRouter_DeleteError(t *testing.T) {
 		assert.Nil(t, r)
 	})
 	t.Run("method does not exist", func(t *testing.T) {
-		r, err := f.Delete(http.MethodPost, "/foo/bar")
+		r, err := f.Delete(http.MethodTrace, "/foo/bar")
 		assert.ErrorIs(t, err, ErrRouteNotFound)
 		assert.Nil(t, r)
 	})
