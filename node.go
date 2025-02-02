@@ -645,7 +645,9 @@ func newNode(key string, route *Route, children []*node) *node {
 		childKeys[i] = children[i].key[0]
 		if strings.HasPrefix(children[i].key, "{") {
 			paramChildIndex = i
-		} else if strings.HasPrefix(children[i].key, "*") {
+			continue
+		}
+		if strings.HasPrefix(children[i].key, "*") {
 			wildcardChildIndex = i
 		}
 	}

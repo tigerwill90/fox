@@ -12,7 +12,7 @@ type Txn struct {
 	write   bool
 }
 
-// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
+// Handle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
@@ -48,7 +48,7 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 	return rte, nil
 }
 
-// HandleRoute registers a new route for the given method. If an error occurs, it returns one of the following:
+// HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
@@ -74,7 +74,7 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 	return txn.rootTxn.insert(method, route)
 }
 
-// Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
+// Update override an existing route for the given method and pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -113,7 +113,7 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 	return rte, nil
 }
 
-// UpdateRoute override an existing route for the given method and new route.
+// UpdateRoute override an existing [Route] for the given method and new [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
@@ -139,35 +139,37 @@ func (txn *Txn) UpdateRoute(method string, route *Route) error {
 	return txn.rootTxn.update(method, route)
 }
 
-// Delete deletes an existing handler for the given method and router pattern. If an error occurs, it returns one of the following:
+// Delete deletes an existing route for the given method and pattern. On success, it returns the deleted [Route].
+// If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
-func (txn *Txn) Delete(method, pattern string) error {
+func (txn *Txn) Delete(method, pattern string) (*Route, error) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
 
 	if !txn.write {
-		return ErrReadOnlyTxn
+		return nil, ErrReadOnlyTxn
 	}
 
 	if method == "" {
-		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
 	}
 
 	_, _, err := txn.fox.parseRoute(pattern)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if !txn.rootTxn.remove(method, pattern) {
-		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
+	n, deleted := txn.rootTxn.remove(method, pattern)
+	if !deleted {
+		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
 	}
 
-	return nil
+	return n.route, nil
 }
 
 // Truncate remove all routes for the provided methods. If no methods are provided,

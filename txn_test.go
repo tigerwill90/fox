@@ -249,7 +249,7 @@ func TestTxn_Isolation(t *testing.T) {
 			assert.Equal(t, len(staticRoutes), txn.Len())
 
 			for _, rte := range staticRoutes {
-				if err := txn.Delete(rte.method, "example.com"+rte.path); err != nil {
+				if _, err := txn.Delete(rte.method, "example.com"+rte.path); err != nil {
 					return err
 				}
 			}
@@ -266,7 +266,9 @@ func TestTxn_WriteOnReadTransaction(t *testing.T) {
 	defer txn.Abort()
 	assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/foo", emptyHandler)), ErrReadOnlyTxn)
 	assert.ErrorIs(t, onlyError(txn.Update(http.MethodGet, "/foo", emptyHandler)), ErrReadOnlyTxn)
-	assert.ErrorIs(t, txn.Delete(http.MethodGet, "/foo"), ErrReadOnlyTxn)
+	deletedRoute, err := txn.Delete(http.MethodGet, "/foo")
+	assert.ErrorIs(t, err, ErrReadOnlyTxn)
+	assert.Nil(t, deletedRoute)
 	assert.ErrorIs(t, txn.Truncate(), ErrReadOnlyTxn)
 	txn.Commit()
 }
@@ -282,7 +284,7 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 		_, _ = txn.Update(http.MethodGet, "/foo", emptyHandler)
 	})
 	assert.Panics(t, func() {
-		_ = txn.Delete(http.MethodGet, "/foo")
+		_, _ = txn.Delete(http.MethodGet, "/foo")
 	})
 	assert.Panics(t, func() {
 		txn.Has(http.MethodGet, "/foo")

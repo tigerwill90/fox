@@ -3063,7 +3063,9 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 			}
 
 			for _, rte := range tc.routes {
-				require.NoError(t, f.Delete(http.MethodGet, rte.path))
+				deletedRoute, err := f.Delete(http.MethodGet, rte.path)
+				require.NoError(t, err)
+				assert.Equal(t, rte.path, deletedRoute.Pattern())
 				routeCopy = slices.Delete(routeCopy, 0, 1)
 				assert.Falsef(t, f.Has(http.MethodGet, rte.path), "found method=%s;path=%s", http.MethodGet, rte.path)
 				for _, rte := range routeCopy {
@@ -3090,7 +3092,9 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				assert.Truef(t, f.Has(http.MethodGet, tc.routes[i].path), "missing method=%s;path=%s", http.MethodGet, tc.routes[i].path)
 			}
 			for i := len(tc.routes) - 1; i >= 0; i-- {
-				require.NoError(t, f.Delete(http.MethodGet, tc.routes[i].path))
+				deletedRoute, err := f.Delete(http.MethodGet, tc.routes[i].path)
+				require.NoError(t, err)
+				assert.Equal(t, tc.routes[i].path, deletedRoute.Pattern())
 				routeCopy = slices.Delete(routeCopy, len(routeCopy)-1, len(routeCopy))
 				assert.Falsef(t, f.Has(http.MethodGet, tc.routes[i].path), "found method=%s;path=%s", http.MethodGet, tc.routes[i].path)
 				for _, rte := range routeCopy {
@@ -3232,9 +3236,11 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				for _, rte := range tc.routes {
-					if err := txn.Delete(http.MethodGet, rte.path); err != nil {
+					deletedRoute, err := txn.Delete(http.MethodGet, rte.path)
+					if err != nil {
 						return err
 					}
+					assert.Equal(t, rte.path, deletedRoute.Pattern())
 					routeCopy = slices.Delete(routeCopy, 0, 1)
 					assert.Falsef(t, txn.Has(http.MethodGet, rte.path), "found method=%s;path=%s", http.MethodGet, rte.path)
 					for _, rte := range routeCopy {
@@ -3272,9 +3278,11 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			}
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				for i := len(tc.routes) - 1; i >= 0; i-- {
-					if err := txn.Delete(http.MethodGet, tc.routes[i].path); err != nil {
+					deletedRoute, err := txn.Delete(http.MethodGet, tc.routes[i].path)
+					if err != nil {
 						return err
 					}
+					assert.Equal(t, tc.routes[i].path, deletedRoute.Pattern())
 					routeCopy = slices.Delete(routeCopy, len(routeCopy)-1, len(routeCopy))
 					assert.Falsef(t, txn.Has(http.MethodGet, tc.routes[i].path), "found method=%s;path=%s", http.MethodGet, tc.routes[i].path)
 					for _, rte := range routeCopy {
@@ -4579,7 +4587,9 @@ func TestTree_Delete(t *testing.T) {
 	rand.Shuffle(len(routes), func(i, j int) { routes[i], routes[j] = routes[j], routes[i] })
 
 	for _, rte := range routes {
-		require.NoError(t, f.Delete(rte.method, rte.path))
+		deletedRoute, err := f.Delete(rte.method, rte.path)
+		require.NoError(t, err)
+		assert.Equal(t, rte.path, deletedRoute.Pattern())
 	}
 
 	it := f.Iter()
@@ -4603,9 +4613,11 @@ func TestTree_DeleteTxn(t *testing.T) {
 
 	require.NoError(t, f.Updates(func(txn *Txn) error {
 		for _, rte := range routes {
-			if err := txn.Delete(rte.method, rte.path); err != nil {
+			deletedRoute, err := txn.Delete(rte.method, rte.path)
+			if err != nil {
 				return err
 			}
+			assert.Equal(t, rte.path, deletedRoute.Pattern())
 		}
 		return nil
 	}))
@@ -4621,11 +4633,15 @@ func TestTree_DeleteTxn(t *testing.T) {
 func TestTree_DeleteRoot(t *testing.T) {
 	f, _ := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "/foo/bar", emptyHandler)))
-	require.NoError(t, f.Delete(http.MethodOptions, "/foo/bar"))
+	deletedRoute, err := f.Delete(http.MethodOptions, "/foo/bar")
+	require.NoError(t, err)
+	assert.Equal(t, "/foo/bar", deletedRoute.Pattern())
 	tree := f.getRoot()
 	assert.Equal(t, 4, len(tree.root))
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "exemple.com/foo/bar", emptyHandler)))
-	require.NoError(t, f.Delete(http.MethodOptions, "exemple.com/foo/bar"))
+	deletedRoute, err = f.Delete(http.MethodOptions, "exemple.com/foo/bar")
+	require.NoError(t, err)
+	assert.Equal(t, "exemple.com/foo/bar", deletedRoute.Pattern())
 	tree = f.getRoot()
 	assert.Equal(t, 4, len(tree.root))
 }
@@ -4667,9 +4683,13 @@ func TestRouter_UpdatesPanic(t *testing.T) {
 func TestTree_DeleteWildcard(t *testing.T) {
 	f, _ := New()
 	f.MustHandle(http.MethodGet, "/foo/*{args}", emptyHandler)
-	assert.ErrorIs(t, f.Delete(http.MethodGet, "/foo"), ErrRouteNotFound)
+	deletedRoute, err := f.Delete(http.MethodGet, "/foo")
+	assert.ErrorIs(t, err, ErrRouteNotFound)
+	assert.Nil(t, deletedRoute)
 	f.MustHandle(http.MethodGet, "/foo/{bar}", emptyHandler)
-	assert.NoError(t, f.Delete(http.MethodGet, "/foo/{bar}"))
+	deletedRoute, err = f.Delete(http.MethodGet, "/foo/{bar}")
+	assert.NoError(t, err)
+	assert.Equal(t, "/foo/{bar}", deletedRoute.Pattern())
 	assert.True(t, f.Has(http.MethodGet, "/foo/*{args}"))
 }
 
@@ -5687,8 +5707,11 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	}
 
 	for rte := range routes {
-		deleted := txn.remove(http.MethodGet, "/"+rte)
+		n, deleted := txn.remove(http.MethodGet, "/"+rte)
 		require.True(t, deleted)
+		require.NotNil(t, n)
+		require.NotNil(t, n.route)
+		assert.Equal(t, "/"+rte, n.route.pattern)
 	}
 	r.tree.Store(txn.commit())
 
@@ -5723,7 +5746,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				if txn.Has(githubAPI[0].method, "{sub}.bar.{tld}"+githubAPI[0].path) {
 					for _, rte := range githubAPI {
-						if err := txn.Delete(rte.method, "{sub}.bar.{tld}"+rte.path); err != nil {
+						if _, err := txn.Delete(rte.method, "{sub}.bar.{tld}"+rte.path); err != nil {
 							return err
 						}
 					}
@@ -5746,7 +5769,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 			require.NoError(t, f.Updates(func(txn *Txn) error {
 				if txn.Has(githubAPI[0].method, "foo.bar.baz"+githubAPI[0].path) {
 					for _, rte := range githubAPI {
-						if err := txn.Delete(rte.method, "foo.bar.baz"+rte.path); err != nil {
+						if _, err := txn.Delete(rte.method, "foo.bar.baz"+rte.path); err != nil {
 							return err
 						}
 					}
@@ -5832,7 +5855,8 @@ func TestDataRace(t *testing.T) {
 			txn := f.Txn(true)
 			defer txn.Abort()
 			if txn.Has(method, route) {
-				if assert.NoError(t, txn.Delete(method, route)) {
+				_, err := txn.Delete(method, route)
+				if assert.NoError(t, err) {
 					txn.Commit()
 				}
 				return
@@ -6106,7 +6130,7 @@ func ExampleRouter_Updates() {
 		// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 		// observed in the result returned by Prefix (or any other iterator).
 		for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-			if err := f.Delete(method, route.Pattern()); err != nil {
+			if _, err := f.Delete(method, route.Pattern()); err != nil {
 				return err
 			}
 		}
@@ -6137,7 +6161,7 @@ func ExampleRouter_Txn() {
 	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 	// observed in the result returned by Prefix (or any other iterator).
 	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-		if err := f.Delete(method, route.Pattern()); err != nil {
+		if _, err := f.Delete(method, route.Pattern()); err != nil {
 			log.Printf("error deleting route: %s", err)
 			return
 		}

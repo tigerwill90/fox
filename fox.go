@@ -157,10 +157,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 	return r, nil
 }
 
-// MustHandle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route]
-// This function is a convenience wrapper for the [Router.Handle] function and panics on error. It's perfectly safe to
-// add a new handler while the router is serving requests. This function is safe for concurrent use by multiple goroutines.
-// To override an existing route, use [Router.Update].
+// MustHandle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
+// This function is a convenience wrapper for the [Router.Handle] function and panics on error.
 func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
 	rte, err := fox.Handle(method, pattern, handler, opts...)
 	if err != nil {
@@ -169,7 +167,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 	return rte
 }
 
-// Handle registers a new handler for the given method and route pattern. On success, it returns the newly registered [Route].
+// Handle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
@@ -189,7 +187,7 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 	return rte, nil
 }
 
-// HandleRoute registers a new route for the given method. If an error occurs, it returns one of the following:
+// HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
@@ -207,7 +205,7 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 	return nil
 }
 
-// Update override an existing handler for the given method and route pattern. On success, it returns the newly registered [Route].
+// Update override an existing route for the given method and pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -228,7 +226,7 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 	return rte, nil
 }
 
-// UpdateRoute override an existing route for the given method and new route.
+// UpdateRoute override an existing [Route] for the given method and new [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
@@ -246,20 +244,21 @@ func (fox *Router) UpdateRoute(method string, route *Route) error {
 	return nil
 }
 
-// Delete deletes an existing handler for the given method and route pattern. If an error occurs, it returns one of the following:
+// Delete deletes an existing route for the given method and pattern. On success, it returns the deleted [Route].
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
-func (fox *Router) Delete(method, pattern string) error {
+func (fox *Router) Delete(method, pattern string) (*Route, error) {
 	txn := fox.txnWith(true, false)
 	defer txn.Abort()
-	if err := txn.Delete(method, pattern); err != nil {
-		return err
+	route, err := txn.Delete(method, pattern)
+	if err != nil {
+		return nil, err
 	}
 	txn.Commit()
-	return nil
+	return route, nil
 }
 
 // Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for

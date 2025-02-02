@@ -423,17 +423,17 @@ func (t *tXn) update(method string, route *Route) error {
 }
 
 // remove is not safe for concurrent use.
-func (t *tXn) remove(method, path string) bool {
+func (t *tXn) remove(method, path string) (*node, bool) {
 	index := t.root.methodIndex(method)
 	if index < 0 {
-		return false
+		return nil, false
 	}
 
 	result := t.copyOnWriteSearch(t.root[index], path)
 	if !result.isExactMatch() || !result.matched.isLeaf() {
 		// Not and exact match or this node was created after a split (KEY_END_MID_EGGE operation),
 		// therefore we cannot delete it.
-		return false
+		return nil, false
 	}
 
 	t.size--
@@ -448,7 +448,7 @@ func (t *tXn) remove(method, path string) bool {
 		)
 
 		result.p.updateEdge(n)
-		return true
+		return result.matched, true
 	}
 
 	if len(result.matched.children) == 1 {
@@ -464,7 +464,7 @@ func (t *tXn) remove(method, path string) bool {
 		)
 
 		result.p.updateEdge(n)
-		return true
+		return result.matched, true
 	}
 
 	// recreate the parent edges without the removed node
@@ -506,18 +506,18 @@ func (t *tXn) remove(method, path string) bool {
 
 		if parentParentIsRoot {
 			if len(parent.children) == 0 && isRemovable(method) {
-				return t.removeRoot(method)
+				return result.matched, t.removeRoot(method)
 			}
 			parent.key = method
 			if t.cache {
 				t.writable.Add(parent, nil)
 			}
 			t.updateRoot(parent)
-			return true
+			return result.matched, true
 		}
 
 		result.ppp.updateEdge(parent)
-		return true
+		return result.matched, true
 	}
 
 	var parent *node
@@ -542,18 +542,18 @@ func (t *tXn) remove(method, path string) bool {
 
 	if parentIsRoot {
 		if len(parent.children) == 0 && isRemovable(method) {
-			return t.removeRoot(method)
+			return result.matched, t.removeRoot(method)
 		}
 		parent.key = method
 		if t.cache {
 			t.writable.Add(parent, nil)
 		}
 		t.updateRoot(parent)
-		return true
+		return result.matched, true
 	}
 
 	result.pp.updateEdge(parent)
-	return true
+	return result.matched, true
 }
 
 // addRoot append a new root node to the tree.
