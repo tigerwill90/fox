@@ -105,6 +105,8 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.Equal(t, woBuf.Len(), 0)
 			assert.NotEqual(t, weBuf.Len(), 0)
+			woBuf.Reset()
+			weBuf.Reset()
 		})
 	}
 }
