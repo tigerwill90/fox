@@ -13,6 +13,7 @@ linters:
     - unused
     - govet
     - gosec
+    - gofmt
 
 issues:
   exclude-rules:
