@@ -2,7 +2,6 @@ linters-settings:
   govet:
     enable:
       - shadow
-      - atomic
       - fieldalignment
       - slog
 
