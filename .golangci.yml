@@ -1,9 +1,6 @@
 linters-settings:
   govet:
-    enable:
-      - shadow
-      - fieldalignment
-      - slog
+    enable-all: true
 
 linters:
   disable-all: true
