@@ -110,3 +110,21 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkRecoveryMiddleware(b *testing.B) {
+
+	f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(slog.DiscardHandler, DefaultHandleRecovery)))
+	f.MustHandle(http.MethodGet, "/{1}/{2}/{3}", func(c Context) {
+		panic("yolo")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar/baz", nil)
+	w := new(mockResponseWriter)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		f.ServeHTTP(w, req)
+	}
+}

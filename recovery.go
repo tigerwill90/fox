@@ -89,7 +89,11 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 		sb.WriteString("Stack:\n")
 		sb.WriteString(stacktrace(3, 6))
 
-		params := slices.Collect(mapParamsToAttr(c.Params()))
+		var params []any
+		if c.Route() != nil {
+			params = make([]any, 0, c.Route().ParamsLen())
+			params = slices.AppendSeq(params, mapParamsToAttr(c.Params()))
+		}
 
 		var errAttr slog.Attr
 		if e, ok := err.(error); ok {
