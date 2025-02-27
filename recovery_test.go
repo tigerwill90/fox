@@ -2,6 +2,7 @@ package fox
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tigerwill90/fox/internal/slogpretty"
@@ -72,6 +73,36 @@ func TestRecoveryMiddleware(t *testing.T) {
 	assert.Equal(t, errMsg, w.Body.String())
 	assert.Equal(t, woBuf.Len(), 0)
 	assert.NotEqual(t, weBuf.Len(), 0)
+	fmt.Println(weBuf.String())
+}
+
+func TestRecoveryMiddlewareNotFound(t *testing.T) {
+	woBuf := bytes.NewBuffer(nil)
+	weBuf := bytes.NewBuffer(nil)
+
+	m := CustomRecoveryWithLogHandler(&slogpretty.Handler{
+		We:  weBuf,
+		Wo:  woBuf,
+		Lvl: slog.LevelDebug,
+	}, func(c Context, err any) {
+		c.Writer().WriteHeader(http.StatusInternalServerError)
+		_, _ = c.Writer().Write([]byte(err.(string)))
+	})
+
+	const errMsg = "unexpected error"
+	f, _ := New(WithMiddleware(m), WithNoRouteHandler(func(c Context) {
+		panic(errMsg)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/foo", nil)
+	req.Header.Set(HeaderAuthorization, "foobar")
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, errMsg, w.Body.String())
+	assert.Equal(t, woBuf.Len(), 0)
+	assert.NotEqual(t, weBuf.Len(), 0)
+	fmt.Println(weBuf.String())
 }
 
 func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
@@ -111,6 +142,8 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 	}
 }
 
+// BenchmarkRecoveryMiddleware-8   	  116616	     12586 ns/op	    4837 B/op	      50 allocs/op
+// BenchmarkRecoveryMiddleware-8   	  115352	     11126 ns/op	    4789 B/op	      49 allocs/op
 func BenchmarkRecoveryMiddleware(b *testing.B) {
 
 	f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(slog.DiscardHandler, DefaultHandleRecovery)))

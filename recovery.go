@@ -6,6 +6,7 @@ package fox
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox/internal/iterutil"
@@ -68,6 +69,8 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 		sb.WriteString("Recovered from PANIC\n")
 
 		httpRequest, _ := httputil.DumpRequest(c.Request(), false)
+		sb.Grow(len(httpRequest))
+
 		if before, after, found := bytes.Cut(httpRequest, reqHeaderSep); found {
 			sb.WriteString("Request Dump:\n")
 			sb.Write(before)
@@ -104,7 +107,7 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 
 		logger.Error(
 			sb.String(),
-			slog.String("route", c.Pattern()),
+			slog.String("route", cmp.Or(c.Pattern(), scopeToString(c.Scope()))),
 			slog.Group("params", params...),
 			errAttr,
 		)
@@ -162,4 +165,21 @@ func mapParamsToAttr(params iter.Seq[Param]) iter.Seq[any] {
 			}
 		}
 	}
+}
+
+func scopeToString(scope HandlerScope) string {
+	var strScope string
+	switch scope {
+	case OptionsHandler:
+		strScope = "OptionsHandler"
+	case NoMethodHandler:
+		strScope = "NoMethodHandler"
+	case RedirectHandler:
+		strScope = "RedirectHandler"
+	case NoRouteHandler:
+		strScope = "NoRouteHandler"
+	default:
+		strScope = "UnknownHandler"
+	}
+	return strScope
 }
