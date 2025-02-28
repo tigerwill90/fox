@@ -539,7 +539,7 @@ Walk:
 				if strings.HasSuffix(path, "/") {
 					// Tsr recommendation: remove the extra trailing slash (got an exact match)
 					remainingPrefix := current.key[:charsMatchedInNodeFound]
-					if len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
+					if parent != nil && parent.isLeaf() && len(remainingPrefix) == 1 && remainingPrefix[0] == slashDelim {
 						tsr = true
 						n = parent
 						// Save also a copy of the matched params, it should not allocate anything in most case.

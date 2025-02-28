@@ -4075,6 +4075,11 @@ func TestTree_LookupTsr(t *testing.T) {
 			wantPath: "/users",
 		},
 		{
+			name:  "match mid edge in child node with parent not leaf",
+			paths: []string{"/test/x", "/tests/"},
+			key:   "/test/",
+		},
+		{
 			name:  "match mid edge in child node with invalid remaining prefix",
 			paths: []string{"/users/{id}"},
 			key:   "/users/",
