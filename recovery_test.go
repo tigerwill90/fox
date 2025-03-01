@@ -198,8 +198,6 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 	}
 }
 
-// BenchmarkRecoveryMiddleware-8   	  116616	     12586 ns/op	    4837 B/op	      50 allocs/op
-// BenchmarkRecoveryMiddleware-8   	  115352	     11126 ns/op	    4789 B/op	      49 allocs/op
 func BenchmarkRecoveryMiddleware(b *testing.B) {
 
 	f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(slog.DiscardHandler, DefaultHandleRecovery)))

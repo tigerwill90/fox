@@ -6,7 +6,6 @@ package fox
 
 import (
 	"bytes"
-	"cmp"
 	"errors"
 	"fmt"
 	"github.com/tigerwill90/fox/internal/iterutil"
@@ -105,9 +104,14 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 			errAttr = slog.Any("error", err)
 		}
 
+		pattern := c.Pattern()
+		if pattern == "" {
+			pattern = scopeToString(c.Scope())
+		}
+
 		logger.Error(
 			sb.String(),
-			slog.String("route", cmp.Or(c.Pattern(), scopeToString(c.Scope()))),
+			slog.String("route", pattern),
 			slog.Group("params", params...),
 			errAttr,
 		)
