@@ -76,9 +76,14 @@ func TestRecoveryMiddleware(t *testing.T) {
 	fmt.Println(weBuf.String())
 }
 
-func TestRecoveryMiddlewareNotFound(t *testing.T) {
+func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 	woBuf := bytes.NewBuffer(nil)
 	weBuf := bytes.NewBuffer(nil)
+
+	reset := func() {
+		woBuf.Reset()
+		weBuf.Reset()
+	}
 
 	m := CustomRecoveryWithLogHandler(&slogpretty.Handler{
 		We:  weBuf,
@@ -90,19 +95,70 @@ func TestRecoveryMiddlewareNotFound(t *testing.T) {
 	})
 
 	const errMsg = "unexpected error"
-	f, _ := New(WithMiddleware(m), WithNoRouteHandler(func(c Context) {
-		panic(errMsg)
-	}))
 
-	req := httptest.NewRequest(http.MethodPost, "/foo", nil)
-	req.Header.Set(HeaderAuthorization, "foobar")
-	w := httptest.NewRecorder()
-	f.ServeHTTP(w, req)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, errMsg, w.Body.String())
-	assert.Equal(t, woBuf.Len(), 0)
-	assert.NotEqual(t, weBuf.Len(), 0)
-	fmt.Println(weBuf.String())
+	panicMiddleware := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			panic(errMsg)
+		}
+	})
+
+	f, _ := New(
+		WithRedirectTrailingSlash(true),
+		WithMiddleware(m),
+		WithMiddlewareFor(RedirectHandler, panicMiddleware),
+		WithNoRouteHandler(func(c Context) {
+			panic(errMsg)
+		}),
+		WithOptionsHandler(func(c Context) {
+			panic(errMsg)
+		}),
+		WithNoMethodHandler(func(c Context) {
+			panic(errMsg)
+		}),
+	)
+
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler)))
+
+	t.Run("no route handler", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("no method handler", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodPost, "/foo", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("redirect trailing slash", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodGet, "/foo/", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("option handler", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodOptions, "/foo", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
 }
 
 func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {

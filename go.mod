@@ -1,6 +1,8 @@
 module github.com/tigerwill90/fox
 
-go 1.24.0
+go 1.24
+
+toolchain go1.24.0
 
 require (
 	github.com/google/gofuzz v1.2.0
