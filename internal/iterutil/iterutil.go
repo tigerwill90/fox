@@ -91,9 +91,6 @@ func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
 }
 
 func SplitBytesSeq(s, sep []byte) iter.Seq[[]byte] {
-	if len(sep) == 0 {
-		panic("separator cannot be empty")
-	}
 	return splitBytesSeq(s, sep)
 }
 
@@ -115,9 +112,6 @@ func splitBytesSeq(s, sep []byte) iter.Seq[[]byte] {
 }
 
 func SplitStringSeq(s, sep string) iter.Seq[string] {
-	if len(sep) == 0 {
-		panic("separator cannot be empty")
-	}
 	return splitStringSeq(s, sep)
 }
 
@@ -139,9 +133,6 @@ func splitStringSeq(s, sep string) iter.Seq[string] {
 }
 
 func BackwardSplitStringSeq(s, sep string) iter.Seq[string] {
-	if len(sep) == 0 {
-		panic("separator cannot be empty")
-	}
 	return backwardSplitSeq(s, sep)
 }
 
