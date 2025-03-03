@@ -1,4 +1,4 @@
-# Fox HTTP Router
+# Fox
 
 <img align="right" width="159px" src="https://raw.githubusercontent.com/tigerwill90/fox/refs/heads/static/fox_logo.png">
 
