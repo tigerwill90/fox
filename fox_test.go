@@ -6021,8 +6021,7 @@ func TestNode_Debug(t *testing.T) {
 }
 
 // This example demonstrates how to create a simple router using the default options,
-// which include the Recovery and Logger middleware. A basic route is defined, along with a
-// custom middleware to log the request metrics.
+// which include the Recovery and Logger middleware.
 func ExampleNew() {
 	// Create a new router with default options, which include the Recovery and Logger middleware
 	r, _ := New(DefaultOptions())
@@ -6200,6 +6199,7 @@ func ExampleRouter_Txn() {
 	txn.Commit()
 }
 
+// This example demonstrate how to create a managed read-only transaction.
 func ExampleRouter_View() {
 	f, _ := New()
 

@@ -2,6 +2,7 @@ package fox
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tigerwill90/fox/internal/slogpretty"
@@ -72,6 +73,92 @@ func TestRecoveryMiddleware(t *testing.T) {
 	assert.Equal(t, errMsg, w.Body.String())
 	assert.Equal(t, woBuf.Len(), 0)
 	assert.NotEqual(t, weBuf.Len(), 0)
+	fmt.Println(weBuf.String())
+}
+
+func TestRecoveryMiddlewareOtherScope(t *testing.T) {
+	woBuf := bytes.NewBuffer(nil)
+	weBuf := bytes.NewBuffer(nil)
+
+	reset := func() {
+		woBuf.Reset()
+		weBuf.Reset()
+	}
+
+	m := CustomRecoveryWithLogHandler(&slogpretty.Handler{
+		We:  weBuf,
+		Wo:  woBuf,
+		Lvl: slog.LevelDebug,
+	}, func(c Context, err any) {
+		c.Writer().WriteHeader(http.StatusInternalServerError)
+		_, _ = c.Writer().Write([]byte(err.(string)))
+	})
+
+	const errMsg = "unexpected error"
+
+	panicMiddleware := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			panic(errMsg)
+		}
+	})
+
+	f, _ := New(
+		WithRedirectTrailingSlash(true),
+		WithMiddleware(m),
+		WithMiddlewareFor(RedirectHandler, panicMiddleware),
+		WithNoRouteHandler(func(c Context) {
+			panic(errMsg)
+		}),
+		WithOptionsHandler(func(c Context) {
+			panic(errMsg)
+		}),
+		WithNoMethodHandler(func(c Context) {
+			panic(errMsg)
+		}),
+	)
+
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler)))
+
+	t.Run("no route handler", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("no method handler", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodPost, "/foo", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("redirect trailing slash", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodGet, "/foo/", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("option handler", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodOptions, "/foo", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
 }
 
 func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
@@ -105,6 +192,26 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.Equal(t, woBuf.Len(), 0)
 			assert.NotEqual(t, weBuf.Len(), 0)
+			woBuf.Reset()
+			weBuf.Reset()
 		})
+	}
+}
+
+func BenchmarkRecoveryMiddleware(b *testing.B) {
+
+	f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(slog.DiscardHandler, DefaultHandleRecovery)))
+	f.MustHandle(http.MethodGet, "/{1}/{2}/{3}", func(c Context) {
+		panic("yolo")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar/baz", nil)
+	w := new(mockResponseWriter)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		f.ServeHTTP(w, req)
 	}
 }

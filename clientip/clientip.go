@@ -47,14 +47,14 @@ type TrustedIPRange interface {
 	TrustedIPRange() ([]net.IPNet, error)
 }
 
-// The IPRangeResolverFunc type is an adapter to allow the use of
+// The TrustedIPRangeFunc type is an adapter to allow the use of
 // ordinary functions as [TrustedIPRange]. If f is a function
-// with the appropriate signature, IPRangeResolverFunc() is a
+// with the appropriate signature, TrustedIPRangeFunc() is a
 // [TrustedIPRange] that calls f.
-type IPRangeResolverFunc func() ([]net.IPNet, error)
+type TrustedIPRangeFunc func() ([]net.IPNet, error)
 
 // TrustedIPRange calls f().
-func (f IPRangeResolverFunc) TrustedIPRange() ([]net.IPNet, error) {
+func (f TrustedIPRangeFunc) TrustedIPRange() ([]net.IPNet, error) {
 	return f()
 }
 

@@ -266,7 +266,7 @@ func TestContext_String(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	c := NewTestContextOnly(w, r)
 	s := "foobar"
-	require.NoError(t, c.String(http.StatusCreated, s))
+	require.NoError(t, c.String(http.StatusCreated, "%s", s))
 	assert.Equal(t, http.StatusCreated, w.Code)
 	assert.Equal(t, http.StatusCreated, c.Writer().Status())
 	assert.Equal(t, MIMETextPlainCharsetUTF8, w.Header().Get(HeaderContentType))
