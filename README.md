@@ -72,6 +72,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
 * [Benchmark](#benchmark)
 * [Road to v1](#road-to-v1)
 * [Contributions](#contributions)
+* [License](#license)
 ---
 
 ## Getting started
@@ -783,6 +784,13 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
 The intention behind these choices is that it can serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
+
+## License
+
+Fox is licensed under the **Apache License 2.0**. See [`LICENSE.txt`](./LICENSE.txt) for details.
+
+The [**Fox logo**](https://github.com/tigerwill90/fox/blob/static/fox_logo.png) is licensed separately under [**CC BY-NC-ND 4.0**](https://creativecommons.org/licenses/by-nc-nd/4.0/?ref=chooser-v1). 
+See [`LICENSE-fox-logo.txt`](https://github.com/tigerwill90/fox/blob/static/LICENSE-fox-logo.txt) for details.
 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
