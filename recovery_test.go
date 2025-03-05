@@ -2,7 +2,6 @@ package fox
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tigerwill90/fox/internal/slogpretty"
@@ -73,7 +72,6 @@ func TestRecoveryMiddleware(t *testing.T) {
 	assert.Equal(t, errMsg, w.Body.String())
 	assert.Equal(t, woBuf.Len(), 0)
 	assert.NotEqual(t, weBuf.Len(), 0)
-	fmt.Println(weBuf.String())
 }
 
 func TestRecoveryMiddlewareOtherScope(t *testing.T) {

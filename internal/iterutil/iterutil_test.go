@@ -112,6 +112,19 @@ func TestSplitBytesSeq(t *testing.T) {
 			assert.Equal(t, tc.wantLen, len(got))
 		})
 	}
+
+	t.Run("break", func(t *testing.T) {
+		k := 0
+		parts := make([][]byte, 0, 2)
+		for part := range SplitBytesSeq([]byte("1,2,3"), []byte(",")) {
+			if k > 1 {
+				break
+			}
+			parts = append(parts, part)
+			k++
+		}
+		assert.Equal(t, [][]byte{[]byte("1"), []byte("2")}, parts)
+	})
 }
 
 func TestBackwardSplitStringSeq(t *testing.T) {
@@ -166,4 +179,17 @@ func TestBackwardSplitStringSeq(t *testing.T) {
 			assert.Equal(t, tc.wantLen, len(got))
 		})
 	}
+
+	t.Run("break", func(t *testing.T) {
+		k := 0
+		parts := make([]string, 0, 2)
+		for part := range SplitStringSeq("1,2,3", ",") {
+			if k > 1 {
+				break
+			}
+			parts = append(parts, part)
+			k++
+		}
+		assert.Equal(t, []string{"1", "2"}, parts)
+	})
 }
