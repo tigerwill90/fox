@@ -166,7 +166,7 @@ func TestRightmostTrustedRange_ClientIP(t *testing.T) {
 
 	c := fox.NewTestContextOnly(w, req)
 	trustedRanges, _ := AddressesAndRangesToIPNets([]string{"192.168.0.0/16", "3.3.3.3"}...)
-	s := must(NewRightmostTrustedRange(XForwardedForKey, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+	s := must(NewRightmostTrustedRange(XForwardedForKey, TrustedIPRangeFunc(func() ([]net.IPNet, error) {
 		return trustedRanges, nil
 	})))
 	ipAddr, err := s.ClientIP(c)
@@ -185,7 +185,7 @@ func TestRightmostTrustedRange_ClientIP(t *testing.T) {
 	assert.ErrorContains(t, err, "unable to find a valid IP address")
 
 	var resolverErr = errors.New("resolver error")
-	s.resolver = IPRangeResolverFunc(func() ([]net.IPNet, error) {
+	s.resolver = TrustedIPRangeFunc(func() ([]net.IPNet, error) {
 		return nil, resolverErr
 	})
 	_, err = s.ClientIP(c)
@@ -1947,14 +1947,14 @@ func TestRightmostTrustedRange(t *testing.T) {
 			var s fox.ClientIPResolver
 			if tt.wantErr {
 				require.Panics(t, func() {
-					s = must(NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+					s = must(NewRightmostTrustedRange(tt.args.headerType, TrustedIPRangeFunc(func() ([]net.IPNet, error) {
 						return ranges, nil
 					})))
 				})
 				return
 			}
 
-			s = must(NewRightmostTrustedRange(tt.args.headerType, IPRangeResolverFunc(func() ([]net.IPNet, error) {
+			s = must(NewRightmostTrustedRange(tt.args.headerType, TrustedIPRangeFunc(func() ([]net.IPNet, error) {
 				return ranges, nil
 			})))
 

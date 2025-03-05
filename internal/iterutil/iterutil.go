@@ -5,6 +5,7 @@
 package iterutil
 
 import (
+	"bytes"
 	"github.com/tigerwill90/fox/internal/constraints"
 	"iter"
 	"strings"
@@ -89,14 +90,32 @@ func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
 	return
 }
 
-func SplitStringSeq(s, sep string) iter.Seq[string] {
-	if len(sep) == 0 {
-		panic("separator cannot be empty")
-	}
-	return splitSeq(s, sep)
+func SplitBytesSeq(s, sep []byte) iter.Seq[[]byte] {
+	return splitBytesSeq(s, sep)
 }
 
-func splitSeq(s, sep string) iter.Seq[string] {
+func splitBytesSeq(s, sep []byte) iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		for {
+			i := bytes.Index(s, sep)
+			if i < 0 {
+				break
+			}
+			frag := s[:i]
+			if !yield(frag) {
+				return
+			}
+			s = s[i+len(sep):]
+		}
+		yield(s)
+	}
+}
+
+func SplitStringSeq(s, sep string) iter.Seq[string] {
+	return splitStringSeq(s, sep)
+}
+
+func splitStringSeq(s, sep string) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for {
 			i := strings.Index(s, sep)
@@ -114,9 +133,6 @@ func splitSeq(s, sep string) iter.Seq[string] {
 }
 
 func BackwardSplitStringSeq(s, sep string) iter.Seq[string] {
-	if len(sep) == 0 {
-		panic("separator cannot be empty")
-	}
 	return backwardSplitSeq(s, sep)
 }
 

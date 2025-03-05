@@ -1,13 +1,17 @@
+# Fox
+
+<img align="right" width="159px" src="https://raw.githubusercontent.com/tigerwill90/fox/refs/heads/static/fox_logo.png">
+
 [![Go Reference](https://pkg.go.dev/badge/github.com/tigerwill90/fox.svg)](https://pkg.go.dev/github.com/tigerwill90/fox)
 [![tests](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/tigerwill90/fox/actions?query=workflow%3Atests)
 [![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
 [![codecov](https://codecov.io/gh/tigerwill90/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/fox)
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tigerwill90/fox)
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/fox)
-# Fox
+
 Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
 that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a Radix Tree that support **lock-free 
-reads** while allowing **concurrent write**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
+reads** while allowing a **concurrent writer**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
 
 Fox supports various use cases, but it is especially designed for applications that require frequent changes at runtime to their 
 routing structure based on user input, configuration changes, or other runtime events.
@@ -68,6 +72,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
 * [Benchmark](#benchmark)
 * [Road to v1](#road-to-v1)
 * [Contributions](#contributions)
+* [License](#license)
 ---
 
 ## Getting started
@@ -779,6 +784,13 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 ## Contributions
 This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
 The intention behind these choices is that it can serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
+
+## License
+
+Fox is licensed under the **Apache License 2.0**. See [`LICENSE.txt`](./LICENSE.txt) for details.
+
+The [**Fox logo**](https://github.com/tigerwill90/fox/blob/static/fox_logo.png) is licensed separately under [**CC BY-NC-ND 4.0**](https://creativecommons.org/licenses/by-nc-nd/4.0/?ref=chooser-v1). 
+See [`LICENSE-fox-logo.txt`](https://github.com/tigerwill90/fox/blob/static/LICENSE-fox-logo.txt) for details.
 
 ## Acknowledgements
 - [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.

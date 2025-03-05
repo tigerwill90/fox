@@ -5,8 +5,10 @@
 package fox
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/slogpretty"
 	"iter"
 	"log/slog"
@@ -18,6 +20,8 @@ import (
 	"slices"
 	"strings"
 )
+
+var reqHeaderSep = []byte("\r\n")
 
 // RecoveryFunc is a function type that defines how to handle panics that occur during the
 // handling of an HTTP request.
@@ -62,37 +66,52 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 		var sb strings.Builder
 
 		sb.WriteString("Recovered from PANIC\n")
-		sb.WriteString("Request Dump:\n")
 
 		httpRequest, _ := httputil.DumpRequest(c.Request(), false)
-		headers := strings.Split(string(httpRequest), "\r\n")
-		sb.WriteString(headers[0])
-		for i := 1; i < len(headers); i++ {
-			sb.WriteString("\r\n")
-			current := strings.Split(headers[i], ":")
-			if slices.Contains(blacklistedHeader, current[0]) {
-				sb.WriteString(current[0])
-				sb.WriteString(": <redacted>")
-				continue
+		sb.Grow(len(httpRequest))
+
+		if before, after, found := bytes.Cut(httpRequest, reqHeaderSep); found {
+			sb.WriteString("Request Dump:\n")
+			sb.Write(before)
+			for header := range iterutil.SplitBytesSeq(after, reqHeaderSep) {
+				sb.Write(reqHeaderSep)
+				idx := bytes.IndexByte(header, ':')
+				if idx < 0 {
+					continue
+				}
+				if slices.Contains(blacklistedHeader, string(header[:idx])) {
+					sb.Write(header[:idx])
+					sb.WriteString(": <redacted>")
+					continue
+				}
+				sb.Write(header)
 			}
-			sb.WriteString(headers[i])
 		}
 
 		sb.WriteString("Stack:\n")
 		sb.WriteString(stacktrace(3, 6))
 
-		params := slices.Collect(mapParamsToAttr(c.Params()))
+		var params []any
+		if c.Route() != nil {
+			params = make([]any, 0, c.Route().ParamsLen())
+			params = slices.AppendSeq(params, mapParamsToAttr(c.Params()))
+		}
 
 		var errAttr slog.Attr
 		if e, ok := err.(error); ok {
 			errAttr = slog.String("error", e.Error())
 		} else {
-			errAttr = slog.Any("error", errAttr)
+			errAttr = slog.Any("error", err)
+		}
+
+		pattern := c.Pattern()
+		if pattern == "" {
+			pattern = scopeToString(c.Scope())
 		}
 
 		logger.Error(
 			sb.String(),
-			slog.String("route", c.Pattern()),
+			slog.String("route", pattern),
 			slog.Group("params", params...),
 			errAttr,
 		)
@@ -150,4 +169,21 @@ func mapParamsToAttr(params iter.Seq[Param]) iter.Seq[any] {
 			}
 		}
 	}
+}
+
+func scopeToString(scope HandlerScope) string {
+	var strScope string
+	switch scope {
+	case OptionsHandler:
+		strScope = "OptionsHandler"
+	case NoMethodHandler:
+		strScope = "NoMethodHandler"
+	case RedirectHandler:
+		strScope = "RedirectHandler"
+	case NoRouteHandler:
+		strScope = "NoRouteHandler"
+	default:
+		strScope = "UnknownHandler"
+	}
+	return strScope
 }

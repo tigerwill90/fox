@@ -89,6 +89,9 @@ const (
 	RedirectHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
+)
+
+const (
 	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
 	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
 )
