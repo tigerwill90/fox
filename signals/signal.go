@@ -20,15 +20,18 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync/atomic"
 )
 
-var onlyOneSignalHandler = make(chan struct{})
+var once atomic.Uint32
 
 // SetupHandler registered for SIGTERM and SIGINT. A context is returned
 // which is cancelled on one of these signals. If a second signal is caught,
 // the program is terminated with exit code 1.
 func SetupHandler() context.Context {
-	close(onlyOneSignalHandler) // panics when called twice
+	if !once.CompareAndSwap(0, 1) {
+		panic("only one signal handler allowed")
+	}
 
 	c := make(chan os.Signal, 2)
 	ctx, cancel := context.WithCancel(context.Background())
