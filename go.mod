@@ -7,7 +7,7 @@ toolchain go1.24.0
 require (
 	github.com/google/gofuzz v1.2.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sys v0.30.0
+	golang.org/x/sys v0.32.0
 )
 
 require (
