@@ -57,7 +57,7 @@ func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 		if handler == nil {
 			return fmt.Errorf("%w: no route handler cannot be nil", ErrInvalidConfig)
 		}
-		s.router.noRoute = handler
+		s.router.noRouteBase = handler
 		return nil
 	})
 }
