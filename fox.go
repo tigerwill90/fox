@@ -99,6 +99,7 @@ const (
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
+	noRouteBase            HandlerFunc
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
@@ -138,7 +139,7 @@ var _ http.Handler = (*Router)(nil)
 func New(opts ...GlobalOption) (*Router, error) {
 	r := new(Router)
 
-	r.noRoute = DefaultNotFoundHandler
+	r.noRouteBase = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
 	r.clientip = noClientIPResolver{}
@@ -151,7 +152,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 		}
 	}
 
-	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRoute)
+	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
 	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler)
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
@@ -359,6 +360,11 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte, nil
+}
+
+// HandleNoRoute calls the no route handler with the provided [Context].
+func (fox *Router) HandleNoRoute(c Context) {
+	fox.noRouteBase(c)
 }
 
 // Len returns the number of registered route.

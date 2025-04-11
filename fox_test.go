@@ -4806,6 +4806,29 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	}
 }
 
+func TestRouterHandleNoRoute(t *testing.T) {
+	called := 0
+	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			called++
+			next(c)
+		}
+	})
+
+	f, err := New(WithMiddleware(m))
+	require.NoError(t, err)
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
+		c.Fox().HandleNoRoute(c)
+	})))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, 1, called)
+
+}
+
 func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 	f, _ := New(WithNoMethod(true), WithIgnoreTrailingSlash(true))
 
