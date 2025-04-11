@@ -328,9 +328,7 @@ func relevantCaller() runtime.Frame {
 	return frame
 }
 
-var errHttpNotSupported = fmt.Errorf("%w", http.ErrNotSupported)
-
 // ErrNotSupported returns an error that Is http.ErrNotSupported, but is not == to it.
 func ErrNotSupported() error {
-	return errHttpNotSupported
+	return fmt.Errorf("%w", http.ErrNotSupported)
 }
