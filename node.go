@@ -169,7 +169,6 @@ Walk:
 						// There is another path segment (e.g. foo.{bar}.baz)
 						charsMatched += idx
 					} else if idx < 0 {
-						//
 						// This is the end of the path (e.g. foo.{bar})
 						charsMatched += len(host[charsMatched:])
 					} else {
