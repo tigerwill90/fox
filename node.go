@@ -118,11 +118,10 @@ func (r roots) lookup(t *iTree, method, hostPort, path string, c *cTx, lazy bool
 // lookupByDomain is like lookupByPath, but for target with hostname.
 func lookupByDomain(tree *iTree, target *node, host, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	var (
-		charsMatched            int
-		charsMatchedInNodeFound int
-		paramCnt                uint32
-		paramKeyCnt             uint32
-		current                 *node
+		charsMatched int
+		paramCnt     uint32
+		paramKeyCnt  uint32
+		current      *node
 	)
 
 	*c.skipNds = (*c.skipNds)[:0]
@@ -155,50 +154,72 @@ func lookupByDomain(tree *iTree, target *node, host, path string, c *cTx, lazy b
 
 Walk:
 	for charsMatched < len(host) {
-		charsMatchedInNodeFound = 0
-		for i := 0; charsMatched < len(host); i++ {
-			if i >= len(current.key) {
-				break
-			}
-
-			if current.key[i] != host[charsMatched] || host[charsMatched] == bracketDelim {
-				if current.key[i] == bracketDelim {
-					startPath := charsMatched
-					idx = strings.IndexByte(host[charsMatched:], dotDelim)
-					if idx > 0 {
-						// There is another path segment (e.g. foo.{bar}.baz)
-						charsMatched += idx
-					} else if idx < 0 {
-						// This is the end of the path (e.g. foo.{bar})
-						charsMatched += len(host[charsMatched:])
-					} else {
-						// segment is empty
-						break Walk
-					}
-
-					idx = current.params[paramKeyCnt].end - charsMatchedInNodeFound
-					if idx >= 0 {
-						// -1 since on the next incrementation, if any, 'i' are going to be incremented
-						i += idx - 1
-						charsMatchedInNodeFound += idx
-					} else {
-						// -1 since on the next incrementation, if any, 'i' are going to be incremented
-						i += len(current.key[charsMatchedInNodeFound:]) - 1
-						charsMatchedInNodeFound += len(current.key[charsMatchedInNodeFound:])
-					}
-
-					if !lazy {
-						paramCnt++
-						*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: host[startPath:charsMatched]})
-					}
-					paramKeyCnt++
-					continue
-				}
-
+		// If no params, compare entire key
+		if len(current.params) == 0 {
+			if charsMatched+len(current.key) <= len(host) && host[charsMatched:charsMatched+len(current.key)] == current.key {
+				charsMatched += len(current.key)
+			} else {
 				break Walk
 			}
-			charsMatched++
-			charsMatchedInNodeFound++
+		} else {
+			// Handle params
+			startOffset := 0
+			for paramKeyCnt < uint32(len(current.params)) {
+				p := current.params[paramKeyCnt]
+
+				// Compare static prefix before parameter
+				staticLen := p.start - startOffset
+				if staticLen > 0 {
+					if charsMatched+staticLen > len(host) || host[charsMatched:charsMatched+staticLen] != current.key[startOffset:p.start] {
+						break Walk
+					}
+					charsMatched += staticLen
+				}
+
+				// Extract parameter value
+				startPath := charsMatched
+				idx = strings.IndexByte(host[charsMatched:], dotDelim)
+				if idx > 0 {
+					// There is another segment (e.g. foo.{bar}.baz)
+					charsMatched += idx
+				} else if idx < 0 {
+					// This is the end (e.g. foo.{bar})
+					if p.end >= 0 {
+						// We expect more after the param
+						charsMatched += len(host[charsMatched:])
+					} else {
+						// This is the last param, consume till end
+						charsMatched += len(host[charsMatched:])
+					}
+				} else {
+					// segment is empty
+					break Walk
+				}
+
+				if !lazy {
+					paramCnt++
+					*c.params = append(*c.params, Param{Key: current.params[paramKeyCnt].key, Value: host[startPath:charsMatched]})
+				}
+
+				// Update offsets
+				if p.end >= 0 {
+					startOffset = p.end
+				} else {
+					// This was the last param
+					startOffset = len(current.key)
+				}
+				paramKeyCnt++
+			}
+
+			// Compare any remaining static suffix
+			if startOffset < len(current.key) {
+				remainingLen := len(current.key) - startOffset
+				if charsMatched+remainingLen <= len(host) && host[charsMatched:charsMatched+remainingLen] == current.key[startOffset:] {
+					charsMatched += remainingLen
+				} else {
+					break Walk
+				}
+			}
 		}
 
 		if charsMatched < len(host) {
@@ -240,7 +261,7 @@ Walk:
 	paramKeyCnt = 0
 	hasSkpNds := len(*c.skipNds) > 0
 
-	if charsMatchedInNodeFound == len(current.key) {
+	if charsMatched == len(host) {
 		// linear search
 		idx = -1
 		for i := 0; i < len(current.childKeys); i++ {
@@ -863,9 +884,10 @@ type skippedNode struct {
 	childIndex int
 }
 
-// param represents a parsed parameter and its end position in the path.
+// param represents a parsed parameter and its start/end position in the path.
 type param struct {
 	key      string
+	start    int // position where the parameter starts (after the static prefix)
 	end      int // -1 if end with {a}, else pos of the next char.
 	catchAll bool
 }
@@ -884,9 +906,12 @@ func parseWildcard(segment string) []param {
 				if len(segment[i+1:]) > 0 {
 					end = i + 1
 				}
+				// The start of the param is where '{' was found
+				paramStart := start - 1
 				params = append(params, param{
-					key: segment[start:i],
-					end: end,
+					key:   segment[start:i],
+					start: paramStart,
+					end:   end,
 				})
 				start = 0
 				state = stateDefault
@@ -898,8 +923,11 @@ func parseWildcard(segment string) []param {
 				if len(segment[i+1:]) > 0 {
 					end = i + 1
 				}
+				// The start of the catch-all is where '*' was found
+				paramStart := start - 2
 				params = append(params, param{
 					key:      segment[start:i],
+					start:    paramStart,
 					end:      end,
 					catchAll: true,
 				})
