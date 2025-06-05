@@ -870,15 +870,29 @@ func TestStaticHostnameRoute(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(route.method, route.path+"/foo", patternHandler)))
 	}
 
-	for _, route := range staticHostnames {
-		req, err := http.NewRequest(route.method, "/foo", nil)
-		require.NoError(t, err)
-		req.Host = route.path
-		w := httptest.NewRecorder()
-		f.ServeHTTP(w, req)
-		require.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, route.path+"/foo", w.Body.String())
-	}
+	t.Run("same case", func(t *testing.T) {
+		for _, route := range staticHostnames {
+			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = route.path
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	t.Run("case-insensitive", func(t *testing.T) {
+		for _, route := range staticHostnames {
+			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = strings.ToUpper(route.path)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
 
 	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
