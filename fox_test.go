@@ -28,8 +28,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var emptyHandler = HandlerFunc(func(c Context) {})
-var pathHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Path()) })
+var (
+	emptyHandler   = HandlerFunc(func(c Context) {})
+	pathHandler    = HandlerFunc(func(c Context) { _ = c.String(200, c.Path()) })
+	patternHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Pattern()) })
+)
 
 type mockResponseWriter struct{}
 
@@ -217,6 +220,166 @@ var staticRoutes = []route{
 	{"GET", "/progs/timeout1.go"},
 	{"GET", "/progs/timeout2.go"},
 	{"GET", "/progs/update.bash"},
+}
+
+// Clone of staticRoutes with hostname transformation
+var staticHostnames = []route{
+	{"GET", "cmd.html"},
+	{"GET", "code.html"},
+	{"GET", "contrib.html"},
+	{"GET", "contribute.html"},
+	{"GET", "debugging_with_gdb.html"},
+	{"GET", "docs.html"},
+	{"GET", "effective_go.html"},
+	{"GET", "files.log"},
+	{"GET", "gccgo_contribute.html"},
+	{"GET", "gccgo_install.html"},
+	{"GET", "go-logo-black.png"},
+	{"GET", "go-logo-blue.png"},
+	{"GET", "go-logo-white.png"},
+	{"GET", "go1.1.html"},
+	{"GET", "go1.2.html"},
+	{"GET", "go1.html"},
+	{"GET", "go1compat.html"},
+	{"GET", "go_faq.html"},
+	{"GET", "go_mem.html"},
+	{"GET", "go_spec.html"},
+	{"GET", "help.html"},
+	{"GET", "ie.css"},
+	{"GET", "install-source.html"},
+	{"GET", "install.html"},
+	{"GET", "logo-153x55.png"},
+	{"GET", "Makefile"},
+	{"GET", "root.html"},
+	{"GET", "share.png"},
+	{"GET", "sieve.gif"},
+	{"GET", "tos.html"},
+	{"GET", "articles"},
+	{"GET", "articles.go_command.html"},
+	{"GET", "articles.index.html"},
+	{"GET", "articles.wiki"},
+	{"GET", "articles.wiki.edit.html"},
+	{"GET", "articles.wiki.final-noclosure.go"},
+	{"GET", "articles.wiki.final-noerror.go"},
+	{"GET", "articles.wiki.final-parsetemplate.go"},
+	{"GET", "articles.wiki.final-template.go"},
+	{"GET", "articles.wiki.final.go"},
+	{"GET", "articles.wiki.get.go"},
+	{"GET", "articles.wiki.http-sample.go"},
+	{"GET", "articles.wiki.index.html"},
+	{"GET", "articles.wiki.Makefile"},
+	{"GET", "articles.wiki.notemplate.go"},
+	{"GET", "articles.wiki.part1-noerror.go"},
+	{"GET", "articles.wiki.part1.go"},
+	{"GET", "articles.wiki.part2.go"},
+	{"GET", "iptv-sfr"},
+	{"GET", "articles.wiki.part3.go"},
+	{"GET", "articles.wiki.test.bash"},
+	{"GET", "articles.wiki.test_edit.good"},
+	{"GET", "articles.wiki.test_Test.txt.good"},
+	{"GET", "articles.wiki.test_view.good"},
+	{"GET", "articles.wiki.view.html"},
+	{"GET", "codewalk"},
+	{"GET", "codewalk.codewalk.css"},
+	{"GET", "codewalk.codewalk.js"},
+	{"GET", "codewalk.codewalk.xml"},
+	{"GET", "codewalk.functions.xml"},
+	{"GET", "codewalk.markov.go"},
+	{"GET", "codewalk.markov.xml"},
+	{"GET", "codewalk.pig.go"},
+	{"GET", "codewalk.popout.png"},
+	{"GET", "codewalk.run"},
+	{"GET", "codewalk.sharemem.xml"},
+	{"GET", "codewalk.urlpoll.go"},
+	{"GET", "devel"},
+	{"GET", "devel.release.html"},
+	{"GET", "devel.weekly.html"},
+	{"GET", "gopher"},
+	{"GET", "gopher.appenginegopher.jpg"},
+	{"GET", "gopher.appenginegophercolor.jpg"},
+	{"GET", "gopher.appenginelogo.gif"},
+	{"GET", "gopher.bumper.png"},
+	{"GET", "gopher.bumper192x108.png"},
+	{"GET", "gopher.bumper320x180.png"},
+	{"GET", "gopher.bumper480x270.png"},
+	{"GET", "gopher.bumper640x360.png"},
+	{"GET", "gopher.doc.png"},
+	{"GET", "gopher.frontpage.png"},
+	{"GET", "gopher.gopherbw.png"},
+	{"GET", "gopher.gophercolor.png"},
+	{"GET", "gopher.gophercolor16x16.png"},
+	{"GET", "gopher.help.png"},
+	{"GET", "gopher.pkg.png"},
+	{"GET", "gopher.project.png"},
+	{"GET", "gopher.ref.png"},
+	{"GET", "gopher.run.png"},
+	{"GET", "gopher.talks.png"},
+	{"GET", "gopher.pencil"},
+	{"GET", "gopher.pencil.gopherhat.jpg"},
+	{"GET", "gopher.pencil.gopherhelmet.jpg"},
+	{"GET", "gopher.pencil.gophermega.jpg"},
+	{"GET", "gopher.pencil.gopherrunning.jpg"},
+	{"GET", "gopher.pencil.gopherswim.jpg"},
+	{"GET", "gopher.pencil.gopherswrench.jpg"},
+	{"GET", "play"},
+	{"GET", "play.fib.go"},
+	{"GET", "play.hello.go"},
+	{"GET", "play.life.go"},
+	{"GET", "play.peano.go"},
+	{"GET", "play.pi.go"},
+	{"GET", "play.sieve.go"},
+	{"GET", "play.solitaire.go"},
+	{"GET", "play.tree.go"},
+	{"GET", "progs"},
+	{"GET", "progs.cgo1.go"},
+	{"GET", "progs.cgo2.go"},
+	{"GET", "progs.cgo3.go"},
+	{"GET", "progs.cgo4.go"},
+	{"GET", "progs.defer.go"},
+	{"GET", "progs.defer.out"},
+	{"GET", "progs.defer2.go"},
+	{"GET", "progs.defer2.out"},
+	{"GET", "progs.eff_bytesize.go"},
+	{"GET", "progs.eff_bytesize.out"},
+	{"GET", "progs.eff_qr.go"},
+	{"GET", "progs.eff_sequence.go"},
+	{"GET", "progs.eff_sequence.out"},
+	{"GET", "progs.eff_unused1.go"},
+	{"GET", "progs.eff_unused2.go"},
+	{"GET", "progs.error.go"},
+	{"GET", "progs.error2.go"},
+	{"GET", "progs.error3.go"},
+	{"GET", "progs.error4.go"},
+	{"GET", "progs.go1.go"},
+	{"GET", "progs.gobs1.go"},
+	{"GET", "progs.gobs2.go"},
+	{"GET", "progs.image_draw.go"},
+	{"GET", "progs.image_package1.go"},
+	{"GET", "progs.image_package1.out"},
+	{"GET", "progs.image_package2.go"},
+	{"GET", "progs.image_package2.out"},
+	{"GET", "progs.image_package3.go"},
+	{"GET", "progs.image_package3.out"},
+	{"GET", "progs.image_package4.go"},
+	{"GET", "progs.image_package4.out"},
+	{"GET", "progs.image_package5.go"},
+	{"GET", "progs.image_package5.out"},
+	{"GET", "progs.image_package6.go"},
+	{"GET", "progs.image_package6.out"},
+	{"GET", "progs.interface.go"},
+	{"GET", "progs.interface2.go"},
+	{"GET", "progs.interface2.out"},
+	{"GET", "progs.json1.go"},
+	{"GET", "progs.json2.go"},
+	{"GET", "progs.json2.out"},
+	{"GET", "progs.json3.go"},
+	{"GET", "progs.json4.go"},
+	{"GET", "progs.json5.go"},
+	{"GET", "progs.run"},
+	{"GET", "progs.slices.go"},
+	{"GET", "progs.timeout1.go"},
+	{"GET", "progs.timeout2.go"},
+	{"GET", "progs.update.bash"},
 }
 
 // From https://github.com/julienschmidt/go-http-routing-benchmark
@@ -451,7 +614,7 @@ var githubAPI = []route{
 	{"DELETE", "/user/keys/{id}"},
 }
 
-func benchRoutes(b *testing.B, router http.Handler, routes []route) {
+func benchRoute(b *testing.B, router http.Handler, routes []route) {
 	w := new(mockResponseWriter)
 	r := httptest.NewRequest("GET", "/", nil)
 	u := r.URL
@@ -465,6 +628,27 @@ func benchRoutes(b *testing.B, router http.Handler, routes []route) {
 			r.Method = route.method
 			r.RequestURI = route.path
 			u.Path = route.path
+			u.RawQuery = rq
+			router.ServeHTTP(w, r)
+		}
+	}
+}
+
+func benchHostname(b *testing.B, router http.Handler, routes []route) {
+	w := new(mockResponseWriter)
+	r := httptest.NewRequest("GET", "/", nil)
+	u := r.URL
+	rq := u.RawQuery
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		for _, route := range routes {
+			r.Method = route.method
+			r.Host = route.path
+			r.RequestURI = "/"
+			u.Path = "/"
 			u.RawQuery = rq
 			router.ServeHTTP(w, r)
 		}
@@ -491,7 +675,39 @@ func BenchmarkStaticAll(b *testing.B) {
 		require.NoError(b, onlyError(r.Handle(route.method, route.path, emptyHandler)))
 	}
 
-	benchRoutes(b, r, staticRoutes)
+	benchRoute(b, r, staticRoutes)
+}
+
+func BenchmarkStaticAllMux(b *testing.B) {
+	r := http.NewServeMux()
+	for _, route := range staticRoutes {
+		r.HandleFunc(route.method+" "+route.path, func(w http.ResponseWriter, r *http.Request) {
+
+		})
+	}
+
+	benchRoute(b, r, staticRoutes)
+}
+
+// BenchmarkStaticHostnameAll-8   	   36752	     33379 ns/op	       0 B/op	       0 allocs/op
+func BenchmarkStaticHostnameAll(b *testing.B) {
+	r, _ := New()
+	for _, route := range staticHostnames {
+		require.NoError(b, onlyError(r.Handle(route.method, route.path+"/", emptyHandler)))
+	}
+
+	benchHostname(b, r, staticHostnames)
+}
+
+func BenchmarkStaticHostnameAllMux(b *testing.B) {
+	r := http.NewServeMux()
+	for _, route := range staticHostnames {
+		r.HandleFunc(route.method+" "+route.path+"/", func(w http.ResponseWriter, r *http.Request) {
+
+		})
+	}
+
+	benchHostname(b, r, staticHostnames)
 }
 
 func BenchmarkGithubParamsAll(b *testing.B) {
@@ -642,6 +858,26 @@ func TestStaticRoute(t *testing.T) {
 		f.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
+	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+}
+
+func TestStaticHostnameRoute(t *testing.T) {
+	f, _ := New()
+
+	for _, route := range staticHostnames {
+		require.NoError(t, onlyError(f.Handle(route.method, route.path+"/foo", patternHandler)))
+	}
+
+	for _, route := range staticHostnames {
+		req, err := http.NewRequest(route.method, "/foo", nil)
+		require.NoError(t, err)
+		req.Host = route.path
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path+"/foo", w.Body.String())
 	}
 
 	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
@@ -5656,6 +5892,87 @@ func TestEncodedPath(t *testing.T) {
 	assert.Equal(t, encodedPath, w.Body.String())
 }
 
+func TestEqualASCIIIgnoreCase(t *testing.T) {
+	tests := []struct {
+		name string
+		s    uint8
+		t    uint8
+		want bool
+	}{
+		// Exact matches
+		{"same lowercase letter", 'a', 'a', true},
+		{"same uppercase letter", 'A', 'A', true},
+		{"same digit", '5', '5', true},
+		{"same hyphen", '-', '-', true},
+
+		// Case-insensitive letter matches
+		{"A and a", 'A', 'a', true},
+		{"a and A", 'a', 'A', true},
+		{"Z and z", 'Z', 'z', true},
+		{"z and Z", 'z', 'Z', true},
+		{"M and m", 'M', 'm', true},
+		{"m and M", 'm', 'M', true},
+
+		// Different letters (should not match)
+		{"A and B", 'A', 'B', false},
+		{"a and b", 'a', 'b', false},
+		{"A and b", 'A', 'b', false},
+		{"a and B", 'a', 'B', false},
+
+		// Digits (only match exactly)
+		{"0 and 0", '0', '0', true},
+		{"9 and 9", '9', '9', true},
+		{"0 and 1", '0', '1', false},
+		{"5 and 6", '5', '6', false},
+
+		// Hyphen (only matches exactly)
+		{"hyphen and hyphen", '-', '-', true},
+		{"hyphen and A", '-', 'A', false},
+		{"hyphen and a", '-', 'a', false},
+		{"hyphen and 0", '-', '0', false},
+
+		// Characters just outside letter ranges
+		{"@ and A", '@', 'A', false},
+		{"Z and [", 'Z', '[', false},
+		{"` and a", '`', 'a', false},
+		{"z and {", 'z', '{', false},
+
+		// Special characters and control chars
+		{"null and A", 0, 'A', false},
+		{"A and null", 'A', 0, false},
+		{"space and A", ' ', 'A', false},
+		{"A and space", 'A', ' ', false},
+		{"! and A", '!', 'A', false},
+		{"A and !", 'A', '!', false},
+		{"/ and A", '/', 'A', false},
+		{"A and /", 'A', '/', false},
+
+		// High ASCII values
+		{"high byte and A", 0xFF, 'A', false},
+		{"A and high byte", 'A', 0xFF, false},
+		{"high byte and a", 0xFF, 'a', false},
+		{"a and high byte", 'a', 0xFF, false},
+
+		// Case difference edge cases
+		{"@ and `", '@', '`', false},
+		{"0 and P", '0', 'P', false},
+
+		// Boundary cases for the letter ranges
+		{"A-1 and a", 'A' - 1, 'a', false},
+		{"Z+1 and z", 'Z' + 1, 'z', false},
+		{"a-1 and A", 'a' - 1, 'A', false},
+		{"z+1 and Z", 'z' + 1, 'Z', false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := equalASCIIIgnoreCase(tt.s, tt.t); got != tt.want {
+				t.Errorf("equalASCIIIgnoreCase(%c=%d, %c=%d) = %v, want %v",
+					tt.s, tt.s, tt.t, tt.t, got, tt.want)
+			}
+		})
+	}
+}
 func TestFuzzInsertLookupParam(t *testing.T) {
 	// no '*', '{}' and '/' and invalid escape char
 	unicodeRanges := fuzz.UnicodeRanges{

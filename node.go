@@ -276,7 +276,7 @@ Walk:
 		}
 
 		// Direct match
-		if !lazy {
+		if !lazy /*&& len(*subCtx.params) > 0*/ {
 			*c.params = append(*c.params, *subCtx.params...)
 		}
 
