@@ -778,7 +778,7 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 				if i < endHost {
 					c := url[i]
 					switch {
-					case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '_':
+					case 'a' <= c && c <= 'z' || c == '_':
 						nonNumeric = true
 						partlen++
 					case '0' <= c && c <= '9':
@@ -805,6 +805,8 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 						}
 						totallen += partlen + 1 // +1 count the current dot
 						partlen = 0
+					case 'A' <= c && c <= 'Z':
+						return 0, -1, fmt.Errorf("%w: illegal uppercase character '%s' in hostname label", ErrInvalidRoute, string(c))
 					default:
 						return 0, -1, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
 					}

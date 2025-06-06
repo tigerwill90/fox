@@ -205,10 +205,10 @@ Note that catch-all patterns are not supported in hostname.
 
 #### Hostname validation & restrictions
 
-Hostnames are validated to conform to [the LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2).
-Wildcard segments within hostnames, such as {a}.b.c/, are exempt from LDH validation since they act as placeholders rather
-than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label, nor the 255-character
-limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
+Hostnames are validated to conform to the [LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2)
+(lowercase only) and SRV-like "underscore labels". Wildcard segments within hostnames, such as {a}.b.c/, are exempt from LDH validation 
+since they act as placeholders rather than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label, 
+nor the 255-character limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
 (Punycode) representation.
 
 The DNS specification permits a trailing period to be used to denote the root, e.g., `a.b.c` and `a.b.c.` are equivalent, 
@@ -262,7 +262,7 @@ Request Matching:
 The router can transition instantly and transparently from path-only mode to hostname-prioritized mode without any 
 additional configuration or action. If any route with a hostname is registered, the router automatically switches to 
 prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
-path-priority mode, ensuring optimal and adaptive routing behavior.
+path-priority mode.
 
 - If the routing tree for a given method has no routes registered with hostnames, the router will perform a path-based lookup only.
 - If the routing tree for a given method includes at least one route with a hostname, the router will prioritize lookup based 
@@ -270,6 +270,8 @@ on the request host and path. If no match is found, the router will then fall ba
 - Trailing slash handling (redirect or ignore) is mode-specific, either for hostname-prioritized or path-prioritized mode. 
 Therefore, if no exact match is found for a domain-based lookup but a trailing slash adjustment is possible, Fox will perform 
 the redirect (or ignore the trailing slash) without falling back to path-only lookup.
+
+Hostname matching is **case-insensitive**, so requests to `Example.COM`, `example.com`, and `EXAMPLE.COM` will all match a route registered for `example.com`.
 
 #### Warning about context
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.

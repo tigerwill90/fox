@@ -36,7 +36,7 @@ func (r roots) methodIndex(method string) int {
 	return -1
 }
 
-func (r roots) search(rootNode *node, path string) (matched *node) {
+func (r roots) search(rootNode *node, pattern string) (matched *node) {
 	current := rootNode
 
 	var (
@@ -45,20 +45,20 @@ func (r roots) search(rootNode *node, path string) (matched *node) {
 	)
 
 STOP:
-	for charsMatched < len(path) {
-		next := current.getEdge(path[charsMatched])
+	for charsMatched < len(pattern) {
+		next := current.getEdge(pattern[charsMatched])
 		if next == nil {
 			break STOP
 		}
 
 		current = next
 		charsMatchedInNodeFound = 0
-		for i := 0; charsMatched < len(path); i++ {
+		for i := 0; charsMatched < len(pattern); i++ {
 			if i >= len(current.key) {
 				break
 			}
 
-			if current.key[i] != path[charsMatched] {
+			if current.key[i] != pattern[charsMatched] {
 				break STOP
 			}
 
@@ -67,7 +67,7 @@ STOP:
 		}
 	}
 
-	if charsMatched == len(path) {
+	if charsMatched == len(pattern) {
 		// Exact match
 		if charsMatchedInNodeFound == len(current.key) {
 			return current
@@ -129,7 +129,7 @@ func lookupByDomain(tree *iTree, target *node, host, path string, c *cTx, lazy b
 
 	idx := -1
 	for i := 0; i < len(target.childKeys); i++ {
-		if target.childKeys[i] == host[0] {
+		if equalASCIIIgnoreCase(target.childKeys[i], host[0]) {
 			idx = i
 			break
 		}
@@ -161,7 +161,7 @@ Walk:
 				break
 			}
 
-			if current.key[i] != host[charsMatched] || host[charsMatched] == bracketDelim {
+			if !equalASCIIIgnoreCase(current.key[i], host[charsMatched]) || host[charsMatched] == bracketDelim {
 				if current.key[i] == bracketDelim {
 					startPath := charsMatched
 					idx = strings.IndexByte(host[charsMatched:], dotDelim)
@@ -205,7 +205,7 @@ Walk:
 			// linear search
 			idx = -1
 			for i := 0; i < len(current.childKeys); i++ {
-				if current.childKeys[i] == host[charsMatched] {
+				if equalASCIIIgnoreCase(current.childKeys[i], host[charsMatched]) {
 					idx = i
 					break
 				}
@@ -276,7 +276,7 @@ Walk:
 		}
 
 		// Direct match
-		if !lazy {
+		if !lazy && len(*subCtx.params) > 0 {
 			*c.params = append(*c.params, *subCtx.params...)
 		}
 

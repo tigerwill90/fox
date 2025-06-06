@@ -749,3 +749,25 @@ func (r searchResult) classify() resultType {
 func (r searchResult) isExactMatch() bool {
 	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
 }
+
+// equalASCIIIgnoreCase performs case-insensitive comparison of two ASCII bytes.
+// Only supports ASCII letters (A-Z, a-z), digits (0-9), and hyphen (-).
+// Used for hostname matching where registered routes follow LDH standard.
+func equalASCIIIgnoreCase(s, t uint8) bool {
+	// Easy case.
+	if t == s {
+		return true
+	}
+
+	// Make s < t to simplify what follows.
+	if t < s {
+		t, s = s, t
+	}
+
+	// ASCII only, s/t must be upper/lower case
+	if 'A' <= s && s <= 'Z' && t == s+'a'-'A' {
+		return true
+	}
+
+	return false
+}
