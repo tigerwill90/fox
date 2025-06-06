@@ -2992,6 +2992,24 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "wildcard hostname with complex overlapping route with static priority (case-insensitive)",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1}/jo",
+				"{any}.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
+			},
+			host:     "EXEMPLE.COM",
+			path:     "/foo/bar/baz/1/jo",
+			wantPath: "exemple.com/foo/bar/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
 			name: "wildcard hostname with complex overlapping route with param priority",
 			routes: []string{
 				"{sub}.com/foo/bar/baz/{$1}/jo",
@@ -3046,6 +3064,24 @@ func TestDomainLookup(t *testing.T) {
 				{
 					Key:   "a",
 					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "static priority in hostname (case-insensitive)",
+			routes: []string{
+				"{a}.{b}.{c}/foo",
+				"{a}.{b}.c/foo",
+				"{a}.b.c/foo",
+			},
+			host:     "FOO.B.C",
+			path:     "/foo",
+			wantPath: "{a}.b.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "FOO",
 				},
 			},
 		},
@@ -3112,6 +3148,20 @@ func TestDomainLookup(t *testing.T) {
 			wantParams: Params(nil),
 		},
 		{
+			name: "fallback to path only (case-insenitive)",
+			routes: []string{
+				"{a}.{b}.{c}/foo",
+				"{a}.{b}.c/foo",
+				"{a}.b.c/foo",
+				"/foo/bar",
+			},
+			host:       "FOO.BAR.BAZ",
+			path:       "/foo/bar",
+			wantPath:   "/foo/bar",
+			wantTsr:    false,
+			wantParams: Params(nil),
+		},
+		{
 			name: "fallback to path only with param",
 			routes: []string{
 				"{a}.{b}.{c}/{d}",
@@ -3146,6 +3196,29 @@ func TestDomainLookup(t *testing.T) {
 				{
 					Key:   "a",
 					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to tsr with hostname priority (case-insensitive)",
+			routes: []string{
+				"{a}.{b}.{c}/{d}",
+				"{a}.{b}.c/{d}",
+				"{a}.b.c/{path}/bar/",
+				"/{a}/bar",
+			},
+			host:     "FOO.B.C",
+			path:     "/john/bar",
+			wantPath: "{a}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "FOO",
 				},
 				{
 					Key:   "path",
@@ -6000,6 +6073,39 @@ func TestRouter_Reverse(t *testing.T) {
 			assert.Equal(t, rte.path+"/", route.Pattern())
 		}
 	})
+
+	t.Run("reverse no tsr", func(t *testing.T) {
+		f, _ := New()
+		for _, rte := range staticRoutes {
+			require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+		}
+		for _, rte := range staticRoutes {
+			route, tsr := f.Reverse(rte.method, "", rte.path)
+			assert.False(t, tsr)
+			require.NotNil(t, route)
+			assert.Equal(t, rte.path, route.Pattern())
+		}
+	})
+
+	t.Run("reverse with hostname", func(t *testing.T) {
+		f, _ := New()
+		route, err := f.Handle(http.MethodGet, "{sub}.exemple.com/foo", emptyHandler)
+		require.NoError(t, err)
+		got, tsr := f.Reverse(http.MethodGet, "foo.exemple.com", "/foo")
+		assert.False(t, tsr)
+		require.NotNil(t, route)
+		assert.Equal(t, route, got)
+	})
+
+	t.Run("reverse with hostname (case-insensitive)", func(t *testing.T) {
+		f, _ := New()
+		route, err := f.Handle(http.MethodGet, "{sub}.exemple.com/foo", emptyHandler)
+		require.NoError(t, err)
+		got, tsr := f.Reverse(http.MethodGet, "FOO.EXEMPLE.COM", "/foo")
+		assert.False(t, tsr)
+		require.NotNil(t, route)
+		assert.Equal(t, route, got)
+	})
 }
 
 func TestTree_Has(t *testing.T) {
@@ -6290,6 +6396,7 @@ func TestEqualASCIIIgnoreCase(t *testing.T) {
 		})
 	}
 }
+
 func TestFuzzInsertLookupParam(t *testing.T) {
 	// no '*', '{}' and '/' and invalid escape char
 	unicodeRanges := fuzz.UnicodeRanges{
