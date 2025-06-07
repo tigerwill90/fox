@@ -383,7 +383,7 @@ Walk:
 						if idx > 0 {
 							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
-							subNode, subTsr := lookupByPath(tree, inode, path[charsMatched:], subCtx, false)
+							subNode, subTsr := lookupByPath(tree, inode, path[charsMatched:], subCtx, lazy)
 							if subNode == nil {
 								// Try with next segment
 								charsMatched++
