@@ -4114,13 +4114,15 @@ func TestUpdateConflict(t *testing.T) {
 func TestInvalidRoute(t *testing.T) {
 	f, _ := New()
 	// Invalid route on insert
-	assert.ErrorIs(t, onlyError(f.Handle("get", "/foo", emptyHandler)), ErrInvalidRoute)
+	assert.ErrorIs(t, onlyError(f.Handle("G\x00ET", "/foo", emptyHandler)), ErrInvalidRoute)
 	assert.ErrorIs(t, onlyError(f.Handle("", "/foo", emptyHandler)), ErrInvalidRoute)
 	assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo", nil)), ErrInvalidRoute)
+	assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo\x00", emptyHandler)), ErrInvalidRoute)
 
 	// Invalid route on update
 	assert.ErrorIs(t, onlyError(f.Update("", "/foo", emptyHandler)), ErrInvalidRoute)
 	assert.ErrorIs(t, onlyError(f.Update(http.MethodGet, "/foo", nil)), ErrInvalidRoute)
+	assert.ErrorIs(t, onlyError(f.Update(http.MethodGet, "/foo\x00", emptyHandler)), ErrInvalidRoute)
 }
 
 func TestUpdateRoute(t *testing.T) {
@@ -4439,6 +4441,12 @@ func TestParseRoute(t *testing.T) {
 			name:  "static hostname with catch-all path",
 			path:  "a.b.com/*{any}",
 			wantN: 1,
+		},
+		{
+			name:    "illegal control character in path",
+			path:    "example.com/foo\x00",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
 		},
 		{
 			name:    "illegal leading hyphen in hostname",

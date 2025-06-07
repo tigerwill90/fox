@@ -2,7 +2,9 @@ package fox
 
 import (
 	"fmt"
+	"golang.org/x/net/http/httpguts"
 	"net/http"
+	"strings"
 )
 
 // Txn is a read or write transaction on the routing tree.
@@ -33,8 +35,8 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
-	if matched := regEnLetter.MatchString(method); !matched {
-		return nil, fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+	if !validMethod(method) {
+		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
 	rte, err := txn.fox.NewRoute(pattern, handler, opts...)
@@ -68,9 +70,10 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
 	}
-	if matched := regEnLetter.MatchString(method); !matched {
-		return fmt.Errorf("%w: missing or invalid http method", ErrInvalidRoute)
+	if !validMethod(method) {
+		return fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
+
 	return txn.rootTxn.insert(method, route)
 }
 
@@ -97,8 +100,8 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 	if handler == nil {
 		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
 	}
-	if method == "" {
-		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	if !validMethod(method) {
+		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
 	rte, err := txn.fox.NewRoute(pattern, handler, opts...)
@@ -133,9 +136,10 @@ func (txn *Txn) UpdateRoute(method string, route *Route) error {
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
 	}
-	if method == "" {
-		return fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	if !validMethod(method) {
+		return fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
+
 	return txn.rootTxn.update(method, route)
 }
 
@@ -155,8 +159,8 @@ func (txn *Txn) Delete(method, pattern string) (*Route, error) {
 		return nil, ErrReadOnlyTxn
 	}
 
-	if method == "" {
-		return nil, fmt.Errorf("%w: missing http method", ErrInvalidRoute)
+	if !validMethod(method) {
+		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
 	_, _, err := txn.fox.parseRoute(pattern)
@@ -349,4 +353,25 @@ func (txn *Txn) Snapshot() *Txn {
 		fox:     txn.fox,
 		rootTxn: txn.rootTxn.clone(),
 	}
+}
+
+func validMethod(method string) bool {
+	/*
+	     Method         = "OPTIONS"                ; Section 9.2
+	                    | "GET"                    ; Section 9.3
+	                    | "HEAD"                   ; Section 9.4
+	                    | "POST"                   ; Section 9.5
+	                    | "PUT"                    ; Section 9.6
+	                    | "DELETE"                 ; Section 9.7
+	                    | "TRACE"                  ; Section 9.8
+	                    | "CONNECT"                ; Section 9.9
+	                    | extension-method
+	   extension-method = token
+	     token          = 1*<any CHAR except CTLs or separators>
+	*/
+	return len(method) > 0 && strings.IndexFunc(method, isNotToken) == -1
+}
+
+func isNotToken(r rune) bool {
+	return !httpguts.IsTokenRune(r)
 }
