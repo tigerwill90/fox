@@ -692,7 +692,7 @@ func isRemovable(method string) bool {
 func (t *iTree) allocateContext() *cTx {
 	params := make(Params, 0, t.maxParams)
 	tsrParams := make(Params, 0, t.maxParams)
-	skipNds := make(skippedNodes, 0, t.depth)
+	skipNds := make(skippedNodes, 0, t.depth*2) // 2x since at each level, we may skip param and wildcard
 	return &cTx{
 		params:    &params,
 		skipNds:   &skipNds,

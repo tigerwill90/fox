@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,8 +28,6 @@ const (
 )
 
 var (
-	// regEnLetter matches english letters for http method name.
-	regEnLetter = regexp.MustCompile("^[A-Z]+$")
 	// commonVerbs define http method for which node are pre instantiated.
 	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 )
@@ -811,6 +808,12 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 						return 0, -1, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
 					}
 					last = c
+				} else {
+					c := url[i]
+					// reject any ASCII control character.
+					if c < ' ' || c == 0x7f {
+						return 0, -1, fmt.Errorf("%w: illegal control character in path", ErrInvalidRoute)
+					}
 				}
 			}
 
