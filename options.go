@@ -109,6 +109,21 @@ func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 	})
 }
 
+// WithNormalizePathFunc sets a custom function for normalizing request paths before routing.
+// The provided function is called for every request before routing to the appropriate handler
+// (RouteHandler, OptionsHandler, or NoMethodHandler). The function transforms the path before
+// route matching. This allows for custom path cleaning, case normalization, or other transformations
+// while preserving the original Request.URL.Path and Request.URL.RawPath.
+// By default, the DefaultPathNormalizer function is used.
+func WithNormalizePathFunc(fn NormalizePathFunc) GlobalOption {
+	return globOptionFunc(func(option sealedOption) error {
+		if fn == nil {
+			return fmt.Errorf("%w: normalize path function cannot be nil", ErrInvalidConfig)
+		}
+		return nil
+	})
+}
+
 // WithMiddleware attaches middleware to the router or to a specific route. The middlewares are executed
 // in the order they are added. When applied globally, the middleware affects all handlers, including special handlers
 // such as NotFound, MethodNotAllowed, AutoOption, and the internal redirect handler.

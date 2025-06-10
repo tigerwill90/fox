@@ -71,6 +71,12 @@ func (f ClientIPResolverFunc) ClientIP(c Context) (*net.IPAddr, error) {
 	return f(c)
 }
 
+// NormalizePathFunc is a function type for implementing custom path normalization logic.
+// The returned path will be used to route the request. The function should
+// not modify the request object. Implementations should typically use Request.URL.RawPath to avoid
+// unintended matches, unless the use case specifically requires Request.URL.Path.
+type NormalizePathFunc func(r *http.Request) string
+
 // HandlerScope represents different scopes where a handler may be called. It also allows for fine-grained control
 // over where middleware is applied.
 type HandlerScope uint8
@@ -498,6 +504,21 @@ func DefaultMethodNotAllowedHandler(c Context) {
 // DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
 func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
+}
+
+// DefaultPathNormalizer is the default [NormalizePathFunc] used by Fox.
+// It returns the request path as-is, preferring RawPath when available to prevent
+// unintended matches with encoded characters. No path cleaning is performed.
+func DefaultPathNormalizer(r *http.Request) string {
+	return cmp.Or(r.URL.RawPath, r.URL.Path)
+}
+
+// CleanPathNormalizer is a [NormalizePathFunc] that performs path cleaning.
+// It returns a cleaned URL path using [CleanPath], preferring RawPath when available
+// to prevent unintended matches with encoded characters. This normalizer merges
+// multiple slashes, removes . and .. elements, and ensures consistent path formatting.
+func CleanPathNormalizer(r *http.Request) string {
+	return CleanPath(cmp.Or(r.URL.RawPath, r.URL.Path))
 }
 
 func defaultRedirectTrailingSlashHandler(c Context) {
