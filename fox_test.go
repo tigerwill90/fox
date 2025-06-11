@@ -5084,6 +5084,20 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
 }
 
+func TestWithRedirectTrailingSlashHandler(t *testing.T) {
+	r, _ := New(WithRedirectTrailingSlashHandler(func(c Context) {
+		_ = c.Redirect(http.StatusMovedPermanently, FixTrailingSlash(c.Path()))
+	}))
+	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/foo/bar/", emptyHandler)))
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/foo/bar/", w.Header().Get(HeaderLocation))
+}
+
 func TestRouterWithTsrParams(t *testing.T) {
 	cases := []struct {
 		name       string

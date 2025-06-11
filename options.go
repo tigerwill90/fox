@@ -92,6 +92,24 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
+// WithRedirectTrailingSlashHandler register an [HandlerFunc] which perform automatic redirection fallback when
+// the current request does not match but another handler is found with/without an additional trailing slash.
+// E.g. /foo/bar/ request does not match but /foo/bar would match. The handler is responsible for performing
+// the redirection with the appropriate status code. By default, the [DefaultRedirectTrailingSlashHandler] is used.
+// Note that this option automatically enable [WithRedirectTrailingSlash] and is mutually exclusive with
+// [WithIgnoreTrailingSlash], and if enabled will automatically deactivate [WithIgnoreTrailingSlash].
+func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		if handler == nil {
+			return fmt.Errorf("%w: redirect trailing slash handler cannot be nil", ErrInvalidConfig)
+		}
+		s.router.redirectTrailingSlash = true
+		s.router.ignoreTrailingSlash = false
+		s.router.tsrRedirect = handler
+		return nil
+	})
+}
+
 // WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
 func WithMaxRouteParams(max uint16) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
@@ -180,8 +198,7 @@ func WithAutoOptions(enable bool) GlobalOption {
 
 // WithRedirectTrailingSlash enable automatic redirection fallback when the current request does not match but
 // another handler is found with/without an additional trailing slash. E.g. /foo/bar/ request does not match
-// but /foo/bar would match. The client is redirected with a http status code 301 for GET requests and 308 for
-// all other methods.
+// but /foo/bar would match. By default, the [DefaultRedirectTrailingSlashHandler] is used.
 //
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
