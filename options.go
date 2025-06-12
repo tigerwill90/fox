@@ -96,9 +96,10 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 // the current request does not match but another handler is found with/without an additional trailing slash.
 // E.g. /foo/bar/ request does not match but /foo/bar would match. The handler is responsible for performing
 // the redirection with the appropriate status code and receives the request with Request.URL.Path
-// and Request.URL.RawPath already rewritten to include or remove the trailing slash. This rewrite is only
-// visible to the handler itself; middleware registered for the [RedirectSlashHandler] scope will see the original,
-// unmodified request. By default, the [DefaultRedirectTrailingSlashHandler] is used.
+// and Request.URL.RawPath already rewritten to include or remove the trailing slash. When Request.URL.RawPath
+// is not empty, handlers should use it for redirects to maintain consistency with the router's matching behavior.
+// This rewrite is only visible to the handler itself; middleware registered for the [RedirectSlashHandler] scope
+// will see the original, unmodified request. By default, the [DefaultRedirectTrailingSlashHandler] is used.
 // Note that this option automatically enable [WithRedirectTrailingSlash] and is mutually exclusive with
 // [WithIgnoreTrailingSlash], and if enabled will automatically deactivate [WithIgnoreTrailingSlash].
 func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
@@ -109,6 +110,26 @@ func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
 		s.router.redirectTrailingSlash = true
 		s.router.ignoreTrailingSlash = false
 		s.router.tsrRedirect = handler
+		return nil
+	})
+}
+
+// WithMatchAfterFixedPathHandler register an [HandlerFunc] which perform automatic redirection fallback when
+// the current request does not match but another handler is found with a cleaned path (e.g., removing double slashes,
+// resolving . and .. elements). The handler is responsible for performing the redirection with the appropriate
+// status code and receives the request with Request.URL.Path and Request.URL.RawPath already rewritten to their
+// cleaned versions. This rewrite is only visible to the handler itself; middleware registered for the
+// [RedirectPathHandler] scope will see the original, unmodified request. By default, the
+// [DefaultRedirectFixedPathHandler] is used. Note that this option automatically enable [WithRedirectFixedPath]
+// and is mutually exclusive with [WithMatchAfterFixedPath].
+func WithMatchAfterFixedPathHandler(handler HandlerFunc) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		if handler == nil {
+			return fmt.Errorf("%w: match after fixed path handler cannot be nil", ErrInvalidConfig)
+		}
+		s.router.redirectFixedPath = true
+		s.router.continueFixedPath = false
+		s.router.pathRedirect = handler
 		return nil
 	})
 }
@@ -162,7 +183,7 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
 // Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectSlashHandler],
-// [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
+// [RedirectPathHandler], [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
 // middleware is applied.
 func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
@@ -255,11 +276,31 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 	})
 }
 
-func WithRedirectFixedPath(enable bool) Option {
-	return optionFunc(func(s sealedOption) error {
+// WithRedirectFixedPath enable automatic redirection fallback when the current request does not match but
+// another handler is found with a cleaned path. E.g. /foo//bar request does not match but /foo/bar would match.
+// Path cleaning removes double slashes and resolves . and .. elements. By default, the
+// [DefaultRedirectFixedPathHandler] is used. Note that this option is mutually exclusive with
+// [WithMatchAfterFixedPath], and if enabled will automatically deactivate [WithMatchAfterFixedPath].
+func WithRedirectFixedPath(enable bool) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
 		s.router.redirectFixedPath = true
 		if enable {
 			s.router.continueFixedPath = false
+		}
+		return nil
+	})
+}
+
+// WithMatchAfterFixedPath allows the router to match routes after cleaning the request path. This includes
+// removing double slashes and resolving . and .. elements. E.g. /foo//bar and /foo/bar would both match
+// the same handler. This option prevents the router from issuing a redirect and instead matches the request
+// directly. Note that this option is mutually exclusive with [WithRedirectFixedPath], and if enabled will
+// automatically deactivate [WithRedirectFixedPath].
+func WithMatchAfterFixedPath(enable bool) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.continueFixedPath = true
+		if enable {
+			s.router.redirectFixedPath = false
 		}
 		return nil
 	})

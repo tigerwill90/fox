@@ -84,6 +84,7 @@ const (
 	NoMethodHandler
 	// RedirectSlashHandler scope applies to the redirect handler, used for handling requests with trailing slashes.
 	RedirectSlashHandler
+	// RedirectPathHandler scope applies to the redirect handler, used for handling requests that need path cleaning.
 	RedirectPathHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
@@ -507,6 +508,9 @@ func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
 
+// DefaultRedirectFixedPathHandler is a simple [HandlerFunc] that redirects requests to their cleaned path version.
+// It removes double slashes, resolves . and .. elements, and issues a redirect with appropriate status codes.
+// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
 func DefaultRedirectFixedPathHandler(c Context) {
 	req := c.Request()
 
