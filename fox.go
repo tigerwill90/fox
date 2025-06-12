@@ -565,8 +565,11 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if n.route.redirectTrailingSlash && isSafeForTrailingSlashRedirect(path) {
-			c.route = n.route
-			c.tsr = tsr
+			// Since is redirect, we should not share the route even if internally its available, so we reset params as
+			// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
+			*c.params = (*c.params)[:0]
+			c.route = nil
+			c.tsr = false
 			c.scope = RedirectHandler
 			fox.tsrRedirect(c)
 			tree.ctx.Put(c)

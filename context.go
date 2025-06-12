@@ -52,10 +52,9 @@ type Context interface {
 	// The returned [net.IPAddr] may contain a zone identifier.
 	ClientIP() (*net.IPAddr, error)
 	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope
-	// other than [RouteHandler] or [RedirectHandler].
+	// other than [RouteHandler].
 	Pattern() string
-	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler]
-	// or [RedirectHandler].
+	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
 	Route() *Route
 	// Params returns a range iterator over the matched wildcard parameters for the current route.
 	Params() iter.Seq[Param]
