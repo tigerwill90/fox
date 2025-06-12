@@ -95,7 +95,10 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 // WithRedirectTrailingSlashHandler register an [HandlerFunc] which perform automatic redirection fallback when
 // the current request does not match but another handler is found with/without an additional trailing slash.
 // E.g. /foo/bar/ request does not match but /foo/bar would match. The handler is responsible for performing
-// the redirection with the appropriate status code. By default, the [DefaultRedirectTrailingSlashHandler] is used.
+// the redirection with the appropriate status code and receives the request with Request.URL.Path
+// and Request.URL.RawPath already rewritten to include or remove the trailing slash. This rewrite is only
+// visible to the handler itself; middleware registered for the [RedirectSlashHandler] scope will see the original,
+// unmodified request. By default, the [DefaultRedirectTrailingSlashHandler] is used.
 // Note that this option automatically enable [WithRedirectTrailingSlash] and is mutually exclusive with
 // [WithIgnoreTrailingSlash], and if enabled will automatically deactivate [WithIgnoreTrailingSlash].
 func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
@@ -158,7 +161,7 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
-// Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectHandler],
+// Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectSlashHandler],
 // [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
 // middleware is applied.
 func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
@@ -247,6 +250,16 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 			if enable {
 				s.route.redirectTrailingSlash = false
 			}
+		}
+		return nil
+	})
+}
+
+func WithRedirectFixedPath(enable bool) Option {
+	return optionFunc(func(s sealedOption) error {
+		s.router.redirectFixedPath = true
+		if enable {
+			s.router.continueFixedPath = false
 		}
 		return nil
 	})

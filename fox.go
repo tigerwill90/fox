@@ -82,15 +82,16 @@ const (
 	NoRouteHandler
 	// NoMethodHandler scope applies to the NoMethod handler, which is invoked when a route exists, but the method is not allowed.
 	NoMethodHandler
-	// RedirectHandler scope applies to the internal redirect handler, used for handling requests with trailing slashes.
-	RedirectHandler
+	// RedirectSlashHandler scope applies to the redirect handler, used for handling requests with trailing slashes.
+	RedirectSlashHandler
+	RedirectPathHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
 )
 
 const (
 	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
-	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
+	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectSlashHandler | RedirectPathHandler | OptionsHandler
 )
 
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
@@ -101,6 +102,7 @@ type Router struct {
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
 	autoOptions            HandlerFunc
+	pathRedirect           HandlerFunc
 	tree                   atomic.Pointer[iTree]
 	clientip               ClientIPResolver
 	mws                    []middleware
@@ -111,6 +113,8 @@ type Router struct {
 	handleOptions          bool
 	redirectTrailingSlash  bool
 	ignoreTrailingSlash    bool
+	redirectFixedPath      bool
+	continueFixedPath      bool
 }
 
 // RouterInfo hold information on the configured global options.
@@ -140,6 +144,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
 	r.tsrRedirect = DefaultRedirectTrailingSlashHandler
+	r.pathRedirect = DefaultRedirectFixedPathHandler
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
@@ -152,7 +157,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, r.tsrRedirect)
+	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, localPathRewrite(r.tsrRedirect, FixTrailingSlash))
+	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, localPathRewrite(r.pathRedirect, CleanPath))
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
@@ -501,6 +507,18 @@ func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
 
+func DefaultRedirectFixedPathHandler(c Context) {
+	req := c.Request()
+
+	code := http.StatusMovedPermanently
+	if req.Method != http.MethodGet {
+		// Will be redirected only with the same method (SEO friendly)
+		code = http.StatusPermanentRedirect
+	}
+
+	http.Redirect(c.Writer(), req, req.URL.String(), code)
+}
+
 // DefaultRedirectTrailingSlashHandler is a simple [HandlerFunc] that redirects to the URL with an added or removed
 // trailing slash based on the request path, using relative redirects. The client is redirected with a http status
 // code 301 for GET requests and 308 for all other methods.
@@ -513,18 +531,32 @@ func DefaultRedirectTrailingSlashHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	var url string
-	if len(req.URL.RawPath) > 0 {
-		url = FixTrailingSlash(req.URL.RawPath)
-	} else {
-		url = FixTrailingSlash(req.URL.Path)
-	}
-
+	url := cmp.Or(req.URL.RawPath, req.URL.Path)
 	if url[len(url)-1] == '/' {
 		localRedirect(c.Writer(), req, path.Base(url)+"/", code)
 		return
 	}
 	localRedirect(c.Writer(), req, "../"+path.Base(url), code)
+}
+
+func localPathRewrite(next HandlerFunc, rewrite func(string) string) HandlerFunc {
+	return func(c Context) {
+		req := c.Request()
+		defer func() {
+			c.SetRequest(req)
+		}()
+
+		r2 := *req
+		url := *req.URL
+		url.Path = rewrite(url.Path)
+		if url.RawPath != "" {
+			url.RawPath = rewrite(url.RawPath)
+		}
+		r2.URL = &url
+
+		c.SetRequest(&r2)
+		next(c)
+	}
 }
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
@@ -555,26 +587,52 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
-		if n.route.ignoreTrailingSlash {
-			c.route = n.route
-			c.tsr = tsr
-			n.route.hall(c)
-			tree.ctx.Put(c)
-			return
+	if r.Method != http.MethodConnect && r.URL.Path != "/" {
+		if tsr {
+			if n.route.ignoreTrailingSlash {
+				c.route = n.route
+				c.tsr = tsr
+				n.route.hall(c)
+				tree.ctx.Put(c)
+				return
+			}
+
+			if n.route.redirectTrailingSlash && isSafeForTrailingSlashRedirect(path) {
+				// Since is redirect, we should not share the route even if internally its available, so we reset params as
+				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
+				*c.params = (*c.params)[:0]
+				c.route = nil
+				c.tsr = false
+				c.scope = RedirectSlashHandler
+				fox.tsrRedirect(c)
+				tree.ctx.Put(c)
+				return
+			}
 		}
 
-		if n.route.redirectTrailingSlash && isSafeForTrailingSlashRedirect(path) {
-			// Since is redirect, we should not share the route even if internally its available, so we reset params as
-			// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
+		if fox.continueFixedPath {
 			*c.params = (*c.params)[:0]
-			c.route = nil
-			c.tsr = false
-			c.scope = RedirectHandler
-			fox.tsrRedirect(c)
-			tree.ctx.Put(c)
-			return
+			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+				c.route = n.route
+				c.tsr = tsr
+				n.route.hall(c)
+				tree.ctx.Put(c)
+				return
+			}
 		}
+
+		if fox.redirectFixedPath {
+			*c.params = (*c.params)[:0]
+			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
+				c.route = nil
+				c.tsr = false
+				c.scope = RedirectPathHandler
+				fox.pathRedirect(c)
+				tree.ctx.Put(c)
+				return
+			}
+		}
+
 	}
 
 	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and

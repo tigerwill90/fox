@@ -103,7 +103,7 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 	f, _ := New(
 		WithRedirectTrailingSlash(true),
 		WithMiddleware(m),
-		WithMiddlewareFor(RedirectHandler, panicMiddleware),
+		WithMiddlewareFor(RedirectSlashHandler, panicMiddleware),
 		WithNoRouteHandler(func(c Context) {
 			panic(errMsg)
 		}),

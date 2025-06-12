@@ -333,9 +333,9 @@ func TestContext_Scope(t *testing.T) {
 
 	f, _ := New(
 		WithRedirectTrailingSlash(true),
-		WithMiddlewareFor(RedirectHandler, func(next HandlerFunc) HandlerFunc {
+		WithMiddlewareFor(RedirectSlashHandler, func(next HandlerFunc) HandlerFunc {
 			return func(c Context) {
-				assert.Equal(t, RedirectHandler, c.Scope())
+				assert.Equal(t, RedirectSlashHandler, c.Scope())
 				next(c)
 			}
 		}),
