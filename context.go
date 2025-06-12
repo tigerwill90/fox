@@ -51,7 +51,8 @@ type Context interface {
 	//
 	// The returned [net.IPAddr] may contain a zone identifier.
 	ClientIP() (*net.IPAddr, error)
-	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope
+	// other than [RouteHandler].
 	Pattern() string
 	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
 	Route() *Route

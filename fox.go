@@ -139,6 +139,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.noRouteBase = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
+	r.tsrRedirect = DefaultRedirectTrailingSlashHandler
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
@@ -151,7 +152,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, defaultRedirectTrailingSlashHandler)
+	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, r.tsrRedirect)
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
@@ -500,7 +501,10 @@ func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
 
-func defaultRedirectTrailingSlashHandler(c Context) {
+// DefaultRedirectTrailingSlashHandler is a simple [HandlerFunc] that redirects to the URL with an added or removed
+// trailing slash based on the request path, using relative redirects. The client is redirected with a http status
+// code 301 for GET requests and 308 for all other methods.
+func DefaultRedirectTrailingSlashHandler(c Context) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -560,8 +564,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if n.route.redirectTrailingSlash && path == CleanPath(path) {
-			// Reset params as it may have recorded wildcard segment (the context may still be used in a middleware)
+		if n.route.redirectTrailingSlash && isSafeForTrailingSlashRedirect(path) {
+			// Since is redirect, we should not share the route even if internally its available, so we reset params as
+			// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 			*c.params = (*c.params)[:0]
 			c.route = nil
 			c.tsr = false

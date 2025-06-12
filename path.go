@@ -184,3 +184,9 @@ func SplitHostPath(url string) (host, path string) {
 	path = url[hostEnd:]
 	return
 }
+
+// isSafeForTrailingSlashRedirect checks if a path is safe to use for trailing slash redirects.
+// It ensures the path doesn't contain parent directory references that could be exploited.
+func isSafeForTrailingSlashRedirect(path string) bool {
+	return !strings.Contains(path, "../") && !strings.HasSuffix(path, "/..")
+}
