@@ -6884,7 +6884,7 @@ func ExampleRouter_Lookup() {
 
 				// Add or remove an extra trailing slash and redirect the client.
 				if route.RedirectTrailingSlashEnabled() {
-					if err := c.Redirect(code, FixTrailingSlash(cleanedPath)); err != nil {
+					if err := c.Redirect(code, fixTrailingSlash(cleanedPath)); err != nil {
 						// Only if not in the range 300..308, so not possible here
 						panic(err)
 					}
@@ -7000,4 +7000,14 @@ func ExampleRouter_View() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
+}
+
+func TestX(t *testing.T) {
+	f, _ := New(WithRedirectTrailingSlash(true))
+	f.MustHandle(http.MethodGet, "example.com/*{any}/", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "//%3Fevil.com", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+	fmt.Println(w.Code, w.Header())
 }

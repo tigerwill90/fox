@@ -154,14 +154,25 @@ func bufApp(buf *[]byte, s string, w int, c byte) {
 	b[w] = c
 }
 
-// FixTrailingSlash ensures a consistent trailing slash handling for a given path.
+// fixTrailingSlash ensures a consistent trailing slash handling for a given path.
 // If the path has more than one character and ends with a slash, it removes the trailing slash.
 // Otherwise, it adds a trailing slash to the path.
-func FixTrailingSlash(path string) string {
+func fixTrailingSlash(path string) string {
 	if len(path) > 1 && path[len(path)-1] == '/' {
 		return path[:len(path)-1]
 	}
 	return path + "/"
+}
+
+// escapeLeadingSlashes prevents open redirect vulnerabilities by escaping paths that start with "//".
+// Without this escape, a path like "//evil.com/path" would be interpreted as a protocol-relative URL
+// by browsers, potentially redirecting users to an external site. By escaping the second slash to "%2F",
+// we ensure the path remains relative (e.g., "/%2Fevil.com/path") and cannot be used for open redirects.
+func escapeLeadingSlashes(path string) (string, bool) {
+	if strings.HasPrefix(path, "//") {
+		return "/%2F" + path[2:], true
+	}
+	return path, false
 }
 
 // SplitHostPath separates the host and path from a URL string. If url includes a valid numeric port, the port is
@@ -185,8 +196,8 @@ func SplitHostPath(url string) (host, path string) {
 	return
 }
 
-// isSafeForTrailingSlashRedirect checks if a path is safe to use for trailing slash redirects.
+// checkUnsafeTraversal checks if a path is safe to use for trailing slash redirects.
 // It ensures the path doesn't contain parent directory references that could be exploited.
-func isSafeForTrailingSlashRedirect(path string) bool {
-	return !strings.Contains(path, "../") && !strings.HasSuffix(path, "/..")
+func checkUnsafeTraversal(path string) bool {
+	return !strings.HasSuffix(path, "/..") && !strings.Contains(path, "../")
 }

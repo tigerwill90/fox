@@ -10,7 +10,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,8 +156,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.noRouteBase = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
-	r.tsrRedirect = DefaultRedirectTrailingSlashHandler
-	r.pathRedirect = DefaultRedirectFixedPathHandler
+	r.tsrRedirect = DefaultRedirectHandler
+	r.pathRedirect = DefaultRedirectHandler
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
@@ -172,8 +171,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, localPathRewrite(r.tsrRedirect, FixTrailingSlash))
-	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, localPathRewrite(r.pathRedirect, r.cleanPath))
+	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, localPathRewrite(r.tsrRedirect, fixTrailingSlash, true))
+	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, localPathRewrite(r.pathRedirect, r.cleanPath, false))
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
@@ -523,10 +522,7 @@ func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
 
-// DefaultRedirectFixedPathHandler is a simple [HandlerFunc] that redirects requests to their cleaned path version.
-// It removes double slashes, resolves . and .. elements, and issues a redirect with appropriate status codes.
-// The client is redirected with a http status code 301 for GET requests and 308 for all other methods.
-func DefaultRedirectFixedPathHandler(c Context) {
+func DefaultRedirectHandler(c Context) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -538,27 +534,19 @@ func DefaultRedirectFixedPathHandler(c Context) {
 	http.Redirect(c.Writer(), req, req.URL.String(), code)
 }
 
-// DefaultRedirectTrailingSlashHandler is a simple [HandlerFunc] that redirects to the URL with an added or removed
-// trailing slash based on the request path, using relative redirects. The client is redirected with a http status
-// code 301 for GET requests and 308 for all other methods.
-func DefaultRedirectTrailingSlashHandler(c Context) {
-	req := c.Request()
-
-	code := http.StatusMovedPermanently
-	if req.Method != http.MethodGet {
-		// Will be redirected only with the same method (SEO friendly)
-		code = http.StatusPermanentRedirect
-	}
-
-	url := cmp.Or(req.URL.RawPath, req.URL.Path)
-	if url[len(url)-1] == '/' {
-		localRedirect(c.Writer(), req, path.Base(url)+"/", code)
-		return
-	}
-	localRedirect(c.Writer(), req, "../"+path.Base(url), code)
-}
-
-func localPathRewrite(next HandlerFunc, rewrite func(string) string) HandlerFunc {
+// localPathRewrite wraps a handler to rewrite request URL paths before processing.
+// It creates a shallow copy of the request with modified URL paths while preserving
+// the original request.
+//
+// The function applies the rewrite function to both Path and RawPath fields.
+// When preventOpenRedirect is true, it provides protection against open redirect
+// vulnerabilities by escaping paths that start with "//". This manual escaping is
+// necessary because HTTP servers don't typically escape double slashes, which can
+// be exploited for open redirects.
+//
+// This middleware is used internally by redirect handlers (trailing slash and path cleaning)
+// to ensure consistent and secure URL transformations.
+func localPathRewrite(next HandlerFunc, rewrite func(string) string, preventOpenRedirect bool) HandlerFunc {
 	return func(c Context) {
 		req := c.Request()
 		defer func() {
@@ -571,6 +559,18 @@ func localPathRewrite(next HandlerFunc, rewrite func(string) string) HandlerFunc
 		if url.RawPath != "" {
 			url.RawPath = rewrite(url.RawPath)
 		}
+		if preventOpenRedirect {
+			if url.RawPath != "" {
+				// We preserve the original url.Path unescaped
+				url.RawPath, _ = escapeLeadingSlashes(url.RawPath)
+			} else {
+				// If leading slashes has been escaped, set the RawPath with the escaped version
+				if rawPath, escaped := escapeLeadingSlashes(url.Path); escaped {
+					url.RawPath = rawPath
+				}
+			}
+		}
+
 		r2.URL = &url
 
 		c.SetRequest(&r2)
@@ -617,7 +617,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if n.route.options&redirectTrailingSlash != 0 && isSafeForTrailingSlashRedirect(path) {
+			if n.route.options&redirectTrailingSlash != 0 && checkUnsafeTraversal(path) {
 				// Since is redirect, we should not share the route even if internally its available, so we reset params as
 				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
@@ -964,34 +964,6 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 		}
 	}
 	return rte, all
-}
-
-// localRedirect redirect the client to the new path, but it does not convert relative paths to absolute paths
-// like Redirect does. If the Content-Type header has not been set, localRedirect sets it to "text/html; charset=utf-8"
-// and writes a small HTML body. Setting the Content-Type header to any value, including nil, disables that behavior.
-func localRedirect(w http.ResponseWriter, r *http.Request, path string, code int) {
-	if q := r.URL.RawQuery; q != "" {
-		path += "?" + q
-	}
-
-	h := w.Header()
-
-	// RFC 7231 notes that a short HTML body is usually included in
-	// the response because older user agents may not understand 301/307.
-	// Do it only if the request didn't already have a Content-Type header.
-	_, hadCT := h["Content-Type"]
-
-	h.Set(HeaderLocation, hexEscapeNonASCII(path))
-	if !hadCT && (r.Method == "GET" || r.Method == "HEAD") {
-		h.Set(HeaderContentType, MIMETextHTMLCharsetUTF8)
-	}
-	w.WriteHeader(code)
-
-	// Shouldn't send the body for POST or HEAD; that leaves GET.
-	if !hadCT && r.Method == "GET" {
-		body := "<a href=\"" + htmlEscape(path) + "\">" + http.StatusText(code) + "</a>.\n"
-		_, _ = fmt.Fprintln(w, body)
-	}
 }
 
 func hexEscapeNonASCII(s string) string {

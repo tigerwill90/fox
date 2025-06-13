@@ -99,7 +99,7 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 // and Request.URL.RawPath already rewritten to include or remove the trailing slash. When Request.URL.RawPath
 // is not empty, handlers should use it for redirects to maintain consistency with the router's matching behavior.
 // This rewrite is only visible to the handler itself; middleware registered for the [RedirectSlashHandler] scope
-// will see the original, unmodified request. By default, the [DefaultRedirectTrailingSlashHandler] is used.
+// will see the original, unmodified request. By default, the [DefaultRedirectHandler] is used.
 // Note that this option automatically enable [WithRedirectTrailingSlash] and is mutually exclusive with
 // [WithIgnoreTrailingSlash], and if enabled will automatically deactivate [WithIgnoreTrailingSlash].
 func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
@@ -121,7 +121,7 @@ func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
 // cleaned versions. When Request.URL.RawPath is not empty, handlers should use it for redirects to maintain
 // consistency with the router's matching behavior. This rewrite is only visible to the handler itself; middleware
 // registered for the [RedirectPathHandler] scope will see the original, unmodified request. By default, the
-// [DefaultRedirectFixedPathHandler] is used. Note that this option automatically enable [WithRedirectFixedPath]
+// [DefaultRedirectHandler] is used. Note that this option automatically enable [WithRedirectFixedPath]
 // and is mutually exclusive with [WithMatchAfterFixedPath].
 func WithRedirectFixedPathHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
@@ -236,7 +236,7 @@ func WithAutoOptions(enable bool) GlobalOption {
 
 // WithRedirectTrailingSlash enable automatic redirection fallback when the current request does not match but
 // another handler is found with/without an additional trailing slash. E.g. /foo/bar/ request does not match
-// but /foo/bar would match. By default, the [DefaultRedirectTrailingSlashHandler] is used.
+// but /foo/bar would match. By default, the [DefaultRedirectHandler] is used.
 //
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
@@ -293,7 +293,7 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 // WithRedirectFixedPath enable automatic redirection fallback when the current request does not match but
 // another handler is found with a cleaned path. E.g. /foo//bar request does not match but /foo/bar would match.
 // Path cleaning removes double slashes and resolves . and .. elements. By default, the
-// [DefaultRedirectFixedPathHandler] is used. Note that this option is mutually exclusive with
+// [DefaultRedirectHandler] is used. Note that this option is mutually exclusive with
 // [WithMatchAfterFixedPath], and if enabled will automatically deactivate [WithMatchAfterFixedPath].
 func WithRedirectFixedPath(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
