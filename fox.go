@@ -71,6 +71,10 @@ func (f ClientIPResolverFunc) ClientIP(c Context) (*net.IPAddr, error) {
 	return f(c)
 }
 
+// NormalizePathFunc is a function that normalizes request paths, used by the redirect and match-after
+// fixed path features. It should return a cleaned version of the input path.
+type NormalizePathFunc func(path string) string
+
 // HandlerScope represents different scopes where a handler may be called. It also allows for fine-grained control
 // over where middleware is applied.
 type HandlerScope uint8
@@ -82,9 +86,9 @@ const (
 	NoRouteHandler
 	// NoMethodHandler scope applies to the NoMethod handler, which is invoked when a route exists, but the method is not allowed.
 	NoMethodHandler
-	// RedirectSlashHandler scope applies to the redirect handler, used for handling requests with trailing slashes.
+	// RedirectSlashHandler scope applies to the RedirectTrailingSlash handler, used for handling requests with trailing slashes.
 	RedirectSlashHandler
-	// RedirectPathHandler scope applies to the redirect handler, used for handling requests that need path cleaning.
+	// RedirectPathHandler scope applies to the RedirectFixedPath handler, used for handling requests that need path cleaning.
 	RedirectPathHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
@@ -95,27 +99,34 @@ const (
 	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectSlashHandler | RedirectPathHandler | OptionsHandler
 )
 
+type optFlag uint8
+
+const (
+	handleMethodNotAllowed optFlag = 1 << (8 - 1 - iota)
+	handleOptions
+	redirectTrailingSlash
+	ignoreTrailingSlash
+	redirectFixedPath
+	continueFixedPath
+)
+
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
-	noRouteBase            HandlerFunc
-	noRoute                HandlerFunc
-	noMethod               HandlerFunc
-	tsrRedirect            HandlerFunc
-	autoOptions            HandlerFunc
-	pathRedirect           HandlerFunc
-	tree                   atomic.Pointer[iTree]
-	clientip               ClientIPResolver
-	mws                    []middleware
-	mu                     sync.Mutex
-	maxParams              uint16
-	maxParamKeyBytes       uint16
-	handleMethodNotAllowed bool
-	handleOptions          bool
-	redirectTrailingSlash  bool
-	ignoreTrailingSlash    bool
-	redirectFixedPath      bool
-	continueFixedPath      bool
+	noRouteBase      HandlerFunc
+	noRoute          HandlerFunc
+	noMethod         HandlerFunc
+	tsrRedirect      HandlerFunc
+	autoOptions      HandlerFunc
+	pathRedirect     HandlerFunc
+	cleanPath        NormalizePathFunc
+	tree             atomic.Pointer[iTree]
+	clientip         ClientIPResolver
+	mws              []middleware
+	mu               sync.Mutex
+	maxParams        uint16
+	maxParamKeyBytes uint16
+	options          optFlag
 }
 
 // RouterInfo hold information on the configured global options.
@@ -126,6 +137,8 @@ type RouterInfo struct {
 	AutoOptions           bool
 	RedirectTrailingSlash bool
 	IgnoreTrailingSlash   bool
+	RedirectFixedPath     bool
+	MatchAfterFixedPath   bool
 	ClientIP              bool
 }
 
@@ -149,6 +162,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
+	r.cleanPath = CleanPath
 
 	for _, opt := range opts {
 		if err := opt.applyGlob(sealedOption{router: r}); err != nil {
@@ -159,7 +173,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
 	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, localPathRewrite(r.tsrRedirect, FixTrailingSlash))
-	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, localPathRewrite(r.pathRedirect, CleanPath))
+	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, localPathRewrite(r.pathRedirect, r.cleanPath))
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
@@ -347,14 +361,13 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	}
 
 	rte := &Route{
-		clientip:              fox.clientip,
-		hbase:                 handler,
-		pattern:               pattern,
-		mws:                   fox.mws,
-		redirectTrailingSlash: fox.redirectTrailingSlash,
-		ignoreTrailingSlash:   fox.ignoreTrailingSlash,
-		psLen:                 n,
-		hostSplit:             endHost, // 0 if no host
+		clientip:  fox.clientip,
+		hbase:     handler,
+		pattern:   pattern,
+		mws:       fox.mws,
+		options:   fox.options,
+		psLen:     n,
+		hostSplit: endHost, // 0 if no host
 	}
 
 	for _, opt := range opts {
@@ -434,10 +447,12 @@ func (fox *Router) Stats() RouterInfo {
 	return RouterInfo{
 		MaxRouteParams:        fox.maxParams,
 		MaxRouteParamKeyBytes: fox.maxParamKeyBytes,
-		MethodNotAllowed:      fox.handleMethodNotAllowed,
-		AutoOptions:           fox.handleOptions,
-		RedirectTrailingSlash: fox.redirectTrailingSlash,
-		IgnoreTrailingSlash:   fox.ignoreTrailingSlash,
+		MethodNotAllowed:      fox.options&handleMethodNotAllowed != 0,
+		AutoOptions:           fox.options&handleOptions != 0,
+		RedirectTrailingSlash: fox.options&redirectTrailingSlash != 0,
+		IgnoreTrailingSlash:   fox.options&ignoreTrailingSlash != 0,
+		RedirectFixedPath:     fox.options&redirectFixedPath != 0,
+		MatchAfterFixedPath:   fox.options&continueFixedPath != 0,
 		ClientIP:              !ok,
 	}
 }
@@ -564,7 +579,8 @@ func localPathRewrite(next HandlerFunc, rewrite func(string) string) HandlerFunc
 }
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
-// to the appropriate handler function based on the request's method and path.
+// to the appropriate handler function based on the request's method, hostname and path. When Request.URL.RawPath is not empty,
+// the router uses it instead of Request.URL.Path to prevent unintended matches with percent-encoded characters.
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var (
@@ -593,7 +609,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" {
 		if tsr {
-			if n.route.ignoreTrailingSlash {
+			if n.route.options&ignoreTrailingSlash != 0 {
 				c.route = n.route
 				c.tsr = tsr
 				n.route.hall(c)
@@ -601,7 +617,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if n.route.redirectTrailingSlash && isSafeForTrailingSlashRedirect(path) {
+			if n.route.options&redirectTrailingSlash != 0 && isSafeForTrailingSlashRedirect(path) {
 				// Since is redirect, we should not share the route even if internally its available, so we reset params as
 				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
@@ -614,9 +630,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if fox.continueFixedPath {
+		if fox.options&continueFixedPath != 0 {
 			*c.params = (*c.params)[:0]
-			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+			if n, tsr := tree.lookup(r.Method, r.Host, fox.cleanPath(path), c, false); n != nil && (!tsr || n.route.options&ignoreTrailingSlash != 0) {
 				c.route = n.route
 				c.tsr = tsr
 				n.route.hall(c)
@@ -625,9 +641,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if fox.redirectFixedPath {
+		if fox.options&redirectFixedPath != 0 {
 			*c.params = (*c.params)[:0]
-			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
+			if n, tsr := tree.lookup(r.Method, r.Host, fox.cleanPath(path), c, true); n != nil && (!tsr || n.route.options&(redirectTrailingSlash|ignoreTrailingSlash) != 0) {
 				c.route = nil
 				c.tsr = false
 				c.scope = RedirectPathHandler
@@ -645,7 +661,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.route = nil
 	c.tsr = false
 
-	if r.Method == http.MethodOptions && fox.handleOptions {
+	if r.Method == http.MethodOptions && fox.options&handleOptions != 0 {
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
 		sb.Grow(min((len(tree.root)+1)*5, 150))
@@ -663,7 +679,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(tree.root); i++ {
-				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.options&ignoreTrailingSlash != 0) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -680,14 +696,14 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			tree.ctx.Put(c)
 			return
 		}
-	} else if fox.handleMethodNotAllowed {
+	} else if fox.options&handleMethodNotAllowed != 0 {
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
 		sb.Grow(min((len(tree.root)+1)*5, 150))
 		hasOptions := false
 		for i := 0; i < len(tree.root); i++ {
 			if tree.root[i].key != r.Method {
-				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.options&ignoreTrailingSlash != 0) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -699,7 +715,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if sb.Len() > 0 {
-			if fox.handleOptions && !hasOptions {
+			if fox.options&handleOptions != 0 && !hasOptions {
 				sb.WriteString(", ")
 				sb.WriteString(http.MethodOptions)
 			}

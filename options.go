@@ -72,7 +72,7 @@ func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 			return fmt.Errorf("%w: no method handler cannot be nil", ErrInvalidConfig)
 		}
 		s.router.noMethod = handler
-		s.router.handleMethodNotAllowed = true
+		s.router.options |= handleMethodNotAllowed
 		return nil
 	})
 }
@@ -87,7 +87,7 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidConfig)
 		}
 		s.router.autoOptions = handler
-		s.router.handleOptions = true
+		s.router.options |= handleOptions
 		return nil
 	})
 }
@@ -107,28 +107,29 @@ func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
 		if handler == nil {
 			return fmt.Errorf("%w: redirect trailing slash handler cannot be nil", ErrInvalidConfig)
 		}
-		s.router.redirectTrailingSlash = true
-		s.router.ignoreTrailingSlash = false
+		s.router.options |= redirectTrailingSlash
+		s.router.options &^= ignoreTrailingSlash
 		s.router.tsrRedirect = handler
 		return nil
 	})
 }
 
-// WithMatchAfterFixedPathHandler register an [HandlerFunc] which perform automatic redirection fallback when
+// WithRedirectFixedPathHandler register an [HandlerFunc] which perform automatic redirection fallback when
 // the current request does not match but another handler is found with a cleaned path (e.g., removing double slashes,
 // resolving . and .. elements). The handler is responsible for performing the redirection with the appropriate
 // status code and receives the request with Request.URL.Path and Request.URL.RawPath already rewritten to their
-// cleaned versions. This rewrite is only visible to the handler itself; middleware registered for the
-// [RedirectPathHandler] scope will see the original, unmodified request. By default, the
+// cleaned versions. When Request.URL.RawPath is not empty, handlers should use it for redirects to maintain
+// consistency with the router's matching behavior. This rewrite is only visible to the handler itself; middleware
+// registered for the [RedirectPathHandler] scope will see the original, unmodified request. By default, the
 // [DefaultRedirectFixedPathHandler] is used. Note that this option automatically enable [WithRedirectFixedPath]
 // and is mutually exclusive with [WithMatchAfterFixedPath].
-func WithMatchAfterFixedPathHandler(handler HandlerFunc) GlobalOption {
+func WithRedirectFixedPathHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		if handler == nil {
-			return fmt.Errorf("%w: match after fixed path handler cannot be nil", ErrInvalidConfig)
+			return fmt.Errorf("%w: redirect fixed path handler cannot be nil", ErrInvalidConfig)
 		}
-		s.router.redirectFixedPath = true
-		s.router.continueFixedPath = false
+		s.router.options |= redirectFixedPath
+		s.router.options &^= continueFixedPath
 		s.router.pathRedirect = handler
 		return nil
 	})
@@ -147,6 +148,19 @@ func WithMaxRouteParams(max uint16) GlobalOption {
 func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.maxParamKeyBytes = max
+		return nil
+	})
+}
+
+// WithNormalizePathFunc sets a custom function to normalize paths for the [WithRedirectFixedPath] and
+// [WithMatchAfterFixedPath] options. The function is used to clean request paths before matching or redirection.
+// By default, [CleanPath] is used.
+func WithNormalizePathFunc(fn NormalizePathFunc) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		if fn == nil {
+			return fmt.Errorf("%w: normalize path function cannot be nil", ErrInvalidConfig)
+		}
+		s.router.cleanPath = fn
 		return nil
 	})
 }
@@ -203,7 +217,7 @@ func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 // option [WithNoMethodHandler].
 func WithNoMethod(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.handleMethodNotAllowed = enable
+		setFlag(&s.router.options, handleMethodNotAllowed, enable)
 		return nil
 	})
 }
@@ -215,7 +229,7 @@ func WithNoMethod(enable bool) GlobalOption {
 // the option [WithOptionsHandler].
 func WithAutoOptions(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.handleOptions = enable
+		setFlag(&s.router.options, handleOptions, enable)
 		return nil
 	})
 }
@@ -233,15 +247,15 @@ func WithAutoOptions(enable bool) GlobalOption {
 func WithRedirectTrailingSlash(enable bool) Option {
 	return optionFunc(func(s sealedOption) error {
 		if s.router != nil {
-			s.router.redirectTrailingSlash = enable
+			setFlag(&s.router.options, redirectTrailingSlash, enable)
 			if enable {
-				s.router.ignoreTrailingSlash = false
+				s.router.options &^= ignoreTrailingSlash
 			}
 		}
 		if s.route != nil {
-			s.route.redirectTrailingSlash = enable
+			setFlag(&s.route.options, redirectTrailingSlash, enable)
 			if enable {
-				s.route.ignoreTrailingSlash = false
+				s.route.options &^= ignoreTrailingSlash
 			}
 		}
 		return nil
@@ -261,15 +275,15 @@ func WithRedirectTrailingSlash(enable bool) Option {
 func WithIgnoreTrailingSlash(enable bool) Option {
 	return optionFunc(func(s sealedOption) error {
 		if s.router != nil {
-			s.router.ignoreTrailingSlash = enable
+			setFlag(&s.router.options, ignoreTrailingSlash, enable)
 			if enable {
-				s.router.redirectTrailingSlash = false
+				s.router.options &^= redirectTrailingSlash
 			}
 		}
 		if s.route != nil {
-			s.route.ignoreTrailingSlash = enable
+			setFlag(&s.route.options, ignoreTrailingSlash, enable)
 			if enable {
-				s.route.redirectTrailingSlash = false
+				s.route.options &^= redirectTrailingSlash
 			}
 		}
 		return nil
@@ -283,9 +297,9 @@ func WithIgnoreTrailingSlash(enable bool) Option {
 // [WithMatchAfterFixedPath], and if enabled will automatically deactivate [WithMatchAfterFixedPath].
 func WithRedirectFixedPath(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.redirectFixedPath = true
+		setFlag(&s.router.options, redirectFixedPath, enable)
 		if enable {
-			s.router.continueFixedPath = false
+			s.router.options &^= continueFixedPath
 		}
 		return nil
 	})
@@ -298,9 +312,9 @@ func WithRedirectFixedPath(enable bool) GlobalOption {
 // automatically deactivate [WithRedirectFixedPath].
 func WithMatchAfterFixedPath(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.continueFixedPath = true
+		setFlag(&s.router.options, continueFixedPath, enable)
 		if enable {
-			s.router.redirectFixedPath = false
+			s.router.options &^= redirectFixedPath
 		}
 		return nil
 	})
@@ -357,7 +371,15 @@ func DefaultOptions() GlobalOption {
 			{Recovery(), RouteHandler, true},
 			{Logger(), AllHandlers, true},
 		}, s.router.mws...)
-		s.router.handleOptions = true
+		s.router.options |= handleOptions
 		return nil
 	})
+}
+
+func setFlag(opts *optFlag, flag optFlag, enable bool) {
+	if enable {
+		*opts |= flag
+		return
+	}
+	*opts &^= flag
 }

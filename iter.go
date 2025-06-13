@@ -116,7 +116,7 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 		for method := range methods {
 			c.resetNil()
 			n, tsr := it.root.lookup(it.tree, method, host, cmp.Or(path, "/"), c, true)
-			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
+			if n != nil && (!tsr || n.route.options&(redirectTrailingSlash|ignoreTrailingSlash) != 0) {
 				if !yield(method, n.route) {
 					return
 				}

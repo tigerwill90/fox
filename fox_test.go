@@ -5086,7 +5086,7 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 
 func TestWithRedirectTrailingSlashHandler(t *testing.T) {
 	r, _ := New(WithRedirectTrailingSlashHandler(func(c Context) {
-		_ = c.Redirect(http.StatusMovedPermanently, FixTrailingSlash(c.Path()))
+		_ = c.Redirect(http.StatusMovedPermanently, c.Path())
 	}))
 	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/foo/bar/", emptyHandler)))
 
@@ -5844,7 +5844,7 @@ func TestDefaultOptions(t *testing.T) {
 	r, err := New(WithMiddleware(m), DefaultOptions())
 	require.NoError(t, err)
 	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[2].m).Pointer())
-	assert.True(t, r.handleOptions)
+	assert.True(t, r.options&handleOptions != 0)
 }
 
 func TestInvalidAnnotation(t *testing.T) {

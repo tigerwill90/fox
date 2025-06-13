@@ -178,6 +178,8 @@ func scopeToString(scope HandlerScope) string {
 		strScope = "OptionsHandler"
 	case NoMethodHandler:
 		strScope = "NoMethodHandler"
+	case RedirectPathHandler:
+		strScope = "RedirectPathHandler"
 	case RedirectSlashHandler:
 		strScope = "RedirectSlashHandler"
 	case NoRouteHandler:
