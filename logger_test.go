@@ -13,7 +13,7 @@ import (
 func TestLoggerWithHandler(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
 	f, _ := New(
-		WithRedirectTrailingSlash(true),
+		WithHandleTrailingSlash(RedirectSlash),
 		WithMiddleware(LoggerWithHandler(slog.NewTextHandler(buf, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {

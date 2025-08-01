@@ -2,17 +2,16 @@ package fox
 
 // Route represents an immutable HTTP route with associated handlers and settings.
 type Route struct {
-	clientip              ClientIPResolver
-	hbase                 HandlerFunc
-	hself                 HandlerFunc
-	hall                  HandlerFunc
-	annots                map[any]any
-	pattern               string
-	mws                   []middleware
-	hostSplit             int // 0 if no host
-	psLen                 uint32
-	redirectTrailingSlash bool
-	ignoreTrailingSlash   bool
+	clientip    ClientIPResolver
+	hbase       HandlerFunc
+	hself       HandlerFunc
+	hall        HandlerFunc
+	annots      map[any]any
+	pattern     string
+	mws         []middleware
+	hostSplit   int // 0 if no host
+	psLen       uint32
+	handleSlash TrailingSlashOption
 }
 
 // Handle calls the handler with the provided [Context]. See also [Route.HandleMiddleware].
@@ -48,16 +47,9 @@ func (r *Route) Annotation(key any) any {
 	return r.annots[key]
 }
 
-// RedirectTrailingSlashEnabled returns whether the route is configured to automatically
-// redirect requests that include or omit a trailing slash.
-func (r *Route) RedirectTrailingSlashEnabled() bool {
-	return r.redirectTrailingSlash
-}
-
-// IgnoreTrailingSlashEnabled returns whether the route is configured to ignore
-// trailing slashes in requests when matching routes.
-func (r *Route) IgnoreTrailingSlashEnabled() bool {
-	return r.ignoreTrailingSlash
+// TrailingSlashOption returns the configured [TrailingSlashOption] for this route.
+func (r *Route) TrailingSlashOption() TrailingSlashOption {
+	return r.handleSlash
 }
 
 // ClientIPResolver returns the [ClientIPResolver] configured for the route, if any.

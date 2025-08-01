@@ -10,6 +10,26 @@ import (
 	"reflect"
 )
 
+type TrailingSlashOption uint8
+
+const (
+	StrictSlash TrailingSlashOption = iota
+	RelaxedSlash
+	RedirectSlash
+
+	slashOptionSentinel
+)
+
+type FixedPathOption uint8
+
+const (
+	StrictPath FixedPathOption = iota
+	RelaxedPath
+	RedirectPath
+
+	pathOptionSentinel
+)
+
 type Option interface {
 	GlobalOption
 	RouteOption
@@ -92,20 +112,51 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	})
 }
 
-// WithRedirectTrailingSlashHandler register an [HandlerFunc] which perform automatic redirection fallback when
-// the current request does not match but another handler is found with/without an additional trailing slash.
-// E.g. /foo/bar/ request does not match but /foo/bar would match. The handler is responsible for performing
-// the redirection with the appropriate status code. By default, the [DefaultRedirectTrailingSlashHandler] is used.
-// Note that this option automatically enable [WithRedirectTrailingSlash] and is mutually exclusive with
-// [WithIgnoreTrailingSlash], and if enabled will automatically deactivate [WithIgnoreTrailingSlash].
-func WithRedirectTrailingSlashHandler(handler HandlerFunc) GlobalOption {
-	return globOptionFunc(func(s sealedOption) error {
-		if handler == nil {
-			return fmt.Errorf("%w: redirect trailing slash handler cannot be nil", ErrInvalidConfig)
+// WithHandleTrailingSlash configures how the router handles trailing slashes in request paths.
+//
+// Available slash handling modes:
+//   - StrictSlash: Routes are matched exactly as registered. /foo/bar and /foo/bar/ are treated as different routes.
+//   - RelaxedSlash: Routes match regardless of trailing slash. Both /foo/bar and /foo/bar/ match the same route.
+//   - RedirectSlash: When a route is not found, but exists with/without a trailing slash, issues a relative redirect.
+//
+// This option can be applied on a per-route basis or globally:
+//   - If applied globally, it affects all routes by default.
+//   - If applied to a specific route, it will override the global setting for that route.
+//
+// If both /foo/bar and /foo/bar/ are explicitly registered, the exact match always takes precedence.
+// The trailing slash handling logic only applies when there is no direct match but a match would be
+// possible by adding or removing a trailing slash.
+func WithHandleTrailingSlash(opt TrailingSlashOption) Option {
+	return optionFunc(func(s sealedOption) error {
+		if opt >= slashOptionSentinel {
+			return fmt.Errorf("%w: invalid trailing slash option", ErrInvalidConfig)
 		}
-		s.router.redirectTrailingSlash = true
-		s.router.ignoreTrailingSlash = false
-		s.router.tsrRedirect = handler
+		if s.router != nil {
+			s.router.handleSlash = opt
+		}
+		if s.route != nil {
+			s.route.handleSlash = opt
+		}
+		return nil
+	})
+}
+
+// WithHandleFixedPath configures how the router handles non-canonical request paths containing
+// extraneous elements like double slashes, dots, or parent directory references.
+//
+// Available path handling modes:
+//   - StrictPath: No path cleaning is performed. Routes are matched only as requested (disables this feature).
+//   - RelaxedPath: After normal lookup fails, tries matching with a cleaned path. If found, serves the handler directly.
+//   - RedirectPath: After normal lookup fails, tries matching with a cleaned path. If found, redirects to the clean path.
+//
+// This option applies globally to all routes and cannot be configured per-route. See [CleanPath] for details on how
+// paths are cleaned.
+func WithHandleFixedPath(opt FixedPathOption) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		if opt >= pathOptionSentinel {
+			return fmt.Errorf("%w: invalid fixed path option", ErrInvalidConfig)
+		}
+		s.router.handlePath = opt
 		return nil
 	})
 }
@@ -158,7 +209,7 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
-// Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectHandler],
+// Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectSlashHandler],
 // [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
 // middleware is applied.
 func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
@@ -192,62 +243,6 @@ func WithNoMethod(enable bool) GlobalOption {
 func WithAutoOptions(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.handleOptions = enable
-		return nil
-	})
-}
-
-// WithRedirectTrailingSlash enable automatic redirection fallback when the current request does not match but
-// another handler is found with/without an additional trailing slash. E.g. /foo/bar/ request does not match
-// but /foo/bar would match. By default, the [DefaultRedirectTrailingSlashHandler] is used.
-//
-// This option can be applied on a per-route basis or globally:
-//   - If applied globally, it affects all routes by default.
-//   - If applied to a specific route, it will override the global setting for that route.
-//
-// Note that this option is mutually exclusive with [WithIgnoreTrailingSlash], and if enabled will
-// automatically deactivate [WithIgnoreTrailingSlash].
-func WithRedirectTrailingSlash(enable bool) Option {
-	return optionFunc(func(s sealedOption) error {
-		if s.router != nil {
-			s.router.redirectTrailingSlash = enable
-			if enable {
-				s.router.ignoreTrailingSlash = false
-			}
-		}
-		if s.route != nil {
-			s.route.redirectTrailingSlash = enable
-			if enable {
-				s.route.ignoreTrailingSlash = false
-			}
-		}
-		return nil
-	})
-}
-
-// WithIgnoreTrailingSlash allows the router to match routes regardless of whether a trailing slash is present or not.
-// E.g. /foo/bar/ and /foo/bar would both match the same handler. This option prevents the router from issuing
-// a redirect and instead matches the request directly.
-//
-// This option can be applied on a per-route basis or globally:
-//   - If applied globally, it affects all routes by default.
-//   - If applied to a specific route, it will override the global setting for that route.
-//
-// Note that this option is mutually exclusive with [WithRedirectTrailingSlash], and if enabled will automatically
-// deactivate [WithRedirectTrailingSlash].
-func WithIgnoreTrailingSlash(enable bool) Option {
-	return optionFunc(func(s sealedOption) error {
-		if s.router != nil {
-			s.router.ignoreTrailingSlash = enable
-			if enable {
-				s.router.redirectTrailingSlash = false
-			}
-		}
-		if s.route != nil {
-			s.route.ignoreTrailingSlash = enable
-			if enable {
-				s.route.redirectTrailingSlash = false
-			}
-		}
 		return nil
 	})
 }

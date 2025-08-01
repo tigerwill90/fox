@@ -1023,7 +1023,7 @@ func BenchmarkOverlappingRoute(b *testing.B) {
 }
 
 func BenchmarkWithIgnoreTrailingSlash(b *testing.B) {
-	f, _ := New(WithIgnoreTrailingSlash(true))
+	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 	f.MustHandle(http.MethodGet, "/{a}/{b}/e", emptyHandler)
 	f.MustHandle(http.MethodGet, "/{a}/{b}/d", emptyHandler)
 	f.MustHandle(http.MethodGet, "/foo/{b}", emptyHandler)
@@ -1444,19 +1444,19 @@ func TestHandleRoute(t *testing.T) {
 	f, _ := New()
 
 	t.Run("handle and update route with some option", func(t *testing.T) {
-		want, err := f.NewRoute("/foo", emptyHandler, WithAnnotation("foo", "bar"), WithRedirectTrailingSlash(true))
+		want, err := f.NewRoute("/foo", emptyHandler, WithAnnotation("foo", "bar"), WithHandleTrailingSlash(RedirectSlash))
 		require.NoError(t, err)
 		require.NoError(t, f.HandleRoute(http.MethodGet, want))
 		got := f.Route(http.MethodGet, "/foo")
 		assert.Equal(t, want, got)
-		assert.True(t, got.RedirectTrailingSlashEnabled())
+		assert.Equal(t, RedirectSlash, got.TrailingSlashOption())
 
 		want, err = f.NewRoute("/foo", emptyHandler, WithAnnotation("baz", "baz"))
 		require.NoError(t, err)
 		require.NoError(t, f.UpdateRoute(http.MethodGet, want))
 		got = f.Route(http.MethodGet, "/foo")
 		assert.Equal(t, want, got)
-		assert.False(t, got.RedirectTrailingSlashEnabled())
+		assert.Equal(t, StrictSlash, got.TrailingSlashOption())
 	})
 
 	t.Run("handle route with invalid method", func(t *testing.T) {
@@ -4972,16 +4972,16 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithIgnoreTrailingSlash(true))
+			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 			rf := f.Stats()
-			require.True(t, rf.IgnoreTrailingSlash)
+			assert.Equal(t, RelaxedSlash, rf.TrailingSlashOption)
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c Context) {
 					_ = c.String(http.StatusOK, c.Pattern())
 				})))
 				rte := f.Route(tc.method, path)
 				require.NotNil(t, rte)
-				assert.True(t, rte.IgnoreTrailingSlashEnabled())
+				assert.Equal(t, RelaxedSlash, rte.handleSlash)
 			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -5153,14 +5153,15 @@ func TestRedirectTrailingSlash(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithRedirectTrailingSlash(true))
+			f, _ := New(WithHandleTrailingSlash(RedirectSlash))
 			rf := f.Stats()
-			require.True(t, rf.RedirectTrailingSlash)
+			assert.Equal(t, RedirectSlash, rf.TrailingSlashOption)
+
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(tc.method, path, emptyHandler)))
 				rte := f.Route(tc.method, path)
 				require.NotNil(t, rte)
-				assert.True(t, rte.RedirectTrailingSlashEnabled())
+				assert.Equal(t, RedirectSlash, rte.TrailingSlashOption())
 			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -5179,7 +5180,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 }
 
 func TestEncodedRedirectTrailingSlash(t *testing.T) {
-	r, _ := New(WithRedirectTrailingSlash(true))
+	r, _ := New(WithHandleTrailingSlash(RedirectSlash))
 	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/foo/{bar}/", emptyHandler)))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar%2Fbaz", nil)
@@ -5188,20 +5189,6 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusMovedPermanently, w.Code)
 	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
-}
-
-func TestWithRedirectTrailingSlashHandler(t *testing.T) {
-	r, _ := New(WithRedirectTrailingSlashHandler(func(c Context) {
-		_ = c.Redirect(http.StatusMovedPermanently, FixTrailingSlash(c.Path()))
-	}))
-	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/foo/bar/", emptyHandler)))
-
-	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
-	w := httptest.NewRecorder()
-
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusMovedPermanently, w.Code)
-	assert.Equal(t, "/foo/bar/", w.Header().Get(HeaderLocation))
 }
 
 func TestRouterWithTsrParams(t *testing.T) {
@@ -5316,7 +5303,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithIgnoreTrailingSlash(true))
+			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c Context) {
 					assert.Equal(t, tc.wantPath, c.Pattern())
@@ -5495,7 +5482,7 @@ func TestTree_Methods(t *testing.T) {
 }
 
 func TestTree_MethodsWithIgnoreTsEnable(t *testing.T) {
-	f, _ := New(WithIgnoreTrailingSlash(true))
+	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 	for _, method := range []string{"DELETE", "GET", "PUT"} {
 		require.NoError(t, onlyError(f.Handle(method, "/foo/bar", emptyHandler)))
 		require.NoError(t, onlyError(f.Handle(method, "/john/doe/", emptyHandler)))
@@ -5584,7 +5571,7 @@ func TestRouterHandleNoRoute(t *testing.T) {
 }
 
 func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
-	f, _ := New(WithNoMethod(true), WithIgnoreTrailingSlash(true))
+	f, _ := New(WithNoMethod(true), WithHandleTrailingSlash(RelaxedSlash))
 
 	// Support for ignore Trailing slash
 	cases := []struct {
@@ -5864,7 +5851,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithAutoOptions(true), WithIgnoreTrailingSlash(true))
+			f, _ := New(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
 					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
@@ -6365,7 +6352,7 @@ func TestTree_RouteWithIgnoreTrailingSlashEnable(t *testing.T) {
 		"/users/uid_{id}",
 	}
 
-	f, _ := New(WithIgnoreTrailingSlash(true))
+	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 	for _, rte := range routes {
 		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 	}
@@ -6980,7 +6967,7 @@ func ExampleRouter_Lookup() {
 				}
 
 				// Redirect the client if direct match or indirect match.
-				if !tsr || route.IgnoreTrailingSlashEnabled() {
+				if !tsr || route.TrailingSlashOption() == RelaxedSlash {
 					if err := c.Redirect(code, cleanedPath); err != nil {
 						// Only if not in the range 300..308, so not possible here!
 						panic(err)
@@ -6988,14 +6975,11 @@ func ExampleRouter_Lookup() {
 					return
 				}
 
-				// Add or remove an extra trailing slash and redirect the client.
-				if route.RedirectTrailingSlashEnabled() {
-					if err := c.Redirect(code, FixTrailingSlash(cleanedPath)); err != nil {
-						// Only if not in the range 300..308, so not possible here
-						panic(err)
-					}
-					return
+				if err := c.Redirect(code, cleanedPath); err != nil {
+					// Only if not in the range 300..308, so not possible here
+					panic(err)
 				}
+				return
 			}
 
 			// rollback to the original path before calling the
