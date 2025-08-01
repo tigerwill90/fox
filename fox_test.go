@@ -2211,15 +2211,28 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
-			name:     "simple infix wildcard",
+			name:     "simple infix wildcard capture slash",
 			routes:   []string{"/foo/*{args}/bar"},
-			path:     "/foo/a/bar",
+			path:     "/foo///bar",
 			wantPath: "/foo/*{args}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
 					Key:   "args",
-					Value: "a",
+					Value: "/",
+				},
+			},
+		},
+		{
+			name:     "simple infix wildcard capture anything not empty",
+			routes:   []string{"/foo/*{args}/bar"},
+			path:     "/foo//a//bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/a/",
 				},
 			},
 		},
@@ -2233,6 +2246,19 @@ func TestInfixWildcard(t *testing.T) {
 				{
 					Key:   "args",
 					Value: "bar",
+				},
+			},
+		},
+		{
+			name:     "static with infix wildcard child capture slash",
+			routes:   []string{"/foo/", "/foo/*{args}/baz"},
+			path:     "/foo///baz",
+			wantPath: "/foo/*{args}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
 				},
 			},
 		},
@@ -2276,6 +2302,19 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix inflight wildcard capture slash",
+			routes:   []string{"/foo/z*{args}/bar"},
+			path:     "/foo/z//bar",
+			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
+				},
+			},
+		},
+		{
 			name:     "simple infix inflight wildcard with route char",
 			routes:   []string{"/foo/z*{args}/bar"},
 			path:     "/foo/z*{args}/bar",
@@ -2298,6 +2337,19 @@ func TestInfixWildcard(t *testing.T) {
 				{
 					Key:   "args",
 					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard with multi slash",
+			routes:   []string{"/foo/z*{args}/bar"},
+			path:     "/foo/z////bar",
+			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "///",
 				},
 			},
 		},
@@ -2354,6 +2406,19 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "overlapping infix and suffix wildcard match infix with slash",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
+			path:     "/foo///bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
+				},
+			},
+		},
+		{
 			name:     "overlapping infix and suffix wildcard match suffix",
 			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
 			path:     "/foo/a/b/c/baz",
@@ -2363,6 +2428,19 @@ func TestInfixWildcard(t *testing.T) {
 				{
 					Key:   "args",
 					Value: "a/b/c/baz",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix and suffix wildcard match suffix with empty slash",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
+			path:     "/foo///baz",
+			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "//baz",
 				},
 			},
 		},
@@ -2389,6 +2467,19 @@ func TestInfixWildcard(t *testing.T) {
 				{
 					Key:   "args",
 					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix suffix wildcard and param match infix with empty slash",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/bar"},
+			path:     "/foo///bar",
+			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
 				},
 			},
 		},
@@ -3267,6 +3358,21 @@ func TestInfixWildcardTsr(t *testing.T) {
 				{
 					Key:   "any",
 					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash and tsr add and empty slash",
+			routes: []string{
+				"/foo/*{any}/",
+			},
+			path:     "/foo//a",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "/a",
 				},
 			},
 		},

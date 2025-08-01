@@ -166,8 +166,8 @@ example.{tld}/avengers          matches
 ````
 
 #### Catch-all parameters
-Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match one or more **non-empty** route segments, 
-including slashes. The matching segment are also accessible via `fox.Context`. Catch-all parameters are supported anywhere 
+Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match any sequence of characters 
+including slashes, but cannot match an empty string. The matching segment are also accessible via `fox.Context`. Catch-all parameters are supported anywhere 
 in the route, but only one parameter is allowed per segment and must appear at the end of the segment. Consecutive catch-all 
 parameter are not allowed.
 

@@ -379,13 +379,16 @@ Walk:
 					startPath := charsMatched
 					for {
 						idx = strings.IndexByte(path[charsMatched:], slashDelim)
-						// idx >= 0, we have a next segment with at least one char
-						if idx > 0 {
+						// idx >= 0, we have a next segment
+						if idx >= 0 {
 							*subCtx.params = (*subCtx.params)[:0]
 							charsMatched += idx
 							subNode, subTsr := lookupByPath(tree, inode, path[charsMatched:], subCtx, lazy)
-							if subNode == nil {
-								// Try with next segment
+							if subNode == nil || startPath == charsMatched {
+								// The wildcard must not be empty e.g. for /*{any}/ but may contain "intermediary" empty segment.
+								// '//' this is an empty segment
+								// '///' the middle '/' is captured as a dynamic part.
+								// This aligns to the ending catch all /*{any} where '//foo' capture '/foo'
 								charsMatched++
 								continue
 							}
