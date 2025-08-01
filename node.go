@@ -388,7 +388,7 @@ Walk:
 								// The wildcard must not be empty e.g. for /*{any}/ but may contain "intermediary" empty segment.
 								// '//' this is an empty segment
 								// '///' the middle '/' is captured as a dynamic part.
-								// This aligns to the ending catch all /*{any} where is '//foo' capture '/foo'
+								// This aligns to the ending catch all /*{any} where '//foo' capture '/foo'
 								charsMatched++
 								continue
 							}
