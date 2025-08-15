@@ -290,8 +290,8 @@ func WithAnnotation(key, value any) RouteOption {
 }
 
 // DefaultOptions configure the router to use the [Recovery] middleware for the [RouteHandler] scope, the [Logger] middleware
-// for [AllHandlers] scope and enable automatic OPTIONS response. Note that DefaultOptions push the [Recovery] and [Logger]
-// middleware respectively to the first and second position of the middleware chains.
+// for [AllHandlers] scope, enable automatic OPTIONS response and path correction in redirect mode. Note that DefaultOptions
+// push the [Recovery] and [Logger] middleware respectively to the first and second position of the middleware chains.
 func DefaultOptions() GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.mws = append([]middleware{
@@ -299,6 +299,7 @@ func DefaultOptions() GlobalOption {
 			{Logger(), AllHandlers, true},
 		}, s.router.mws...)
 		s.router.handleOptions = true
+		s.router.handlePath = RedirectPath
 		return nil
 	})
 }
