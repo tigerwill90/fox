@@ -6,14 +6,15 @@ package clientip
 
 import (
 	"errors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tigerwill90/fox"
 )
 
 func TestRemoteAddr_ClientIP(t *testing.T) {

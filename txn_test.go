@@ -2,11 +2,12 @@ package fox
 
 import (
 	"errors"
+	"net/http"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tigerwill90/fox/internal/iterutil"
-	"net/http"
-	"testing"
 )
 
 func TestTxn_Truncate(t *testing.T) {

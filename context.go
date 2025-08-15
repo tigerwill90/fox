@@ -7,13 +7,14 @@ package fox
 import (
 	"context"
 	"fmt"
-	"github.com/tigerwill90/fox/internal/netutil"
 	"io"
 	"iter"
 	"net"
 	"net/http"
 	"net/url"
 	"slices"
+
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 // ContextCloser extends [Context] for manually created instances, adding a Close method

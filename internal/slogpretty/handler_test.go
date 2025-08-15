@@ -3,11 +3,12 @@ package slogpretty
 import (
 	"bytes"
 	"context"
-	"github.com/stretchr/testify/require"
 	"log/slog"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLogHandler_Handle(t *testing.T) {

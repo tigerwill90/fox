@@ -6,9 +6,10 @@ package fox
 
 import (
 	"fmt"
-	"github.com/tigerwill90/fox/internal/simplelru"
 	"strings"
 	"sync"
+
+	"github.com/tigerwill90/fox/internal/simplelru"
 )
 
 const defaultModifiedCache = 4096

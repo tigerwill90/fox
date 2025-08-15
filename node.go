@@ -6,11 +6,12 @@ package fox
 
 import (
 	"cmp"
-	"github.com/tigerwill90/fox/internal/netutil"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 type roots []*node
