@@ -7,8 +7,6 @@ package fox
 import (
 	"errors"
 	"fmt"
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/netutil"
 	"log"
 	"math/rand/v2"
 	"net"
@@ -22,6 +20,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/netutil"
 
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
@@ -4725,6 +4726,96 @@ func TestParseRoute(t *testing.T) {
 			name:  "complex domain and path",
 			path:  "{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 7,
+		},
+		// Reject path with traversal pattern
+		{
+			name:    "path with double slash",
+			path:    "/foo//bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path with > double slash",
+			path:    "/foo///bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path with slash dot slash",
+			path:    "/foo/./bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path with slash dot slash",
+			path:    "/foo/././bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path with double dot parent reference",
+			path:    "/foo/../bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path with double dot parent reference",
+			path:    "/foo/../../bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path ending with slash dot",
+			path:    "/foo/.",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path ending with slash double dot",
+			path:    "/foo/..",
+			wantErr: ErrInvalidRoute,
+		},
+		// Allowed dot and slash combinaison
+		{
+			name: "last path segment starting with slash dot and text",
+			path: "/foo/.bar",
+		},
+		{
+			name: "last path segment starting with slash dot and text",
+			path: "/foo/..bar",
+		},
+		{
+			name: "path segment starting with slash dot and text",
+			path: "/foo/.bar/baz",
+		},
+		{
+			name: "path segment starting with slash dot and text",
+			path: "/foo/..bar/baz",
+		},
+		{
+			name: "path segment ending with dot slash",
+			path: "/foo/bar./baz",
+		},
+		{
+			name: "path segment ending with double dot slash",
+			path: "/foo/bar../baz",
+		},
+		{
+			name: "path segment with > double dot",
+			path: "/foo/.../baz",
+		},
+		{
+			name: "path segment ending with slash and > double dot",
+			path: "/foo/...",
+		},
+		{
+			name: "last path segment ending with dot",
+			path: "/foo/bar.",
+		},
+		{
+			name: "last path segment ending with double dot",
+			path: "/foo/bar..",
+		},
+		{
+			name: "path segment with dot",
+			path: "/foo/a.b.c",
+		},
+		{
+			name: "path segment with double dot",
+			path: "/foo/a..b..c",
 		},
 	}
 
