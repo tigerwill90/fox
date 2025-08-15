@@ -6,14 +6,15 @@ package fox
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestContext_Writer_ReadFrom(t *testing.T) {
@@ -339,6 +340,13 @@ func TestContext_Scope(t *testing.T) {
 				next(c)
 			}
 		}),
+		WithHandleFixedPath(RedirectPath),
+		WithMiddlewareFor(RedirectPathHandler, func(next HandlerFunc) HandlerFunc {
+			return func(c Context) {
+				assert.Equal(t, RedirectPathHandler, c.Scope())
+				next(c)
+			}
+		}),
 		WithNoRouteHandler(func(c Context) {
 			assert.Equal(t, NoRouteHandler, c.Scope())
 		}),
@@ -366,8 +374,13 @@ func TestContext_Scope(t *testing.T) {
 			w:    httptest.NewRecorder(),
 		},
 		{
-			name: "redirect handler scope",
+			name: "redirect slash handler scope",
 			req:  httptest.NewRequest(http.MethodGet, "/foo/", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "redirect fixed path handler scope",
+			req:  httptest.NewRequest(http.MethodGet, "//foo", nil),
 			w:    httptest.NewRecorder(),
 		},
 		{

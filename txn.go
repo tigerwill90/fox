@@ -2,9 +2,10 @@ package fox
 
 import (
 	"fmt"
-	"golang.org/x/net/http/httpguts"
 	"net/http"
 	"strings"
+
+	"golang.org/x/net/http/httpguts"
 )
 
 // Txn is a read or write transaction on the routing tree.

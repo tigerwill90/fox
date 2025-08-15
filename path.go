@@ -6,8 +6,9 @@
 package fox
 
 import (
-	"github.com/tigerwill90/fox/internal/netutil"
 	"strings"
+
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 // CleanPath is the URL version of [path.Clean], it returns a canonical URL path
@@ -183,11 +184,4 @@ func SplitHostPath(url string) (host, path string) {
 	host, _ = netutil.SplitHostPort(url[:hostEnd])
 	path = url[hostEnd:]
 	return
-}
-
-// checkUnsafeTraversal checks if a path is safe to use for trailing slash redirects.
-// It ensures the path doesn't contain parent directory references that could be exploited.
-// Return true if the path is safe.
-func checkUnsafeTraversal(path string) bool {
-	return !strings.HasSuffix(path, "/..") && !strings.Contains(path, "../")
 }

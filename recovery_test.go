@@ -2,9 +2,6 @@ package fox
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox/internal/slogpretty"
 	"log/slog"
 	"net"
 	"net/http"
@@ -12,6 +9,10 @@ import (
 	"os"
 	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 func TestAbortHandler(t *testing.T) {
@@ -102,8 +103,9 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 
 	f, _ := New(
 		WithHandleTrailingSlash(RedirectSlash),
+		WithHandleFixedPath(RedirectPath),
 		WithMiddleware(m),
-		WithMiddlewareFor(RedirectSlashHandler, panicMiddleware),
+		WithMiddlewareFor(RedirectSlashHandler|RedirectPathHandler, panicMiddleware),
 		WithNoRouteHandler(func(c Context) {
 			panic(errMsg)
 		}),
@@ -140,6 +142,16 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 	t.Run("redirect trailing slash", func(t *testing.T) {
 		reset()
 		req := httptest.NewRequest(http.MethodGet, "/foo/", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, errMsg, w.Body.String())
+		assert.Equal(t, woBuf.Len(), 0)
+		assert.NotEqual(t, weBuf.Len(), 0)
+	})
+	t.Run("redirect fixed path", func(t *testing.T) {
+		reset()
+		req := httptest.NewRequest(http.MethodGet, "//foo/", nil)
 		w := httptest.NewRecorder()
 		f.ServeHTTP(w, req)
 		require.Equal(t, http.StatusInternalServerError, w.Code)

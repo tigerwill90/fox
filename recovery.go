@@ -8,8 +8,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/slogpretty"
 	"iter"
 	"log/slog"
 	"net"
@@ -19,6 +17,9 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 var reqHeaderSep = []byte("\r\n")

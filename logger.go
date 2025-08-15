@@ -6,9 +6,10 @@ package fox
 
 import (
 	"errors"
-	"github.com/tigerwill90/fox/internal/slogpretty"
 	"log/slog"
 	"time"
+
+	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 // LoggerWithHandler returns a middleware that logs request information using the provided [slog.Handler].
