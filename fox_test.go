@@ -5372,6 +5372,15 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 			wantCode:     http.StatusMovedPermanently,
 			wantLocation: "/foo/https%3A%2F%2Fbar%2Fbaz/",
 		},
+		{
+			name:         "redirect with consecutive slash and query",
+			path:         "/foo/bar",
+			slashMode:    StrictSlash,
+			req:          "/foo//bar?1=2",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/foo/bar?1=2",
+		},
 	}
 
 	for _, tc := range cases {
@@ -5443,6 +5452,13 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 			req:       "/foo/../bar",
 			wantCode:  http.StatusOK,
 		},
+		{
+			name:      "handle with consecutive slash and query",
+			path:      "/foo/bar",
+			slashMode: StrictSlash,
+			req:       "/foo//bar?1=2",
+			wantCode:  http.StatusOK,
+		},
 	}
 
 	for _, tc := range cases {
@@ -5464,15 +5480,42 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 }
 
 func TestEncodedRedirectTrailingSlash(t *testing.T) {
-	r, _ := New(WithHandleTrailingSlash(RedirectSlash))
-	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/foo/{bar}/", emptyHandler)))
+	cases := []struct {
+		name         string
+		path         string
+		req          string
+		wantCode     int
+		wantLocation string
+	}{
+		{
+			name:         "encoded slash redirect",
+			path:         "/foo/{bar}/",
+			req:          "/foo/bar%2Fbaz",
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "bar%2Fbaz/",
+		},
+		{
+			name:         "encoded slash redirect with query parameters",
+			path:         "/foo/{bar}/",
+			req:          "/foo/bar%2Fbaz?key=value&foo=bar",
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "bar%2Fbaz/?key=value&foo=bar",
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/foo/bar%2Fbaz", nil)
-	w := httptest.NewRecorder()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := New(WithHandleTrailingSlash(RedirectSlash))
+			require.NoError(t, onlyError(r.Handle(http.MethodGet, tc.path, emptyHandler)))
 
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusMovedPermanently, w.Code)
-	assert.Equal(t, "bar%2Fbaz/", w.Header().Get(HeaderLocation))
+			req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+		})
+	}
 }
 
 func TestRouterWithTsrParams(t *testing.T) {
