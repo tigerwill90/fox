@@ -870,6 +870,33 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 					if c < ' ' || c == 0x7f {
 						return 0, -1, fmt.Errorf("%w: illegal control character in path", ErrInvalidRoute)
 					}
+
+					// reject any consecutive slash
+					if i > endHost && c == '/' && url[i-1] == '/' {
+						return 0, -1, fmt.Errorf("%w: illegal consecutive slashes in path", ErrInvalidRoute)
+					}
+
+					// reject dot-based traversal patterns
+					if i > endHost && c == '.' && url[i-1] == '/' {
+						nextIdx := i + 1
+						if nextIdx < len(url) {
+							nextChar := url[nextIdx]
+							if nextChar == '/' {
+								return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/./'", ErrInvalidRoute)
+							} else if nextChar == '.' {
+								nextNextIdx := nextIdx + 1
+								if nextNextIdx < len(url) {
+									if url[nextNextIdx] == '/' {
+										return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/../'", ErrInvalidRoute)
+									}
+								} else {
+									return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/..' at end", ErrInvalidRoute)
+								}
+							}
+						} else {
+							return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/.' at end", ErrInvalidRoute)
+						}
+					}
 				}
 			}
 

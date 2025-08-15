@@ -4635,19 +4635,19 @@ func TestParseRoute(t *testing.T) {
 		},
 		{
 			name:    "leading hostname label exceed 63 characters",
-			path:    "UJ01DowF1x5Lk6LYsUrbr0LgbDD1wFyw8Sm8q17MnT0I9igK774vCWr5rLY5dGuu.b.com/",
+			path:    "uj01dowf1x5lk6lysurbr0lgbdd1wfyw8sm8q17mnt0i9igk774vcwr5rly5dguu.b.com/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
 		{
 			name:    "middle hostname label exceed 63 characters",
-			path:    "a.UJ01DowF1x5Lk6LYsUrbr0LgbDD1wFyw8Sm8q17MnT0I9igK774vCWr5rLY5dGuu.com/",
+			path:    "a.uj01dowf1x5lk6lysurbr0lgbdd1wfyw8sm8q17mnt0i9igk774vcwr5rly5dguu.com/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
 		{
 			name:    "trailing hostname label exceed 63 characters",
-			path:    "a.b.UJ01DowF1x5Lk6LYsUrbr0LgbDD1wFyw8Sm8q17MnT0I9igK774vCWr5rLY5dGuu/",
+			path:    "a.b.uj01dowf1x5lk6lysurbr0lgbdd1wfyw8sm8q17mnt0i9igk774vcwr5rly5dguu/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
@@ -4676,7 +4676,7 @@ func TestParseRoute(t *testing.T) {
 		},
 		{
 			name:    "hostname exceed 255 character",
-			path:    "a.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJx.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR.78faYZYIQKt3hH2mquv9szfroEexx8QzTScu3OUdoYfArjL6jMDyXK2CEFvzJxR/",
+			path:    "a.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjx.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
@@ -4768,6 +4768,16 @@ func TestParseRoute(t *testing.T) {
 			path:    "/foo/..",
 			wantErr: ErrInvalidRoute,
 		},
+		{
+			name:    "path ending with slash dot",
+			path:    "/.",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "path ending with slash double dot",
+			path:    "/..",
+			wantErr: ErrInvalidRoute,
+		},
 		// Allowed dot and slash combinaison
 		{
 			name: "last path segment starting with slash dot and text",
@@ -4822,6 +4832,7 @@ func TestParseRoute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			n, _, err := f.parseRoute(tc.path)
+			fmt.Println(err)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
 		})
