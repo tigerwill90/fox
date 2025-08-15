@@ -4792,8 +4792,18 @@ func TestParseRoute(t *testing.T) {
 			path: "/foo/.bar/baz",
 		},
 		{
+			name:  "path segment starting with slash dot and param",
+			path:  "/foo/.{foo}/baz",
+			wantN: 1,
+		},
+		{
 			name: "path segment starting with slash dot and text",
 			path: "/foo/..bar/baz",
+		},
+		{
+			name:  "path segment starting with slash dot and param",
+			path:  "/foo/..{foo}/baz",
+			wantN: 1,
 		},
 		{
 			name: "path segment ending with dot slash",
@@ -5277,6 +5287,178 @@ func TestRedirectTrailingSlash(t *testing.T) {
 					assert.Equal(t, "<a href=\""+htmlEscape(w.Header().Get(HeaderLocation))+"\">"+http.StatusText(w.Code)+"</a>.\n\n", w.Body.String())
 				}
 			}
+		})
+	}
+}
+
+func TestHandleRedirectFixedPath(t *testing.T) {
+	cases := []struct {
+		name         string
+		path         string
+		req          string
+		method       string
+		slashMode    TrailingSlashOption
+		wantCode     int
+		wantLocation string
+	}{
+		{
+			name:         "redirect with consecutive slash",
+			path:         "/foo/bar",
+			slashMode:    StrictSlash,
+			req:          "/foo//bar",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/foo/bar",
+		},
+		{
+			name:         "redirect parent dir reference",
+			path:         "/bar",
+			slashMode:    StrictSlash,
+			req:          "/foo/../bar",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/bar",
+		},
+		{
+			name:         "redirect with consecutive slash and redirect slash",
+			path:         "/foo/bar",
+			slashMode:    RedirectSlash,
+			req:          "/foo//bar/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/foo/bar/",
+		},
+		{
+			name:         "redirect with consecutive slash and redirect slash and 308",
+			path:         "/foo/bar",
+			slashMode:    RedirectSlash,
+			req:          "/foo//bar/",
+			method:       http.MethodPost,
+			wantCode:     http.StatusPermanentRedirect,
+			wantLocation: "/foo/bar/",
+		},
+		{
+			name:      "no redirect with consecutive slash and strict slash",
+			path:      "/foo/bar",
+			slashMode: StrictSlash,
+			req:       "/foo//bar/",
+			method:    http.MethodPost,
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:         "redirect with consecutive slash and relaxed slash",
+			path:         "/foo/bar",
+			slashMode:    RelaxedSlash,
+			req:          "/foo//bar/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/foo/bar/",
+		},
+		{
+			name:         "redirect with consecutive slash and raw path",
+			path:         "/foo/{url}",
+			slashMode:    StrictSlash,
+			req:          "/foo//https%3A%2F%2Fbar%2Fbaz",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/foo/https%3A%2F%2Fbar%2Fbaz",
+		},
+		{
+			name:         "redirect with consecutive slash, raw path and relaxed slash",
+			path:         "/foo/{url}",
+			slashMode:    RelaxedSlash,
+			req:          "/foo//https%3A%2F%2Fbar%2Fbaz/",
+			method:       http.MethodGet,
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/foo/https%3A%2F%2Fbar%2Fbaz/",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := New(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+			rf := f.Stats()
+			assert.Equal(t, RedirectPath, rf.FixedPathOption)
+
+			require.NoError(t, onlyError(f.Handle(tc.method, tc.path, emptyHandler)))
+
+			req := httptest.NewRequest(tc.method, tc.req, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+			}
+		})
+	}
+}
+
+func TestHandleRelaxedFixedPath(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		req       string
+		slashMode TrailingSlashOption
+		wantCode  int
+	}{
+		{
+			name:      "handle with consecutive slash",
+			path:      "/foo/bar",
+			slashMode: StrictSlash,
+			req:       "/foo//bar",
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "handle with consecutive slash and relaxed slash",
+			path:      "/foo/bar",
+			slashMode: RelaxedSlash,
+			req:       "/foo//bar/",
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "do not handle with consecutive slash and strict slash",
+			path:      "/foo/bar",
+			slashMode: StrictSlash,
+			req:       "/foo//bar/",
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "do not handle with consecutive slash and redirect slash",
+			path:      "/foo/bar",
+			slashMode: RedirectSlash,
+			req:       "/foo//bar/",
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "handle with consecutive slash and raw path",
+			path:      "/foo/{url}",
+			slashMode: StrictSlash,
+			req:       "/foo//https%3A%2F%2Fbar%2Fbaz",
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "handle parent dir reference",
+			path:      "/bar",
+			slashMode: StrictSlash,
+			req:       "/foo/../bar",
+			wantCode:  http.StatusOK,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := New(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+			rf := f.Stats()
+			assert.Equal(t, RelaxedPath, rf.FixedPathOption)
+
+			require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.path, func(c Context) {
+				c.Writer().WriteHeader(tc.wantCode)
+			})))
+
+			req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
 		})
 	}
 }

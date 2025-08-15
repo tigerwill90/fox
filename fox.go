@@ -147,6 +147,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
+	r.handleSlash = StrictSlash
+	r.handlePath = StrictPath
 
 	for _, opt := range opts {
 		if err := opt.applyGlob(sealedOption{router: r}); err != nil {
@@ -531,17 +533,9 @@ func internalTrailingSlashHandler(c Context) {
 func internalFixedPathHandler(c Context) {
 	req := c.Request()
 
-	// Save and rollback the original path
-	sPath := req.URL.Path
-	sRawPath := req.URL.RawPath
-	defer func() {
-		req.URL.Path = sPath
-		req.URL.RawPath = sRawPath
-	}()
-
-	req.URL.Path = CleanPath(sPath)
-	if len(req.URL.RawPath) > 0 {
-		req.URL.RawPath = CleanPath(sRawPath)
+	cleanedPath := CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path))
+	if q := req.URL.RawQuery; q != "" {
+		cleanedPath += "?" + q
 	}
 
 	code := http.StatusMovedPermanently
@@ -550,7 +544,7 @@ func internalFixedPathHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	http.Redirect(c.Writer(), req, req.URL.String(), code)
+	http.Redirect(c.Writer(), req, cleanedPath, code)
 }
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
