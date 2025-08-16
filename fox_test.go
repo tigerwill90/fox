@@ -5000,6 +5000,43 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			wantPath: "/foo",
 		},
 		{
+			name:     "current not a leaf with extra ts",
+			paths:    []string{"/foo", "/foo/bar", "/foo/baz"},
+			req:      "/foo/",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantPath: "/foo",
+		},
+		{
+			name:     "current not a leaf without extra ts",
+			paths:    []string{"/foo/", "/foobar"},
+			req:      "/foo",
+			method:   http.MethodGet,
+			wantCode: http.StatusOK,
+			wantPath: "/foo/",
+		},
+		{
+			name:     "current not a leaf without extra ts and child not a leaf",
+			paths:    []string{"/foo/kam", "/foobar", "/foo/bar"},
+			req:      "/foo",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf without extra ts but current not matched completely",
+			paths:    []string{"/foo/", "/foobar"},
+			req:      "/fo",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "current not a leaf without extra ts and child as more than a slash",
+			paths:    []string{"/foo/b", "/foobar"},
+			req:      "/a/foo",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
 			name:     "current not a leaf and path does not end with ts",
 			paths:    []string{"/foo", "/foo/x/", "/foo/z/"},
 			req:      "/foo/c",
@@ -5029,7 +5066,7 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			wantPath: "/foo/bar/",
 		},
 		{
-			name:     "mid edge key with without extra ts",
+			name:     "mid edge key without extra ts",
 			paths:    []string{"/foo/bar/baz", "/foo/bar"},
 			req:      "/foo/bar/",
 			method:   http.MethodGet,
@@ -5077,6 +5114,20 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			name:     "incomplete match end of edge with ts and more char before",
 			paths:    []string{"/foo/bar"},
 			req:      "/foo/barr/",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "incomplete match end of edge with with ts request not cleaned",
+			paths:    []string{"/foo", "/foo/", "/foo/x/", "/foo/z/"},
+			req:      "/foo///",
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "incomplete match end of edge with with ts request not cleaned",
+			paths:    []string{"/"},
+			req:      "//",
 			method:   http.MethodGet,
 			wantCode: http.StatusNotFound,
 		},
@@ -5578,6 +5629,44 @@ func TestRouterWithTsrParams(t *testing.T) {
 			},
 			wantPath: "/foo/{b}",
 			wantTsr:  true,
+		},
+		{
+			name:   "current not a leaf, with leave on exact match",
+			routes: []string{"/a/foo/", "/a/foobar", "/{a}/foo"},
+			target: "/a/foo",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+			},
+			wantPath: "/{a}/foo",
+		},
+		{
+			name:   "current not a leaf, with child slash match",
+			routes: []string{"/{x}/foo/", "/{x}/foobar", "/a/fo"},
+			target: "/a/foo",
+			wantParams: Params{
+				{
+					Key:   "x",
+					Value: "a",
+				},
+			},
+			wantPath: "/{x}/foo/",
+			wantTsr:  true,
+		},
+		{
+			name:     "current not a leaf, with child slash match and backtrack",
+			routes:   []string{"/{param}/b/foo/", "/{param}/b/foobar", "/{param}/{b}/fo"},
+			target:   "/a/b/foo",
+			wantPath: "/{param}/b/foo/",
+			wantParams: Params{
+				{
+					Key:   "param",
+					Value: "a",
+				},
+			},
+			wantTsr: true,
 		},
 		{
 			name:   "mid edge key, add an extra ts",
