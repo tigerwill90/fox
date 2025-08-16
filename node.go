@@ -516,8 +516,8 @@ Walk:
 			//		b/ [leaf=/foo/b/]
 			//		x/ [leaf=/foo/x/]
 			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
-			// the intermediary node (charsMatched == len(path)). TODO challenge that
-			if charsMatched == len(path) && parent != nil && parent.isLeaf() && strings.HasSuffix(path, "/") {
+			// the intermediary node (charsMatched == len(path)).
+			if parent != nil && parent.isLeaf() && charsMatched == len(path) && strings.HasSuffix(path, "/") {
 				tsr = true
 				n = parent
 				// Save also a copy of the matched params, it should not allocate anything in most case.
