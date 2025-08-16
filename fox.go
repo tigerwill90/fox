@@ -516,12 +516,7 @@ func internalTrailingSlashHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	var url string
-	if len(req.URL.RawPath) > 0 {
-		url = FixTrailingSlash(req.URL.RawPath)
-	} else {
-		url = FixTrailingSlash(req.URL.Path)
-	}
+	url := FixTrailingSlash(cmp.Or(req.URL.RawPath, req.URL.Path))
 
 	if length := len(url); length > 1 && url[length-1] == '/' {
 		localRedirect(c.Writer(), req, path.Base(url)+"/", code)
@@ -533,15 +528,15 @@ func internalTrailingSlashHandler(c Context) {
 func internalFixedPathHandler(c Context) {
 	req := c.Request()
 
-	cleanedPath := CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path))
-	if q := req.URL.RawQuery; q != "" {
-		cleanedPath += "?" + q
-	}
-
 	code := http.StatusMovedPermanently
 	if req.Method != http.MethodGet {
 		// Will be redirected only with the same method (SEO friendly)
 		code = http.StatusPermanentRedirect
+	}
+
+	cleanedPath := CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path))
+	if q := req.URL.RawQuery; q != "" {
+		cleanedPath += "?" + q
 	}
 
 	http.Redirect(c.Writer(), req, cleanedPath, code)
