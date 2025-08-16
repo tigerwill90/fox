@@ -2,18 +2,19 @@ package fox
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoggerWithHandler(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
 	f, _ := New(
-		WithRedirectTrailingSlash(true),
+		WithHandleTrailingSlash(RedirectSlash),
 		WithMiddleware(LoggerWithHandler(slog.NewTextHandler(buf, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {

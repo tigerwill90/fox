@@ -105,8 +105,8 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // (e.g., a path from an incoming request) to a registered routes in the tree. The iterator reflect a snapshot of the
 // routing tree at the time [Iter] is created.
 //
-// If [WithIgnoreTrailingSlash] or [WithRedirectTrailingSlash] option is enabled on a route, Reverse will match it regardless
-// of whether a trailing slash is present. If the path is empty, a default slash is automatically added.
+// If [WithHandleTrailingSlash] option is enabled on a route with the [RelaxedSlash] or [RedirectSlash] flag, Reverse will
+// match it regardless of whether a trailing slash is present. If the path is empty, a default slash is automatically added.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
@@ -116,7 +116,7 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 		for method := range methods {
 			c.resetNil()
 			n, tsr := it.root.lookup(it.tree, method, host, cmp.Or(path, "/"), c, true)
-			if n != nil && (!tsr || n.route.redirectTrailingSlash || n.route.ignoreTrailingSlash) {
+			if n != nil && (!tsr || n.route.handleSlash != StrictSlash) {
 				if !yield(method, n.route) {
 					return
 				}

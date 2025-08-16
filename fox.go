@@ -82,15 +82,17 @@ const (
 	NoRouteHandler
 	// NoMethodHandler scope applies to the NoMethod handler, which is invoked when a route exists, but the method is not allowed.
 	NoMethodHandler
-	// RedirectHandler scope applies to the internal redirect handler, used for handling requests with trailing slashes.
-	RedirectHandler
+	// RedirectSlashHandler scope applies to the internal redirect trailing slash handler, used for handling requests with trailing slashes.
+	RedirectSlashHandler
+	// RedirectPathHandler scope applies to the internal redirect fixed path handler, used for handling requests that need path cleaning.
+	RedirectPathHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
 )
 
 const (
 	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
-	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectHandler | OptionsHandler
+	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectSlashHandler | RedirectPathHandler | OptionsHandler
 )
 
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
@@ -100,6 +102,7 @@ type Router struct {
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
+	pathRedirect           HandlerFunc
 	autoOptions            HandlerFunc
 	tree                   atomic.Pointer[iTree]
 	clientip               ClientIPResolver
@@ -107,20 +110,20 @@ type Router struct {
 	mu                     sync.Mutex
 	maxParams              uint16
 	maxParamKeyBytes       uint16
+	handleSlash            TrailingSlashOption
+	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
 	handleOptions          bool
-	redirectTrailingSlash  bool
-	ignoreTrailingSlash    bool
 }
 
 // RouterInfo hold information on the configured global options.
 type RouterInfo struct {
 	MaxRouteParams        uint16
 	MaxRouteParamKeyBytes uint16
+	TrailingSlashOption   TrailingSlashOption
+	FixedPathOption       FixedPathOption
 	MethodNotAllowed      bool
 	AutoOptions           bool
-	RedirectTrailingSlash bool
-	IgnoreTrailingSlash   bool
 	ClientIP              bool
 }
 
@@ -139,10 +142,13 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.noRouteBase = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
 	r.autoOptions = DefaultOptionsHandler
-	r.tsrRedirect = DefaultRedirectTrailingSlashHandler
+	r.tsrRedirect = internalTrailingSlashHandler
+	r.pathRedirect = internalFixedPathHandler
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint16
 	r.maxParamKeyBytes = math.MaxUint16
+	r.handleSlash = StrictSlash
+	r.handlePath = StrictPath
 
 	for _, opt := range opts {
 		if err := opt.applyGlob(sealedOption{router: r}); err != nil {
@@ -152,7 +158,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 
 	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectHandler, r.mws, r.tsrRedirect)
+	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, r.tsrRedirect)
+	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, r.pathRedirect)
 	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
 
 	r.tree.Store(r.newTree())
@@ -340,14 +347,13 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	}
 
 	rte := &Route{
-		clientip:              fox.clientip,
-		hbase:                 handler,
-		pattern:               pattern,
-		mws:                   fox.mws,
-		redirectTrailingSlash: fox.redirectTrailingSlash,
-		ignoreTrailingSlash:   fox.ignoreTrailingSlash,
-		psLen:                 n,
-		hostSplit:             endHost, // 0 if no host
+		clientip:    fox.clientip,
+		hbase:       handler,
+		pattern:     pattern,
+		mws:         fox.mws,
+		handleSlash: fox.handleSlash,
+		psLen:       n,
+		hostSplit:   endHost, // 0 if no host
 	}
 
 	for _, opt := range opts {
@@ -429,8 +435,8 @@ func (fox *Router) Stats() RouterInfo {
 		MaxRouteParamKeyBytes: fox.maxParamKeyBytes,
 		MethodNotAllowed:      fox.handleMethodNotAllowed,
 		AutoOptions:           fox.handleOptions,
-		RedirectTrailingSlash: fox.redirectTrailingSlash,
-		IgnoreTrailingSlash:   fox.ignoreTrailingSlash,
+		TrailingSlashOption:   fox.handleSlash,
+		FixedPathOption:       fox.handlePath,
 		ClientIP:              !ok,
 	}
 }
@@ -501,10 +507,7 @@ func DefaultOptionsHandler(c Context) {
 	c.Writer().WriteHeader(http.StatusOK)
 }
 
-// DefaultRedirectTrailingSlashHandler is a simple [HandlerFunc] that redirects to the URL with an added or removed
-// trailing slash based on the request path, using relative redirects. The client is redirected with a http status
-// code 301 for GET requests and 308 for all other methods.
-func DefaultRedirectTrailingSlashHandler(c Context) {
+func internalTrailingSlashHandler(c Context) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -513,18 +516,30 @@ func DefaultRedirectTrailingSlashHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	var url string
-	if len(req.URL.RawPath) > 0 {
-		url = FixTrailingSlash(req.URL.RawPath)
-	} else {
-		url = FixTrailingSlash(req.URL.Path)
-	}
+	url := FixTrailingSlash(cmp.Or(req.URL.RawPath, req.URL.Path))
 
-	if url[len(url)-1] == '/' {
+	if length := len(url); length > 1 && url[length-1] == '/' {
 		localRedirect(c.Writer(), req, path.Base(url)+"/", code)
 		return
 	}
 	localRedirect(c.Writer(), req, "../"+path.Base(url), code)
+}
+
+func internalFixedPathHandler(c Context) {
+	req := c.Request()
+
+	code := http.StatusMovedPermanently
+	if req.Method != http.MethodGet {
+		// Will be redirected only with the same method (SEO friendly)
+		code = http.StatusPermanentRedirect
+	}
+
+	cleanedPath := CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path))
+	if q := req.URL.RawQuery; q != "" {
+		cleanedPath += "?" + q
+	}
+
+	http.Redirect(c.Writer(), req, cleanedPath, code)
 }
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
@@ -555,25 +570,50 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodConnect && r.URL.Path != "/" && tsr {
-		if n.route.ignoreTrailingSlash {
-			c.route = n.route
-			c.tsr = tsr
-			n.route.hall(c)
-			tree.ctx.Put(c)
-			return
+	if r.Method != http.MethodConnect && r.URL.Path != "/" {
+		if tsr {
+			if n.route.handleSlash == RelaxedSlash {
+				c.route = n.route
+				c.tsr = tsr
+				n.route.hall(c)
+				tree.ctx.Put(c)
+				return
+			}
+
+			if n.route.handleSlash == RedirectSlash {
+				// Since is redirect, we should not share the route even if internally its available, so we reset params as
+				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
+				*c.params = (*c.params)[:0]
+				c.route = nil
+				c.tsr = false
+				c.scope = RedirectSlashHandler
+				fox.tsrRedirect(c)
+				tree.ctx.Put(c)
+				return
+			}
 		}
 
-		if n.route.redirectTrailingSlash && isSafeForTrailingSlashRedirect(path) {
-			// Since is redirect, we should not share the route even if internally its available, so we reset params as
-			// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
+		if fox.handlePath == RelaxedPath {
 			*c.params = (*c.params)[:0]
-			c.route = nil
-			c.tsr = false
-			c.scope = RedirectHandler
-			fox.tsrRedirect(c)
-			tree.ctx.Put(c)
-			return
+			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
+				c.route = n.route
+				c.tsr = tsr
+				n.route.hall(c)
+				tree.ctx.Put(c)
+				return
+			}
+		}
+
+		if fox.handlePath == RedirectPath {
+			*c.params = (*c.params)[:0]
+			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.route.handleSlash != StrictSlash) {
+				c.route = nil
+				c.tsr = false
+				c.scope = RedirectPathHandler
+				fox.pathRedirect(c)
+				tree.ctx.Put(c)
+				return
+			}
 		}
 	}
 
@@ -601,7 +641,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for i := 0; i < len(tree.root); i++ {
-				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -625,7 +665,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hasOptions := false
 		for i := 0; i < len(tree.root); i++ {
 			if tree.root[i].key != r.Method {
-				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.ignoreTrailingSlash) {
+				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -818,6 +858,33 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 					// reject any ASCII control character.
 					if c < ' ' || c == 0x7f {
 						return 0, -1, fmt.Errorf("%w: illegal control character in path", ErrInvalidRoute)
+					}
+
+					// reject any consecutive slash
+					if i > endHost && c == '/' && url[i-1] == '/' {
+						return 0, -1, fmt.Errorf("%w: illegal consecutive slashes in path", ErrInvalidRoute)
+					}
+
+					// reject dot-based traversal patterns
+					if i > endHost && c == '.' && url[i-1] == '/' {
+						nextIdx := i + 1
+						if nextIdx < len(url) {
+							nextChar := url[nextIdx]
+							if nextChar == '/' {
+								return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/./'", ErrInvalidRoute)
+							} else if nextChar == '.' {
+								nextNextIdx := nextIdx + 1
+								if nextNextIdx < len(url) {
+									if url[nextNextIdx] == '/' {
+										return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/../'", ErrInvalidRoute)
+									}
+								} else {
+									return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/..' at end", ErrInvalidRoute)
+								}
+							}
+						} else {
+							return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/.' at end", ErrInvalidRoute)
+						}
 					}
 				}
 			}

@@ -6,14 +6,15 @@ package fox
 
 import (
 	"bytes"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestContext_Writer_ReadFrom(t *testing.T) {
@@ -332,10 +333,17 @@ func TestContext_Scope(t *testing.T) {
 	t.Parallel()
 
 	f, _ := New(
-		WithRedirectTrailingSlash(true),
-		WithMiddlewareFor(RedirectHandler, func(next HandlerFunc) HandlerFunc {
+		WithHandleTrailingSlash(RedirectSlash),
+		WithMiddlewareFor(RedirectSlashHandler, func(next HandlerFunc) HandlerFunc {
 			return func(c Context) {
-				assert.Equal(t, RedirectHandler, c.Scope())
+				assert.Equal(t, RedirectSlashHandler, c.Scope())
+				next(c)
+			}
+		}),
+		WithHandleFixedPath(RedirectPath),
+		WithMiddlewareFor(RedirectPathHandler, func(next HandlerFunc) HandlerFunc {
+			return func(c Context) {
+				assert.Equal(t, RedirectPathHandler, c.Scope())
 				next(c)
 			}
 		}),
@@ -366,8 +374,13 @@ func TestContext_Scope(t *testing.T) {
 			w:    httptest.NewRecorder(),
 		},
 		{
-			name: "redirect handler scope",
+			name: "redirect slash handler scope",
 			req:  httptest.NewRequest(http.MethodGet, "/foo/", nil),
+			w:    httptest.NewRecorder(),
+		},
+		{
+			name: "redirect fixed path handler scope",
+			req:  httptest.NewRequest(http.MethodGet, "//foo", nil),
 			w:    httptest.NewRecorder(),
 		},
 		{

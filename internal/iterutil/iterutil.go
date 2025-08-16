@@ -6,9 +6,10 @@ package iterutil
 
 import (
 	"bytes"
-	"github.com/tigerwill90/fox/internal/constraints"
 	"iter"
 	"strings"
+
+	"github.com/tigerwill90/fox/internal/constraints"
 )
 
 func Left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {

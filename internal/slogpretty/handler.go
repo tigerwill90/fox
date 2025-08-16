@@ -7,12 +7,13 @@ package slogpretty
 import (
 	"context"
 	"fmt"
-	"github.com/tigerwill90/fox/internal/ansi"
 	"io"
 	"log/slog"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/tigerwill90/fox/internal/ansi"
 )
 
 const (

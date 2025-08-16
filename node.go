@@ -6,11 +6,12 @@ package fox
 
 import (
 	"cmp"
-	"github.com/tigerwill90/fox/internal/netutil"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 type roots []*node
@@ -516,9 +517,24 @@ Walk:
 			//		x/ [leaf=/foo/x/]
 			// But the parent (/foo) could be a leaf. This is only valid if we have an exact match with
 			// the intermediary node (charsMatched == len(path)).
-			if strings.HasSuffix(path, "/") && parent != nil && parent.isLeaf() && charsMatched == len(path) {
+			if parent != nil && parent.isLeaf() && charsMatched == len(path) && strings.HasSuffix(path, "/") {
 				tsr = true
 				n = parent
+				// Save also a copy of the matched params, it should not allocate anything in most case.
+				if !lazy {
+					copyWithResize(c.tsrParams, c.params)
+				}
+			}
+
+			// Tsr recommendation: add an extra trailing slash (got an exact match)
+			// If match an intermediary node completely, we may have a child node which is a leaf with only '/'.
+			// /foo
+			// 		/ [leaf=/foo/]
+			// 		bar [leaf=/foobar]
+			// Which is a match with an extra slash. This is only valid if we have matched the current intermediary node completely (charsMatchedInNodeFound == len(current.key)).
+			if child := current.getEdge(slashDelim); child != nil && child.isLeaf() && charsMatchedInNodeFound == len(current.key) && child.key == "/" {
+				tsr = true
+				n = child
 				// Save also a copy of the matched params, it should not allocate anything in most case.
 				if !lazy {
 					copyWithResize(c.tsrParams, c.params)
@@ -572,7 +588,8 @@ Walk:
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		if !tsr {
 			remainingKeySuffix := path[charsMatched:]
-			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim {
+			// We also make sure that the path does not end with a //, as we should prioritize path cleaning first.
+			if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim && !strings.HasSuffix(path, "//") {
 				tsr = true
 				n = current
 				// Save also a copy of the matched params, it should not allocate anything in most case.

@@ -31,15 +31,12 @@ name. Due to Fox design, wildcard route are cheap and scale really well.
 **Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear
 priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
 
-**Redirect trailing slashes:** Redirect automatically the client, at no extra cost, if another route matches, with or without a trailing slash.
+**Flexible trailing slash handling:** Automatically handle trailing slash inconsistencies by either ignoring them, redirecting to 
+the canonical path, or enforcing strict matching based on your needs.
 
-**Ignore trailing slashes:** In contrast to redirecting, this option allows the router to handle requests regardless of an extra 
-or missing trailing slash, at no extra cost.
+**Path correction:** Automatically handle malformed paths with extra slashes or dots by either serving the cleaned path directly or redirecting to the canonical form.
 
 **Automatic OPTIONS replies:** Fox has built-in native support for [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS).
-
-**Get the current route:** You can easily retrieve the route of the matched request. This actually makes it easier to integrate
-observability middleware like open telemetry.
 
 **Client IP Derivation:** Accurately determine the "real" client IP address using best practices tailored to your network topology.
 

@@ -7,13 +7,14 @@ package clientip
 import (
 	"errors"
 	"fmt"
-	"github.com/tigerwill90/fox"
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/netutil"
 	"iter"
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/tigerwill90/fox"
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 const (

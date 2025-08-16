@@ -6,9 +6,10 @@
 package fox
 
 import (
-	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type cleanPathTest struct {

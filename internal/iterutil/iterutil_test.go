@@ -1,9 +1,10 @@
 package iterutil
 
 import (
-	"github.com/stretchr/testify/assert"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSplitStringSeq(t *testing.T) {

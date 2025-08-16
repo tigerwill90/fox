@@ -8,8 +8,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/slogpretty"
 	"iter"
 	"log/slog"
 	"net"
@@ -19,6 +17,9 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 var reqHeaderSep = []byte("\r\n")
@@ -178,8 +179,10 @@ func scopeToString(scope HandlerScope) string {
 		strScope = "OptionsHandler"
 	case NoMethodHandler:
 		strScope = "NoMethodHandler"
-	case RedirectHandler:
-		strScope = "RedirectHandler"
+	case RedirectSlashHandler:
+		strScope = "RedirectSlashHandler"
+	case RedirectPathHandler:
+		strScope = "RedirectPathHandler"
 	case NoRouteHandler:
 		strScope = "NoRouteHandler"
 	default:
