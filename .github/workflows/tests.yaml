@@ -27,8 +27,9 @@ jobs:
         run: go test -v -race -run "TestDataRace|TestRaceHostnamePathSwitch" -count=10 ./...
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
+          fail_ci_if_error: true
           files: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
   lint:
