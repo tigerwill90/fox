@@ -803,11 +803,12 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 				delim = slashDelim
 			}
 
-			if url[i] == '{' {
+			switch url[i] {
+			case '{':
 				state = stateParam
 				startParam = i
 				paramCnt++
-			} else if url[i] == '*' {
+			case '*':
 				if i < endHost {
 					return 0, -1, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
 				}
@@ -815,7 +816,7 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 				i++
 				startParam = i
 				paramCnt++
-			} else {
+			default:
 				countStatic++
 				if i < endHost {
 					c := url[i]
@@ -870,9 +871,10 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 						nextIdx := i + 1
 						if nextIdx < len(url) {
 							nextChar := url[nextIdx]
-							if nextChar == '/' {
+							switch nextChar {
+							case '/':
 								return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/./'", ErrInvalidRoute)
-							} else if nextChar == '.' {
+							case '.':
 								nextNextIdx := nextIdx + 1
 								if nextNextIdx < len(url) {
 									if url[nextNextIdx] == '/' {
