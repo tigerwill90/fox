@@ -117,7 +117,7 @@ func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 // Available slash handling modes:
 //   - StrictSlash: Routes are matched exactly as registered. /foo/bar and /foo/bar/ are treated as different routes.
 //   - RelaxedSlash: Routes match regardless of trailing slash. Both /foo/bar and /foo/bar/ match the same route.
-//   - RedirectSlash: When a route is not found, but exists with/without a trailing slash, issues a relative redirect.
+//   - RedirectSlash: When a route is not found, but exists with/without a trailing slash, issues a redirect.
 //
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.

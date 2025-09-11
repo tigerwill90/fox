@@ -244,3 +244,53 @@ func BenchmarkSplitHostPath(b *testing.B) {
 		}
 	}
 }
+
+func TestEscapeLeadingSlashes(t *testing.T) {
+	cases := []struct {
+		name string
+		uri  string
+		want string
+	}{
+		{
+			name: "protocol relative URL double forward slash",
+			uri:  "//evil.com",
+			want: "/%2Fevil.com",
+		},
+		{
+			name: "forward slash backslash",
+			uri:  "/\\evil.com",
+			want: "/%5Cevil.com",
+		},
+		{
+			name: "backslash forward slash",
+			uri:  "\\/evil.com",
+			want: "\\%2Fevil.com",
+		},
+		{
+			name: "double backslash",
+			uri:  "\\\\evil.com",
+			want: "\\%5Cevil.com",
+		},
+		{
+			name: "only double forward slash",
+			uri:  "//",
+			want: "//",
+		},
+		{
+			name: "safe forward slash",
+			uri:  "/example.com",
+			want: "/example.com",
+		},
+		{
+			name: "safe backslash",
+			uri:  "\\example.com",
+			want: "\\example.com",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := escapeLeadingSlashes(tc.uri)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

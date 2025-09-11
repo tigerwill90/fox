@@ -58,7 +58,7 @@ func TestLoggerWithHandler(t *testing.T) {
 		{
 			name: "should log debug level",
 			req:  httptest.NewRequest(http.MethodGet, "/success/", nil),
-			want: "time=time level=DEBUG msg=192.0.2.1 status=301 method=GET host=example.com path=/success/ latency=latency location=../success\n",
+			want: "time=time level=DEBUG msg=192.0.2.1 status=301 method=GET host=example.com path=/success/ latency=latency location=/success\n",
 		},
 	}
 
