@@ -6,7 +6,7 @@ package fox
 
 // MIME types
 const (
-	charsetUTF8                          = "charset=UTF-8"
+	charsetUTF8                          = "charset=utf-8"
 	MIMEApplicationJSON                  = "application/json"
 	MIMEApplicationJSONCharsetUTF8       = MIMEApplicationJSON + "; " + charsetUTF8
 	MIMEApplicationJavaScript            = "application/javascript"

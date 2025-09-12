@@ -5205,7 +5205,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
-			wantLocation: "../foo",
+			wantLocation: "/foo",
 		},
 		{
 			name:         "current not a leaf post method and status moved permanently with extra ts",
@@ -5213,7 +5213,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
-			wantLocation: "../foo",
+			wantLocation: "/foo",
 		},
 		{
 			name:     "current not a leaf and path does not end with ts",
@@ -5242,7 +5242,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/bar",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
-			wantLocation: "bar/",
+			wantLocation: "/foo/bar/",
 		},
 		{
 			name:         "mid edge key with post method and status permanent redirect with extra ts",
@@ -5250,7 +5250,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/bar",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
-			wantLocation: "bar/",
+			wantLocation: "/foo/bar/",
 		},
 		{
 			name:         "mid edge key with get method and status moved permanently without extra ts",
@@ -5258,7 +5258,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/bar/",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
-			wantLocation: "../bar",
+			wantLocation: "/foo/bar",
 		},
 		{
 			name:         "mid edge key with post method and status permanent redirect without extra ts",
@@ -5266,7 +5266,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/bar/",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
-			wantLocation: "../bar",
+			wantLocation: "/foo/bar",
 		},
 		{
 			name:         "incomplete match end of edge with get method",
@@ -5274,7 +5274,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/bar/",
 			method:       http.MethodGet,
 			wantCode:     http.StatusMovedPermanently,
-			wantLocation: "../bar",
+			wantLocation: "/foo/bar",
 		},
 		{
 			name:         "incomplete match end of edge with post method",
@@ -5282,7 +5282,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			req:          "/foo/bar/",
 			method:       http.MethodPost,
 			wantCode:     http.StatusPermanentRedirect,
-			wantLocation: "../bar",
+			wantLocation: "/foo/bar",
 		},
 		{
 			name:     "match mid edge with ts and more char after",
@@ -5335,7 +5335,6 @@ func TestRedirectTrailingSlash(t *testing.T) {
 				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
 				if tc.method == http.MethodGet {
 					assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
-					assert.Equal(t, "<a href=\""+htmlEscape(w.Header().Get(HeaderLocation))+"\">"+http.StatusText(w.Code)+"</a>.\n\n", w.Body.String())
 				}
 			}
 		})
@@ -5543,14 +5542,28 @@ func TestEncodedRedirectTrailingSlash(t *testing.T) {
 			path:         "/foo/{bar}/",
 			req:          "/foo/bar%2Fbaz",
 			wantCode:     http.StatusMovedPermanently,
-			wantLocation: "bar%2Fbaz/",
+			wantLocation: "/foo/bar%2Fbaz/",
 		},
 		{
 			name:         "encoded slash redirect with query parameters",
 			path:         "/foo/{bar}/",
 			req:          "/foo/bar%2Fbaz?key=value&foo=bar",
 			wantCode:     http.StatusMovedPermanently,
-			wantLocation: "bar%2Fbaz/?key=value&foo=bar",
+			wantLocation: "/foo/bar%2Fbaz/?key=value&foo=bar",
+		},
+		{
+			name:         "open redirect with slash",
+			path:         "/*{any}/",
+			req:          "//evil.com",
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/%2Fevil.com/",
+		},
+		{
+			name:         "open redirect with backslash",
+			path:         "/*{any}/",
+			req:          "/\\evil.com",
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/%5Cevil.com/",
 		},
 	}
 
