@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"slices"
 
+	"github.com/tigerwill90/fox/internal/bytesconv"
 	"github.com/tigerwill90/fox/internal/netutil"
 )
 
@@ -299,7 +300,11 @@ func (c *cTx) String(code int, format string, values ...any) (err error) {
 		c.w.Header().Set(HeaderContentType, MIMETextPlainCharsetUTF8)
 	}
 	c.w.WriteHeader(code)
-	_, err = fmt.Fprintf(c.w, format, values...)
+	if len(values) > 0 {
+		_, err = fmt.Fprintf(c.w, format, values...)
+		return
+	}
+	_, err = c.w.Write(bytesconv.Bytes(format))
 	return
 }
 
