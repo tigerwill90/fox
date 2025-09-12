@@ -530,7 +530,7 @@ func internalFixedPathHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	cleanedPath := CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path))
+	cleanedPath := escapeLeadingSlashes(CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path)))
 	if q := req.URL.RawQuery; q != "" {
 		cleanedPath += "?" + q
 	}
