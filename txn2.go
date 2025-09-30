@@ -15,6 +15,7 @@ type tXn2 struct {
 	depth     uint32
 }
 
+// insert perform a recursive insertion of the route in the tree.
 func (t *tXn2) insert(key string, route *Route) {
 	segments, _ := tokenizePath(key)
 	fmt.Println(segments)
@@ -212,8 +213,64 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 	return nc
 }
 
-// longestPrefix finds the length of the shared prefix
-// of two strings
+func (t *tXn2) delete(n *node2, search string) (*node2, *Route) {
+	if len(search) == 0 {
+		if !n.isLeaf() {
+			return nil, nil
+		}
+
+		oldRoute := n.route
+
+		nc := t.writeNode(n)
+		nc.route = nil
+		if n != t.root && len(nc.statics) == 1 {
+			t.mergeChild(nc)
+		}
+		return nc, oldRoute
+	}
+
+	// Look for an edge
+	label := search[0]
+	idx, child := n.getStaticEdge(label)
+	if child == nil || !strings.HasPrefix(search, child.key) {
+		return nil, nil
+	}
+
+	search = search[len(child.key):]
+	newChild, route := t.delete(child, search)
+	if newChild == nil {
+		return nil, nil
+	}
+
+	nc := t.writeNode(n)
+	if newChild.route == nil && len(newChild.statics) == 0 {
+		nc.delStaticEdge(label)
+		if n != t.root && len(nc.statics) == 1 && !nc.isLeaf() {
+			t.mergeChild(nc)
+		}
+	} else {
+		nc.statics[idx] = newChild
+	}
+	return nc, route
+}
+
+// mergeChild is called to collapse the given node with its child. This is only
+// called when the given node is not a leaf and has a single edge.
+func (t *tXn2) mergeChild(n *node2) {
+	child := n.statics[0]
+
+	// Merge nodes
+	n.key = concat(n.key, child.key)
+	n.route = child.route
+	if len(child.statics) != 0 {
+		n.statics = make([]*node2, len(child.statics))
+		copy(n.statics, child.statics)
+	} else {
+		n.statics = nil
+	}
+}
+
+// longestPrefix finds the length of the shared prefix of two strings
 func longestPrefix(k1, k2 string) int {
 	max := len(k1)
 	if l := len(k2); l < max {
@@ -226,6 +283,11 @@ func longestPrefix(k1, k2 string) int {
 		}
 	}
 	return i
+}
+
+// concat two string
+func concat(a, b string) string {
+	return a + b
 }
 
 type segmentType int

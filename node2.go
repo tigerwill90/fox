@@ -15,6 +15,18 @@ type node2 struct {
 	// maybe we should add a reference in a parent
 }
 
+func (n *node2) delStaticEdge(label byte) {
+	num := len(n.statics)
+	idx := sort.Search(num, func(i int) bool {
+		return n.statics[i].label >= label
+	})
+	if idx < num && n.statics[idx].label == label {
+		copy(n.statics[idx:], n.statics[idx+1:])
+		n.statics[len(n.statics)-1] = nil
+		n.statics = n.statics[:len(n.statics)-1]
+	}
+}
+
 func (n *node2) addStaticEdge(child *node2) {
 	num := len(n.statics)
 	idx := sort.Search(num, func(i int) bool {
