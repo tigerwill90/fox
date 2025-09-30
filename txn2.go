@@ -16,14 +16,15 @@ type tXn2 struct {
 }
 
 func (t *tXn2) Insert(key string, route *Route) {
-	segments, _ := tokenizePath(key)
-	newRoot := t.insert(t.root, key, segments, route)
+	// segments, _ := tokenizePath(key)
+	newRoot := t.insert(t.root, key, route)
 	if newRoot != nil {
 		t.root = newRoot
 	}
+	t.size++
 }
 
-func (t *tXn2) insert(n *node2, search string, segments []segment, route *Route) *node2 {
+func (t *tXn2) insert(n *node2, search string, route *Route) *node2 {
 
 	if len(search) == 0 {
 		nc := t.writeNode(n)
@@ -46,7 +47,8 @@ func (t *tXn2) insert(n *node2, search string, segments []segment, route *Route)
 	commonPrefix := longestPrefix(search, child.key)
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
-		newChild := t.insert(child, search, segments, route)
+		// e.g. child /foo and want insert /fooo, insert "o"
+		newChild := t.insert(child, search, route)
 		if newChild != nil {
 			nc := t.writeNode(n)
 			nc.statics[idx] = newChild
@@ -68,10 +70,13 @@ func (t *tXn2) insert(n *node2, search string, segments []segment, route *Route)
 
 	search = search[commonPrefix:]
 	if len(search) == 0 {
+		// e.g. we have /foo and want to insert /fo,
+		// we first split /foo into /fo, o and then fo <- get the new route
 		splitNode.route = route
 		return nc
 	}
-
+	// e.g. we have /foo and want to insert /fob
+	// we first have our splitNode /fo, with old child (modChild) equal 0, and insert the edge b
 	splitNode.addStaticEdge(&node2{
 		label: search[0],
 		key:   search,

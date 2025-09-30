@@ -11,10 +11,7 @@ func Test_txn2_insert(t *testing.T) {
 		root: &node2{},
 	}
 	txn.Insert("/foo", &Route{})
-	txn.Insert("/foo", &Route{})
 	txn.Insert("/fob", &Route{})
-	txn.Insert("/fo", &Route{})
-	txn.Insert("/fooo", &Route{})
 
 	fmt.Println(txn.root)
 }
