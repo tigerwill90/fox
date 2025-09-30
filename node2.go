@@ -31,6 +31,10 @@ func (n *node2) addParamEdge(child *node2) {
 	n.params = append(n.params, child)
 }
 
+func (n *node2) addWildcardEdge(child *node2) {
+	n.wildcards = append(n.wildcards, child)
+}
+
 func (n *node2) replaceStaticEdge(child *node2) {
 	num := len(n.statics)
 	idx := sort.Search(num, func(i int) bool {
@@ -54,6 +58,15 @@ func (n *node2) getStaticEdge(label byte) (int, *node2) {
 
 func (n *node2) getParamEdge(key string) (int, *node2) {
 	for idx, child := range n.params {
+		if child.key == key {
+			return idx, child
+		}
+	}
+	return -1, nil
+}
+
+func (n *node2) getWildcardEdge(key string) (int, *node2) {
+	for idx, child := range n.wildcards {
 		if child.key == key {
 			return idx, child
 		}

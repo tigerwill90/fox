@@ -16,44 +16,73 @@ type tXn2 struct {
 }
 
 func (t *tXn2) Insert(key string, route *Route) {
-	// segments, _ := tokenizePath(key)
-	newRoot := t.insert(t.root, key, route)
+	segments, _ := tokenizePath(key)
+	fmt.Println(segments)
+	newRoot := t.insertSegments(t.root, segments, route)
 	if newRoot != nil {
 		t.root = newRoot
 	}
 	t.size++
 }
 
-func (t *tXn2) insert(n *node2, search string, route *Route) *node2 {
-
-	if len(search) == 0 {
+func (t *tXn2) insertSegments(n *node2, segments []segment, route *Route) *node2 {
+	// Base case: no segments left, attach route
+	if len(segments) == 0 {
 		nc := t.writeNode(n)
 		nc.route = route
 		return nc
 	}
 
+	seg := segments[0]
+	remaining := segments[1:]
+
+	switch seg.typ {
+	case segmentStatic:
+		return t.insertStatic(n, seg.value, remaining, route)
+	case segmentParam:
+		return t.insertParam(n, seg.value, remaining, route)
+	case segmentWildcard:
+		return t.insertWildcard(n, seg.value, remaining, route)
+	default:
+		panic("unknown segment type")
+	}
+
+	return nil
+}
+
+func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route *Route) *node2 {
+
+	if len(search) == 0 {
+		return t.insertSegments(n, remaining, route)
+	}
+
 	idx, child := n.getStaticEdge(search[0])
 	if child == nil {
-		leaf := &node2{
+		newChild := t.insertSegments(&node2{
 			label: search[0],
 			key:   search,
-			route: route,
+		}, remaining, route)
+		// TODO maybe check nil
+		if newChild != nil {
+			nc := t.writeNode(n)
+			nc.addStaticEdge(newChild)
+			return nc
 		}
-		nc := t.writeNode(n)
-		nc.addStaticEdge(leaf)
-		return nc
+		return nil
 	}
 
 	commonPrefix := longestPrefix(search, child.key)
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
+		remaining = append([]segment{{segmentStatic, search}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
-		newChild := t.insert(child, search, route)
+		newChild := t.insertSegments(child, remaining, route)
 		if newChild != nil {
 			nc := t.writeNode(n)
 			nc.statics[idx] = newChild
 			return nc
 		}
+		return nil
 	}
 
 	nc := t.writeNode(n)
@@ -72,17 +101,79 @@ func (t *tXn2) insert(n *node2, search string, route *Route) *node2 {
 	if len(search) == 0 {
 		// e.g. we have /foo and want to insert /fo,
 		// we first split /foo into /fo, o and then fo <- get the new route
+		// splitNode.route = route // SHOULD not need this
+		if len(remaining) > 0 {
+			newSplitNode := t.insertSegments(splitNode, remaining, route)
+			if newSplitNode != nil {
+				nc.replaceStaticEdge(newSplitNode)
+				return nc
+			}
+			return nil
+		}
 		splitNode.route = route
 		return nc
 	}
 	// e.g. we have /foo and want to insert /fob
-	// we first have our splitNode /fo, with old child (modChild) equal 0, and insert the edge b
-	splitNode.addStaticEdge(&node2{
+	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
+
+	newChild := t.insertSegments(&node2{
 		label: search[0],
 		key:   search,
-		route: route,
-	})
-	return nc
+	}, remaining, route)
+	if newChild != nil {
+		splitNode.addStaticEdge(newChild)
+		return nc
+	}
+
+	return nil
+}
+
+func (t *tXn2) insertParam(n *node2, key string, remaining []segment, route *Route) *node2 {
+	idx, child := n.getParamEdge(key)
+	if child == nil {
+		newChild := t.insertSegments(
+			&node2{
+				key: key,
+			},
+			remaining,
+			route,
+		)
+		nc := t.writeNode(n)
+		nc.addParamEdge(newChild)
+		return nc
+	}
+
+	newChild := t.insertSegments(child, remaining, route)
+	if newChild != nil {
+		nc := t.writeNode(n)
+		nc.params[idx] = newChild
+		return nc
+	}
+	return nil
+}
+
+func (t *tXn2) insertWildcard(n *node2, key string, remaining []segment, route *Route) *node2 {
+	idx, child := n.getWildcardEdge(key)
+	if child == nil {
+		newChild := t.insertSegments(
+			&node2{
+				key: key,
+			},
+			remaining,
+			route,
+		)
+		nc := t.writeNode(n)
+		nc.addWildcardEdge(newChild)
+		return nc
+	}
+
+	newChild := t.insertSegments(child, remaining, route)
+	if newChild != nil {
+		nc := t.writeNode(n)
+		nc.wildcards[idx] = newChild
+		return nc
+	}
+	return nil
 }
 
 func (t *tXn2) writeNode(n *node2) *node2 {
@@ -141,7 +232,7 @@ type segmentType int
 const (
 	segmentStatic segmentType = iota
 	segmentParam
-	segmentCatchAll
+	segmentWildcard
 )
 
 type segment struct {
@@ -196,7 +287,7 @@ func tokenizePath(path string) ([]segment, error) {
 			// Check if it's a catch-all (ends with ...)
 			if strings.HasSuffix(param, "...}") {
 				segments = append(segments, segment{
-					typ:   segmentCatchAll,
+					typ:   segmentWildcard,
 					value: param,
 				})
 			} else {
