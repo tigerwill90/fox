@@ -15,7 +15,7 @@ type tXn2 struct {
 	depth     uint32
 }
 
-func (t *tXn2) Insert(key string, route *Route) {
+func (t *tXn2) insert(key string, route *Route) {
 	segments, _ := tokenizePath(key)
 	fmt.Println(segments)
 	newRoot := t.insertSegments(t.root, segments, route)
@@ -26,6 +26,7 @@ func (t *tXn2) Insert(key string, route *Route) {
 }
 
 func (t *tXn2) insertSegments(n *node2, segments []segment, route *Route) *node2 {
+
 	// Base case: no segments left, attach route
 	if len(segments) == 0 {
 		nc := t.writeNode(n)
