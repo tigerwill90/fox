@@ -93,9 +93,9 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 	nc.replaceStaticEdge(splitNode)
 
 	modChild := t.writeNode(child)
-	splitNode.addStaticEdge(modChild)
 	modChild.label = modChild.key[commonPrefix]
 	modChild.key = modChild.key[commonPrefix:]
+	splitNode.addStaticEdge(modChild)
 
 	search = search[commonPrefix:]
 	if len(search) == 0 {
