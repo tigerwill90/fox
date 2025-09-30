@@ -15,9 +15,20 @@ type tXn2 struct {
 	depth     uint32
 }
 
-// insert perform a recursive insertion of the route in the tree.
+// insert performs a recursive copy-on-write insertion of a route into the tree.
+// It uses path copying to create a new tree version: only nodes along the path
+// from root to the insertion point are cloned, while unmodified subtrees are
+// shared with the previous version. This enables lock-free concurrent reads
+// against the old root while the new version is being constructed.
+//
+// The insertion proceeds in two phases:
+// 1. Descend: traverse the tree (read-only) to find the insertion point
+// 2. Ascend: clone and modify nodes along the path during stack unwinding
+//
+// Upon successful insertion, the transaction's root is updated to point to the
+// new tree version.
 func (t *tXn2) insert(key string, route *Route) {
-	segments, _ := tokenizePath(key)
+	segments, _ := tokenizeKey(key)
 	fmt.Println(segments)
 	newRoot := t.insertSegments(t.root, segments, route)
 	if newRoot != nil {
@@ -39,11 +50,11 @@ func (t *tXn2) insertSegments(n *node2, segments []segment, route *Route) *node2
 	remaining := segments[1:]
 
 	switch seg.typ {
-	case segmentStatic:
+	case nodeStatic:
 		return t.insertStatic(n, seg.value, remaining, route)
-	case segmentParam:
+	case nodeParam:
 		return t.insertParam(n, seg.value, remaining, route)
-	case segmentWildcard:
+	case nodeCatchAll:
 		return t.insertWildcard(n, seg.value, remaining, route)
 	default:
 		panic("unknown segment type")
@@ -64,7 +75,6 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 			label: search[0],
 			key:   search,
 		}, remaining, route)
-		// TODO maybe check nil
 		if newChild != nil {
 			nc := t.writeNode(n)
 			nc.addStaticEdge(newChild)
@@ -76,7 +86,8 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 	commonPrefix := longestPrefix(search, child.key)
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
-		remaining = append([]segment{{segmentStatic, search}}, remaining...)
+		// TODO check if len(search) > 0 is probably a optimization
+		remaining = append([]segment{{nodeStatic, search}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
 		newChild := t.insertSegments(child, remaining, route)
 		if newChild != nil {
@@ -213,45 +224,193 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 	return nc
 }
 
-func (t *tXn2) delete(n *node2, search string) (*node2, *Route) {
-	if len(search) == 0 {
+// delete performs a recursive copy-on-write deletion of a route from the tree.
+// It uses path copying to create a new tree version: only nodes along the path
+// from root to the deletion point are cloned, while unmodified subtrees are
+// shared with the previous version. This enables lock-free concurrent reads
+// against the old root while the new version is being constructed.
+//
+// The deletion proceeds in two phases:
+//  1. Descend: traverse the tree (read-only) to find the target route
+//  2. Ascend: clone and modify nodes along the path during stack unwinding,
+//     pruning empty nodes and merging static nodes where appropriate
+//
+// Returns the deleted route and true if found, nil and false otherwise.
+// Upon successful deletion, the transaction's root is updated to point to the
+// new tree version.
+func (t *tXn2) delete(key string) (*Route, bool) {
+	segments, err := tokenizeKey(key)
+	if err != nil {
+		return nil, false
+	}
+
+	newRoot, route := t.deleteSegments(t.root, segments)
+	if newRoot != nil {
+		t.root = newRoot
+	}
+
+	if route != nil {
+		t.size--
+		return route, true
+	}
+
+	return nil, false
+}
+
+func (t *tXn2) deleteSegments(n *node2, segments []segment) (*node2, *Route) {
+	// Base case: no segments left, delete route at this node
+	if len(segments) == 0 {
 		if !n.isLeaf() {
 			return nil, nil
 		}
 
 		oldRoute := n.route
-
 		nc := t.writeNode(n)
 		nc.route = nil
-		if n != t.root && len(nc.statics) == 1 {
+
+		// If this is not root, not wildcard and has exactly one static child, merge
+		if n != t.root && len(nc.statics) == 1 && len(nc.params) == 0 && len(nc.wildcards) == 0 && nc.label != 0 {
 			t.mergeChild(nc)
 		}
+
 		return nc, oldRoute
 	}
 
-	// Look for an edge
+	seg := segments[0]
+	remaining := segments[1:]
+
+	switch seg.typ {
+	case nodeStatic:
+		return t.deleteStatic(n, seg.value, remaining)
+	case nodeParam:
+		return t.deleteParam(n, seg.value, remaining)
+	case nodeCatchAll:
+		return t.deleteWildcard(n, seg.value, remaining)
+	default:
+		panic("unknown segment type")
+	}
+}
+
+func (t *tXn2) deleteStatic(n *node2, search string, remaining []segment) (*node2, *Route) {
+	if len(search) == 0 {
+		return t.deleteSegments(n, remaining)
+	}
+
 	label := search[0]
 	idx, child := n.getStaticEdge(label)
 	if child == nil || !strings.HasPrefix(search, child.key) {
 		return nil, nil
 	}
 
+	// Consume the matched portion
 	search = search[len(child.key):]
-	newChild, route := t.delete(child, search)
-	if newChild == nil {
+
+	// Prepend remaining static portion if any
+	if len(search) > 0 {
+		remaining = append([]segment{{nodeStatic, search}}, remaining...)
+	}
+
+	// Recurse into child
+	newChild, deletedRoute := t.deleteSegments(child, remaining)
+	if deletedRoute == nil {
 		return nil, nil
 	}
 
 	nc := t.writeNode(n)
-	if newChild.route == nil && len(newChild.statics) == 0 {
+
+	// Check if child is now empty (no route, no children)
+	if newChild.route == nil &&
+		len(newChild.statics) == 0 &&
+		len(newChild.params) == 0 &&
+		len(newChild.wildcards) == 0 {
+		// Remove the empty child
 		nc.delStaticEdge(label)
-		if n != t.root && len(nc.statics) == 1 && !nc.isLeaf() {
+
+		// If parent now has exactly one static child and no route, merge
+		if n != t.root &&
+			len(nc.statics) == 1 &&
+			!nc.isLeaf() &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
 			t.mergeChild(nc)
 		}
 	} else {
+		// Update the child reference
 		nc.statics[idx] = newChild
 	}
-	return nc, route
+
+	return nc, deletedRoute
+}
+
+func (t *tXn2) deleteParam(n *node2, key string, remaining []segment) (*node2, *Route) {
+	idx, child := n.getParamEdge(key)
+	if child == nil {
+		return nil, nil
+	}
+
+	// Recurse into param's children
+	newChild, deletedRoute := t.deleteSegments(child, remaining)
+	if deletedRoute == nil {
+		return nil, nil
+	}
+
+	nc := t.writeNode(n)
+
+	// If param node is now empty, remove it
+	if newChild.route == nil &&
+		len(newChild.statics) == 0 &&
+		len(newChild.params) == 0 &&
+		len(newChild.wildcards) == 0 {
+		nc.delParamEdge(key)
+
+		if n != t.root &&
+			len(nc.statics) == 1 &&
+			!nc.isLeaf() &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
+			t.mergeChild(nc)
+		}
+
+	} else {
+		nc.params[idx] = newChild
+	}
+
+	return nc, deletedRoute
+}
+
+func (t *tXn2) deleteWildcard(n *node2, key string, remaining []segment) (*node2, *Route) {
+	idx, child := n.getWildcardEdge(key)
+	if child == nil {
+		return nil, nil
+	}
+
+	// Recurse into wildcard's children
+	newChild, deletedRoute := t.deleteSegments(child, remaining)
+	if deletedRoute == nil {
+		return nil, nil
+	}
+
+	nc := t.writeNode(n)
+
+	// If wildcard node is now empty, remove it
+	if newChild.route == nil &&
+		len(newChild.statics) == 0 &&
+		len(newChild.params) == 0 &&
+		len(newChild.wildcards) == 0 {
+		nc.delWildcardEdge(key)
+
+		if n != t.root &&
+			len(nc.statics) == 1 &&
+			!nc.isLeaf() &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
+			t.mergeChild(nc)
+		}
+	} else {
+		nc.wildcards[idx] = newChild
+	}
+
+	return nc, deletedRoute
 }
 
 // mergeChild is called to collapse the given node with its child. This is only
@@ -267,6 +426,16 @@ func (t *tXn2) mergeChild(n *node2) {
 		copy(n.statics, child.statics)
 	} else {
 		n.statics = nil
+	}
+
+	if len(child.params) != 0 {
+		n.params = make([]*node2, len(child.params))
+		copy(n.params, child.params)
+	}
+
+	if len(child.wildcards) != 0 {
+		n.wildcards = make([]*node2, len(child.wildcards))
+		copy(n.wildcards, child.wildcards)
 	}
 }
 
@@ -290,20 +459,20 @@ func concat(a, b string) string {
 	return a + b
 }
 
-type segmentType int
+type nodeType int
 
 const (
-	segmentStatic segmentType = iota
-	segmentParam
-	segmentWildcard
+	nodeStatic nodeType = iota
+	nodeParam
+	nodeCatchAll
 )
 
 type segment struct {
-	typ   segmentType
+	typ   nodeType
 	value string
 }
 
-// tokenizePath splits a path into segments, separating static portions from
+// tokenizeKey splits a path into segments, separating static portions from
 // dynamic parameters ({placeholder}) and catch-all parameters ({placeholder...}).
 //
 // Examples:
@@ -312,7 +481,7 @@ type segment struct {
 //	/a/{foo}/b/{bar...}    → ["a/", "{foo}", "/b/", "{bar...}"]
 //	/{id}/track            → ["", "{id}", "/track"]
 //	/static                → ["static"]
-func tokenizePath(path string) ([]segment, error) {
+func tokenizeKey(path string) ([]segment, error) {
 	if len(path) == 0 {
 		return nil, fmt.Errorf("empty path")
 	}
@@ -326,7 +495,7 @@ func tokenizePath(path string) ([]segment, error) {
 			// Flush any accumulated static content
 			if staticBuf.Len() > 0 {
 				segments = append(segments, segment{
-					typ:   segmentStatic,
+					typ:   nodeStatic,
 					value: staticBuf.String(),
 				})
 				staticBuf.Reset()
@@ -350,12 +519,12 @@ func tokenizePath(path string) ([]segment, error) {
 			// Check if it's a catch-all (ends with ...)
 			if strings.HasSuffix(param, "...}") {
 				segments = append(segments, segment{
-					typ:   segmentWildcard,
+					typ:   nodeCatchAll,
 					value: param,
 				})
 			} else {
 				segments = append(segments, segment{
-					typ:   segmentParam,
+					typ:   nodeParam,
 					value: param,
 				})
 			}
@@ -369,7 +538,7 @@ func tokenizePath(path string) ([]segment, error) {
 	// Flush any remaining static content
 	if staticBuf.Len() > 0 {
 		segments = append(segments, segment{
-			typ:   segmentStatic,
+			typ:   nodeStatic,
 			value: staticBuf.String(),
 		})
 	}
