@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -13,18 +14,6 @@ type node2 struct {
 	params    []*node2
 	wildcards []*node2
 	// maybe we should add a reference in a parent
-}
-
-func (n *node2) delStaticEdge(label byte) {
-	num := len(n.statics)
-	idx := sort.Search(num, func(i int) bool {
-		return n.statics[i].label >= label
-	})
-	if idx < num && n.statics[idx].label == label {
-		copy(n.statics[idx:], n.statics[idx+1:])
-		n.statics[len(n.statics)-1] = nil
-		n.statics = n.statics[:len(n.statics)-1]
-	}
 }
 
 func (n *node2) addStaticEdge(child *node2) {
@@ -84,6 +73,36 @@ func (n *node2) getWildcardEdge(key string) (int, *node2) {
 		}
 	}
 	return -1, nil
+}
+
+func (n *node2) delStaticEdge(label byte) {
+	num := len(n.statics)
+	idx := sort.Search(num, func(i int) bool {
+		return n.statics[i].label >= label
+	})
+	if idx < num && n.statics[idx].label == label {
+		copy(n.statics[idx:], n.statics[idx+1:])
+		n.statics[len(n.statics)-1] = nil
+		n.statics = n.statics[:len(n.statics)-1]
+	}
+}
+
+func (n *node2) delParamEdge(key string) {
+	idx := slices.IndexFunc(n.params, func(p *node2) bool { return p.key == key })
+	if idx >= 0 {
+		copy(n.params[idx:], n.params[idx+1:])
+		n.params[len(n.params)-1] = nil
+		n.params = n.params[:len(n.params)-1]
+	}
+}
+
+func (n *node2) delWildcardEdge(key string) {
+	idx := slices.IndexFunc(n.wildcards, func(p *node2) bool { return p.key == key })
+	if idx >= 0 {
+		copy(n.wildcards[idx:], n.wildcards[idx+1:])
+		n.wildcards[len(n.wildcards)-1] = nil
+		n.wildcards = n.wildcards[:len(n.wildcards)-1]
+	}
 }
 
 func (n *node2) isLeaf() bool {
