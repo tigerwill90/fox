@@ -13,6 +13,8 @@ func Test_txn2_insert(t *testing.T) {
 	txn.Insert("/foo", &Route{})
 	txn.Insert("/foo", &Route{})
 	txn.Insert("/fob", &Route{})
+	txn.Insert("/fo", &Route{})
+	txn.Insert("/fooo", &Route{})
 
 	fmt.Println(txn.root)
 }

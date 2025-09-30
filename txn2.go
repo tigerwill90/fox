@@ -16,13 +16,14 @@ type tXn2 struct {
 }
 
 func (t *tXn2) Insert(key string, route *Route) {
-	newRoot := t.insert(t.root, key, route)
+	segments, _ := tokenizePath(key)
+	newRoot := t.insert(t.root, key, segments, route)
 	if newRoot != nil {
 		t.root = newRoot
 	}
 }
 
-func (t *tXn2) insert(n *node2, search string, route *Route) *node2 {
+func (t *tXn2) insert(n *node2, search string, segments []segment, route *Route) *node2 {
 
 	if len(search) == 0 {
 		nc := t.writeNode(n)
@@ -45,7 +46,7 @@ func (t *tXn2) insert(n *node2, search string, route *Route) *node2 {
 	commonPrefix := longestPrefix(search, child.key)
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
-		newChild := t.insert(child, search, route)
+		newChild := t.insert(child, search, segments, route)
 		if newChild != nil {
 			nc := t.writeNode(n)
 			nc.statics[idx] = newChild
