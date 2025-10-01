@@ -57,6 +57,7 @@ func (t *tXn2) insert(method string, route *Route, mode insertMode) error {
 		}
 		t.root[method] = newRoot
 		t.depth = max(t.depth, t.computePathDepth(newRoot, route.tokens))
+		t.maxParams = max(t.maxParams, route.psLen)
 		t.size++
 	}
 	return nil

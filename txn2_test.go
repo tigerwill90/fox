@@ -26,8 +26,10 @@ func Test_txn2_insert(t *testing.T) {
 		txn.insert("/api/{version}/posts", &Route{})*/
 
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("example.{bar}/bar", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.c/", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.c/", emptyHandler)), modeUpdate))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.{a}/", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.{b}/{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.{b}/*{c}", emptyHandler)), modeInsert))
+
 	/*	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.c/", emptyHandler)), modeInsert))
 		assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo", emptyHandler)), modeInsert))
 		assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/fob", emptyHandler)), modeInsert))
@@ -44,6 +46,7 @@ func Test_txn2_insert(t *testing.T) {
 
 	fmt.Println(txn.root[http.MethodGet])
 	fmt.Println(txn.depth)
+	fmt.Println(txn.maxParams)
 
 	/*	target := must(f.NewRoute2("example.com/foobar", emptyHandler))
 		txn.delete(http.MethodGet, target.tokens)
