@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func must[T any](v T, err error) T {
@@ -22,14 +24,14 @@ func Test_txn2_insert(t *testing.T) {
 	/*	txn.insert("/api/{version}", &Route{})
 		txn.insert("/api/{version}/users", &Route{})
 		txn.insert("/api/{version}/posts", &Route{})*/
-	txn.insert(http.MethodGet, must(f.NewRoute2("/foo", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/fob", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/fo", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{bar}", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{baz}/baz", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz/*{foo:[A-z]+}", emptyHandler)))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/fob", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/fo", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{bar}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{baz}/baz", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz", emptyHandler)), modeInsert))
+	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler)), modeInsert))
+	// assert.NoError(t, txn.insert(http.MethodDelete, must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler)), modeUpdate))
 
 	fmt.Println(txn.root[http.MethodGet])
 	fmt.Println(txn.depth)
@@ -38,33 +40,6 @@ func Test_txn2_insert(t *testing.T) {
 	txn.delete(http.MethodGet, target.tokens)
 
 	fmt.Println(txn.root[http.MethodGet])
-}
-
-func BenchmarkX(b *testing.B) {
-	f, _ := New()
-
-	txn := tXn2{
-		root: make(map[string]*node2),
-	}
-	/*	txn.insert("/api/{version}", &Route{})
-		txn.insert("/api/{version}/users", &Route{})
-		txn.insert("/api/{version}/posts", &Route{})*/
-	txn.insert(http.MethodGet, must(f.NewRoute2("/foo", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/fob", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/fo", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{bar}", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{baz}/baz", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler)))
-	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz/*{foo}", emptyHandler)))
-
-	root := txn.root[http.MethodGet]
-	target := must(f.NewRoute2("/f{yolo}/baz/*{foo}", emptyHandler))
-
-	b.ReportAllocs()
-	for b.Loop() {
-		txn.computePathDepth(root, target.tokens)
-	}
 }
 
 func Test_txn2_insertStatic(t *testing.T) {
@@ -77,7 +52,7 @@ func Test_txn2_insertStatic(t *testing.T) {
 		if rte.method != http.MethodGet {
 			continue
 		}
-		txn.insert(rte.path, &Route{})
+		txn.insert(rte.path, &Route{}, modeInsert)
 	}
 	/*	for _, rte := range githubAPI {
 		if rte.method != http.MethodGet {

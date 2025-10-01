@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"fmt"
 	"maps"
 	"regexp"
 	"strings"
@@ -15,6 +16,8 @@ type tXn2 struct {
 	size      int
 	maxParams uint32
 	depth     uint32
+	method    string
+	mode      insertMode
 }
 
 // insert performs a recursive copy-on-write insertion of a route into the tree.
@@ -29,15 +32,24 @@ type tXn2 struct {
 //
 // Upon successful insertion, the transaction's root is updated to point to the
 // new tree version.
-func (t *tXn2) insert(method string, route *Route) {
+func (t *tXn2) insert(method string, route *Route, mode insertMode) error {
 	root := t.root[method]
 	if root == nil {
+		if t.mode == modeUpdate {
+			return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, route.pattern)
+		}
 		root = &node2{
 			key: method,
 		}
 	}
 
-	newRoot := t.insertTokens(root, route.tokens, route)
+	t.mode = mode
+	t.method = method
+
+	newRoot, err := t.insertTokens(root, route.tokens, route)
+	if err != nil {
+		return err
+	}
 	if newRoot != nil {
 		if !t.written {
 			t.root = maps.Clone(t.root)
@@ -47,15 +59,23 @@ func (t *tXn2) insert(method string, route *Route) {
 		t.depth = max(t.depth, t.computePathDepth(newRoot, route.tokens))
 		t.size++
 	}
+	return nil
 }
 
-func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
+func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) (*node2, error) {
 
 	// Base case: no tokens left, attach route
 	if len(tokens) == 0 {
+		if t.mode == modeInsert && n.isLeaf() {
+			return nil, fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, t.method, route.pattern, n.route.pattern)
+		}
+		if t.mode == modeUpdate && !n.isLeaf() {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
 		nc := t.writeNode(n)
 		nc.route = route
-		return nc
+		return nc, nil
 	}
 
 	tk := tokens[0]
@@ -71,11 +91,9 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
 	default:
 		panic("internal error: unknown token type")
 	}
-
-	return nil
 }
 
-func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *Route) (*node2, error) {
 
 	if len(search) == 0 {
 		return t.insertTokens(n, remaining, route)
@@ -83,7 +101,11 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 
 	idx, child := n.getStaticEdge(search[0])
 	if child == nil {
-		newChild := t.insertTokens(
+		if t.mode == modeUpdate {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		newChild, err := t.insertTokens(
 			&node2{
 				label: search[0],
 				key:   search,
@@ -91,12 +113,12 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 			remaining,
 			route,
 		)
-		if newChild != nil {
-			nc := t.writeNode(n)
-			nc.addStaticEdge(newChild)
-			return nc
+		if err != nil {
+			return nil, err
 		}
-		return nil
+		nc := t.writeNode(n)
+		nc.addStaticEdge(newChild)
+		return nc, nil
 	}
 
 	commonPrefix := longestPrefix(search, child.key)
@@ -105,13 +127,17 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 		// TODO check if len(search) > 0 is probably a optimization
 		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
-		newChild := t.insertTokens(child, remaining, route)
-		if newChild != nil {
-			nc := t.writeNode(n)
-			nc.statics[idx] = newChild
-			return nc
+		newChild, err := t.insertTokens(child, remaining, route)
+		if err != nil {
+			return nil, err
 		}
-		return nil
+		nc := t.writeNode(n)
+		nc.statics[idx] = newChild
+		return nc, nil
+	}
+
+	if t.mode == modeUpdate {
+		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
 	}
 
 	nc := t.writeNode(n)
@@ -132,20 +158,20 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 		// we first split /foo into /fo, o and then fo <- get the new route
 		// splitNode.route = route // SHOULD not need this
 		if len(remaining) > 0 {
-			newSplitNode := t.insertTokens(splitNode, remaining, route)
-			if newSplitNode != nil {
-				nc.replaceStaticEdge(newSplitNode)
-				return nc
+			newSplitNode, err := t.insertTokens(splitNode, remaining, route)
+			if err != nil {
+				return nil, err
 			}
-			return nil
+			nc.replaceStaticEdge(newSplitNode)
+			return nc, nil
 		}
 		splitNode.route = route
-		return nc
+		return nc, nil
 	}
 	// e.g. we have /foo and want to insert /fob
 	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
 
-	newChild := t.insertTokens(
+	newChild, err := t.insertTokens(
 		&node2{
 			label: search[0],
 			key:   search,
@@ -153,19 +179,22 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 		remaining,
 		route,
 	)
-	if newChild != nil {
-		splitNode.addStaticEdge(newChild)
-		return nc
+	if err != nil {
+		return nil, err
 	}
-
-	return nil
+	splitNode.addStaticEdge(newChild)
+	return nc, nil
 }
 
-func (t *tXn2) insertParam(n *node2, tk token, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertParam(n *node2, tk token, remaining []token, route *Route) (*node2, error) {
 	key := canonicalKey(tk)
 	idx, child := n.getParamEdge(key)
 	if child == nil {
-		newChild := t.insertTokens(
+		if t.mode == modeUpdate {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		newChild, err := t.insertTokens(
 			&node2{
 				key:    key,
 				regexp: tk.regexp,
@@ -173,25 +202,34 @@ func (t *tXn2) insertParam(n *node2, tk token, remaining []token, route *Route) 
 			remaining,
 			route,
 		)
+		if err != nil {
+			return nil, err
+		}
+
 		nc := t.writeNode(n)
 		nc.addParamEdge(newChild)
-		return nc
+		return nc, nil
 	}
 
-	newChild := t.insertTokens(child, remaining, route)
-	if newChild != nil {
-		nc := t.writeNode(n)
-		nc.params[idx] = newChild
-		return nc
+	newChild, err := t.insertTokens(child, remaining, route)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+
+	nc := t.writeNode(n)
+	nc.params[idx] = newChild
+	return nc, nil
 }
 
-func (t *tXn2) insertWildcard(n *node2, tk token, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertWildcard(n *node2, tk token, remaining []token, route *Route) (*node2, error) {
 	key := canonicalKey(tk)
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
-		newChild := t.insertTokens(
+		if t.mode == modeUpdate {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		newChild, err := t.insertTokens(
 			&node2{
 				key:    key,
 				regexp: tk.regexp,
@@ -199,18 +237,21 @@ func (t *tXn2) insertWildcard(n *node2, tk token, remaining []token, route *Rout
 			remaining,
 			route,
 		)
+		if err != nil {
+			return nil, err
+		}
 		nc := t.writeNode(n)
 		nc.addWildcardEdge(newChild)
-		return nc
+		return nc, nil
 	}
 
-	newChild := t.insertTokens(child, remaining, route)
-	if newChild != nil {
-		nc := t.writeNode(n)
-		nc.wildcards[idx] = newChild
-		return nc
+	newChild, err := t.insertTokens(child, remaining, route)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	nc := t.writeNode(n)
+	nc.wildcards[idx] = newChild
+	return nc, nil
 }
 
 func (t *tXn2) writeNode(n *node2) *node2 {
@@ -541,7 +582,14 @@ func canonicalKey(tk token) string {
 	}
 }
 
-type nodeType int
+type insertMode uint8
+
+const (
+	modeInsert insertMode = iota
+	modeUpdate
+)
+
+type nodeType uint8
 
 const (
 	nodeStatic nodeType = iota
