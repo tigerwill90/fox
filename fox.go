@@ -1063,7 +1063,7 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 					return nil, 0, err
 				}
 				tokens = append(tokens, token{
-					typ:   nodeCatchAll,
+					typ:   nodeWildcard,
 					value: paramName,
 					regex: re,
 				})

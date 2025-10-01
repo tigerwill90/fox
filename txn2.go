@@ -59,16 +59,16 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
 		return nc
 	}
 
-	seg := tokens[0]
+	tk := tokens[0]
 	remaining := tokens[1:]
 
-	switch seg.typ {
+	switch tk.typ {
 	case nodeStatic:
-		return t.insertStatic(n, seg.value, remaining, route)
+		return t.insertStatic(n, tk.value, remaining, route)
 	case nodeParam:
-		return t.insertParam(n, seg.value, remaining, route)
-	case nodeCatchAll:
-		return t.insertWildcard(n, seg.value, remaining, route)
+		return t.insertParam(n, canonicalKey(tk), remaining, route)
+	case nodeWildcard:
+		return t.insertWildcard(n, canonicalKey(tk), remaining, route)
 	default:
 		panic("internal error: unknown token type")
 	}
@@ -84,10 +84,14 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 
 	idx, child := n.getStaticEdge(search[0])
 	if child == nil {
-		newChild := t.insertTokens(&node2{
-			label: search[0],
-			key:   search,
-		}, remaining, route)
+		newChild := t.insertTokens(
+			&node2{
+				label: search[0],
+				key:   search,
+			},
+			remaining,
+			route,
+		)
 		if newChild != nil {
 			nc := t.writeNode(n)
 			nc.addStaticEdge(newChild)
@@ -142,10 +146,14 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 	// e.g. we have /foo and want to insert /fob
 	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
 
-	newChild := t.insertTokens(&node2{
-		label: search[0],
-		key:   search,
-	}, remaining, route)
+	newChild := t.insertTokens(
+		&node2{
+			label: search[0],
+			key:   search,
+		},
+		remaining,
+		route,
+	)
 	if newChild != nil {
 		splitNode.addStaticEdge(newChild)
 		return nc
@@ -264,7 +272,7 @@ func (t *tXn2) delete(method string, tokens []token) (*Route, bool) {
 			t.written = true
 		}
 		t.root[method] = newRoot
-		if len(newRoot.wildcards) > 0 || len(newRoot.params) > 0 || len(newRoot.statics) > 0 {
+		if len(newRoot.wildcards) == 0 && len(newRoot.params) == 0 && len(newRoot.statics) == 0 {
 			delete(t.root, method)
 		}
 	}
@@ -296,16 +304,16 @@ func (t *tXn2) deleteTokens(root, n *node2, tokens []token) (*node2, *Route) {
 		return nc, oldRoute
 	}
 
-	seg := tokens[0]
+	tk := tokens[0]
 	remaining := tokens[1:]
 
-	switch seg.typ {
+	switch tk.typ {
 	case nodeStatic:
-		return t.deleteStatic(root, n, seg.value, remaining)
+		return t.deleteStatic(root, n, tk.value, remaining)
 	case nodeParam:
-		return t.deleteParam(root, n, seg.value, remaining)
-	case nodeCatchAll:
-		return t.deleteWildcard(root, n, seg.value, remaining)
+		return t.deleteParam(root, n, canonicalKey(tk), remaining)
+	case nodeWildcard:
+		return t.deleteWildcard(root, n, canonicalKey(tk), remaining)
 	default:
 		panic("internal error: unknown token type")
 	}
@@ -437,12 +445,12 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 	var depth uint32
 	current := root
 
-	for _, seg := range tokens {
+	for _, tk := range tokens {
 		depth += uint32(len(current.params) + len(current.wildcards))
 
-		switch seg.typ {
+		switch tk.typ {
 		case nodeStatic:
-			search := seg.value
+			search := tk.value
 			for len(search) > 0 {
 				_, child := current.getStaticEdge(search[0])
 				if child == nil || !strings.HasPrefix(search, child.key) {
@@ -453,9 +461,9 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 				current = child
 			}
 		case nodeParam:
-			_, current = current.getParamEdge(seg.value)
-		case nodeCatchAll:
-			_, current = current.getWildcardEdge(seg.value)
+			_, current = current.getParamEdge(canonicalKey(tk))
+		case nodeWildcard:
+			_, current = current.getWildcardEdge(canonicalKey(tk))
 		}
 
 		if current == nil {
@@ -512,12 +520,29 @@ func concat(a, b string) string {
 	return a + b
 }
 
+// canonicalKey returns the internal key representation for a token.
+// Returns the regex pattern if present, otherwise returns a normalized
+// placeholder ("?" for params, "*" for catch-alls).
+func canonicalKey(tk token) string {
+	if tk.regex != nil {
+		return tk.regex.String()
+	}
+	switch tk.typ {
+	case nodeParam:
+		return "?"
+	case nodeWildcard:
+		return "*"
+	default:
+		panic("internal error: unknown token type")
+	}
+}
+
 type nodeType int
 
 const (
 	nodeStatic nodeType = iota
 	nodeParam
-	nodeCatchAll
+	nodeWildcard
 )
 
 type token struct {
@@ -573,7 +598,7 @@ func tokenizeKey(path string) ([]token, error) {
 			// Check if it's a catch-all (ends with ...)
 			if strings.HasSuffix(param, "...}") {
 				tokens = append(tokens, token{
-					typ:   nodeCatchAll,
+					typ:   nodeWildcard,
 					value: param,
 				})
 			} else {
