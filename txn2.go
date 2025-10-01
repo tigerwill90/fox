@@ -28,25 +28,26 @@ type tXn2 struct {
 // Upon successful insertion, the transaction's root is updated to point to the
 // new tree version.
 func (t *tXn2) insert(key string, route *Route) {
-	segments, _ := tokenizeKey(key)
-	newRoot := t.insertSegments(t.root, segments, route)
+	tokens, _ := tokenizeKey(key)
+	newRoot := t.insertTokens(t.root, tokens, route)
 	if newRoot != nil {
 		t.root = newRoot
+		t.depth = max(t.depth, t.computePathDepth(tokens))
 	}
 	t.size++
 }
 
-func (t *tXn2) insertSegments(n *node2, segments []segment, route *Route) *node2 {
+func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
 
-	// Base case: no segments left, attach route
-	if len(segments) == 0 {
+	// Base case: no tokens left, attach route
+	if len(tokens) == 0 {
 		nc := t.writeNode(n)
 		nc.route = route
 		return nc
 	}
 
-	seg := segments[0]
-	remaining := segments[1:]
+	seg := tokens[0]
+	remaining := tokens[1:]
 
 	switch seg.typ {
 	case nodeStatic:
@@ -56,21 +57,21 @@ func (t *tXn2) insertSegments(n *node2, segments []segment, route *Route) *node2
 	case nodeCatchAll:
 		return t.insertWildcard(n, seg.value, remaining, route)
 	default:
-		panic("internal error: unknown segment type")
+		panic("internal error: unknown token type")
 	}
 
 	return nil
 }
 
-func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route *Route) *node2 {
+func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *Route) *node2 {
 
 	if len(search) == 0 {
-		return t.insertSegments(n, remaining, route)
+		return t.insertTokens(n, remaining, route)
 	}
 
 	idx, child := n.getStaticEdge(search[0])
 	if child == nil {
-		newChild := t.insertSegments(&node2{
+		newChild := t.insertTokens(&node2{
 			label: search[0],
 			key:   search,
 		}, remaining, route)
@@ -86,9 +87,9 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
 		// TODO check if len(search) > 0 is probably a optimization
-		remaining = append([]segment{{nodeStatic, search}}, remaining...)
+		remaining = append([]token{{nodeStatic, search}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
-		newChild := t.insertSegments(child, remaining, route)
+		newChild := t.insertTokens(child, remaining, route)
 		if newChild != nil {
 			nc := t.writeNode(n)
 			nc.statics[idx] = newChild
@@ -115,7 +116,7 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 		// we first split /foo into /fo, o and then fo <- get the new route
 		// splitNode.route = route // SHOULD not need this
 		if len(remaining) > 0 {
-			newSplitNode := t.insertSegments(splitNode, remaining, route)
+			newSplitNode := t.insertTokens(splitNode, remaining, route)
 			if newSplitNode != nil {
 				nc.replaceStaticEdge(newSplitNode)
 				return nc
@@ -128,7 +129,7 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 	// e.g. we have /foo and want to insert /fob
 	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
 
-	newChild := t.insertSegments(&node2{
+	newChild := t.insertTokens(&node2{
 		label: search[0],
 		key:   search,
 	}, remaining, route)
@@ -140,10 +141,10 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []segment, route 
 	return nil
 }
 
-func (t *tXn2) insertParam(n *node2, key string, remaining []segment, route *Route) *node2 {
+func (t *tXn2) insertParam(n *node2, key string, remaining []token, route *Route) *node2 {
 	idx, child := n.getParamEdge(key)
 	if child == nil {
-		newChild := t.insertSegments(
+		newChild := t.insertTokens(
 			&node2{
 				key: key,
 			},
@@ -155,7 +156,7 @@ func (t *tXn2) insertParam(n *node2, key string, remaining []segment, route *Rou
 		return nc
 	}
 
-	newChild := t.insertSegments(child, remaining, route)
+	newChild := t.insertTokens(child, remaining, route)
 	if newChild != nil {
 		nc := t.writeNode(n)
 		nc.params[idx] = newChild
@@ -164,10 +165,10 @@ func (t *tXn2) insertParam(n *node2, key string, remaining []segment, route *Rou
 	return nil
 }
 
-func (t *tXn2) insertWildcard(n *node2, key string, remaining []segment, route *Route) *node2 {
+func (t *tXn2) insertWildcard(n *node2, key string, remaining []token, route *Route) *node2 {
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
-		newChild := t.insertSegments(
+		newChild := t.insertTokens(
 			&node2{
 				key: key,
 			},
@@ -179,7 +180,7 @@ func (t *tXn2) insertWildcard(n *node2, key string, remaining []segment, route *
 		return nc
 	}
 
-	newChild := t.insertSegments(child, remaining, route)
+	newChild := t.insertTokens(child, remaining, route)
 	if newChild != nil {
 		nc := t.writeNode(n)
 		nc.wildcards[idx] = newChild
@@ -238,12 +239,12 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 // Upon successful deletion, the transaction's root is updated to point to the
 // new tree version.
 func (t *tXn2) delete(key string) (*Route, bool) {
-	segments, err := tokenizeKey(key)
+	tokens, err := tokenizeKey(key)
 	if err != nil {
 		return nil, false
 	}
 
-	newRoot, route := t.deleteSegments(t.root, segments)
+	newRoot, route := t.deleteTokens(t.root, tokens)
 	if newRoot != nil {
 		t.root = newRoot
 	}
@@ -256,9 +257,9 @@ func (t *tXn2) delete(key string) (*Route, bool) {
 	return nil, false
 }
 
-func (t *tXn2) deleteSegments(n *node2, segments []segment) (*node2, *Route) {
-	// Base case: no segments left, delete route at this node
-	if len(segments) == 0 {
+func (t *tXn2) deleteTokens(n *node2, tokens []token) (*node2, *Route) {
+	// Base case: no tokens left, delete route at this node
+	if len(tokens) == 0 {
 		if !n.isLeaf() {
 			return nil, nil
 		}
@@ -275,8 +276,8 @@ func (t *tXn2) deleteSegments(n *node2, segments []segment) (*node2, *Route) {
 		return nc, oldRoute
 	}
 
-	seg := segments[0]
-	remaining := segments[1:]
+	seg := tokens[0]
+	remaining := tokens[1:]
 
 	switch seg.typ {
 	case nodeStatic:
@@ -286,13 +287,13 @@ func (t *tXn2) deleteSegments(n *node2, segments []segment) (*node2, *Route) {
 	case nodeCatchAll:
 		return t.deleteWildcard(n, seg.value, remaining)
 	default:
-		panic("internal error: unknown segment type")
+		panic("internal error: unknown token type")
 	}
 }
 
-func (t *tXn2) deleteStatic(n *node2, search string, remaining []segment) (*node2, *Route) {
+func (t *tXn2) deleteStatic(n *node2, search string, remaining []token) (*node2, *Route) {
 	if len(search) == 0 {
-		return t.deleteSegments(n, remaining)
+		return t.deleteTokens(n, remaining)
 	}
 
 	label := search[0]
@@ -306,11 +307,11 @@ func (t *tXn2) deleteStatic(n *node2, search string, remaining []segment) (*node
 
 	// Prepend remaining static portion if any
 	if len(search) > 0 {
-		remaining = append([]segment{{nodeStatic, search}}, remaining...)
+		remaining = append([]token{{nodeStatic, search}}, remaining...)
 	}
 
 	// Recurse into child
-	newChild, deletedRoute := t.deleteSegments(child, remaining)
+	newChild, deletedRoute := t.deleteTokens(child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -341,14 +342,14 @@ func (t *tXn2) deleteStatic(n *node2, search string, remaining []segment) (*node
 	return nc, deletedRoute
 }
 
-func (t *tXn2) deleteParam(n *node2, key string, remaining []segment) (*node2, *Route) {
+func (t *tXn2) deleteParam(n *node2, key string, remaining []token) (*node2, *Route) {
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		return nil, nil
 	}
 
 	// Recurse into param's children
-	newChild, deletedRoute := t.deleteSegments(child, remaining)
+	newChild, deletedRoute := t.deleteTokens(child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -377,14 +378,14 @@ func (t *tXn2) deleteParam(n *node2, key string, remaining []segment) (*node2, *
 	return nc, deletedRoute
 }
 
-func (t *tXn2) deleteWildcard(n *node2, key string, remaining []segment) (*node2, *Route) {
+func (t *tXn2) deleteWildcard(n *node2, key string, remaining []token) (*node2, *Route) {
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		return nil, nil
 	}
 
 	// Recurse into wildcard's children
-	newChild, deletedRoute := t.deleteSegments(child, remaining)
+	newChild, deletedRoute := t.deleteTokens(child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -410,6 +411,42 @@ func (t *tXn2) deleteWildcard(n *node2, key string, remaining []segment) (*node2
 	}
 
 	return nc, deletedRoute
+}
+
+func (t *tXn2) computePathDepth(tokens []token) uint32 {
+	var depth uint32
+	current := t.root
+
+	for _, seg := range tokens {
+		// Count alternatives at this level
+		depth += uint32(len(current.params) + len(current.wildcards))
+
+		// Navigate to next node
+		switch seg.typ {
+		case nodeStatic:
+			// Handle static segments that might span multiple nodes
+			search := seg.value
+			for len(search) > 0 {
+				_, child := current.getStaticEdge(search[0])
+				if child == nil || !strings.HasPrefix(search, child.key) {
+					current = nil
+					break
+				}
+				search = search[len(child.key):]
+				current = child
+			}
+		case nodeParam:
+			_, current = current.getParamEdge(seg.value)
+		case nodeCatchAll:
+			_, current = current.getWildcardEdge(seg.value)
+		}
+
+		if current == nil {
+			break
+		}
+	}
+
+	return depth
 }
 
 // mergeChild is called to collapse the given node with its child. This is only
@@ -466,12 +503,12 @@ const (
 	nodeCatchAll
 )
 
-type segment struct {
+type token struct {
 	typ   nodeType
 	value string
 }
 
-// tokenizeKey splits a path into segments, separating static portions from
+// tokenizeKey splits a path into tokens, separating static portions from
 // dynamic parameters ({placeholder}) and catch-all parameters ({placeholder...}).
 //
 // Examples:
@@ -480,12 +517,12 @@ type segment struct {
 //	/a/{foo}/b/{bar...}    → ["a/", "{foo}", "/b/", "{bar...}"]
 //	/{id}/track            → ["", "{id}", "/track"]
 //	/static                → ["static"]
-func tokenizeKey(path string) ([]segment, error) {
+func tokenizeKey(path string) ([]token, error) {
 	if len(path) == 0 {
 		return nil, fmt.Errorf("empty path")
 	}
 
-	var segments []segment
+	var tokens []token
 	var staticBuf strings.Builder
 	i := 0
 
@@ -493,7 +530,7 @@ func tokenizeKey(path string) ([]segment, error) {
 		if path[i] == '{' {
 			// Flush any accumulated static content
 			if staticBuf.Len() > 0 {
-				segments = append(segments, segment{
+				tokens = append(tokens, token{
 					typ:   nodeStatic,
 					value: staticBuf.String(),
 				})
@@ -517,12 +554,12 @@ func tokenizeKey(path string) ([]segment, error) {
 
 			// Check if it's a catch-all (ends with ...)
 			if strings.HasSuffix(param, "...}") {
-				segments = append(segments, segment{
+				tokens = append(tokens, token{
 					typ:   nodeCatchAll,
 					value: param,
 				})
 			} else {
-				segments = append(segments, segment{
+				tokens = append(tokens, token{
 					typ:   nodeParam,
 					value: param,
 				})
@@ -536,11 +573,11 @@ func tokenizeKey(path string) ([]segment, error) {
 
 	// Flush any remaining static content
 	if staticBuf.Len() > 0 {
-		segments = append(segments, segment{
+		tokens = append(tokens, token{
 			typ:   nodeStatic,
 			value: staticBuf.String(),
 		})
 	}
 
-	return segments, nil
+	return tokens, nil
 }
