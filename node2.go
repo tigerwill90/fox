@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ type node2 struct {
 	statics   []*node2
 	params    []*node2
 	wildcards []*node2
+	regexp    *regexp.Regexp
 	// maybe we should add a reference in a parent
 }
 
@@ -169,9 +171,12 @@ func (n *node2) string(space int, inode bool) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
 	sb.WriteString("path: ")
-	sb.WriteString(n.key)
 	if n.label == 0 {
-		sb.WriteString(" (param)")
+		sb.WriteByte('{')
+		sb.WriteString(n.key)
+		sb.WriteByte('}')
+	} else {
+		sb.WriteString(n.key)
 	}
 
 	if n.isLeaf() {

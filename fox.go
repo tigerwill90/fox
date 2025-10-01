@@ -1023,9 +1023,9 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 					return nil, 0, err
 				}
 				tokens = append(tokens, token{
-					typ:   nodeParam,
-					value: paramName,
-					regex: re,
+					typ:    nodeParam,
+					value:  paramName,
+					regexp: re,
 				})
 				countStatic = 0
 				previous = state
@@ -1063,9 +1063,9 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 					return nil, 0, err
 				}
 				tokens = append(tokens, token{
-					typ:   nodeWildcard,
-					value: paramName,
-					regex: re,
+					typ:    nodeWildcard,
+					value:  paramName,
+					regexp: re,
 				})
 				countStatic = 0
 				previous = state

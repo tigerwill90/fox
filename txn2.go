@@ -1,7 +1,6 @@
 package fox
 
 import (
-	"fmt"
 	"maps"
 	"regexp"
 	"strings"
@@ -66,9 +65,9 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
 	case nodeStatic:
 		return t.insertStatic(n, tk.value, remaining, route)
 	case nodeParam:
-		return t.insertParam(n, canonicalKey(tk), remaining, route)
+		return t.insertParam(n, canonicalKey(tk), tk.regexp, remaining, route)
 	case nodeWildcard:
-		return t.insertWildcard(n, canonicalKey(tk), remaining, route)
+		return t.insertWildcard(n, canonicalKey(tk), tk.regexp, remaining, route)
 	default:
 		panic("internal error: unknown token type")
 	}
@@ -162,12 +161,13 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 	return nil
 }
 
-func (t *tXn2) insertParam(n *node2, key string, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertParam(n *node2, key string, regexp *regexp.Regexp, remaining []token, route *Route) *node2 {
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		newChild := t.insertTokens(
 			&node2{
-				key: key,
+				key:    key,
+				regexp: regexp,
 			},
 			remaining,
 			route,
@@ -186,12 +186,13 @@ func (t *tXn2) insertParam(n *node2, key string, remaining []token, route *Route
 	return nil
 }
 
-func (t *tXn2) insertWildcard(n *node2, key string, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertWildcard(n *node2, key string, regexp *regexp.Regexp, remaining []token, route *Route) *node2 {
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		newChild := t.insertTokens(
 			&node2{
-				key: key,
+				key:    key,
+				regexp: regexp,
 			},
 			remaining,
 			route,
@@ -224,9 +225,10 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 	}
 
 	nc := &node2{
-		label: n.label,
-		key:   n.key,
-		route: n.route,
+		label:  n.label,
+		key:    n.key,
+		route:  n.route,
+		regexp: n.regexp,
 	}
 	if len(n.statics) != 0 {
 		nc.statics = make([]*node2, len(n.statics))
@@ -521,11 +523,11 @@ func concat(a, b string) string {
 }
 
 // canonicalKey returns the internal key representation for a token.
-// Returns the regex pattern if present, otherwise returns a normalized
+// Returns the regexp pattern if present, otherwise returns a normalized
 // placeholder ("?" for params, "*" for catch-alls).
 func canonicalKey(tk token) string {
-	if tk.regex != nil {
-		return tk.regex.String()
+	if tk.regexp != nil {
+		return tk.regexp.String()
 	}
 	switch tk.typ {
 	case nodeParam:
@@ -546,81 +548,7 @@ const (
 )
 
 type token struct {
-	typ   nodeType
-	value string
-	regex *regexp.Regexp
-}
-
-// tokenizeKey splits a path into tokens, separating static portions from
-// dynamic parameters ({placeholder}) and catch-all parameters ({placeholder...}).
-//
-// Examples:
-//
-//	/a/b/c/{bar}/baz       → ["a/b/c/", "{bar}", "/baz"]
-//	/a/{foo}/b/{bar...}    → ["a/", "{foo}", "/b/", "{bar...}"]
-//	/{id}/track            → ["", "{id}", "/track"]
-//	/static                → ["static"]
-func tokenizeKey(path string) ([]token, error) {
-	if len(path) == 0 {
-		return nil, fmt.Errorf("empty path")
-	}
-
-	var tokens []token
-	var staticBuf strings.Builder
-	i := 0
-
-	for i < len(path) {
-		if path[i] == '{' {
-			// Flush any accumulated static content
-			if staticBuf.Len() > 0 {
-				tokens = append(tokens, token{
-					typ:   nodeStatic,
-					value: staticBuf.String(),
-				})
-				staticBuf.Reset()
-			}
-
-			// Find closing brace
-			start := i
-			i++
-			for i < len(path) && path[i] != '}' {
-				i++
-			}
-
-			if i >= len(path) {
-				return nil, fmt.Errorf("unclosed parameter at position %d", start)
-			}
-
-			// Extract parameter content (including braces)
-			param := path[start : i+1]
-			i++ // Move past closing brace
-
-			// Check if it's a catch-all (ends with ...)
-			if strings.HasSuffix(param, "...}") {
-				tokens = append(tokens, token{
-					typ:   nodeWildcard,
-					value: param,
-				})
-			} else {
-				tokens = append(tokens, token{
-					typ:   nodeParam,
-					value: param,
-				})
-			}
-		} else {
-			// Accumulate static content
-			staticBuf.WriteByte(path[i])
-			i++
-		}
-	}
-
-	// Flush any remaining static content
-	if staticBuf.Len() > 0 {
-		tokens = append(tokens, token{
-			typ:   nodeStatic,
-			value: staticBuf.String(),
-		})
-	}
-
-	return tokens, nil
+	typ    nodeType
+	value  string
+	regexp *regexp.Regexp
 }
