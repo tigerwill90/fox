@@ -1238,7 +1238,12 @@ func parseRegex(param string) (string, *regexp.Regexp, error) {
 	if idx == -1 {
 		return param, nil, nil
 	}
+
 	pattern := param[idx+1:]
+	if pattern == "" {
+		return "", nil, fmt.Errorf("%w: missing regular expression", ErrInvalidRoute)
+	}
+
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrInvalidRoute, err)

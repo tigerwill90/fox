@@ -31,6 +31,10 @@ func Test_txn2_insert(t *testing.T) {
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{baz}/baz", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/damn", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foobar/{test}/a", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foobar/{one:[A-z]+}/b", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foobar/{two:[0-9]+}/c", emptyHandler)), modeInsert))
+
 	// assert.NoError(t, txn.insert(http.MethodDelete, must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler)), modeUpdate))
 
 	fmt.Println(txn.root[http.MethodGet])

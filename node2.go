@@ -196,12 +196,9 @@ func (n *node2) string(space int, inode bool) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
 	sb.WriteString("path: ")
+	sb.WriteString(n.key)
 	if n.label == 0 {
-		sb.WriteByte('{')
-		sb.WriteString(n.key)
-		sb.WriteByte('}')
-	} else {
-		sb.WriteString(n.key)
+		sb.WriteString(" (param)")
 	}
 
 	if n.isLeaf() {
