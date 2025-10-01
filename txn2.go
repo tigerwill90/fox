@@ -418,13 +418,10 @@ func (t *tXn2) computePathDepth(tokens []token) uint32 {
 	current := t.root
 
 	for _, seg := range tokens {
-		// Count alternatives at this level
 		depth += uint32(len(current.params) + len(current.wildcards))
 
-		// Navigate to next node
 		switch seg.typ {
 		case nodeStatic:
-			// Handle static segments that might span multiple nodes
 			search := seg.value
 			for len(search) > 0 {
 				_, child := current.getStaticEdge(search[0])
