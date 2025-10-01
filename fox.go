@@ -369,7 +369,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 func (fox *Router) NewRoute2(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	tokens, n, err := fox.parseRoute2(pattern)
+	tokens, n, endHost, err := fox.parseRoute2(pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +381,7 @@ func (fox *Router) NewRoute2(pattern string, handler HandlerFunc, opts ...RouteO
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		psLen:       n,
+		hostSplit:   endHost, // 0 if no host
 		tokens:      tokens,
 	}
 
@@ -967,17 +968,17 @@ func (fox *Router) parseRoute(url string) (uint32, int, error) {
 }
 
 // parseRoute parse and validate the route in a single pass.
-func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
+func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {
-		return nil, 0, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
+		return nil, 0, 0, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
 	}
 	if strings.HasPrefix(url, ".") {
-		return nil, 0, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
+		return nil, 0, 0, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
 	}
 	if strings.HasPrefix(url, "-") {
-		return nil, 0, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
+		return nil, 0, 0, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
 	}
 
 	var delim byte
@@ -1006,12 +1007,12 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 		case stateParam:
 			if url[i] == '}' {
 				if !inParam {
-					return nil, 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
+					return nil, 0, 0, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
 				}
 				inParam = false
 
 				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
-					return nil, 0, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
+					return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if i < endHost {
@@ -1020,7 +1021,7 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 
 				paramName, re, err := parseRegex(url[startParam+1 : i])
 				if err != nil {
-					return nil, 0, err
+					return nil, 0, 0, err
 				}
 				tokens = append(tokens, token{
 					typ:    nodeParam,
@@ -1035,32 +1036,32 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 			}
 
 			if i-startParam > int(fox.maxParamKeyBytes) {
-				return nil, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
 			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return nil, 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
+				return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
 		case stateCatchAll:
 			if url[i] == '}' {
 				if !inParam {
-					return nil, 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
+					return nil, 0, 0, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
 				}
 				inParam = false
 
 				if i+1 < len(url) && url[i+1] != '/' {
-					return nil, 0, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
+					return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if previous == stateCatchAll && countStatic <= 1 {
-					return nil, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
+					return nil, 0, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
 				}
 
 				paramName, re, err := parseRegex(url[startParam+1 : i])
 				if err != nil {
-					return nil, 0, err
+					return nil, 0, 0, err
 				}
 				tokens = append(tokens, token{
 					typ:    nodeWildcard,
@@ -1075,17 +1076,25 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 			}
 
 			if i-startParam > int(fox.maxParamKeyBytes) {
-				return nil, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
 			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return nil, 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
+				return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
 		default:
 
 			if i == endHost {
+				if sb.Len() > 0 {
+					tokens = append(tokens, token{
+						typ:    nodeStatic,
+						value:  sb.String(),
+						hsplit: true,
+					})
+					sb.Reset()
+				}
 				delim = slashDelim
 			}
 
@@ -1101,7 +1110,7 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 				paramCnt++
 			case '*':
 				if i < endHost {
-					return nil, 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
+					return nil, 0, 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
 				}
 				tokens = append(tokens, token{
 					typ:   nodeStatic,
@@ -1127,40 +1136,40 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 					case c == '-':
 						// Byte before dash cannot be dot.
 						if last == '.' {
-							return nil, 0, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
+							return nil, 0, 0, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
 						}
 						partlen++
 						nonNumeric = true
 					case c == '.':
 						// Byte before dot cannot be dot.
 						if last == '.' && url[i-1] != '}' {
-							return nil, 0, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
+							return nil, 0, 0, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
 						}
 						// Byte before dot cannot be dash.
 						if last == '-' {
-							return nil, 0, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
+							return nil, 0, 0, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
 						}
 						if partlen > 63 {
-							return nil, 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+							return nil, 0, 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
 						}
 						totallen += partlen + 1 // +1 count the current dot
 						partlen = 0
 					case 'A' <= c && c <= 'Z':
-						return nil, 0, fmt.Errorf("%w: illegal uppercase character '%s' in hostname label", ErrInvalidRoute, string(c))
+						return nil, 0, 0, fmt.Errorf("%w: illegal uppercase character '%s' in hostname label", ErrInvalidRoute, string(c))
 					default:
-						return nil, 0, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
+						return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
 					}
 					last = c
 				} else {
 					c := url[i]
 					// reject any ASCII control character.
 					if c < ' ' || c == 0x7f {
-						return nil, 0, fmt.Errorf("%w: illegal control character in path", ErrInvalidRoute)
+						return nil, 0, 0, fmt.Errorf("%w: illegal control character in path", ErrInvalidRoute)
 					}
 
 					// reject any consecutive slash
 					if i > endHost && c == '/' && url[i-1] == '/' {
-						return nil, 0, fmt.Errorf("%w: illegal consecutive slashes in path", ErrInvalidRoute)
+						return nil, 0, 0, fmt.Errorf("%w: illegal consecutive slashes in path", ErrInvalidRoute)
 					}
 
 					// reject dot-based traversal patterns
@@ -1170,26 +1179,26 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 							nextChar := url[nextIdx]
 							switch nextChar {
 							case '/':
-								return nil, 0, fmt.Errorf("%w: illegal path traversal pattern '/./'", ErrInvalidRoute)
+								return nil, 0, 0, fmt.Errorf("%w: illegal path traversal pattern '/./'", ErrInvalidRoute)
 							case '.':
 								nextNextIdx := nextIdx + 1
 								if nextNextIdx < len(url) {
 									if url[nextNextIdx] == '/' {
-										return nil, 0, fmt.Errorf("%w: illegal path traversal pattern '/../'", ErrInvalidRoute)
+										return nil, 0, 0, fmt.Errorf("%w: illegal path traversal pattern '/../'", ErrInvalidRoute)
 									}
 								} else {
-									return nil, 0, fmt.Errorf("%w: illegal path traversal pattern '/..' at end", ErrInvalidRoute)
+									return nil, 0, 0, fmt.Errorf("%w: illegal path traversal pattern '/..' at end", ErrInvalidRoute)
 								}
 							}
 						} else {
-							return nil, 0, fmt.Errorf("%w: illegal path traversal pattern '/.' at end", ErrInvalidRoute)
+							return nil, 0, 0, fmt.Errorf("%w: illegal path traversal pattern '/.' at end", ErrInvalidRoute)
 						}
 					}
 				}
 			}
 
 			if paramCnt > uint32(fox.maxParams) {
-				return nil, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyParams)
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyParams)
 			}
 			i++
 		}
@@ -1198,31 +1207,31 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 	if endHost > 0 {
 		totallen += partlen
 		if last == '-' {
-			return nil, 0, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
+			return nil, 0, 0, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
 		}
 		if url[endHost-1] == '.' {
-			return nil, 0, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
+			return nil, 0, 0, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
 		}
 		if !nonNumeric {
-			return nil, 0, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
+			return nil, 0, 0, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
 		}
 		if partlen > 63 {
-			return nil, 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
+			return nil, 0, 0, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
 		}
 		if totallen > 255 {
-			return nil, 0, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
+			return nil, 0, 0, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
 		}
 	}
 
 	if state == stateParam {
-		return nil, 0, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
+		return nil, 0, 0, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
 	}
 
 	if state == stateCatchAll {
 		if url[len(url)-1] == '*' {
-			return nil, 0, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
+			return nil, 0, 0, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
 		}
-		return nil, 0, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
+		return nil, 0, 0, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
 	}
 
 	tokens = append(tokens, token{
@@ -1230,7 +1239,7 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, error) {
 		value: sb.String(),
 	})
 
-	return tokens, paramCnt, nil
+	return tokens, paramCnt, endHost, nil
 }
 
 func parseRegex(param string) (string, *regexp.Regexp, error) {

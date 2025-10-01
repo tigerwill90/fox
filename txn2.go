@@ -83,7 +83,7 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) (*node2, err
 
 	switch tk.typ {
 	case nodeStatic:
-		return t.insertStatic(n, tk.value, remaining, route)
+		return t.insertStatic(n, tk, remaining, route)
 	case nodeParam:
 		return t.insertParam(n, tk, remaining, route)
 	case nodeWildcard:
@@ -93,7 +93,8 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) (*node2, err
 	}
 }
 
-func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *Route) (*node2, error) {
+func (t *tXn2) insertStatic(n *node2, tk token, remaining []token, route *Route) (*node2, error) {
+	search := tk.value
 
 	if len(search) == 0 {
 		return t.insertTokens(n, remaining, route)
@@ -107,8 +108,9 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 
 		newChild, err := t.insertTokens(
 			&node2{
-				label: search[0],
-				key:   search,
+				label:  search[0],
+				key:    search,
+				hsplit: tk.hsplit,
 			},
 			remaining,
 			route,
@@ -125,7 +127,7 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
 		// TODO check if len(search) > 0 is probably a optimization
-		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
+		remaining = append([]token{{typ: nodeStatic, value: search, hsplit: tk.hsplit}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
 		newChild, err := t.insertTokens(child, remaining, route)
 		if err != nil {
@@ -142,8 +144,9 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 
 	nc := t.writeNode(n)
 	splitNode := &node2{
-		label: search[0],
-		key:   search[:commonPrefix],
+		label:  search[0],
+		key:    search[:commonPrefix],
+		hsplit: tk.hsplit,
 	}
 	nc.replaceStaticEdge(splitNode)
 
@@ -295,7 +298,6 @@ func (t *tXn2) delete(method string, tokens []token) (*Route, bool) {
 }
 
 func (t *tXn2) deleteTokens(root, n *node2, tokens []token) (*node2, *Route) {
-	// Base case: no tokens left, delete route at this node
 	if len(tokens) == 0 {
 		if !n.isLeaf() {
 			return nil, nil
@@ -305,8 +307,11 @@ func (t *tXn2) deleteTokens(root, n *node2, tokens []token) (*node2, *Route) {
 		nc := t.writeNode(n)
 		nc.route = nil
 
-		// If this is not root, not wildcard and has exactly one static child, merge
-		if n != root && len(nc.statics) == 1 && len(nc.params) == 0 && len(nc.wildcards) == 0 && nc.label != 0 {
+		if n != root &&
+			len(nc.statics) == 1 &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 &&
+			nc.label != 0 {
 			t.mergeChild(nc)
 		}
 
@@ -347,7 +352,6 @@ func (t *tXn2) deleteStatic(root, n *node2, search string, remaining []token) (*
 		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
 	}
 
-	// Recurse into child
 	newChild, deletedRoute := t.deleteTokens(root, child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
@@ -355,24 +359,27 @@ func (t *tXn2) deleteStatic(root, n *node2, search string, remaining []token) (*
 
 	nc := t.writeNode(n)
 
-	// Check if child is now empty (no route, no children)
 	if newChild.route == nil &&
 		len(newChild.statics) == 0 &&
 		len(newChild.params) == 0 &&
 		len(newChild.wildcards) == 0 {
-		// Remove the empty child
 		nc.delStaticEdge(label)
 
-		// If parent now has exactly one static child and no route, merge
+		// Clear hsplit if we deleted a '/' child. If this node was at a hostname/path
+		// boundary, that boundary no longer exists. Otherwise, this is a no-op
+		if label == slashDelim {
+			nc.hsplit = false
+		}
+
 		if n != root &&
-			len(nc.statics) == 1 &&
 			!nc.isLeaf() &&
+			len(nc.statics) == 1 &&
 			len(nc.params) == 0 &&
-			len(nc.wildcards) == 0 {
+			len(nc.wildcards) == 0 &&
+			!nc.hsplit {
 			t.mergeChild(nc)
 		}
 	} else {
-		// Update the child reference
 		nc.statics[idx] = newChild
 	}
 
@@ -453,10 +460,17 @@ func (t *tXn2) deleteWildcard(root, n *node2, key string, remaining []token) (*n
 func (t *tXn2) truncate(methods []string) {
 	if len(methods) == 0 {
 		t.root = make(map[string]*node2)
+		t.depth = 0
+		t.maxParams = 0
+		t.size = 0
+		t.written = true
 		return
 	}
 
-	t.root = maps.Clone(t.root)
+	if !t.written {
+		t.root = maps.Clone(t.root)
+		t.written = true
+	}
 	for _, method := range methods {
 		delete(t.root, method)
 	}
@@ -513,6 +527,7 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 		key:    n.key,
 		route:  n.route,
 		regexp: n.regexp,
+		hsplit: n.hsplit,
 	}
 	if len(n.statics) != 0 {
 		nc.statics = make([]*node2, len(n.statics))
@@ -610,7 +625,16 @@ const (
 )
 
 type token struct {
+	// Compiled regular expression constraint for params/wildcards, nil if none.
 	regexp *regexp.Regexp
-	value  string
-	typ    nodeType
+	// The literal string value of this token segment.
+	value string
+	// The type of this token: static, param, or wildcard.
+	typ nodeType
+	// True if this token ends at the hostname/path boundary.
+	// Nodes created from tokens with hsplit=true cannot be merged
+	// during deletion to preserve the boundary for lookupByPath optimization.
+	// Only relevant for nodeStatic tokens since params and wildcards
+	// are isolated in their own nodes and never merged.
+	hsplit bool
 }

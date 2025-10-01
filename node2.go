@@ -15,6 +15,7 @@ type node2 struct {
 	params    []*node2
 	wildcards []*node2
 	label     byte
+	hsplit    bool
 }
 
 func (n *node2) addStaticEdge(child *node2) {
@@ -199,6 +200,9 @@ func (n *node2) string(space int, inode bool) string {
 	sb.WriteString(n.key)
 	if n.label == 0 {
 		sb.WriteString(" (param)")
+	}
+	if n.hsplit {
+		sb.WriteString(" (boundary)")
 	}
 
 	if n.isLeaf() {
