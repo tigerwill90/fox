@@ -12,11 +12,11 @@ import (
 type tXn2 struct {
 	writable  *simplelru.LRU[*node2, struct{}]
 	root      map[string]*node2
-	written   bool
+	method    string
 	size      int
 	maxParams uint32
 	depth     uint32
-	method    string
+	written   bool
 	mode      insertMode
 }
 
@@ -254,42 +254,6 @@ func (t *tXn2) insertWildcard(n *node2, tk token, remaining []token, route *Rout
 	return nc, nil
 }
 
-func (t *tXn2) writeNode(n *node2) *node2 {
-	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*node2, struct{}](defaultModifiedCache, nil)
-		if err != nil {
-			panic(err)
-		}
-		t.writable = lru
-	}
-
-	if _, ok := t.writable.Get(n); ok {
-		return n
-	}
-
-	nc := &node2{
-		label:  n.label,
-		key:    n.key,
-		route:  n.route,
-		regexp: n.regexp,
-	}
-	if len(n.statics) != 0 {
-		nc.statics = make([]*node2, len(n.statics))
-		copy(nc.statics, n.statics)
-	}
-	if len(n.params) != 0 {
-		nc.params = make([]*node2, len(n.params))
-		copy(nc.params, n.params)
-	}
-	if len(n.wildcards) != 0 {
-		nc.wildcards = make([]*node2, len(n.wildcards))
-		copy(nc.wildcards, n.wildcards)
-	}
-
-	t.writable.Add(nc, struct{}{})
-	return nc
-}
-
 // delete performs a recursive copy-on-write deletion of a route from the tree.
 // It uses path copying to create a new tree version: only nodes along the path
 // from root to the deletion point are cloned, while unmodified subtrees are
@@ -519,6 +483,42 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 	return depth
 }
 
+func (t *tXn2) writeNode(n *node2) *node2 {
+	if t.writable == nil {
+		lru, err := simplelru.NewLRU[*node2, struct{}](defaultModifiedCache, nil)
+		if err != nil {
+			panic(err)
+		}
+		t.writable = lru
+	}
+
+	if _, ok := t.writable.Get(n); ok {
+		return n
+	}
+
+	nc := &node2{
+		label:  n.label,
+		key:    n.key,
+		route:  n.route,
+		regexp: n.regexp,
+	}
+	if len(n.statics) != 0 {
+		nc.statics = make([]*node2, len(n.statics))
+		copy(nc.statics, n.statics)
+	}
+	if len(n.params) != 0 {
+		nc.params = make([]*node2, len(n.params))
+		copy(nc.params, n.params)
+	}
+	if len(n.wildcards) != 0 {
+		nc.wildcards = make([]*node2, len(n.wildcards))
+		copy(nc.wildcards, n.wildcards)
+	}
+
+	t.writable.Add(nc, struct{}{})
+	return nc
+}
+
 // mergeChild is called to collapse the given node with its child. This is only
 // called when the given node is not a leaf and has a single edge.
 func (t *tXn2) mergeChild(n *node2) {
@@ -598,7 +598,7 @@ const (
 )
 
 type token struct {
-	typ    nodeType
-	value  string
 	regexp *regexp.Regexp
+	value  string
+	typ    nodeType
 }

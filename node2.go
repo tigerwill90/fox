@@ -9,13 +9,12 @@ import (
 
 type node2 struct {
 	route     *Route
-	label     byte
+	regexp    *regexp.Regexp
 	key       string
 	statics   []*node2
 	params    []*node2
 	wildcards []*node2
-	regexp    *regexp.Regexp
-	// maybe we should add a reference in a parent
+	label     byte
 }
 
 func (n *node2) addStaticEdge(child *node2) {
