@@ -2,6 +2,7 @@ package fox
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/tigerwill90/fox/internal/simplelru"
@@ -87,7 +88,7 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
 		// TODO check if len(search) > 0 is probably a optimization
-		remaining = append([]token{{nodeStatic, search}}, remaining...)
+		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
 		newChild := t.insertTokens(child, remaining, route)
 		if newChild != nil {
@@ -307,7 +308,7 @@ func (t *tXn2) deleteStatic(n *node2, search string, remaining []token) (*node2,
 
 	// Prepend remaining static portion if any
 	if len(search) > 0 {
-		remaining = append([]token{{nodeStatic, search}}, remaining...)
+		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
 	}
 
 	// Recurse into child
@@ -503,6 +504,7 @@ const (
 type token struct {
 	typ   nodeType
 	value string
+	regex *regexp.Regexp
 }
 
 // tokenizeKey splits a path into tokens, separating static portions from

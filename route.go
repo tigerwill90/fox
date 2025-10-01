@@ -8,9 +8,9 @@ type Route struct {
 	hall        HandlerFunc
 	annots      map[any]any
 	pattern     string
-	iPattern    string
 	mws         []middleware
 	params      []string
+	tokens      []token
 	hostSplit   int // 0 if no host
 	psLen       uint32
 	handleSlash TrailingSlashOption

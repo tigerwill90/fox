@@ -53,9 +53,11 @@ func Test_txn2_insertStatic(t *testing.T) {
 }
 
 func Test_tokenize(t *testing.T) {
-
-	segments, _ := tokenizeKey("/foo/{bar}/*{bar}")
-	fmt.Println(segments)
+	f, _ := New()
+	tokens, _, _ := f.parseRoute2("/foo/{bar:(?:a)}/*{foo:[A-z]}/{bar}/boulou")
+	for _, token := range tokens {
+		fmt.Println(token.value)
+	}
 }
 
 func Test_searchNode(t *testing.T) {
