@@ -450,6 +450,18 @@ func (t *tXn2) deleteWildcard(root, n *node2, key string, remaining []token) (*n
 	return nc, deletedRoute
 }
 
+func (t *tXn2) truncate(methods []string) {
+	if len(methods) == 0 {
+		t.root = make(map[string]*node2)
+		return
+	}
+
+	t.root = maps.Clone(t.root)
+	for _, method := range methods {
+		delete(t.root, method)
+	}
+}
+
 func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 	var depth uint32
 	current := root
