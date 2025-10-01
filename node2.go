@@ -32,10 +32,36 @@ func (n *node2) addStaticEdge(child *node2) {
 
 func (n *node2) addParamEdge(child *node2) {
 	n.params = append(n.params, child)
+
+	if child.key == "?" {
+		return
+	}
+
+	idx := slices.IndexFunc(n.params, func(node *node2) bool {
+		return node.key == "?"
+	})
+
+	if idx >= 0 && idx < len(n.params)-1 {
+		lastIdx := len(n.params) - 1
+		n.params[idx], n.params[lastIdx] = n.params[lastIdx], n.params[idx]
+	}
 }
 
 func (n *node2) addWildcardEdge(child *node2) {
 	n.wildcards = append(n.wildcards, child)
+
+	if child.key == "*" {
+		return
+	}
+
+	idx := slices.IndexFunc(n.wildcards, func(node *node2) bool {
+		return node.key == "*"
+	})
+
+	if idx >= 0 && idx < len(n.wildcards)-1 {
+		lastIdx := len(n.wildcards) - 1
+		n.wildcards[idx], n.wildcards[lastIdx] = n.wildcards[lastIdx], n.wildcards[idx]
+	}
 }
 
 func (n *node2) replaceStaticEdge(child *node2) {
