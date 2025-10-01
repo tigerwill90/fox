@@ -29,7 +29,6 @@ type tXn2 struct {
 // new tree version.
 func (t *tXn2) insert(key string, route *Route) {
 	segments, _ := tokenizeKey(key)
-	fmt.Println(segments)
 	newRoot := t.insertSegments(t.root, segments, route)
 	if newRoot != nil {
 		t.root = newRoot
