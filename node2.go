@@ -105,6 +105,58 @@ func (n *node2) delWildcardEdge(key string) {
 	}
 }
 
+func (n *node2) search(key string) (matched *node2) {
+	current := n
+	search := key
+
+	for len(search) > 0 {
+		if search[0] == bracketDelim {
+			end := strings.IndexByte(search, '}')
+			if end == -1 {
+				goto STATIC // TODO Would be an optimization to return nil, but in futur we may allow to escape special char such as *
+			}
+			paramName := search[:end+1]
+			_, child := current.getParamEdge(paramName)
+			if child == nil {
+				return nil
+			}
+			current = child
+			search = search[end+1:]
+			continue
+		}
+
+		if search[0] == starDelim {
+			end := strings.IndexByte(search, '}')
+			if end == -1 {
+				goto STATIC
+			}
+			paramName := search[:end+1]
+			_, child := current.getWildcardEdge(paramName)
+			if child == nil {
+				return nil
+			}
+			current = child
+			search = search[end+1:]
+			continue
+		}
+
+	STATIC:
+		label := search[0]
+		_, child := current.getStaticEdge(label)
+		if child == nil {
+			return nil
+		}
+		keyLen := len(child.key)
+		if keyLen > len(search) || search[:keyLen] != child.key {
+			return nil
+		}
+		search = search[keyLen:]
+		current = child
+	}
+
+	return current
+}
+
 func (n *node2) isLeaf() bool {
 	return n.route != nil
 }

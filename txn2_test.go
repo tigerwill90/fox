@@ -57,3 +57,17 @@ func Test_tokenize(t *testing.T) {
 	segments, _ := tokenizeKey("/foo/{bar}/*{bar}")
 	fmt.Println(segments)
 }
+
+func Test_searchNode(t *testing.T) {
+	txn := tXn2{
+		root: &node2{},
+	}
+	for _, rte := range githubAPI {
+		if rte.method != http.MethodGet {
+			continue
+		}
+		txn.insert(rte.path, &Route{pattern: rte.path})
+	}
+
+	fmt.Println(txn.root.search("/users/{user}"))
+}
