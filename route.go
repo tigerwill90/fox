@@ -66,3 +66,7 @@ func (r *Route) ClientIPResolver() ClientIPResolver {
 func (r *Route) ParamsLen() int {
 	return int(r.psLen)
 }
+
+func (r *Route) String() string {
+	return r.pattern
+}

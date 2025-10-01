@@ -2,6 +2,7 @@ package fox
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 
@@ -10,7 +11,8 @@ import (
 
 type tXn2 struct {
 	writable  *simplelru.LRU[*node2, struct{}]
-	root      *node2
+	root      map[string]*node2
+	written   bool
 	size      int
 	maxParams uint32
 	depth     uint32
@@ -28,14 +30,24 @@ type tXn2 struct {
 //
 // Upon successful insertion, the transaction's root is updated to point to the
 // new tree version.
-func (t *tXn2) insert(key string, route *Route) {
-	tokens, _ := tokenizeKey(key)
-	newRoot := t.insertTokens(t.root, tokens, route)
-	if newRoot != nil {
-		t.root = newRoot
-		t.depth = max(t.depth, t.computePathDepth(tokens))
+func (t *tXn2) insert(method string, route *Route) {
+	root := t.root[method]
+	if root == nil {
+		root = &node2{
+			key: method,
+		}
 	}
-	t.size++
+
+	newRoot := t.insertTokens(root, route.tokens, route)
+	if newRoot != nil {
+		if !t.written {
+			t.root = maps.Clone(t.root)
+			t.written = true
+		}
+		t.root[method] = newRoot
+		t.depth = max(t.depth, t.computePathDepth(newRoot, route.tokens))
+		t.size++
+	}
 }
 
 func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
@@ -239,15 +251,22 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 // Returns the deleted route and true if found, nil and false otherwise.
 // Upon successful deletion, the transaction's root is updated to point to the
 // new tree version.
-func (t *tXn2) delete(key string) (*Route, bool) {
-	tokens, err := tokenizeKey(key)
-	if err != nil {
+func (t *tXn2) delete(method string, tokens []token) (*Route, bool) {
+	root := t.root[method]
+	if root == nil {
 		return nil, false
 	}
 
-	newRoot, route := t.deleteTokens(t.root, tokens)
+	newRoot, route := t.deleteTokens(root, root, tokens)
 	if newRoot != nil {
-		t.root = newRoot
+		if !t.written {
+			t.root = maps.Clone(t.root)
+			t.written = true
+		}
+		t.root[method] = newRoot
+		if len(newRoot.wildcards) > 0 || len(newRoot.params) > 0 || len(newRoot.statics) > 0 {
+			delete(t.root, method)
+		}
 	}
 
 	if route != nil {
@@ -258,7 +277,7 @@ func (t *tXn2) delete(key string) (*Route, bool) {
 	return nil, false
 }
 
-func (t *tXn2) deleteTokens(n *node2, tokens []token) (*node2, *Route) {
+func (t *tXn2) deleteTokens(root, n *node2, tokens []token) (*node2, *Route) {
 	// Base case: no tokens left, delete route at this node
 	if len(tokens) == 0 {
 		if !n.isLeaf() {
@@ -270,7 +289,7 @@ func (t *tXn2) deleteTokens(n *node2, tokens []token) (*node2, *Route) {
 		nc.route = nil
 
 		// If this is not root, not wildcard and has exactly one static child, merge
-		if n != t.root && len(nc.statics) == 1 && len(nc.params) == 0 && len(nc.wildcards) == 0 && nc.label != 0 {
+		if n != root && len(nc.statics) == 1 && len(nc.params) == 0 && len(nc.wildcards) == 0 && nc.label != 0 {
 			t.mergeChild(nc)
 		}
 
@@ -282,19 +301,19 @@ func (t *tXn2) deleteTokens(n *node2, tokens []token) (*node2, *Route) {
 
 	switch seg.typ {
 	case nodeStatic:
-		return t.deleteStatic(n, seg.value, remaining)
+		return t.deleteStatic(root, n, seg.value, remaining)
 	case nodeParam:
-		return t.deleteParam(n, seg.value, remaining)
+		return t.deleteParam(root, n, seg.value, remaining)
 	case nodeCatchAll:
-		return t.deleteWildcard(n, seg.value, remaining)
+		return t.deleteWildcard(root, n, seg.value, remaining)
 	default:
 		panic("internal error: unknown token type")
 	}
 }
 
-func (t *tXn2) deleteStatic(n *node2, search string, remaining []token) (*node2, *Route) {
+func (t *tXn2) deleteStatic(root, n *node2, search string, remaining []token) (*node2, *Route) {
 	if len(search) == 0 {
-		return t.deleteTokens(n, remaining)
+		return t.deleteTokens(root, n, remaining)
 	}
 
 	label := search[0]
@@ -312,7 +331,7 @@ func (t *tXn2) deleteStatic(n *node2, search string, remaining []token) (*node2,
 	}
 
 	// Recurse into child
-	newChild, deletedRoute := t.deleteTokens(child, remaining)
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -328,7 +347,7 @@ func (t *tXn2) deleteStatic(n *node2, search string, remaining []token) (*node2,
 		nc.delStaticEdge(label)
 
 		// If parent now has exactly one static child and no route, merge
-		if n != t.root &&
+		if n != root &&
 			len(nc.statics) == 1 &&
 			!nc.isLeaf() &&
 			len(nc.params) == 0 &&
@@ -343,14 +362,14 @@ func (t *tXn2) deleteStatic(n *node2, search string, remaining []token) (*node2,
 	return nc, deletedRoute
 }
 
-func (t *tXn2) deleteParam(n *node2, key string, remaining []token) (*node2, *Route) {
+func (t *tXn2) deleteParam(root, n *node2, key string, remaining []token) (*node2, *Route) {
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		return nil, nil
 	}
 
 	// Recurse into param's children
-	newChild, deletedRoute := t.deleteTokens(child, remaining)
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -364,7 +383,7 @@ func (t *tXn2) deleteParam(n *node2, key string, remaining []token) (*node2, *Ro
 		len(newChild.wildcards) == 0 {
 		nc.delParamEdge(key)
 
-		if n != t.root &&
+		if n != root &&
 			len(nc.statics) == 1 &&
 			!nc.isLeaf() &&
 			len(nc.params) == 0 &&
@@ -379,14 +398,14 @@ func (t *tXn2) deleteParam(n *node2, key string, remaining []token) (*node2, *Ro
 	return nc, deletedRoute
 }
 
-func (t *tXn2) deleteWildcard(n *node2, key string, remaining []token) (*node2, *Route) {
+func (t *tXn2) deleteWildcard(root, n *node2, key string, remaining []token) (*node2, *Route) {
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		return nil, nil
 	}
 
 	// Recurse into wildcard's children
-	newChild, deletedRoute := t.deleteTokens(child, remaining)
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -400,7 +419,7 @@ func (t *tXn2) deleteWildcard(n *node2, key string, remaining []token) (*node2, 
 		len(newChild.wildcards) == 0 {
 		nc.delWildcardEdge(key)
 
-		if n != t.root &&
+		if n != root &&
 			len(nc.statics) == 1 &&
 			!nc.isLeaf() &&
 			len(nc.params) == 0 &&
@@ -414,9 +433,9 @@ func (t *tXn2) deleteWildcard(n *node2, key string, remaining []token) (*node2, 
 	return nc, deletedRoute
 }
 
-func (t *tXn2) computePathDepth(tokens []token) uint32 {
+func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 	var depth uint32
-	current := t.root
+	current := root
 
 	for _, seg := range tokens {
 		depth += uint32(len(current.params) + len(current.wildcards))
