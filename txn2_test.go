@@ -32,6 +32,7 @@ func Test_txn2_insert(t *testing.T) {
 	txn.insert(http.MethodGet, must(f.NewRoute2("/f{yolo}/baz/*{foo:[A-z]+}", emptyHandler)))
 
 	fmt.Println(txn.root[http.MethodGet])
+	fmt.Println(txn.depth)
 
 	target := must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler))
 	txn.delete(http.MethodGet, target.tokens)

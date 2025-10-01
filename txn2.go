@@ -65,9 +65,9 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) *node2 {
 	case nodeStatic:
 		return t.insertStatic(n, tk.value, remaining, route)
 	case nodeParam:
-		return t.insertParam(n, canonicalKey(tk), tk.regexp, remaining, route)
+		return t.insertParam(n, tk, remaining, route)
 	case nodeWildcard:
-		return t.insertWildcard(n, canonicalKey(tk), tk.regexp, remaining, route)
+		return t.insertWildcard(n, tk, remaining, route)
 	default:
 		panic("internal error: unknown token type")
 	}
@@ -161,13 +161,14 @@ func (t *tXn2) insertStatic(n *node2, search string, remaining []token, route *R
 	return nil
 }
 
-func (t *tXn2) insertParam(n *node2, key string, regexp *regexp.Regexp, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertParam(n *node2, tk token, remaining []token, route *Route) *node2 {
+	key := canonicalKey(tk)
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		newChild := t.insertTokens(
 			&node2{
 				key:    key,
-				regexp: regexp,
+				regexp: tk.regexp,
 			},
 			remaining,
 			route,
@@ -186,13 +187,14 @@ func (t *tXn2) insertParam(n *node2, key string, regexp *regexp.Regexp, remainin
 	return nil
 }
 
-func (t *tXn2) insertWildcard(n *node2, key string, regexp *regexp.Regexp, remaining []token, route *Route) *node2 {
+func (t *tXn2) insertWildcard(n *node2, tk token, remaining []token, route *Route) *node2 {
+	key := canonicalKey(tk)
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		newChild := t.insertTokens(
 			&node2{
 				key:    key,
-				regexp: regexp,
+				regexp: tk.regexp,
 			},
 			remaining,
 			route,
