@@ -24,7 +24,7 @@ func Test_txn2_insert(t *testing.T) {
 
 	fmt.Println(txn.root)
 
-	txn.delete("/api/{version}/posts")
+	txn.delete("/api/{version}/post")
 	fmt.Println(txn.root)
 }
 

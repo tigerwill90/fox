@@ -56,7 +56,7 @@ func (t *tXn2) insertSegments(n *node2, segments []segment, route *Route) *node2
 	case nodeCatchAll:
 		return t.insertWildcard(n, seg.value, remaining, route)
 	default:
-		panic("unknown segment type")
+		panic("internal error: unknown segment type")
 	}
 
 	return nil
@@ -286,7 +286,7 @@ func (t *tXn2) deleteSegments(n *node2, segments []segment) (*node2, *Route) {
 	case nodeCatchAll:
 		return t.deleteWildcard(n, seg.value, remaining)
 	default:
-		panic("unknown segment type")
+		panic("internal error: unknown segment type")
 	}
 }
 
