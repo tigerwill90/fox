@@ -50,9 +50,11 @@ func (t *iTree2) allocateContext() *cTx {
 func (t *iTree2) lookupByPath(root *node2, path string, c *cTx, lazy bool) (n *node2, tsr bool) {
 
 	var (
-		charsMatched  int
+		charsMatched int
+		// charsMatchedInNodeFound int
 		skipStatic    bool
 		childParamIdx int
+		parent        *node2
 	)
 
 	current := root
@@ -61,6 +63,7 @@ func (t *iTree2) lookupByPath(root *node2, path string, c *cTx, lazy bool) (n *n
 
 Walk:
 	for len(search) > 0 {
+		// charsMatchedInNodeFound = 0
 		if !skipStatic {
 			label := search[0]
 			x := string(label)
@@ -75,11 +78,13 @@ Walk:
 					if len(current.params) > 0 || len(current.wildcards) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
 							node:      current,
+							parent:    parent,
 							pathIndex: charsMatched,
 							paramCnt:  len(*c.params2),
 						})
 					}
 
+					parent = current
 					current = child
 					search = search[keyLen:]
 					z := search
@@ -87,6 +92,22 @@ Walk:
 					charsMatched += keyLen
 					continue
 				}
+
+				/*				if child.isLeaf() {
+								x := len(child.key) >= len(search)
+								_ = x
+								if strings.HasPrefix(child.key, search) {
+									// search consumed, key has more
+									remaining := child.key[len(search):]
+									if len(remaining) == 1 && remaining[0] == '/' {
+										tsr = true
+										n = child
+										if !lazy {
+											copyWithResize(c.tsrParams2, c.params2)
+										}
+									}
+								}
+							}*/
 			}
 		}
 
@@ -121,11 +142,11 @@ Walk:
 				nextChildIx := i + 1
 				if nextChildIx < len(params) || len(current.wildcards) > 0 {
 					*c.skipStack = append(*c.skipStack, skipNode{
-						node:               current,
-						pathIndex:          charsMatched,
-						paramCnt:           len(*c.params2),
-						childParamIndex:    nextChildIx + childParamIdx,
-						childWildcardIndex: 0,
+						node:            current,
+						parent:          parent,
+						pathIndex:       charsMatched,
+						paramCnt:        len(*c.params2),
+						childParamIndex: nextChildIx + childParamIdx,
 					})
 				}
 
@@ -133,6 +154,7 @@ Walk:
 					*c.params2 = append(*c.params2, segment)
 				}
 
+				parent = current
 				current = paramNode
 				search = search[end:] // consume de search
 				x := search
@@ -236,7 +258,48 @@ Walk:
 		return current, false
 	}
 
+	if !tsr {
+		// TSR Check 1: Add trailing slash
+		// Path consumed, no route at current node, check for '/' child with route
+		if _, child := current.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
+			tsr = true
+			n = child
+			if !lazy {
+				copyWithResize(c.tsrParams2, c.params2)
+			}
+		}
+
+		// TSR Check 2: Remove trailing slash
+		// Path ends with '/', current has no route, but had a parent with route
+		// This requires tracking parent during Walk - add: var parent *node2
+		// When descending: parent = current before current = child
+		// also charMatched == len(path)
+		if len(path) > 0 && path[len(path)-1] == '/' && parent != nil && parent.route != nil {
+			tsr = true
+			n = parent
+			if !lazy {
+				// Parent params = current params minus last segment
+				copyWithResize(c.tsrParams2, c.params2)
+			}
+		}
+	}
+
 Backtrack:
+	// Incomplete match to end of edge
+	if !tsr && current.isLeaf() && charsMatched < len(path) {
+		// Tsr recommendation: remove the extra trailing slash (got an exact match)
+		remainingKeySuffix := path[charsMatched:]
+		// We also make sure that the path does not end with a //, as we should prioritize path cleaning first.
+		if len(remainingKeySuffix) == 1 && remainingKeySuffix[0] == slashDelim && !strings.HasSuffix(path, "//") {
+			tsr = true
+			n = current
+			// Save also a copy of the matched params, it should not allocate anything in most case.
+			if !lazy {
+				copyWithResize(c.tsrParams2, c.params2)
+			}
+		}
+	}
+
 	if len(*c.skipStack) == 0 {
 		return n, tsr
 	}
@@ -245,6 +308,7 @@ Backtrack:
 
 	if skipped.childParamIndex < len(skipped.node.params) {
 		current = skipped.node
+		parent = skipped.parent
 		*c.params2 = (*c.params2)[:skipped.paramCnt]
 		search = path[skipped.pathIndex:]
 		x := search
@@ -257,8 +321,9 @@ Backtrack:
 		goto Walk
 	}
 
-	if skipped.childParamIndex < len(skipped.node.wildcards) {
+	if len(skipped.node.wildcards) > 0 {
 		current = skipped.node
+		parent = skipped.parent
 		*c.params2 = (*c.params2)[:skipped.paramCnt]
 		search = path[skipped.pathIndex:]
 		x := search

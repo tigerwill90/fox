@@ -305,11 +305,11 @@ func (n *skipStack) pop() skipNode {
 }
 
 type skipNode struct {
-	node               *node2
-	pathIndex          int
-	paramCnt           int
-	childParamIndex    int
-	childWildcardIndex int
+	node            *node2
+	parent          *node2
+	pathIndex       int
+	paramCnt        int
+	childParamIndex int
 }
 
 // equalASCIIIgnoreCase performs case-insensitive comparison of two ASCII bytes.
