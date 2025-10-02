@@ -50,10 +50,9 @@ func (t *iTree2) allocateContext() *cTx {
 func (t *iTree2) lookupByPath(root *node2, path string, c *cTx, lazy bool) (n *node2, tsr bool) {
 
 	var (
-		charsMatched     int
-		skipStatic       bool
-		childParamIdx    int
-		childWildcardIdx int
+		charsMatched  int
+		skipStatic    bool
+		childParamIdx int
 	)
 
 	current := root
@@ -144,10 +143,9 @@ Walk:
 			}
 		}
 
-		wildcards := current.wildcards[childWildcardIdx:]
-		if len(wildcards) > 0 {
+		if len(current.wildcards) > 0 {
 			subCtx := t.pool.Get().(*cTx)
-			for _, wildcardNode := range wildcards {
+			for _, wildcardNode := range current.wildcards {
 				offset := charsMatched
 				// Infix wildcard are evaluated first over suffix wildcard (longest path)
 				if len(wildcardNode.statics) > 0 {
@@ -212,7 +210,7 @@ Walk:
 			// In case of no infix
 			t.pool.Put(subCtx)
 
-			for _, wildcardNode := range wildcards {
+			for _, wildcardNode := range current.wildcards {
 				if wildcardNode.isLeaf() {
 					if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(search) {
 						continue
@@ -231,7 +229,6 @@ Walk:
 		}
 
 		childParamIdx = 0
-		childWildcardIdx = 0
 		goto Backtrack
 	}
 
@@ -268,9 +265,6 @@ Backtrack:
 		_ = x
 		charsMatched = skipped.pathIndex
 		skipStatic = true
-		childWildcardIdx = skipped.childWildcardIndex
-		y := childWildcardIdx
-		_ = y
 		goto Walk
 	}
 

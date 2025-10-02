@@ -8,7 +8,7 @@ import (
 )
 
 type node2 struct {
-	// route holds the registered handler if this node is a leaf (terminal node).
+	// route holds the registered handler if this node is a leaf.
 	route *Route
 
 	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.

@@ -21,10 +21,10 @@ func Test_lookup(t *testing.T) {
 	txn := tree.txn()
 
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{args}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{x:[0-9]+}/a/{b}/c/barr", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{x:[a-z]+}/{a}/b/c/barr", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{test}/a/{b}/c/barr", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{args}/bar", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{a:[A-z]}/{bar}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{args}/{bar}", emptyHandler)), modeInsert))
 
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{a:[0-9]+}", emptyHandler)), modeInsert))
 
@@ -37,7 +37,7 @@ func Test_lookup(t *testing.T) {
 	fmt.Println(tree.root[http.MethodGet])
 
 	c := tree.pool.Get().(*cTx)
-	n, _ := tree.lookupByPath(tree.root[http.MethodGet], "/foo/a/b/c/barr", c, false)
+	n, _ := tree.lookupByPath(tree.root[http.MethodGet], "/foo/a/b/c/bar", c, false)
 	if n != nil {
 		fmt.Println(n.route)
 		fmt.Println(c.params2)
