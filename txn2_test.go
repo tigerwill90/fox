@@ -29,6 +29,10 @@ func Test_txn2_insert(t *testing.T) {
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.{a}/", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.{b}/{c}", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.{b}/*{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodPost, must(f.NewRoute2("example.com/{a:A}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodPost, must(f.NewRoute2("example.com/{b:B}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodPost, must(f.NewRoute2("example.com/{c:C}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodPost, must(f.NewRoute2("example.com/{d:D}", emptyHandler)), modeInsert))
 
 	/*	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b.c/", emptyHandler)), modeInsert))
 		assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo", emptyHandler)), modeInsert))
@@ -43,10 +47,10 @@ func Test_txn2_insert(t *testing.T) {
 		assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foobar/{two:[0-9]+}/c", emptyHandler)), modeInsert))*/
 
 	// assert.NoError(t, txn.insert(http.MethodDelete, must(f.NewRoute2("/f{yolo}/baz/{foo}", emptyHandler)), modeUpdate))
-
 	fmt.Println(txn.root[http.MethodGet])
-	fmt.Println(txn.depth)
+	fmt.Println(txn.maxDepth)
 	fmt.Println(txn.maxParams)
+	fmt.Println(txn.size)
 
 	/*	target := must(f.NewRoute2("example.com/foobar", emptyHandler))
 		txn.delete(http.MethodGet, target.tokens)
@@ -62,6 +66,17 @@ func TestY(t *testing.T) {
 			path string
 		}
 	}{
+		{
+			name: "test delete with merge",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/{foo}/{bar}"},
+				{path: "a.b.c.d/{foo}/{bar}"},
+				{path: "a.b.c{d}/{foo}/{bar}"},
+				{path: "a.b/"},
+			},
+		},
 		{
 			name: "test delete with merge",
 			routes: []struct {
@@ -195,7 +210,7 @@ func Test_txn2_insertStatic(t *testing.T) {
 	}
 
 	fmt.Println(txn.root)
-	fmt.Println(txn.depth)
+	fmt.Println(txn.maxDepth)
 }
 
 func Test_tokenize(t *testing.T) {

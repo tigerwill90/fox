@@ -3844,6 +3844,17 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 		}
 	}{
 		{
+			name: "test delete with merge and child param",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/{foo}/{bar}"},
+				{path: "a.b.c.d/{foo}/{bar}"},
+				{path: "a.b.c{d}/{foo}/{bar}"},
+				{path: "a.b/"},
+			},
+		},
+		{
 			name: "test delete with merge",
 			routes: []struct {
 				path string

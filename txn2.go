@@ -15,8 +15,8 @@ type tXn2 struct {
 	method    string
 	size      int
 	maxParams uint32
-	depth     uint32
-	written   bool
+	maxDepth  uint32
+	forked    bool
 	mode      insertMode
 }
 
@@ -51,12 +51,12 @@ func (t *tXn2) insert(method string, route *Route, mode insertMode) error {
 		return err
 	}
 	if newRoot != nil {
-		if !t.written {
+		if !t.forked {
 			t.root = maps.Clone(t.root)
-			t.written = true
+			t.forked = true
 		}
 		t.root[method] = newRoot
-		t.depth = max(t.depth, t.computePathDepth(newRoot, route.tokens))
+		t.maxDepth = max(t.maxDepth, t.computePathDepth(newRoot, route.tokens))
 		t.maxParams = max(t.maxParams, route.psLen)
 		t.size++
 	}
@@ -280,9 +280,9 @@ func (t *tXn2) delete(method string, tokens []token) (*Route, bool) {
 
 	newRoot, route := t.deleteTokens(root, root, tokens)
 	if newRoot != nil {
-		if !t.written {
+		if !t.forked {
 			t.root = maps.Clone(t.root)
-			t.written = true
+			t.forked = true
 		}
 		t.root[method] = newRoot
 		if len(newRoot.wildcards) == 0 && len(newRoot.params) == 0 && len(newRoot.statics) == 0 {
@@ -458,23 +458,25 @@ func (t *tXn2) deleteWildcard(root, n *node2, key string, remaining []token) (*n
 	return nc, deletedRoute
 }
 
+// TODO add coverage for metrics
 func (t *tXn2) truncate(methods []string) {
 	if len(methods) == 0 {
 		t.root = make(map[string]*node2)
-		t.depth = 0
+		t.maxDepth = 0
 		t.maxParams = 0
 		t.size = 0
-		t.written = true
+		t.forked = true
 		return
 	}
 
-	if !t.written {
+	if !t.forked {
 		t.root = maps.Clone(t.root)
-		t.written = true
+		t.forked = true
 	}
 	for _, method := range methods {
 		delete(t.root, method)
 	}
+	t.slowMax()
 }
 
 func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
@@ -570,6 +572,62 @@ func (t *tXn2) mergeChild(n *node2) {
 	if len(child.wildcards) != 0 {
 		n.wildcards = make([]*node2, len(child.wildcards))
 		copy(n.wildcards, child.wildcards)
+	}
+}
+
+func (t *tXn2) slowMax() {
+	type stack struct {
+		edges []*node2
+		depth uint32
+	}
+
+	var stacks []stack
+	if t.maxDepth < stackSizeThreshold {
+		stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
+	} else {
+		stacks = make([]stack, 0, t.maxDepth) // heap allocation
+	}
+
+	t.size = 0
+	t.maxDepth = 0
+	t.maxParams = 0
+
+	for _, root := range t.root {
+		stacks = append(stacks, stack{
+			edges: []*node2{root},
+		})
+
+		for len(stacks) > 0 {
+			n := len(stacks)
+			last := stacks[n-1]
+			elem := last.edges[0]
+
+			if len(last.edges) > 1 {
+				stacks[n-1].edges = last.edges[1:]
+			} else {
+				stacks = stacks[:n-1]
+			}
+
+			alternative := len(elem.params) + len(elem.wildcards)
+			totalDepth := last.depth + uint32(alternative)
+
+			if len(elem.statics) > 0 {
+				stacks = append(stacks, stack{edges: elem.statics, depth: totalDepth})
+			}
+			if len(elem.params) > 0 {
+				stacks = append(stacks, stack{edges: elem.params, depth: totalDepth})
+			}
+			if len(elem.wildcards) > 0 {
+				stacks = append(stacks, stack{edges: elem.wildcards, depth: totalDepth})
+			}
+
+			if elem.isLeaf() {
+				fmt.Println(elem.route.pattern)
+				t.size++
+				t.maxParams = max(t.maxParams, elem.route.psLen)
+				t.maxDepth = max(t.maxDepth, totalDepth)
+			}
+		}
 	}
 }
 
