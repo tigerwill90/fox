@@ -229,3 +229,41 @@ func (n *node2) string(space int, inode bool) string {
 	}
 	return sb.String()
 }
+
+type skipStack []skipNode
+
+func (n *skipStack) pop() skipNode {
+	skipped := (*n)[len(*n)-1]
+	*n = (*n)[:len(*n)-1]
+	return skipped
+}
+
+type skipNode struct {
+	node               *node2
+	pathIndex          int
+	paramCnt           int
+	childParamIndex    int
+	childWildcardIndex int
+}
+
+// equalASCIIIgnoreCase performs case-insensitive comparison of two ASCII bytes.
+// Only supports ASCII letters (A-Z, a-z), digits (0-9), and hyphen (-).
+// Used for hostname matching where registered routes follow LDH standard.
+func equalASCIIIgnoreCase2(s, t uint8) bool {
+	// Easy case.
+	if t == s {
+		return true
+	}
+
+	// Make s < t to simplify what follows.
+	if t < s {
+		t, s = s, t
+	}
+
+	// ASCII only, s/t must be upper/lower case
+	if 'A' <= s && s <= 'Z' && t == s+'a'-'A' {
+		return true
+	}
+
+	return false
+}

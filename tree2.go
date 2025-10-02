@@ -5,11 +5,278 @@ import (
 	"maps"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/tigerwill90/fox/internal/simplelru"
 )
 
+const defaultModifiedCache2 = 4096
+
+type iTree2 struct {
+	pool      sync.Pool
+	fox       *Router
+	root      map[string]*node2
+	size      int
+	maxParams uint32
+	maxDepth  uint32
+}
+
+func (t *iTree2) txn() *tXn2 {
+	return &tXn2{
+		tree:      t,
+		root:      t.root,
+		size:      t.size,
+		maxParams: t.maxParams,
+		maxDepth:  t.maxDepth,
+	}
+}
+
+func (t *iTree2) allocateContext() *cTx {
+	params := make([]string, 0, t.maxParams)
+	tsrParams := make([]string, 0, t.maxParams)
+	skipStack := make(skipStack, 0, t.maxDepth)
+	return &cTx{
+		params2:    &params,
+		tsrParams2: &tsrParams,
+		skipStack:  &skipStack,
+		// This is a read only value, no reset. It's always the
+		// owner of the pool.
+		tree2: t,
+		// This is a read only value, no reset
+		fox: t.fox,
+	}
+}
+
+func (t *iTree2) lookupByPath(root *node2, path string, c *cTx, lazy bool) (n *node2, tsr bool) {
+
+	var (
+		charsMatched     int
+		skipStatic       bool
+		childParamIdx    int
+		childWildcardIdx int
+	)
+
+	current := root
+	search := path
+	*c.skipStack = (*c.skipStack)[:0]
+
+Walk:
+	for len(search) > 0 {
+		if !skipStatic {
+			label := search[0]
+			x := string(label)
+			_ = x
+			if _, child := current.getStaticEdge(label); child != nil {
+				keyLen := len(child.key)
+				if keyLen <= len(search) && search[:keyLen] == child.key {
+					x := search[:keyLen]
+					y := child.key
+					_ = x
+					_ = y
+					if len(current.params) > 0 || len(current.wildcards) > 0 {
+						*c.skipStack = append(*c.skipStack, skipNode{
+							node:      current,
+							pathIndex: charsMatched,
+							paramCnt:  len(*c.params2),
+						})
+					}
+
+					current = child
+					search = search[keyLen:]
+					z := search
+					_ = z
+					charsMatched += keyLen
+					continue
+				}
+			}
+		}
+
+		x := search
+		_ = x
+		// /foo/{bar}
+		// /foo/b
+		// search /foo/xyz
+		skipStatic = false
+		params := current.params[childParamIdx:]
+		if len(params) > 0 {
+			end := strings.IndexByte(search, slashDelim)
+			if end == -1 {
+				end = len(search)
+			}
+
+			if end == 0 {
+				goto Backtrack //  // Empty segment
+			}
+
+			segment := search[:end]
+			x := segment
+			_ = x
+			for i, paramNode := range params {
+				if paramNode.regexp != nil {
+					if !paramNode.regexp.MatchString(segment) {
+						continue
+					}
+				}
+
+				// Save other params/wildcards for backtracking (only params after current + all wildcards)
+				nextChildIx := i + 1
+				if nextChildIx < len(params) || len(current.wildcards) > 0 {
+					*c.skipStack = append(*c.skipStack, skipNode{
+						node:               current,
+						pathIndex:          charsMatched,
+						paramCnt:           len(*c.params2),
+						childParamIndex:    nextChildIx + childParamIdx,
+						childWildcardIndex: 0,
+					})
+				}
+
+				if !lazy {
+					*c.params2 = append(*c.params2, segment)
+				}
+
+				current = paramNode
+				search = search[end:]
+				x := search
+				_ = x
+				charsMatched += end
+				childParamIdx = 0
+				goto Walk
+			}
+		}
+
+		wildcards := current.wildcards[childWildcardIdx:]
+		if len(wildcards) > 0 {
+			remaining := search
+			subCtx := t.pool.Get().(*cTx)
+			for _, wildcardNode := range wildcards {
+				hasInfix := len(wildcardNode.statics) > 0
+				if hasInfix {
+					startCapture := charsMatched
+					for offset := 0; offset <= len(remaining); offset++ {
+						idx := strings.IndexByte(remaining[offset:], slashDelim)
+						if idx < 0 {
+							// No more slashes, wildcard would capture rest but no suffix match possible
+							break
+						}
+
+						captureEnd := charsMatched + offset + idx
+						captureValue := path[startCapture:captureEnd]
+
+						// Validate regex constraint on captured value
+						if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(captureValue) {
+							offset += idx + 1
+							continue
+						}
+
+						// Empty segment validation
+						if startCapture == captureEnd && offset > 0 {
+							offset += idx + 1
+							continue
+						}
+
+						suffixStart := captureEnd
+						subSearch := path[suffixStart:]
+
+						// Reset params
+						*subCtx.params2 = (*subCtx.params2)[:0]
+
+						subNode, subTsr := t.lookupByPath(wildcardNode, subSearch, subCtx, lazy)
+						if subNode != nil {
+							if subTsr {
+								if !tsr {
+									tsr = true
+									n = subNode
+									if !lazy {
+										*c.tsrParams2 = (*c.tsrParams2)[:0]
+										*c.tsrParams2 = append(*c.tsrParams2, *c.params2...)
+										*c.tsrParams2 = append(*c.tsrParams2, captureValue)
+										*c.tsrParams2 = append(*c.tsrParams2, *subCtx.params2...)
+									}
+								}
+								offset += idx + 1
+								continue
+							}
+
+							// Direct infix match
+							if !lazy {
+								*c.params2 = append(*c.params2, captureValue)
+								*c.params2 = append(*c.params2, *subCtx.params2...)
+							}
+
+							t.pool.Put(subCtx)
+							return subNode, false
+						}
+
+						offset += idx + 1
+					}
+				}
+			}
+			t.pool.Put(subCtx)
+
+			for _, wildcardNode := range wildcards {
+				if wildcardNode.isLeaf() {
+					if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(remaining) {
+						continue
+					}
+
+					if !lazy {
+						*c.params2 = append(*c.params2, remaining)
+					}
+
+					return wildcardNode, false
+				}
+			}
+		}
+
+		childParamIdx = 0
+		childWildcardIdx = 0
+		goto Backtrack
+	}
+
+	if current.route != nil {
+		return current, false
+	}
+
+Backtrack:
+	if len(*c.skipStack) == 0 {
+		return n, tsr
+	}
+
+	skipped := c.skipStack.pop()
+
+	if skipped.childParamIndex < len(skipped.node.params) {
+		current = skipped.node
+		*c.params2 = (*c.params2)[:skipped.paramCnt]
+		search = path[skipped.pathIndex:]
+		x := search
+		_ = x
+		charsMatched = skipped.pathIndex
+		skipStatic = true
+		childParamIdx = skipped.childParamIndex
+		y := childParamIdx
+		_ = y
+		goto Walk
+	}
+
+	if skipped.childParamIndex < len(skipped.node.wildcards) {
+		current = skipped.node
+		*c.params2 = (*c.params2)[:skipped.paramCnt]
+		search = path[skipped.pathIndex:]
+		x := search
+		_ = x
+		charsMatched = skipped.pathIndex
+		skipStatic = true
+		childWildcardIdx = skipped.childWildcardIndex
+		y := childWildcardIdx
+		_ = y
+		goto Walk
+	}
+
+	return n, tsr
+}
+
 type tXn2 struct {
+	tree      *iTree2
 	writable  *simplelru.LRU[*node2, struct{}]
 	root      map[string]*node2
 	method    string
@@ -18,6 +285,48 @@ type tXn2 struct {
 	maxDepth  uint32
 	forked    bool
 	mode      insertMode
+}
+
+func (t *tXn2) commit() *iTree2 {
+	tc := &iTree2{
+		root:      t.root,
+		fox:       t.tree.fox,
+		size:      t.size,
+		maxParams: t.maxParams,
+		maxDepth:  t.maxDepth,
+	}
+	tc.pool = sync.Pool{
+		New: func() any {
+			return tc.allocateContext()
+		},
+	}
+	t.writable = nil
+	// t.forked = false // TODO verify
+	return tc
+}
+
+// clone capture a point-in-time clone of the transaction. The cloned transaction will contain
+// any uncommited writes in the original transaction but further mutations to either will be independent and result
+// in different tree on commit.
+func (t *tXn2) clone() *tXn2 {
+	t.writable = nil
+	t.forked = false
+	tx := &tXn2{
+		tree:      t.tree,
+		root:      t.root,
+		size:      t.size,
+		maxParams: t.maxParams,
+		maxDepth:  t.maxDepth,
+	}
+	return tx
+}
+
+// snapshot capture a point-in-time snapshot of the roots tree. Further mutation to txn
+// will not be reflected on the snapshot.
+func (t *tXn2) snapshot() map[string]*node2 {
+	t.writable = nil
+	t.forked = false
+	return t.root
 }
 
 // insert performs a recursive copy-on-write insertion of a route into the tree.
@@ -79,6 +388,7 @@ func (t *tXn2) insertTokens(n *node2, tokens []token, route *Route) (*node2, err
 		return nc, nil
 	}
 
+	// TODO tokenize in place
 	tk := tokens[0]
 	remaining := tokens[1:]
 
@@ -512,9 +822,64 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 	return depth
 }
 
+func (t *tXn2) slowMax() {
+	type stack struct {
+		edges []*node2
+		depth uint32
+	}
+
+	var stacks []stack
+	if t.maxDepth < stackSizeThreshold {
+		stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
+	} else {
+		stacks = make([]stack, 0, t.maxDepth) // heap allocation
+	}
+
+	t.size = 0
+	t.maxDepth = 0
+	t.maxParams = 0
+
+	for _, root := range t.root {
+		stacks = append(stacks, stack{
+			edges: []*node2{root},
+		})
+
+		for len(stacks) > 0 {
+			n := len(stacks)
+			last := stacks[n-1]
+			elem := last.edges[0]
+
+			if len(last.edges) > 1 {
+				stacks[n-1].edges = last.edges[1:]
+			} else {
+				stacks = stacks[:n-1]
+			}
+
+			alternative := len(elem.params) + len(elem.wildcards)
+			totalDepth := last.depth + uint32(alternative)
+
+			if len(elem.statics) > 0 {
+				stacks = append(stacks, stack{edges: elem.statics, depth: totalDepth})
+			}
+			if len(elem.params) > 0 {
+				stacks = append(stacks, stack{edges: elem.params, depth: totalDepth})
+			}
+			if len(elem.wildcards) > 0 {
+				stacks = append(stacks, stack{edges: elem.wildcards, depth: totalDepth})
+			}
+
+			if elem.isLeaf() {
+				t.size++
+				t.maxParams = max(t.maxParams, elem.route.psLen)
+				t.maxDepth = max(t.maxDepth, totalDepth)
+			}
+		}
+	}
+}
+
 func (t *tXn2) writeNode(n *node2) *node2 {
 	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*node2, struct{}](defaultModifiedCache, nil)
+		lru, err := simplelru.NewLRU[*node2, struct{}](defaultModifiedCache2, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -572,62 +937,6 @@ func (t *tXn2) mergeChild(n *node2) {
 	if len(child.wildcards) != 0 {
 		n.wildcards = make([]*node2, len(child.wildcards))
 		copy(n.wildcards, child.wildcards)
-	}
-}
-
-func (t *tXn2) slowMax() {
-	type stack struct {
-		edges []*node2
-		depth uint32
-	}
-
-	var stacks []stack
-	if t.maxDepth < stackSizeThreshold {
-		stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
-	} else {
-		stacks = make([]stack, 0, t.maxDepth) // heap allocation
-	}
-
-	t.size = 0
-	t.maxDepth = 0
-	t.maxParams = 0
-
-	for _, root := range t.root {
-		stacks = append(stacks, stack{
-			edges: []*node2{root},
-		})
-
-		for len(stacks) > 0 {
-			n := len(stacks)
-			last := stacks[n-1]
-			elem := last.edges[0]
-
-			if len(last.edges) > 1 {
-				stacks[n-1].edges = last.edges[1:]
-			} else {
-				stacks = stacks[:n-1]
-			}
-
-			alternative := len(elem.params) + len(elem.wildcards)
-			totalDepth := last.depth + uint32(alternative)
-
-			if len(elem.statics) > 0 {
-				stacks = append(stacks, stack{edges: elem.statics, depth: totalDepth})
-			}
-			if len(elem.params) > 0 {
-				stacks = append(stacks, stack{edges: elem.params, depth: totalDepth})
-			}
-			if len(elem.wildcards) > 0 {
-				stacks = append(stacks, stack{edges: elem.wildcards, depth: totalDepth})
-			}
-
-			if elem.isLeaf() {
-				fmt.Println(elem.route.pattern)
-				t.size++
-				t.maxParams = max(t.maxParams, elem.route.psLen)
-				t.maxDepth = max(t.maxDepth, totalDepth)
-			}
-		}
 	}
 }
 

@@ -106,9 +106,13 @@ type cTx struct {
 	req         *http.Request
 	params      *Params
 	tsrParams   *Params
+	params2     *[]string
+	tsrParams2  *[]string
 	skipNds     *skippedNodes
+	skipStack   *skipStack
 	route       *Route
-	tree        *iTree  // no reset
+	tree        *iTree // no reset
+	tree2       *iTree2
 	fox         *Router // no reset
 	cachedQuery url.Values
 	rec         recorder

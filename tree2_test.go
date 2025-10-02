@@ -15,6 +15,30 @@ func must[T any](v T, err error) T {
 	return v
 }
 
+func Test_lookup(t *testing.T) {
+	f, _ := New()
+	tree := f.newTree2()
+	txn := tree.txn()
+
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{args}/{bar}", emptyHandler)), modeInsert))
+	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/*{a:[0-9]+}", emptyHandler)), modeInsert))
+
+	//assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/b{t:[A-z_]+}/yolo", emptyHandler)), modeInsert))
+	//assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/b{t:[A-z]+}/yolo", emptyHandler)), modeInsert))
+	//assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/b{t:[a-z-]+}/yolo", emptyHandler)), modeInsert))
+
+	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foc/bar", emptyHandler)), modeInsert))
+	tree = txn.commit()
+	fmt.Println(tree.root[http.MethodGet])
+
+	c := tree.pool.Get().(*cTx)
+	n, _ := tree.lookupByPath(tree.root[http.MethodGet], "/foo///bar", c, false)
+	if n != nil {
+		fmt.Println(n.route)
+		fmt.Println(c.params2)
+	}
+}
+
 func Test_txn2_insert(t *testing.T) {
 	f, _ := New()
 

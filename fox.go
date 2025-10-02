@@ -520,6 +520,19 @@ func (fox *Router) newTree() *iTree {
 	return tree
 }
 
+func (fox *Router) newTree2() *iTree2 {
+	tree := new(iTree2)
+	tree.fox = fox
+
+	tree.root = make(map[string]*node2)
+	tree.pool = sync.Pool{
+		New: func() any {
+			return tree.allocateContext()
+		},
+	}
+	return tree
+}
+
 // getRoot load the tree atomically.
 func (fox *Router) getRoot() *iTree {
 	r := fox.tree.Load()
@@ -1039,6 +1052,7 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
+			// TODO ignore when in regex
 			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
 				return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
 			}
