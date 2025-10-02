@@ -135,7 +135,7 @@ Walk:
 				}
 
 				current = paramNode
-				search = search[end:]
+				search = search[end:] // consume de search
 				x := search
 				_ = x
 				charsMatched += end
@@ -146,32 +146,32 @@ Walk:
 
 		wildcards := current.wildcards[childWildcardIdx:]
 		if len(wildcards) > 0 {
-			remaining := search
 			subCtx := t.pool.Get().(*cTx)
 			for _, wildcardNode := range wildcards {
-				hasInfix := len(wildcardNode.statics) > 0
-				if hasInfix {
-					startPath := charsMatched
+				offset := charsMatched
+				// Infix wildcard are evaluated first over suffix wildcard (longest path)
+				if len(wildcardNode.statics) > 0 {
+					startPath := offset
 					for {
-						idx := strings.IndexByte(path[charsMatched:], slashDelim)
+						idx := strings.IndexByte(path[offset:], slashDelim)
 						if idx >= 0 {
 							*subCtx.params2 = (*subCtx.params2)[:0]
-							charsMatched += idx
+							offset += idx
 
-							capturedValue := path[startPath:charsMatched]
+							capturedValue := path[startPath:offset]
 
 							if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(capturedValue) {
-								charsMatched++
+								offset++
 								continue
 							}
 
-							subNode, subTsr := t.lookupByPath(wildcardNode, path[charsMatched:], subCtx, lazy)
-							if subNode == nil || startPath == charsMatched {
+							subNode, subTsr := t.lookupByPath(wildcardNode, path[offset:], subCtx, lazy)
+							if subNode == nil || startPath == offset {
 								// The wildcard must not be empty e.g. for /*{any}/ but may contain "intermediary" empty segment.
 								// '//' this is an empty segment
 								// '///' the middle '/' is captured as a dynamic part.
 								// This aligns to the ending catch all /*{any} where '//foo' capture '/foo'
-								charsMatched++
+								offset++
 								continue
 							}
 
@@ -190,7 +190,7 @@ Walk:
 								}
 
 								// Try with next segment
-								charsMatched++
+								offset++
 								continue
 							}
 
@@ -203,88 +203,31 @@ Walk:
 							return subNode, subTsr
 						}
 
-						charsMatched += len(path[charsMatched:])
 						t.pool.Put(subCtx)
 						break
 					}
 				}
-				/*if hasInfix {
-					startCapture := charsMatched
-					for offset := 0; offset <= len(remaining); offset++ {
-						idx := strings.IndexByte(remaining[offset:], slashDelim)
-						if idx < 0 {
-							// No more slashes, wildcard would capture rest but no suffix match possible
-							break
-						}
-
-						captureEnd := charsMatched + offset + idx
-						captureValue := path[startCapture:captureEnd]
-
-						// Validate regex constraint on captured value
-						if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(captureValue) {
-							offset += idx + 1
-							continue
-						}
-
-						// Empty segment validation
-						if startCapture == captureEnd && offset > 0 {
-							offset += idx + 1
-							continue
-						}
-
-						suffixStart := captureEnd
-						subSearch := path[suffixStart:]
-
-						// Reset params
-						*subCtx.params2 = (*subCtx.params2)[:0]
-
-						subNode, subTsr := t.lookupByPath(wildcardNode, subSearch, subCtx, lazy)
-						if subNode != nil {
-							if subTsr {
-								if !tsr {
-									tsr = true
-									n = subNode
-									if !lazy {
-										*c.tsrParams2 = (*c.tsrParams2)[:0]
-										*c.tsrParams2 = append(*c.tsrParams2, *c.params2...)
-										*c.tsrParams2 = append(*c.tsrParams2, captureValue)
-										*c.tsrParams2 = append(*c.tsrParams2, *subCtx.params2...)
-									}
-								}
-								offset += idx + 1
-								continue
-							}
-
-							// Direct infix match
-							if !lazy {
-								*c.params2 = append(*c.params2, captureValue)
-								*c.params2 = append(*c.params2, *subCtx.params2...)
-							}
-
-							t.pool.Put(subCtx)
-							return subNode, false
-						}
-
-						offset += idx + 1
-					}
-				}*/
 			}
+
 			// In case of no infix
 			t.pool.Put(subCtx)
 
 			for _, wildcardNode := range wildcards {
 				if wildcardNode.isLeaf() {
-					if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(remaining) {
+					if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(search) {
 						continue
 					}
 
 					if !lazy {
-						*c.params2 = append(*c.params2, remaining)
+						*c.params2 = append(*c.params2, search)
 					}
 
 					return wildcardNode, false
 				}
 			}
+
+			// Note that we don't need to consume the search here, since we arge going to
+			// backtrack
 		}
 
 		childParamIdx = 0

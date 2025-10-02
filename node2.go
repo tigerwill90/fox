@@ -8,16 +8,54 @@ import (
 )
 
 type node2 struct {
-	route     *Route
-	regexp    *regexp.Regexp
-	key       string
-	statics   []*node2
-	params    []*node2
+	// route holds the registered handler if this node is a leaf (terminal node).
+	route *Route
+
+	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.
+	// When present, captured segments must match this pattern during lookup.
+	regexp *regexp.Regexp
+
+	// key identifies the node's content and varies by node type:
+	//
+	// Static nodes: Contains the literal path segment (e.g., "/users", "foo")
+	//
+	// Param nodes without regex: Contains "?" as a canonical placeholder.
+	// This allows routes with different param names (/foo/{bar} and /foo/{fizz})
+	// to share the same tree node while preventing duplicate route registration.
+	// The actual placeholder names are stored in the route definition.
+	//
+	// Wildcard nodes without regex: Contains "*" as a canonical placeholder,
+	// following the same sharing semantics as params.
+	//
+	// Param/wildcard nodes with regex: Contains the regex pattern string.
+	// Multiple regex nodes can exist at the same level, each with a distinct pattern.
+	// During lookup, patterns are evaluated in insertion order until one matches.
+	key string
+
+	// statics contains child nodes for static path segments, sorted by label byte.
+	statics []*node2
+
+	// params contains child nodes for parameters. Regex params are ordered first
+	// (in insertion order), followed by at most one non-regex param node ("?").
+	params []*node2
+
+	// wildcards contains child nodes for catch-all segments. Regex wildcards are
+	// ordered first (in insertion order), followed by at most one non-regex wildcard ("*").
 	wildcards []*node2
-	label     byte
-	hsplit    bool
+
+	// label is the first byte of the key for static nodes, used for binary search.
+	// Set to 0x00 for param and wildcard nodes.
+	label byte
+
+	// hsplit marks nodes at hostname/path boundaries. When true, this static node
+	// represents the end of a hostname section, with a '/' child beginning the path.
+	// This enables optimized lookups by treating the path portion as a substring.
+	// Only set for static nodes; params and wildcards are already isolated.
+	hsplit bool
 }
 
+// addStaticEdge inserts a static child node while maintaining sorted order by label byte.
+// Uses binary search to find the insertion point.
 func (n *node2) addStaticEdge(child *node2) {
 	num := len(n.statics)
 	idx := sort.Search(num, func(i int) bool {
@@ -30,6 +68,10 @@ func (n *node2) addStaticEdge(child *node2) {
 	}
 }
 
+// addParamEdge appends a param child node, maintaining evaluation order:
+// regex params first (in insertion order), then the non-regex param ("?") last.
+// This ordering ensures regex-constrained params are evaluated before the catch-all "?" param.
+// Only one non-regex param is allowed per node; multiple regex params are permitted.
 func (n *node2) addParamEdge(child *node2) {
 	n.params = append(n.params, child)
 
@@ -47,6 +89,10 @@ func (n *node2) addParamEdge(child *node2) {
 	}
 }
 
+// addWildcardEdge appends a wildcard child node, maintaining evaluation order:
+// regex wildcards first (in insertion order), then the non-regex wildcard ("*") last.
+// This ordering ensures regex-constrained wildcards are evaluated before the catch-all "*" wildcard.
+// Only one non-regex wildcard is allowed per node; multiple regex wildcards are permitted.
 func (n *node2) addWildcardEdge(child *node2) {
 	n.wildcards = append(n.wildcards, child)
 
@@ -64,6 +110,8 @@ func (n *node2) addWildcardEdge(child *node2) {
 	}
 }
 
+// replaceStaticEdge updates an existing static child node in place.
+// Uses binary search to locate the child by label, then replaces it.
 func (n *node2) replaceStaticEdge(child *node2) {
 	num := len(n.statics)
 	idx := sort.Search(num, func(i int) bool {
@@ -76,6 +124,8 @@ func (n *node2) replaceStaticEdge(child *node2) {
 	panic("internal error: replacing missing edge")
 }
 
+// getStaticEdge retrieves a static child node by its label byte using binary search.
+// Returns the child's index and pointer if found, or (-1, nil) if not found.
 func (n *node2) getStaticEdge(label byte) (int, *node2) {
 	num := len(n.statics)
 	idx := sort.Search(num, func(i int) bool { return n.statics[i].label >= label })
@@ -85,6 +135,9 @@ func (n *node2) getStaticEdge(label byte) (int, *node2) {
 	return -1, nil
 }
 
+// getParamEdge retrieves a param child node by its key (either "?" or a regex pattern).
+// Returns the child's index and pointer if found, or (-1, nil) if not found.
+// Uses linear search since params are ordered by priority, not key.
 func (n *node2) getParamEdge(key string) (int, *node2) {
 	for idx, child := range n.params {
 		if child.key == key {
@@ -94,6 +147,9 @@ func (n *node2) getParamEdge(key string) (int, *node2) {
 	return -1, nil
 }
 
+// getWildcardEdge retrieves a wildcard child node by its key (either "*" or a regex pattern).
+// Returns the child's index and pointer if found, or (-1, nil) if not found.
+// Uses linear search since wildcards are ordered by priority, not key.
 func (n *node2) getWildcardEdge(key string) (int, *node2) {
 	for idx, child := range n.wildcards {
 		if child.key == key {
@@ -103,6 +159,10 @@ func (n *node2) getWildcardEdge(key string) (int, *node2) {
 	return -1, nil
 }
 
+// delStaticEdge removes a static child node by its label byte.
+// Uses binary search to locate the child, then shifts remaining elements left.
+// Sets the last element to nil before reslicing to allow garbage collection.
+// No-op if no child with the given label exists.
 func (n *node2) delStaticEdge(label byte) {
 	num := len(n.statics)
 	idx := sort.Search(num, func(i int) bool {
@@ -115,6 +175,9 @@ func (n *node2) delStaticEdge(label byte) {
 	}
 }
 
+// delParamEdge removes a param child node by its key (either "?" or a regex pattern).
+// Shifts remaining elements left after removal and clears the last slot for GC.
+// No-op if no param with the given key exists.
 func (n *node2) delParamEdge(key string) {
 	idx := slices.IndexFunc(n.params, func(p *node2) bool { return p.key == key })
 	if idx >= 0 {
@@ -124,6 +187,9 @@ func (n *node2) delParamEdge(key string) {
 	}
 }
 
+// delWildcardEdge removes a wildcard child node by its key (either "*" or a regex pattern).
+// Shifts remaining elements left after removal and clears the last slot for GC.
+// No-op if no wildcard with the given key exists.
 func (n *node2) delWildcardEdge(key string) {
 	idx := slices.IndexFunc(n.wildcards, func(p *node2) bool { return p.key == key })
 	if idx >= 0 {
