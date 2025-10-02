@@ -159,7 +159,6 @@ Walk:
 							charsMatched += idx
 
 							capturedValue := path[startPath:charsMatched]
-							// Validate regex constraint on captured value
 
 							if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(capturedValue) {
 								charsMatched++
@@ -185,7 +184,7 @@ Walk:
 									if !lazy {
 										*c.tsrParams2 = (*c.tsrParams2)[:0]
 										*c.tsrParams2 = append(*c.tsrParams2, *c.params2...)
-										*c.tsrParams2 = append(*c.tsrParams2, path[startPath:charsMatched])
+										*c.tsrParams2 = append(*c.tsrParams2, capturedValue)
 										*c.tsrParams2 = append(*c.tsrParams2, *subCtx.tsrParams2...)
 									}
 								}
@@ -196,7 +195,7 @@ Walk:
 							}
 
 							if !lazy {
-								*c.params2 = append(*c.params2, path[startPath:charsMatched])
+								*c.params2 = append(*c.params2, capturedValue)
 								*c.params2 = append(*c.params2, *subCtx.params2...)
 							}
 
