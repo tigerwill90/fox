@@ -151,6 +151,65 @@ Walk:
 			for _, wildcardNode := range wildcards {
 				hasInfix := len(wildcardNode.statics) > 0
 				if hasInfix {
+					startPath := charsMatched
+					for {
+						idx := strings.IndexByte(path[charsMatched:], slashDelim)
+						if idx >= 0 {
+							*subCtx.params2 = (*subCtx.params2)[:0]
+							charsMatched += idx
+
+							capturedValue := path[startPath:charsMatched]
+							// Validate regex constraint on captured value
+
+							if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(capturedValue) {
+								charsMatched++
+								continue
+							}
+
+							subNode, subTsr := t.lookupByPath(wildcardNode, path[charsMatched:], subCtx, lazy)
+							if subNode == nil || startPath == charsMatched {
+								// The wildcard must not be empty e.g. for /*{any}/ but may contain "intermediary" empty segment.
+								// '//' this is an empty segment
+								// '///' the middle '/' is captured as a dynamic part.
+								// This aligns to the ending catch all /*{any} where '//foo' capture '/foo'
+								charsMatched++
+								continue
+							}
+
+							// We have a tsr opportunity
+							if subTsr {
+								// Only if no previous tsr
+								if !tsr {
+									tsr = true
+									n = subNode
+									if !lazy {
+										*c.tsrParams2 = (*c.tsrParams2)[:0]
+										*c.tsrParams2 = append(*c.tsrParams2, *c.params2...)
+										*c.tsrParams2 = append(*c.tsrParams2, path[startPath:charsMatched])
+										*c.tsrParams2 = append(*c.tsrParams2, *subCtx.tsrParams2...)
+									}
+								}
+
+								// Try with next segment
+								charsMatched++
+								continue
+							}
+
+							if !lazy {
+								*c.params2 = append(*c.params2, path[startPath:charsMatched])
+								*c.params2 = append(*c.params2, *subCtx.params2...)
+							}
+
+							t.pool.Put(subCtx)
+							return subNode, subTsr
+						}
+
+						charsMatched += len(path[charsMatched:])
+						t.pool.Put(subCtx)
+						break
+					}
+				}
+				/*if hasInfix {
 					startCapture := charsMatched
 					for offset := 0; offset <= len(remaining); offset++ {
 						idx := strings.IndexByte(remaining[offset:], slashDelim)
@@ -209,8 +268,9 @@ Walk:
 
 						offset += idx + 1
 					}
-				}
+				}*/
 			}
+			// In case of no infix
 			t.pool.Put(subCtx)
 
 			for _, wildcardNode := range wildcards {

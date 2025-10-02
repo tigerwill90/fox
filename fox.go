@@ -1267,7 +1267,7 @@ func parseRegex(param string) (string, *regexp.Regexp, error) {
 		return "", nil, fmt.Errorf("%w: missing regular expression", ErrInvalidRoute)
 	}
 
-	re, err := regexp.Compile(pattern)
+	re, err := regexp.Compile("^" + pattern + "$")
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
 	}
