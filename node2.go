@@ -47,11 +47,9 @@ type node2 struct {
 	// Set to 0x00 for param and wildcard nodes.
 	label byte
 
-	// hsplit marks nodes at hostname/path boundaries. When true, this static node
-	// represents the end of a hostname section, with a '/' child beginning the path.
-	// This enables optimized lookups by treating the path portion as a substring.
-	// Only set for static nodes; params and wildcards are already isolated.
-	hsplit bool
+	// host indicates this node's key belongs to the hostname portion of the route.
+	// A node that belong to a host cannot be merged with a child key that start with a '/'.
+	host bool
 }
 
 // addStaticEdge inserts a static child node while maintaining sorted order by label byte.
@@ -267,8 +265,8 @@ func (n *node2) string(space int, inode bool) string {
 	if n.label == 0 {
 		sb.WriteString(" (param)")
 	}
-	if n.hsplit {
-		sb.WriteString(" (boundary)")
+	if n.host {
+		sb.WriteString(" (host)")
 	}
 
 	if n.isLeaf() {

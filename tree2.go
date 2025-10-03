@@ -658,9 +658,9 @@ func (t *tXn2) insertStatic(n *node2, tk token, remaining []token, route *Route)
 
 		newChild, err := t.insertTokens(
 			&node2{
-				label:  search[0],
-				key:    search,
-				hsplit: tk.hsplit,
+				label: search[0],
+				key:   search,
+				host:  tk.hsplit,
 			},
 			remaining,
 			route,
@@ -694,9 +694,9 @@ func (t *tXn2) insertStatic(n *node2, tk token, remaining []token, route *Route)
 
 	nc := t.writeNode(n)
 	splitNode := &node2{
-		label:  search[0],
-		key:    search[:commonPrefix],
-		hsplit: tk.hsplit,
+		label: search[0],
+		key:   search[:commonPrefix],
+		host:  tk.hsplit,
 	}
 	nc.replaceStaticEdge(splitNode)
 
@@ -726,9 +726,9 @@ func (t *tXn2) insertStatic(n *node2, tk token, remaining []token, route *Route)
 
 	newChild, err := t.insertTokens(
 		&node2{
-			label:  search[0],
-			key:    search,
-			hsplit: tk.hsplit,
+			label: search[0],
+			key:   search,
+			host:  tk.hsplit,
 		},
 		remaining,
 		route,
@@ -861,8 +861,7 @@ func (t *tXn2) deleteTokens(root, n *node2, tokens []token) (*node2, *Route) {
 		if n != root &&
 			len(nc.statics) == 1 &&
 			len(nc.params) == 0 &&
-			len(nc.wildcards) == 0 &&
-			nc.label != 0 {
+			len(nc.wildcards) == 0 {
 			t.mergeChild(nc)
 		}
 
@@ -916,18 +915,11 @@ func (t *tXn2) deleteStatic(root, n *node2, search string, remaining []token) (*
 		len(newChild.wildcards) == 0 {
 		nc.delStaticEdge(label)
 
-		// Clear hsplit if we deleted a '/' child. If this node was at a hostname/path
-		// boundary, that boundary no longer exists. Otherwise, this is a no-op
-		if label == slashDelim {
-			nc.hsplit = false
-		}
-
 		if n != root &&
 			!nc.isLeaf() &&
 			len(nc.statics) == 1 &&
 			len(nc.params) == 0 &&
-			len(nc.wildcards) == 0 &&
-			!nc.hsplit {
+			len(nc.wildcards) == 0 {
 			t.mergeChild(nc)
 		}
 	} else {
@@ -1135,7 +1127,7 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 		key:    n.key,
 		route:  n.route,
 		regexp: n.regexp,
-		hsplit: n.hsplit,
+		host:   n.host,
 	}
 	if len(n.statics) != 0 {
 		nc.statics = make([]*node2, len(n.statics))
@@ -1159,6 +1151,15 @@ func (t *tXn2) writeNode(n *node2) *node2 {
 func (t *tXn2) mergeChild(n *node2) {
 	child := n.statics[0]
 
+	// A node that belong to a wildcar or param cannot be merged with a child.
+	if n.label == 0x00 {
+		return
+	}
+	// A node that belong to a host cannot be merged with a child key that start with a '/'.
+	if n.host && strings.HasPrefix(child.key, "/") {
+		return
+	}
+
 	// Merge nodes
 	n.key = concat(n.key, child.key)
 	n.route = child.route
@@ -1178,6 +1179,62 @@ func (t *tXn2) mergeChild(n *node2) {
 		n.wildcards = make([]*node2, len(child.wildcards))
 		copy(n.wildcards, child.wildcards)
 	}
+}
+
+func (t *tXn2) nextToken(path string) (tk token, rest string, ok bool) {
+
+	if len(path) == 0 {
+		return tk, rest, false
+	}
+
+	if path[0] == '{' {
+		idx := strings.IndexByte(path, '/')
+		if idx == -1 {
+			return token{
+				value:  path[1 : len(path)-1],
+				typ:    nodeParam,
+				hsplit: false,
+			}, "", false
+		} else {
+			return token{
+				value:  path[1 : idx-1],
+				typ:    nodeParam,
+				hsplit: false,
+			}, path[idx:], true
+		}
+	}
+
+	if path[0] == '*' {
+		idx := strings.IndexByte(path, '/')
+		if idx == -1 {
+			return token{
+				value:  path[2 : len(path)-1],
+				typ:    nodeWildcard,
+				hsplit: false,
+			}, "", false
+		} else {
+			return token{
+				value:  path[2 : idx-1],
+				typ:    nodeWildcard,
+				hsplit: false,
+			}, path[idx:], true
+		}
+	}
+
+	for i, c := range path {
+		if c == '{' || c == '*' {
+			return token{
+				value:  path[:i],
+				typ:    nodeStatic,
+				hsplit: false,
+			}, path[i:], true
+		}
+	}
+
+	return token{
+		value: path,
+		typ:   nodeStatic,
+	}, "", false
 }
 
 // longestPrefix finds the length of the shared prefix of two strings
