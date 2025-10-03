@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -80,12 +81,14 @@ func (t *iTree2) lookupByHostname(root *node2, host, path string, c *cTx, lazy b
 		charsMatched  int
 		skipStatic    bool
 		childParamIdx int
-		parent        *node2
 	)
 
 	current := root
 	search := host
 	*c.skipStack = (*c.skipStack)[:0]
+
+	subCtx := t.pool.Get().(*cTx)
+	defer t.pool.Put(subCtx)
 
 Walk:
 	for len(search) > 0 {
@@ -94,13 +97,15 @@ Walk:
 			label := toLowerASCII(search[0])
 			x := string(label)
 			_ = x
-			if _, child := current.getStaticEdge(label); child != nil {
+			num := len(current.statics)
+			idx := sort.Search(num, func(i int) bool { return current.statics[i].label >= label })
+			if idx < num && current.statics[idx].label == label {
+				child := current.statics[idx]
 				keyLen := len(child.key)
 				if keyLen <= len(search) && equalStringsASCIIIgnoreCase(search[:keyLen], child.key) {
 					if len(current.params) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
 							node:      current,
-							parent:    parent,
 							pathIndex: charsMatched,
 							paramCnt:  len(*c.params2),
 						})
@@ -109,7 +114,6 @@ Walk:
 					x := search[:keyLen]
 					_ = x
 
-					parent = current
 					current = child
 					search = search[keyLen:]
 					y := search
@@ -152,7 +156,6 @@ Walk:
 				if nextChildIx < len(params) {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:            current,
-						parent:          parent,
 						pathIndex:       charsMatched,
 						paramCnt:        len(*c.params2),
 						childParamIndex: nextChildIx + childParamIdx,
@@ -163,7 +166,6 @@ Walk:
 					*c.params2 = append(*c.params2, segment)
 				}
 
-				parent = current
 				current = paramNode
 				search = search[end:]
 				charsMatched += end
@@ -178,12 +180,8 @@ Walk:
 
 	// Hostname consumed - transition to path matching
 	if _, pathChild := current.getStaticEdge(slashDelim); pathChild != nil {
-		// TODO do it only once
-		subCtx := t.pool.Get().(*cTx)
 		*subCtx.params2 = (*subCtx.params2)[:0]
-
 		subNode, subTsr := t.lookupByPath(current, path, subCtx, lazy)
-
 		if subNode != nil {
 			if subTsr {
 				if !tsr {
@@ -199,12 +197,9 @@ Walk:
 				if !lazy {
 					*c.params2 = append(*c.params2, *subCtx.params2...)
 				}
-				t.pool.Put(subCtx)
 				return subNode, false
 			}
 		}
-
-		t.pool.Put(subCtx)
 	}
 
 Backtrack:
@@ -216,7 +211,6 @@ Backtrack:
 
 	if skipped.childParamIndex < len(skipped.node.params) {
 		current = skipped.node
-		parent = skipped.parent
 		*c.params2 = (*c.params2)[:skipped.paramCnt]
 		search = host[skipped.pathIndex:]
 
@@ -255,7 +249,10 @@ Walk:
 			label := search[0]
 			// x := string(label)
 			// _ = x
-			if _, child := current.getStaticEdge(label); child != nil {
+			num := len(current.statics)
+			idx := sort.Search(num, func(i int) bool { return current.statics[i].label >= label })
+			if idx < num && current.statics[idx].label == label {
+				child := current.statics[idx]
 				keyLen := len(child.key)
 				if keyLen <= len(search) && search[:keyLen] == child.key {
 					// x := search[:keyLen]
