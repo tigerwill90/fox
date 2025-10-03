@@ -93,21 +93,21 @@ Walk:
 					continue
 				}
 
-				/*				if child.isLeaf() {
-								x := len(child.key) >= len(search)
-								_ = x
-								if strings.HasPrefix(child.key, search) {
-									// search consumed, key has more
-									remaining := child.key[len(search):]
-									if len(remaining) == 1 && remaining[0] == '/' {
-										tsr = true
-										n = child
-										if !lazy {
-											copyWithResize(c.tsrParams2, c.params2)
-										}
-									}
-								}
-							}*/
+				if child.isLeaf() {
+					x := len(child.key) >= len(search)
+					_ = x
+					if strings.HasPrefix(child.key, search) {
+						// search consumed, key has more
+						remaining := child.key[len(search):]
+						if len(remaining) == 1 && remaining[0] == '/' {
+							tsr = true
+							n = child
+							if !lazy {
+								copyWithResize(c.tsrParams2, c.params2)
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -548,8 +548,9 @@ func (t *tXn2) insertStatic(n *node2, tk token, remaining []token, route *Route)
 
 	newChild, err := t.insertTokens(
 		&node2{
-			label: search[0],
-			key:   search,
+			label:  search[0],
+			key:    search,
+			hsplit: tk.hsplit,
 		},
 		remaining,
 		route,

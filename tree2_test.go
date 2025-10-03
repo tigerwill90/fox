@@ -15,6 +15,23 @@ func must[T any](v T, err error) T {
 	return v
 }
 
+func TestZ(t *testing.T) {
+	f, _ := New()
+	tree := f.newTree2()
+	txn := tree.txn()
+
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b/bar/", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b/bar", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.c/bar", emptyHandler)), modeInsert))
+
+	tree = txn.commit()
+	fmt.Println(tree.root[http.MethodGet])
+
+	target := must(f.NewRoute2("a.b/bar/", emptyHandler))
+	txn.delete(http.MethodGet, target.tokens)
+	fmt.Println(txn.root[http.MethodGet])
+}
+
 func Test_lookup(t *testing.T) {
 	f, _ := New()
 	tree := f.newTree2()
@@ -22,7 +39,10 @@ func Test_lookup(t *testing.T) {
 
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/foo/", emptyHandler)), modeInsert))
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/{arg}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/hello", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar/", emptyHandler)), modeInsert))
+	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar", emptyHandler)), modeInsert))
+
 	//assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/a/b", emptyHandler)), modeInsert))
 	//assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/c/", emptyHandler)), modeInsert))
 
@@ -51,6 +71,11 @@ func Test_lookup(t *testing.T) {
 		fmt.Println(c.params2)
 		fmt.Println(c.tsrParams2)
 	}
+
+	target := must(f.NewRoute2("/foo/bar", emptyHandler))
+	txn.delete(http.MethodGet, target.tokens)
+
+	fmt.Println(txn.root[http.MethodGet])
 }
 
 func Test_txn2_insert(t *testing.T) {
@@ -90,10 +115,10 @@ func Test_txn2_insert(t *testing.T) {
 	fmt.Println(txn.maxParams)
 	fmt.Println(txn.size)
 
-	/*	target := must(f.NewRoute2("example.com/foobar", emptyHandler))
-		txn.delete(http.MethodGet, target.tokens)
+	target := must(f.NewRoute2("example.com/foobar", emptyHandler))
+	txn.delete(http.MethodGet, target.tokens)
 
-		fmt.Println(txn.root[http.MethodGet])*/
+	fmt.Println(txn.root[http.MethodGet])
 }
 
 func TestY(t *testing.T) {
@@ -104,6 +129,24 @@ func TestY(t *testing.T) {
 			path string
 		}
 	}{
+		{
+			name: "remove slash node, should merge",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b/bar"},
+				{path: "a.b/foo"},
+			},
+		},
+		{
+			name: "remove slash node, should merge",
+			routes: []struct {
+				path string
+			}{
+				{path: "/foo/bar/"},
+				{path: "/foo/bar/baz"},
+			},
+		},
 		{
 			name: "test delete with merge",
 			routes: []struct {
@@ -253,7 +296,7 @@ func Test_txn2_insertStatic(t *testing.T) {
 
 func Test_tokenize(t *testing.T) {
 	f, _ := New()
-	tokens, _, _, _ := f.parseRoute2("a.b.c/fox/bar")
+	tokens, _, _, _ := f.parseRoute2("/hello")
 	fmt.Println(tokens)
 }
 
@@ -272,3 +315,29 @@ func Test_searchNode(t *testing.T) {
 	fmt.Println(txn.search("/users/{user}"))
 }
 */
+
+// BenchmarkStatic-16    	  177091	      6184 ns/op	       0 B/op	       0 allocs/op
+// BenchmarkStatic-16    	  194583	      5248 ns/op	       0 B/op	       0 allocs/op
+// BenchmarkStatic-16    	  195931	      5393 ns/op	       0 B/op	       0 allocs/op
+func BenchmarkStatic(b *testing.B) {
+	f, _ := New()
+	tree := f.newTree2()
+	txn := tree.txn()
+
+	for _, rte := range staticRoutes {
+		assert.NoError(b, txn.insert(rte.method, must(f.NewRoute2(rte.path, emptyHandler)), modeInsert))
+	}
+	tree = txn.commit()
+
+	root := tree.root[http.MethodGet]
+
+	c := tree.pool.Get().(*cTx)
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, rte := range staticRoutes {
+			*c.params2 = (*c.params2)[:0]
+			*c.tsrParams2 = (*c.tsrParams2)[:0]
+			_, _ = tree.lookupByPath(root, rte.path, c, false)
+		}
+	}
+}
