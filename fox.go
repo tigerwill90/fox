@@ -746,6 +746,7 @@ const (
 	stateDefault uint8 = iota
 	stateParam
 	stateCatchAll
+	stateRegex
 )
 
 // parseRoute parse and validate the route in a single pass.
@@ -1032,15 +1033,13 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 					nonNumeric = true
 				}
 
-				paramName, re, err := parseRegex(url[startParam+1 : i])
-				if err != nil {
-					return nil, 0, 0, err
+				if previous != stateRegex {
+					tokens = append(tokens, token{
+						typ:   nodeParam,
+						value: url[startParam+1 : i],
+					})
 				}
-				tokens = append(tokens, token{
-					typ:    nodeParam,
-					value:  paramName,
-					regexp: re,
-				})
+
 				countStatic = 0
 				previous = state
 				state = stateDefault
@@ -1052,7 +1051,13 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
-			// TODO ignore when in regex
+			if url[i] == ':' {
+				previous = state
+				state = stateRegex
+				i++
+				continue
+			}
+
 			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
 				return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
 			}
@@ -1073,15 +1078,13 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 					return nil, 0, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
 				}
 
-				paramName, re, err := parseRegex(url[startParam+1 : i])
-				if err != nil {
-					return nil, 0, 0, err
+				if previous != stateRegex {
+					tokens = append(tokens, token{
+						typ:   nodeWildcard,
+						value: url[startParam+1 : i],
+					})
 				}
-				tokens = append(tokens, token{
-					typ:    nodeWildcard,
-					value:  paramName,
-					regexp: re,
-				})
+
 				countStatic = 0
 				previous = state
 				state = stateDefault
@@ -1093,11 +1096,52 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
+			if url[i] == ':' {
+				previous = state
+				state = stateRegex
+				i++
+				continue
+			}
+
 			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
 				return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
 			i++
+		case stateRegex:
+			idx := braceIndice(url[i:])
+			if idx == -1 {
+				return nil, 0, 0, fmt.Errorf("%w: unbalanced braces in regular expression", ErrInvalidRoute)
+			}
+			if idx == 0 {
+				return nil, 0, 0, fmt.Errorf("%w: missing regular expression", ErrInvalidRoute)
+			}
+
+			pattern := url[i : i+idx]
+			re, err := regexp.Compile("^" + pattern + "$")
+			if err != nil {
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
+			}
+
+			if re.NumSubexp() > 0 {
+				return nil, 0, 0, fmt.Errorf("%w: illegal capture group '%s': use (?:pattern) instead", ErrInvalidRoute, pattern)
+			}
+
+			typ := nodeWildcard
+			if previous == stateParam {
+				typ = nodeParam
+			}
+
+			tokens = append(tokens, token{
+				typ:    typ,
+				value:  url[startParam+1 : i-1],
+				regexp: re,
+			})
+
+			// restore
+			state, previous = previous, state
+			i += idx
+
 		default:
 
 			if i == endHost {
@@ -1256,26 +1300,26 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 	return tokens, paramCnt, endHost, nil
 }
 
-func parseRegex(param string) (string, *regexp.Regexp, error) {
-	idx := strings.IndexByte(param, ':')
-	if idx == -1 {
-		return param, nil, nil
-	}
+// braceIndices returns the index of the closing brace that balances an opening
+// brace assumed to exist before the string. It starts at level 1, expecting the
+// caller has already consumed the opening '{'. Returns -1 if braces are unbalanced.
+//
+// Example: For pattern "{id:[0-9]{1,3}}", the caller would pass "[0-9]{1,3}}"
+// (everything after the initial '{'), and this returns 10 (index of the final '}')
+func braceIndice(s string) int {
+	level := 1
 
-	pattern := param[idx+1:]
-	if pattern == "" {
-		return "", nil, fmt.Errorf("%w: missing regular expression", ErrInvalidRoute)
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			level++
+		case '}':
+			if level--; level == 0 {
+				return i
+			}
+		}
 	}
-
-	re, err := regexp.Compile("^" + pattern + "$")
-	if err != nil {
-		return "", nil, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
-	}
-
-	if re.NumSubexp() > 0 {
-		return "", nil, fmt.Errorf("%w: illegal capture group '%s': use (?:pattern) instead", ErrInvalidRoute, pattern)
-	}
-	return param[:idx], re, nil
+	return -1
 }
 
 func applyMiddleware(scope HandlerScope, mws []middleware, h HandlerFunc) HandlerFunc {

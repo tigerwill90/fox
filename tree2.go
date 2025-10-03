@@ -1181,62 +1181,6 @@ func (t *tXn2) mergeChild(n *node2) {
 	}
 }
 
-func (t *tXn2) nextToken(path string) (tk token, rest string, ok bool) {
-
-	if len(path) == 0 {
-		return tk, rest, false
-	}
-
-	if path[0] == '{' {
-		idx := strings.IndexByte(path, '/')
-		if idx == -1 {
-			return token{
-				value:  path[1 : len(path)-1],
-				typ:    nodeParam,
-				hsplit: false,
-			}, "", false
-		} else {
-			return token{
-				value:  path[1 : idx-1],
-				typ:    nodeParam,
-				hsplit: false,
-			}, path[idx:], true
-		}
-	}
-
-	if path[0] == '*' {
-		idx := strings.IndexByte(path, '/')
-		if idx == -1 {
-			return token{
-				value:  path[2 : len(path)-1],
-				typ:    nodeWildcard,
-				hsplit: false,
-			}, "", false
-		} else {
-			return token{
-				value:  path[2 : idx-1],
-				typ:    nodeWildcard,
-				hsplit: false,
-			}, path[idx:], true
-		}
-	}
-
-	for i, c := range path {
-		if c == '{' || c == '*' {
-			return token{
-				value:  path[:i],
-				typ:    nodeStatic,
-				hsplit: false,
-			}, path[i:], true
-		}
-	}
-
-	return token{
-		value: path,
-		typ:   nodeStatic,
-	}, "", false
-}
-
 // longestPrefix finds the length of the shared prefix of two strings
 func longestPrefix(k1, k2 string) int {
 	max := len(k1)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -59,6 +60,9 @@ func Test_lookup(t *testing.T) {
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/{arg}", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/{bar}", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{regex:\\d{2}-\\d{2}-\\d{4}}/{a}/b/c/barr", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{regex:\\d{2}-\\d{2}-\\d{4}}/{a}/b/c/foo", emptyHandler)), modeInsert))
+
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar", emptyHandler)), modeInsert))
 
 	//assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/a/b", emptyHandler)), modeInsert))
@@ -81,11 +85,13 @@ func Test_lookup(t *testing.T) {
 	// assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foc/bar", emptyHandler)), modeInsert))
 	tree = txn.commit()
 	fmt.Println(txn.root[http.MethodGet])
+	c := tree.pool.Get().(*cTx)
+	n, tsr := tree.lookup(http.MethodGet, "", "/10-01-1990/a/b/c/foo", c, false)
+	if n != nil {
+		fmt.Println(n.route, tsr)
+		fmt.Println(c.params2)
+	}
 
-	target := must(f.NewRoute2("/foo/{bar}", emptyHandler))
-	txn.delete(http.MethodGet, target.tokens)
-
-	fmt.Println(txn.root[http.MethodGet])
 }
 
 func Test_txn2_insert(t *testing.T) {
@@ -305,26 +311,23 @@ func Test_txn2_insertStatic(t *testing.T) {
 }
 
 func Test_tokenize(t *testing.T) {
-	/*	f, _ := New()
-		tokens, _, _, _ := f.parseRoute2("/hello")
-		fmt.Println(tokens)*/
-	txn := &tXn2{}
+	f, _ := New()
+	tokens, _, _, _ := f.parseRoute2("/hello/{foo:a}/*{a:boulou}")
+	//fmt.Println(err)
+	for _, tk := range tokens {
+		fmt.Println(tk.value, tk.regexp)
+	}
+}
 
-	var (
-		tk   token
-		next bool
-	)
-
-	path := "a.b.c/foo"
-
-	for {
-		tk, path, next = txn.nextToken(path)
-		fmt.Println("token", tk.value)
-		// fmt.Println("rest", path)
-		if !next {
-			break
-		}
-
+func TestXyzFuzz(t *testing.T) {
+	fx, _ := New()
+	f := fuzz.New().NilChance(0).NumElements(1000000, 2000000)
+	pattern := make([]string, 0)
+	f.Fuzz(&pattern)
+	for _, p := range pattern {
+		assert.NotPanicsf(t, func() {
+			fx.parseRoute2(p)
+		}, p)
 	}
 }
 
@@ -416,4 +419,8 @@ func Test_lookupHostname(t *testing.T) {
 		fmt.Println(c.params2)
 		fmt.Println(c.tsrParams2)
 	}
+}
+
+func TestXyz(t *testing.T) {
+	fmt.Println(braceIndice("}"))
 }
