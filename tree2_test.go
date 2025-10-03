@@ -362,12 +362,12 @@ func BenchmarkGithubAll(b *testing.B) {
 	}
 	tree = txn.commit()
 
-	c := tree.pool.Get().(*cTx)
 	b.ReportAllocs()
 	for b.Loop() {
+		c := tree.pool.Get().(*cTx)
 		*c.params2 = (*c.params2)[:0]
-		*c.tsrParams2 = (*c.tsrParams2)[:0]
 		_, _ = tree.lookup(http.MethodGet, "", "/repos/sylvain/fox/hooks/1500", c, false)
+		tree.pool.Put(c)
 	}
 }
 
