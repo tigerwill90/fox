@@ -3,6 +3,7 @@ package fox
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -319,13 +320,18 @@ func Test_searchNode(t *testing.T) {
 // BenchmarkStatic-16    	  177091	      6184 ns/op	       0 B/op	       0 allocs/op
 // BenchmarkStatic-16    	  194583	      5248 ns/op	       0 B/op	       0 allocs/op
 // BenchmarkStatic-16    	  195931	      5393 ns/op	       0 B/op	       0 allocs/op
+// BenchmarkStatic-16    	  226886	      5287 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkStatic(b *testing.B) {
 	f, _ := New()
 	tree := f.newTree2()
 	txn := tree.txn()
 
 	for _, rte := range staticRoutes {
-		assert.NoError(b, txn.insert(rte.method, must(f.NewRoute2(rte.path, emptyHandler)), modeInsert))
+		path := rte.path
+		if !strings.HasSuffix(path, "/") {
+			path += "/"
+		}
+		assert.NoError(b, txn.insert(rte.method, must(f.NewRoute2(path, emptyHandler)), modeInsert))
 	}
 	tree = txn.commit()
 
@@ -338,6 +344,51 @@ func BenchmarkStatic(b *testing.B) {
 			*c.params2 = (*c.params2)[:0]
 			*c.tsrParams2 = (*c.tsrParams2)[:0]
 			_, _ = tree.lookupByPath(root, rte.path, c, false)
+
 		}
+	}
+}
+
+func BenchmarkGithubAll(b *testing.B) {
+	f, _ := New()
+	tree := f.newTree2()
+	txn := tree.txn()
+
+	for _, rte := range githubAPI {
+		if rte.method != http.MethodGet {
+			continue
+		}
+		assert.NoError(b, txn.insert(rte.method, must(f.NewRoute2(rte.path, emptyHandler)), modeInsert))
+	}
+	tree = txn.commit()
+
+	root := tree.root[http.MethodGet]
+
+	c := tree.pool.Get().(*cTx)
+	b.ReportAllocs()
+	for b.Loop() {
+		*c.params2 = (*c.params2)[:0]
+		*c.tsrParams2 = (*c.tsrParams2)[:0]
+		_, _ = tree.lookupByPath(root, "/repos/sylvain/fox/hooks/1500", c, false)
+	}
+}
+
+func Test_lookupHostname(t *testing.T) {
+	f, _ := New()
+	tree := f.newTree2()
+	txn := tree.txn()
+
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.{c}/hello", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("a.b/foo/{bar}/", emptyHandler)), modeInsert))
+
+	tree = txn.commit()
+	fmt.Println(tree.root[http.MethodGet])
+
+	c := tree.pool.Get().(*cTx)
+	n, _ := tree.lookupByHostname(tree.root[http.MethodGet], "a.b", "/foo/bar", c, false)
+	if n != nil {
+		fmt.Println(n.route)
+		fmt.Println(c.params2)
+		fmt.Println(c.tsrParams2)
 	}
 }

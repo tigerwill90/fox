@@ -312,6 +312,19 @@ type skipNode struct {
 	childParamIndex int
 }
 
+func equalStringsASCIIIgnoreCase(s1, s2 string) bool {
+	// Easy case.
+	if len(s1) != len(s2) {
+		return false
+	}
+	for i := 0; i < len(s1); i++ {
+		if !equalASCIIIgnoreCase2(s1[i], s2[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // equalASCIIIgnoreCase performs case-insensitive comparison of two ASCII bytes.
 // Only supports ASCII letters (A-Z, a-z), digits (0-9), and hyphen (-).
 // Used for hostname matching where registered routes follow LDH standard.
@@ -332,4 +345,11 @@ func equalASCIIIgnoreCase2(s, t uint8) bool {
 	}
 
 	return false
+}
+
+func toLowerASCII(b byte) byte {
+	if 'A' <= b && b <= 'Z' {
+		return b + ('a' - 'A')
+	}
+	return b
 }
