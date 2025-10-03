@@ -35,6 +35,31 @@ func TestZ(t *testing.T) {
 	fmt.Println(txn.root[http.MethodGet])
 }
 
+func TestDepth(t *testing.T) {
+	f, _ := New()
+	tree := f.newTree2()
+	txn := tree.txn()
+
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b}/{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/*{b}/{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b}/*{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{a}/{b}/{c}", emptyHandler)), modeInsert))
+
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b:1}/{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/*{b:2}/{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b}/*{c:[0-9/]+}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{a:1}/{b}/{c}", emptyHandler)), modeInsert))
+
+	tree = txn.commit()
+	fmt.Println(tree.root[http.MethodGet])
+	fmt.Println(tree.maxDepth)
+
+	c := tree.pool.Get().(*cTx)
+	n, ok := tree.lookup(http.MethodGet, "", "/a/b/1/2/3", c, false)
+	fmt.Println(n.route, ok)
+	fmt.Println(c.params2)
+}
+
 func TestXX(t *testing.T) {
 	f, _ := New()
 	tree := f.newTree2()

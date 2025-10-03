@@ -247,18 +247,18 @@ Walk:
 	for len(search) > 0 {
 		if !skipStatic {
 			label := search[0]
-			// x := string(label)
-			// _ = x
+			x := string(label)
+			_ = x
 			num := len(current.statics)
 			idx := sort.Search(num, func(i int) bool { return current.statics[i].label >= label })
 			if idx < num && current.statics[idx].label == label {
 				child := current.statics[idx]
 				keyLen := len(child.key)
 				if keyLen <= len(search) && search[:keyLen] == child.key {
-					// x := search[:keyLen]
-					// y := child.key
-					// _ = x
-					// _ = y
+					x := search[:keyLen]
+					y := child.key
+					_ = x
+					_ = y
 					if len(current.params) > 0 || len(current.wildcards) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
 							node:      current,
@@ -271,8 +271,8 @@ Walk:
 					parent = current
 					current = child
 					search = search[keyLen:]
-					// z := search
-					// _ = z
+					z := search
+					_ = z
 					charsMatched += keyLen
 					continue
 				}
@@ -291,11 +291,8 @@ Walk:
 			}
 		}
 
-		// x := search
-		// _ = x
-		// /foo/{bar}
-		// /foo/b
-		// search /foo/xyz
+		x := search
+		_ = x
 		skipStatic = false
 		params := current.params[childParamIdx:]
 		if len(params) > 0 {
@@ -309,8 +306,8 @@ Walk:
 			}
 
 			segment := search[:end]
-			// x := segment
-			// _ = x
+			x := segment
+			_ = x
 			for i, paramNode := range params {
 				if paramNode.regexp != nil && !paramNode.regexp.MatchString(segment) {
 					continue
@@ -335,8 +332,8 @@ Walk:
 				parent = current
 				current = paramNode
 				search = search[end:] // consume de search
-				// x := search
-				// _ = x
+				x := search
+				_ = x
 				charsMatched += end
 				childParamIdx = 0
 				goto Walk
@@ -487,26 +484,36 @@ Backtrack:
 	if skipped.childParamIndex < len(skipped.node.params) {
 		current = skipped.node
 		parent = skipped.parent
+		// Truncate params that have been recorder
 		*c.params2 = (*c.params2)[:skipped.paramCnt]
+		// Restore search term
 		search = path[skipped.pathIndex:]
-		// x := search
-		// _ = x
+		x := search
+		_ = x
+		// Restore path index
 		charsMatched = skipped.pathIndex
 		skipStatic = true
+		// Move to the next params
 		childParamIdx = skipped.childParamIndex
-		// y := childParamIdx
-		// _ = y
+		y := childParamIdx
+		_ = y
 		goto Walk
 	}
 
 	if len(skipped.node.wildcards) > 0 {
 		current = skipped.node
 		parent = skipped.parent
+		// Truncate params that have been recorder
 		*c.params2 = (*c.params2)[:skipped.paramCnt]
+		// Restore search term
 		search = path[skipped.pathIndex:]
-		// x := search
-		// _ = x
+		x := search
+		_ = x
+		// Restore path index
 		charsMatched = skipped.pathIndex
+		// Don't visit params again
+		childParamIdx = skipped.childParamIndex
+		// Don't visit statics again
 		skipStatic = true
 		goto Walk
 	}
