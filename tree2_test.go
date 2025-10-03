@@ -35,27 +35,31 @@ func TestZ(t *testing.T) {
 	fmt.Println(txn.root[http.MethodGet])
 }
 
+func TestCaaa(t *testing.T) {
+	f, _ := New()
+	tokens, _, _, _ := f.parseRoute2("/foo/bar/{baz}")
+	fmt.Println(tokens)
+}
+
 func TestDepth(t *testing.T) {
 	f, _ := New()
 	tree := f.newTree2()
 	txn := tree.txn()
 
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b}/{c}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/*{b}/{c}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b}/*{c}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{a}/{b}/{c}", emptyHandler)), modeInsert))
-
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b:1}/{c}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/*{b:2}/{c}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/{a}/{b}/*{c:[0-9/]+}", emptyHandler)), modeInsert))
-	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{a:1}/{b}/{c}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/*{args}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/{bar}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/{a:a}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar/{baz}", emptyHandler)), modeInsert))
+	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar/baz", emptyHandler)), modeInsert))
+	fmt.Println(txn.maxDepth)
+	txn.truncate([]string{http.MethodPost})
+	fmt.Println(txn.maxDepth)
 
 	tree = txn.commit()
 	fmt.Println(tree.root[http.MethodGet])
-	fmt.Println(tree.maxDepth)
 
 	c := tree.pool.Get().(*cTx)
-	n, ok := tree.lookup(http.MethodGet, "", "/a/b/1/2/3", c, false)
+	n, ok := tree.lookup(http.MethodGet, "", "/foo/bar/baz/", c, false)
 	fmt.Println(n.route, ok)
 	fmt.Println(c.params2)
 }

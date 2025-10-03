@@ -1292,10 +1292,12 @@ func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
 		return nil, 0, 0, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
 	}
 
-	tokens = append(tokens, token{
-		typ:   nodeStatic,
-		value: sb.String(),
-	})
+	if sb.Len() > 0 {
+		tokens = append(tokens, token{
+			typ:   nodeStatic,
+			value: sb.String(),
+		})
+	}
 
 	return tokens, paramCnt, endHost, nil
 }
