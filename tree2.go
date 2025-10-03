@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tigerwill90/fox/internal/netutil"
 	"github.com/tigerwill90/fox/internal/simplelru"
 )
 
@@ -45,6 +46,33 @@ func (t *iTree2) allocateContext() *cTx {
 		// This is a read only value, no reset
 		fox: t.fox,
 	}
+}
+
+func (t *iTree2) lookup(method, hostPort, path string, c *cTx, lazy bool) (n *node2, tsr bool) {
+	root := t.root[method]
+	if root == nil {
+		return nil, false
+	}
+
+	// The tree for this method only have path registered
+	if len(root.statics) == 1 && root.statics[0].label == slashDelim {
+		return t.lookupByPath(root, path, c, lazy)
+	}
+
+	host := netutil.StripHostPort(hostPort)
+	if host != "" {
+		// Try first by domain
+		n, tsr = t.lookupByHostname(root, host, path, c, lazy)
+		if n != nil {
+			return n, tsr
+		}
+	}
+
+	// Fallback by path and reset any recorded params and tsrParams
+	*c.params = (*c.params)[:0]
+	c.tsr = false
+
+	return t.lookupByPath(root, path, c, lazy)
 }
 
 func (t *iTree2) lookupByHostname(root *node2, host, path string, c *cTx, lazy bool) (n *node2, tsr bool) {
@@ -287,10 +315,8 @@ Walk:
 			// x := segment
 			// _ = x
 			for i, paramNode := range params {
-				if paramNode.regexp != nil {
-					if !paramNode.regexp.MatchString(segment) {
-						continue
-					}
+				if paramNode.regexp != nil && !paramNode.regexp.MatchString(segment) {
+					continue
 				}
 
 				// Save other params/wildcards for backtracking (only params after current + all wildcards)
