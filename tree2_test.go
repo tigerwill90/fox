@@ -52,8 +52,8 @@ func TestDepth(t *testing.T) {
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar/{baz}", emptyHandler)), modeInsert))
 	assert.NoError(t, txn.insert(http.MethodGet, must(f.NewRoute2("/foo/bar/baz", emptyHandler)), modeInsert))
 	fmt.Println(txn.maxDepth)
-	// txn.truncate([]string{http.MethodPost})
-	// fmt.Println(txn.maxDepth)
+	txn.truncate([]string{http.MethodPost})
+	fmt.Println(txn.maxDepth)
 
 	tree = txn.commit()
 	fmt.Println(tree.root[http.MethodGet])

@@ -1061,16 +1061,15 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 		if current == nil {
 			break
 		}
-
 	}
 
 	return depth
 }
 
-// TODO could be replaced by a iterator in iter package
 func (t *tXn2) slowMax() {
 	type stack struct {
 		edges []*node2
+		depth uint32
 	}
 
 	var stacks []stack
@@ -1100,20 +1099,25 @@ func (t *tXn2) slowMax() {
 				stacks = stacks[:n-1]
 			}
 
+			depth := last.depth
+			if len(elem.params) > 0 || len(elem.wildcards) > 0 {
+				depth = depth + 1
+			}
+
 			if len(elem.statics) > 0 {
-				stacks = append(stacks, stack{edges: elem.statics})
+				stacks = append(stacks, stack{edges: elem.statics, depth: depth})
 			}
 			if len(elem.params) > 0 {
-				stacks = append(stacks, stack{edges: elem.params})
+				stacks = append(stacks, stack{edges: elem.params, depth: depth})
 			}
 			if len(elem.wildcards) > 0 {
-				stacks = append(stacks, stack{edges: elem.wildcards})
+				stacks = append(stacks, stack{edges: elem.wildcards, depth: depth})
 			}
 
 			if elem.isLeaf() {
 				t.size++
 				t.maxParams = max(t.maxParams, elem.route.psLen)
-				t.maxDepth = max(t.maxDepth, t.computePathDepth(root, elem.route.tokens))
+				t.maxDepth = max(t.maxDepth, depth)
 			}
 		}
 	}
