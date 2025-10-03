@@ -1032,9 +1032,11 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 	var depth uint32
 	current := root
 
-	for _, tk := range tokens {
-		depth += uint32(len(current.params) + len(current.wildcards))
+	if len(current.params) > 0 || len(current.wildcards) > 0 {
+		depth++
+	}
 
+	for _, tk := range tokens {
 		switch tk.typ {
 		case nodeStatic:
 			search := tk.value
@@ -1046,6 +1048,9 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 				}
 				search = search[len(child.key):]
 				current = child
+				if len(current.params) > 0 || len(current.wildcards) > 0 {
+					depth++
+				}
 			}
 		case nodeParam:
 			_, current = current.getParamEdge(canonicalKey(tk))
@@ -1056,11 +1061,13 @@ func (t *tXn2) computePathDepth(root *node2, tokens []token) uint32 {
 		if current == nil {
 			break
 		}
+
 	}
 
 	return depth
 }
 
+// TODO could be replaced by a iterator in iter package
 func (t *tXn2) slowMax() {
 	type stack struct {
 		edges []*node2
