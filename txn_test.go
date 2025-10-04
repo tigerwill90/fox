@@ -10,6 +10,7 @@ import (
 	"github.com/tigerwill90/fox/internal/iterutil"
 )
 
+// TODO rework me, and test for individual method with slowMax.
 func TestTxn_Truncate(t *testing.T) {
 	cases := []struct {
 		name   string
