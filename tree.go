@@ -395,7 +395,6 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string) (*node
 			return nil, nil
 		}
 
-		// TODO should check that submitted pattern match this route pattern
 		oldRoute := n.route
 		nc := t.writeNode(n)
 		nc.route = nil
