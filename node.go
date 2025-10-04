@@ -213,7 +213,7 @@ Walk:
 					continue
 				}
 
-				if child.route != nil && strings.HasPrefix(child.key, search) {
+				if !tsr && child.route != nil && strings.HasPrefix(child.key, search) {
 					remaining := child.key[len(search):]
 					if remaining == "/" {
 						tsr = true
