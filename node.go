@@ -119,10 +119,10 @@ Walk:
 				nextChildIx := i + 1
 				if nextChildIx < len(params) {
 					*c.skipStack = append(*c.skipStack, skipNode{
-						node:            current,
-						pathIndex:       charsMatched,
-						paramCnt:        len(*c.params),
-						childParamIndex: nextChildIx + childParamIdx,
+						node:          current,
+						pathIndex:     charsMatched,
+						paramCnt:      len(*c.params),
+						childParamIdx: nextChildIx + childParamIdx,
 					})
 				}
 
@@ -173,7 +173,7 @@ Backtrack:
 
 	skipped := c.skipStack.pop()
 
-	if skipped.childParamIndex < len(skipped.node.params) {
+	if skipped.childParamIdx < len(skipped.node.params) {
 		current = skipped.node
 		*c.params = (*c.params)[:skipped.paramCnt]
 		search = host[skipped.pathIndex:]
@@ -183,7 +183,7 @@ Backtrack:
 
 		charsMatched = skipped.pathIndex
 		skipStatic = true
-		childParamIdx = skipped.childParamIndex
+		childParamIdx = skipped.childParamIdx
 
 		y := childParamIdx
 		_ = y
@@ -270,11 +270,11 @@ Walk:
 			if end == 0 {
 				if len(current.wildcards) > 0 {
 					*c.skipStack = append(*c.skipStack, skipNode{
-						node:            current,
-						parent:          parent,
-						pathIndex:       charsMatched,
-						paramCnt:        len(*c.params),
-						childParamIndex: len(current.params), // Don't visit params again
+						node:          current,
+						parent:        parent,
+						pathIndex:     charsMatched,
+						paramCnt:      len(*c.params),
+						childParamIdx: len(current.params), // Don't visit params again
 					})
 				}
 				goto Backtrack
@@ -292,11 +292,11 @@ Walk:
 				nextChildIx := i + 1
 				if nextChildIx < len(params) || len(current.wildcards) > 0 {
 					*c.skipStack = append(*c.skipStack, skipNode{
-						node:            current,
-						parent:          parent,
-						pathIndex:       charsMatched,
-						paramCnt:        len(*c.params),
-						childParamIndex: nextChildIx + childParamIdx,
+						node:          current,
+						parent:        parent,
+						pathIndex:     charsMatched,
+						paramCnt:      len(*c.params),
+						childParamIdx: nextChildIx + childParamIdx,
 					})
 				}
 
@@ -378,19 +378,18 @@ Walk:
 							return subNode, subTsr
 						}
 
-						/*						// TODO docs
-												// We can record params here because it may be either an ending catch-all node (leaf=/foo/*{args}) with
-												// children, or we may have a tsr opportunity (leaf=/foo/*{args}/ with /foo/x/y/z path). Note that if
-												// there is no tsr opportunity, and skipped nodes > 0, we will truncate the params anyway.
-												if !tsr {
-													if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-														tsr = true
-														n = child
-														if !lazy {
-															copyWithResize(c.tsrParams, c.params)
-														}
-													}
-												}*/
+						// We have fully consumed the matched node
+						if !tsr && len(path[offset:]) > 0 {
+							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
+								tsr = true
+								n = child
+								if !lazy {
+									*c.tsrParams = (*c.tsrParams)[:0]
+									*c.tsrParams = append(*c.tsrParams, path[startPath:])
+								}
+							}
+						}
+
 						break
 					}
 				}
@@ -476,7 +475,7 @@ Backtrack:
 		}
 	}*/
 
-	if !tsr && current.isLeaf() && search == "/" {
+	if !tsr && current.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
 		tsr = true
 		n = current
 		// Save also a copy of the matched params, it should not allocate anything in most case.
@@ -491,7 +490,7 @@ Backtrack:
 
 	skipped := c.skipStack.pop()
 
-	if skipped.childParamIndex < len(skipped.node.params) {
+	if skipped.childParamIdx < len(skipped.node.params) {
 		current = skipped.node
 		parent = skipped.parent
 		// Truncate params that have been recorder
@@ -504,7 +503,7 @@ Backtrack:
 		charsMatched = skipped.pathIndex
 		skipStatic = true
 		// Move to the next params
-		childParamIdx = skipped.childParamIndex
+		childParamIdx = skipped.childParamIdx
 		y := childParamIdx
 		_ = y
 		goto Walk
@@ -522,7 +521,7 @@ Backtrack:
 		// Restore path index
 		charsMatched = skipped.pathIndex
 		// Don't visit params again
-		childParamIdx = skipped.childParamIndex
+		childParamIdx = skipped.childParamIdx
 		// Don't visit statics again
 		skipStatic = true
 		goto Walk
@@ -836,9 +835,9 @@ func (n *skipStack) pop() skipNode {
 }
 
 type skipNode struct {
-	node            *node
-	parent          *node
-	pathIndex       int
-	paramCnt        int
-	childParamIndex int
+	node          *node
+	parent        *node
+	pathIndex     int
+	paramCnt      int
+	childParamIdx int
 }
