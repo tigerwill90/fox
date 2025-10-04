@@ -789,9 +789,9 @@ type token struct {
 	value string
 	// The type of this token: static, param, or wildcard.
 	typ nodeType
-	// True if this token ends at the hostname/path boundary.
+	// True if this token is part of the hostname portion of the route.
 	// Nodes created from tokens with hsplit=true cannot be merged
-	// during deletion to preserve the boundary for lookupByPath optimization.
+	// during deletion to preserve the hostname/path boundary for lookupByPath optimization.
 	// Only relevant for nodeStatic tokens since params and wildcards
 	// are isolated in their own nodes and never merged.
 	hsplit bool
