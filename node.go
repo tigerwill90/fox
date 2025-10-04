@@ -378,7 +378,9 @@ Walk:
 							return subNode, subTsr
 						}
 
-						// We have fully consumed the matched node
+						// We have fully consumed the wildcard node, and may have a tsr opportunity
+						// but only if the remaining portion of the path to match is not empty, in order
+						// to not match
 						if !tsr && len(path[offset:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
 								tsr = true
