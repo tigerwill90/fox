@@ -170,7 +170,6 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // Handle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
-//   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //
@@ -189,7 +188,6 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 
 // HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
-//   - [ErrRouteConflict]: If the route conflicts with another.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //

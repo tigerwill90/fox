@@ -901,6 +901,41 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 	})
 }
 
+// BenchmarkInsert-16    	    9566	    117855 ns/op	  130380 B/op	    2338 allocs/op
+// BenchmarkInsert-16    	   12214	     97886 ns/op	  162061 B/op	    2172 allocs/op
+// BenchmarkInsert-16    	   16977	     69638 ns/op	   57129 B/op	    1574 allocs/op
+// BenchmarkInsert-16    	   14163	     85088 ns/op	   81112 B/op	    1837 allocs/op
+// TODO delete me
+func BenchmarkInsert(b *testing.B) {
+	r, _ := New()
+
+	precomputed := make([]struct {
+		method string
+		route  *Route
+	}, 0, len(staticRoutes))
+	for _, route := range staticRoutes {
+		rte, _ := r.NewRoute(route.path, emptyHandler)
+		precomputed = append(precomputed, struct {
+			method string
+			route  *Route
+		}{method: route.method, route: rte})
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = r.Updates(func(txn *Txn) error {
+			for _, route := range precomputed {
+				_ = txn.HandleRoute(route.method, route.route)
+			}
+			for _, route := range precomputed {
+				_ = txn.HandleRoute(route.method, route.route)
+			}
+			return nil
+		})
+	}
+}
+
 func BenchmarkStaticAll(b *testing.B) {
 	r, _ := New()
 	for _, route := range staticRoutes {
@@ -4158,9 +4193,6 @@ func TestInsertConflict(t *testing.T) {
 					assert.Nil(t, r)
 				}
 				assert.ErrorIsf(t, err, rte.wantErr, "route: %s", rte.path)
-				if cErr, ok := err.(*RouteConflictError); ok {
-					assert.Equal(t, rte.wantMatch, cErr.Matched)
-				}
 			}
 		})
 	}
