@@ -16,18 +16,11 @@ import (
 	"sync/atomic"
 )
 
-const verb = 4
-
 const (
 	slashDelim   byte = '/'
 	dotDelim     byte = '.'
 	bracketDelim byte = '{'
 	starDelim    byte = '*'
-)
-
-var (
-	// commonVerbs define http method for which node are pre instantiated.
-	commonVerbs = [verb]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 )
 
 // HandlerFunc is a function type that responds to an HTTP request.
@@ -184,7 +177,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing handler, use [Router.Update].
 func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	txn := fox.txnWith(true, false)
+	txn := fox.Txn(true)
 	defer txn.Abort()
 	rte, err := txn.Handle(method, pattern, handler, opts...)
 	if err != nil {
@@ -203,7 +196,7 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 // It's safe to add a new route while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.UpdateRoute].
 func (fox *Router) HandleRoute(method string, route *Route) error {
-	txn := fox.txnWith(true, false)
+	txn := fox.Txn(true)
 	defer txn.Abort()
 	if err := txn.HandleRoute(method, route); err != nil {
 		return err
@@ -223,7 +216,7 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 // the router is serving requests. This function is safe for concurrent use by multiple goroutine. To add new handler,
 // use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	txn := fox.txnWith(true, false)
+	txn := fox.Txn(true)
 	defer txn.Abort()
 	rte, err := txn.Update(method, pattern, handler, opts...)
 	if err != nil {
@@ -242,7 +235,7 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To add new route, use [Router.HandleRoute] method.
 func (fox *Router) UpdateRoute(method string, route *Route) error {
-	txn := fox.txnWith(true, false)
+	txn := fox.Txn(true)
 	defer txn.Abort()
 	if err := txn.UpdateRoute(method, route); err != nil {
 		return err
@@ -258,7 +251,7 @@ func (fox *Router) UpdateRoute(method string, route *Route) error {
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
 func (fox *Router) Delete(method, pattern string) (*Route, error) {
-	txn := fox.txnWith(true, false)
+	txn := fox.Txn(true)
 	defer txn.Abort()
 	route, err := txn.Delete(method, pattern)
 	if err != nil {
@@ -279,12 +272,12 @@ func (fox *Router) Has(method, pattern string) bool {
 // mutation on route are ongoing. See also [Router.Has] as an alternative.
 func (fox *Router) Route(method, pattern string) *Route {
 	tree := fox.getRoot()
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
 	n, tsr := tree.lookup(method, host, path, c, true)
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 	if n != nil && !tsr && n.route.pattern == pattern {
 		return n.route
 	}
@@ -298,10 +291,10 @@ func (fox *Router) Route(method, pattern string) *Route {
 // as an alternative.
 func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := fox.getRoot()
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.resetNil()
 	n, tsr := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 	if n != nil {
 		return n.route, tsr
 	}
@@ -315,7 +308,7 @@ func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Reverse] as an alternative.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.getRoot()
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.resetWithWriter(w, r)
 
 	path := r.URL.Path
@@ -330,7 +323,7 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 		c.tsr = tsr
 		return n.route, c, tsr
 	}
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 	return nil, nil, tsr
 }
 
@@ -339,37 +332,7 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	n, endHost, err := fox.parseRoute(pattern)
-	if err != nil {
-		return nil, err
-	}
-
-	rte := &Route{
-		clientip:    fox.clientip,
-		hbase:       handler,
-		pattern:     pattern,
-		mws:         fox.mws,
-		handleSlash: fox.handleSlash,
-		psLen:       n,
-		hostSplit:   endHost, // 0 if no host
-	}
-
-	for _, opt := range opts {
-		if err = opt.applyRoute(sealedOption{route: rte}); err != nil {
-			return nil, err
-		}
-	}
-	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
-
-	return rte, nil
-}
-
-// NewRoute2 create a new [Route], configured with the provided options.
-// If an error occurs, it returns one of the following:
-//   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
-//   - [ErrInvalidConfig]: If the provided route options are invalid.
-func (fox *Router) NewRoute2(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
-	tokens, n, endHost, err := fox.parseRoute2(pattern)
+	tokens, n, endHost, err := fox.parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +385,7 @@ func (fox *Router) Iter() Iter {
 	return Iter{
 		tree:     rt,
 		root:     rt.root,
-		maxDepth: rt.depth,
+		maxDepth: rt.maxDepth,
 	}
 }
 
@@ -482,10 +445,6 @@ func (fox *Router) Stats() RouterInfo {
 // However, the returned [Txn] itself is NOT tread-safe.
 // See also [Router.Updates] and [Router.View] for managed read-write and 	read-only transaction.
 func (fox *Router) Txn(write bool) *Txn {
-	return fox.txnWith(write, true)
-}
-
-func (fox *Router) txnWith(write, cache bool) *Txn {
 	if write {
 		fox.mu.Lock()
 	}
@@ -493,38 +452,15 @@ func (fox *Router) txnWith(write, cache bool) *Txn {
 	return &Txn{
 		fox:     fox,
 		write:   write,
-		rootTxn: fox.getRoot().txn(cache),
+		rootTxn: fox.getRoot().txn(),
 	}
 }
 
-// newTree returns a fresh routing tree that inherits all registered router options.
 func (fox *Router) newTree() *iTree {
 	tree := new(iTree)
 	tree.fox = fox
 
-	// Pre instantiate nodes for common http verb
-	nr := make(roots, len(commonVerbs))
-	for i := range commonVerbs {
-		nr[i] = new(node)
-		nr[i].key = commonVerbs[i]
-		nr[i].paramChildIndex = -1
-		nr[i].wildcardChildIndex = -1
-	}
-	tree.root = nr
-	tree.ctx = sync.Pool{
-		New: func() any {
-			return tree.allocateContext()
-		},
-	}
-
-	return tree
-}
-
-func (fox *Router) newTree2() *iTree2 {
-	tree := new(iTree2)
-	tree.fox = fox
-
-	tree.root = make(map[string]*node2)
+	tree.root = make(map[string]*node)
 	tree.pool = sync.Pool{
 		New: func() any {
 			return tree.allocateContext()
@@ -606,7 +542,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tree := fox.getRoot()
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.reset(w, r)
 
 	n, tsr = tree.lookup(r.Method, r.Host, path, c, false)
@@ -614,7 +550,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.route = n.route
 		c.tsr = tsr
 		n.route.hall(c)
-		tree.ctx.Put(c)
+		tree.pool.Put(c)
 		return
 	}
 
@@ -624,7 +560,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				c.route = n.route
 				c.tsr = tsr
 				n.route.hall(c)
-				tree.ctx.Put(c)
+				tree.pool.Put(c)
 				return
 			}
 
@@ -636,7 +572,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				c.tsr = false
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
-				tree.ctx.Put(c)
+				tree.pool.Put(c)
 				return
 			}
 		}
@@ -647,7 +583,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				c.route = n.route
 				c.tsr = tsr
 				n.route.hall(c)
-				tree.ctx.Put(c)
+				tree.pool.Put(c)
 				return
 			}
 		}
@@ -659,7 +595,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				c.tsr = false
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
-				tree.ctx.Put(c)
+				tree.pool.Put(c)
 				return
 			}
 		}
@@ -678,22 +614,22 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 		if path == "*" {
-			for i := 0; i < len(tree.root); i++ {
-				if tree.root[i].key != http.MethodOptions && len(tree.root[i].children) > 0 {
+			for method := range tree.root {
+				if method != http.MethodOptions {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(tree.root[i].key)
+					sb.WriteString(method)
 				}
 			}
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-			for i := 0; i < len(tree.root); i++ {
-				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
+			for method := range tree.root {
+				if n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(tree.root[i].key)
+					sb.WriteString(method)
 				}
 			}
 		}
@@ -703,7 +639,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = OptionsHandler
 			fox.autoOptions(c)
-			tree.ctx.Put(c)
+			tree.pool.Put(c)
 			return
 		}
 	} else if fox.handleMethodNotAllowed {
@@ -711,16 +647,16 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
 		sb.Grow(min((len(tree.root)+1)*5, 150))
 		hasOptions := false
-		for i := 0; i < len(tree.root); i++ {
-			if tree.root[i].key != r.Method {
-				if n, tsr := tree.lookup(tree.root[i].key, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
+		for method := range tree.root {
+			if method != r.Method {
+				if n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
-					if tree.root[i].key == http.MethodOptions {
+					if method == http.MethodOptions {
 						hasOptions = true
 					}
-					sb.WriteString(tree.root[i].key)
+					sb.WriteString(method)
 				}
 			}
 		}
@@ -732,14 +668,14 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
 			fox.noMethod(c)
-			tree.ctx.Put(c)
+			tree.pool.Put(c)
 			return
 		}
 	}
 
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 }
 
 const (
@@ -750,239 +686,7 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func (fox *Router) parseRoute(url string) (uint32, int, error) {
-
-	endHost := strings.IndexByte(url, '/')
-	if endHost == -1 {
-		return 0, -1, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
-	}
-	if strings.HasPrefix(url, ".") {
-		return 0, -1, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
-	}
-	if strings.HasPrefix(url, "-") {
-		return 0, -1, fmt.Errorf("%w: illegal leading '-' in hostname label", ErrInvalidRoute)
-	}
-
-	var delim byte
-	if endHost == 0 {
-		delim = slashDelim
-	} else {
-		delim = dotDelim
-	}
-
-	state := stateDefault
-	previous := stateDefault
-	paramCnt := uint32(0)
-	countStatic := 0
-	startParam := 0
-	inParam := false
-	nonNumeric := false // true once we've seen a letter or hyphen
-	partlen := 0
-	totallen := 0
-	last := dotDelim
-
-	i := 0
-	for i < len(url) {
-		switch state {
-		case stateParam:
-			if url[i] == '}' {
-				if !inParam {
-					return 0, -1, fmt.Errorf("%w: missing parameter name between '{}'", ErrInvalidRoute)
-				}
-				inParam = false
-
-				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
-					return 0, -1, fmt.Errorf("%w: illegal character '%s' after '{param}'", ErrInvalidRoute, string(url[i+1]))
-				}
-
-				if i < endHost {
-					nonNumeric = true
-				}
-
-				countStatic = 0
-				previous = state
-				state = stateDefault
-				i++
-				continue
-			}
-
-			if i-startParam > int(fox.maxParamKeyBytes) {
-				return 0, -1, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
-			}
-
-			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return 0, -1, fmt.Errorf("%w: illegal character '%s' in '{param}'", ErrInvalidRoute, string(url[i]))
-			}
-			inParam = true
-			i++
-		case stateCatchAll:
-			if url[i] == '}' {
-				if !inParam {
-					return 0, -1, fmt.Errorf("%w: missing parameter name between '*{}'", ErrInvalidRoute)
-				}
-				inParam = false
-
-				if i+1 < len(url) && url[i+1] != '/' {
-					return 0, -1, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
-				}
-
-				if previous == stateCatchAll && countStatic <= 1 {
-					return 0, -1, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
-				}
-
-				countStatic = 0
-				previous = state
-				state = stateDefault
-				i++
-				continue
-			}
-
-			if i-startParam > int(fox.maxParamKeyBytes) {
-				return 0, -1, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
-			}
-
-			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
-				return 0, -1, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
-			}
-			inParam = true
-			i++
-		default:
-
-			if i == endHost {
-				delim = slashDelim
-			}
-
-			switch url[i] {
-			case '{':
-				state = stateParam
-				startParam = i
-				paramCnt++
-			case '*':
-				if i < endHost {
-					return 0, -1, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
-				}
-				state = stateCatchAll
-				i++
-				startParam = i
-				paramCnt++
-			default:
-				countStatic++
-				if i < endHost {
-					c := url[i]
-					switch {
-					case 'a' <= c && c <= 'z' || c == '_':
-						nonNumeric = true
-						partlen++
-					case '0' <= c && c <= '9':
-						// fine
-						partlen++
-					case c == '-':
-						// Byte before dash cannot be dot.
-						if last == '.' {
-							return 0, -1, fmt.Errorf("%w: illegal '-' after '.' in hostname label", ErrInvalidRoute)
-						}
-						partlen++
-						nonNumeric = true
-					case c == '.':
-						// Byte before dot cannot be dot.
-						if last == '.' && url[i-1] != '}' {
-							return 0, -1, fmt.Errorf("%w: unexpected consecutive '.' in hostname", ErrInvalidRoute)
-						}
-						// Byte before dot cannot be dash.
-						if last == '-' {
-							return 0, -1, fmt.Errorf("%w: illegal '-' before '.' in hostname label", ErrInvalidRoute)
-						}
-						if partlen > 63 {
-							return 0, -1, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
-						}
-						totallen += partlen + 1 // +1 count the current dot
-						partlen = 0
-					case 'A' <= c && c <= 'Z':
-						return 0, -1, fmt.Errorf("%w: illegal uppercase character '%s' in hostname label", ErrInvalidRoute, string(c))
-					default:
-						return 0, -1, fmt.Errorf("%w: illegal character '%s' in hostname label", ErrInvalidRoute, string(c))
-					}
-					last = c
-				} else {
-					c := url[i]
-					// reject any ASCII control character.
-					if c < ' ' || c == 0x7f {
-						return 0, -1, fmt.Errorf("%w: illegal control character in path", ErrInvalidRoute)
-					}
-
-					// reject any consecutive slash
-					if i > endHost && c == '/' && url[i-1] == '/' {
-						return 0, -1, fmt.Errorf("%w: illegal consecutive slashes in path", ErrInvalidRoute)
-					}
-
-					// reject dot-based traversal patterns
-					if i > endHost && c == '.' && url[i-1] == '/' {
-						nextIdx := i + 1
-						if nextIdx < len(url) {
-							nextChar := url[nextIdx]
-							switch nextChar {
-							case '/':
-								return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/./'", ErrInvalidRoute)
-							case '.':
-								nextNextIdx := nextIdx + 1
-								if nextNextIdx < len(url) {
-									if url[nextNextIdx] == '/' {
-										return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/../'", ErrInvalidRoute)
-									}
-								} else {
-									return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/..' at end", ErrInvalidRoute)
-								}
-							}
-						} else {
-							return 0, -1, fmt.Errorf("%w: illegal path traversal pattern '/.' at end", ErrInvalidRoute)
-						}
-					}
-				}
-			}
-
-			if paramCnt > uint32(fox.maxParams) {
-				return 0, -1, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyParams)
-			}
-
-			i++
-		}
-	}
-
-	if endHost > 0 {
-		totallen += partlen
-		if last == '-' {
-			return 0, -1, fmt.Errorf("%w: illegal trailing '-' in hostname label", ErrInvalidRoute)
-		}
-		if url[endHost-1] == '.' {
-			return 0, -1, fmt.Errorf("%w: illegal trailing '.' in hostname label", ErrInvalidRoute)
-		}
-		if !nonNumeric {
-			return 0, -1, fmt.Errorf("%w: invalid all numeric hostname", ErrInvalidRoute)
-		}
-		if partlen > 63 {
-			return 0, -1, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
-		}
-		if totallen > 255 {
-			return 0, -1, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
-		}
-	}
-
-	if state == stateParam {
-		return 0, -1, fmt.Errorf("%w: unclosed '{param}'", ErrInvalidRoute)
-	}
-
-	if state == stateCatchAll {
-		if url[len(url)-1] == '*' {
-			return 0, -1, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
-		}
-		return 0, -1, fmt.Errorf("%w: unclosed '*{param}'", ErrInvalidRoute)
-	}
-
-	return paramCnt, endHost, nil
-}
-
-// parseRoute parse and validate the route in a single pass.
-func (fox *Router) parseRoute2(url string) ([]token, uint32, int, error) {
+func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {

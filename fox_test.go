@@ -1620,7 +1620,7 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
 			require.False(t, tsr)
 			require.Nil(t, n)
 		})
@@ -1653,7 +1653,7 @@ func TestRouteWithParams(t *testing.T) {
 	tree := f.getRoot()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		n, tsr := lookupByPath(tree, tree.root[0].children[0], rte, c, false)
+		n, tsr := lookupByPath(tree, tree.root[http.MethodGet], rte, c, false)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
@@ -1693,7 +1693,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
@@ -2165,11 +2165,12 @@ func TestOverlappingRoute(t *testing.T) {
 			tree := f.getRoot()
 
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
 			assert.Equal(t, tc.wantMatch, n.route.pattern)
+			c.route = n.route
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
@@ -2179,10 +2180,11 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			n, tsr = lookupByPath(tree, tree.root[0].children[0], tc.path, c, true)
+			n, tsr = lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
+			c.route = n.route
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.Equal(t, tc.wantMatch, n.route.pattern)
 		})
@@ -3004,10 +3006,11 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			tree := f.getRoot()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
+			c.route = n.route
 			c.tsr = tsr
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
@@ -3332,6 +3335,7 @@ func TestDomainLookup(t *testing.T) {
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
+			c.route = n.route
 			c.tsr = tsr
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
@@ -3665,11 +3669,12 @@ func TestInfixWildcardTsr(t *testing.T) {
 			tree := f.getRoot()
 
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
 			c.tsr = tsr
+			c.route = n.route
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -3806,8 +3811,7 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 			}
 
 			tree := f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			assert.Len(t, tree.root, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -3830,8 +3834,7 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 			}
 
 			tree = f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			assert.Len(t, tree.root, 0)
 		})
 	}
 }
@@ -3997,8 +4000,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			}))
 
 			tree := f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			assert.Len(t, tree.root, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -4031,8 +4033,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			}))
 
 			tree = f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			assert.Len(t, tree.root, 0)
 		})
 	}
 }
@@ -4054,7 +4055,7 @@ func TestInsertConflict(t *testing.T) {
 				wantMatch []string
 			}{
 				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
-				{path: "/john/*{y}", wantErr: ErrRouteConflict, wantMatch: []string{"/john/*{x}"}},
+				{path: "/john/*{y}", wantErr: ErrRouteExist, wantMatch: []string{"/john/*{x}"}},
 				{path: "/john/", wantErr: nil, wantMatch: nil},
 				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
 				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
@@ -4121,29 +4122,29 @@ func TestInsertConflict(t *testing.T) {
 				wantMatch []string
 			}{
 				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
+				{path: "/foo/{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/foo/{id}"}},
 				{path: "/gchq/*{id}", wantErr: nil, wantMatch: nil},
-				{path: "/gchq/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/gchq/*{id}"}},
+				{path: "/gchq/*{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/gchq/*{id}"}},
 				{path: "/foo{id}", wantErr: nil, wantMatch: nil},
 				{path: "/foo/a{id}", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}/baz", wantErr: nil, wantMatch: nil},
 				{path: "/avengers/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
+				{path: "/avengers/{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
 				{path: "/ironman/*{id}/bar", wantErr: nil, wantMatch: nil},
 				{path: "/ironman/*{id}/baz", wantErr: nil, wantMatch: nil},
 				{path: "/ironman/*{id}", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
+				{path: "/ironman/*{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
 				{path: "foo.{bar}/baz", wantErr: nil, wantMatch: nil},
 				{path: "foo.{bar}.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.{baz}/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/baz"}},
+				{path: "foo.{baz}/baz", wantErr: ErrRouteExist, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/baz"}},
 				{path: "foo.ab{bar}.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.ab{x}.com/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.ab{bar}.com/baz"}},
+				{path: "foo.ab{x}.com/baz", wantErr: ErrRouteExist, wantMatch: []string{"foo.ab{bar}.com/baz"}},
 				{path: "foo.{bar}/", wantErr: nil, wantMatch: nil},
-				{path: "foo.{yyy}/", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/", "foo.{bar}/baz"}},
+				{path: "foo.{yyy}/", wantErr: ErrRouteExist, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/", "foo.{bar}/baz"}},
 				{path: "{foo}.bar/baz", wantErr: nil, wantMatch: nil},
 				{path: "{foo}.bar.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "{baz}.bar/baz", wantErr: ErrRouteConflict, wantMatch: []string{"{foo}.bar.com/baz", "{foo}.bar/baz"}},
+				{path: "{baz}.bar/baz", wantErr: ErrRouteExist, wantMatch: []string{"{foo}.bar.com/baz", "{foo}.bar/baz"}},
 			},
 		},
 	}
@@ -4307,6 +4308,7 @@ func TestUpdateRoute(t *testing.T) {
 	}
 }
 
+// TODO good luck
 func TestParseRoute(t *testing.T) {
 	f, _ := New()
 	cases := []struct {
@@ -4852,7 +4854,7 @@ func TestParseRoute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, _, err := f.parseRoute(tc.path)
+			_, n, _, err := f.parseRoute(tc.path)
 			fmt.Println(err)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
@@ -4863,26 +4865,26 @@ func TestParseRoute(t *testing.T) {
 func TestParseRouteParamsConstraint(t *testing.T) {
 	t.Run("param limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParams(3))
-		_, _, err := f.parseRoute("/{1}/{2}/{3}")
+		_, _, _, err := f.parseRoute("/{1}/{2}/{3}")
 		assert.NoError(t, err)
-		_, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
+		_, _, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
+		_, _, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
 		assert.Error(t, err)
 	})
 	t.Run("param key limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParamKeyBytes(3))
-		_, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
+		_, _, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
 		assert.NoError(t, err)
-		_, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
+		_, _, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
+		_, _, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
+		_, _, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
+		_, _, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
+		_, _, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
 		assert.Error(t, err)
 	})
 }
@@ -4894,7 +4896,7 @@ func TestParseRouteMalloc(t *testing.T) {
 		err error
 	)
 	allocs := testing.AllocsPerRun(100, func() {
-		n, _, err = f.parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
+		_, n, _, err = f.parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
 	})
 	assert.Equal(t, float64(0), allocs)
 	assert.NoError(t, err)
@@ -4982,7 +4984,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			tree := f.getRoot()
 			c := newTestContext(f)
-			n, got := lookupByPath(tree, tree.root[0].children[0], tc.key, c, true)
+			n, got := lookupByPath(tree, tree.root[http.MethodGet], tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -5783,7 +5785,7 @@ func TestTree_Delete(t *testing.T) {
 
 	tree := f.getRoot()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 4, len(tree.root))
+	assert.Equal(t, 0, len(tree.root))
 }
 
 func TestTree_DeleteTxn(t *testing.T) {
@@ -5813,7 +5815,7 @@ func TestTree_DeleteTxn(t *testing.T) {
 
 	tree := f.getRoot()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 4, len(tree.root))
+	assert.Equal(t, 0, len(tree.root))
 }
 
 func TestTree_DeleteRoot(t *testing.T) {
@@ -5823,13 +5825,13 @@ func TestTree_DeleteRoot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "/foo/bar", deletedRoute.Pattern())
 	tree := f.getRoot()
-	assert.Equal(t, 4, len(tree.root))
+	assert.Equal(t, 0, len(tree.root))
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "exemple.com/foo/bar", emptyHandler)))
 	deletedRoute, err = f.Delete(http.MethodOptions, "exemple.com/foo/bar")
 	require.NoError(t, err)
 	assert.Equal(t, "exemple.com/foo/bar", deletedRoute.Pattern())
 	tree = f.getRoot()
-	assert.Equal(t, 4, len(tree.root))
+	assert.Equal(t, 0, len(tree.root))
 }
 
 func TestRouter_DeleteError(t *testing.T) {
@@ -5870,7 +5872,7 @@ func TestRouter_UpdatesError(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, wantErr)
 	tree := f.getRoot()
-	assert.Len(t, tree.root[0].children, 0)
+	assert.Len(t, tree.root, 0)
 }
 
 func TestRouter_UpdatesPanic(t *testing.T) {
@@ -5888,7 +5890,7 @@ func TestRouter_UpdatesPanic(t *testing.T) {
 	})
 
 	tree := f.getRoot()
-	assert.Len(t, tree.root[0].children, 0)
+	assert.Len(t, tree.root, 0)
 }
 
 func TestTree_DeleteWildcard(t *testing.T) {
@@ -5945,7 +5947,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		name    string
 		target  string
 		path    string
-		want    string
+		want    []string
 		methods []string
 	}{
 		{
@@ -5953,22 +5955,30 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead},
 			path:    "/foo/bar",
 			target:  http.MethodTrace,
-			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
 		},
 		{
 			name:    "all route except the first one",
 			methods: []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace},
 			path:    "/foo/baz",
 			target:  http.MethodGet,
-			want:    "POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD, TRACE",
+			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
 		{
 			name:    "all route except patch and delete",
 			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace},
 			path:    "/test",
 			target:  http.MethodPatch,
-			want:    "GET, POST, PUT, CONNECT, OPTIONS, HEAD, TRACE",
+			want:    []string{"GET", "POST", "PUT", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	rf := f.Stats()
@@ -5982,7 +5992,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6019,7 +6029,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 		target  string
 		path    string
 		req     string
-		want    string
+		want    []string
 		methods []string
 	}{
 		{
@@ -6028,7 +6038,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 			path:    "/foo/bar/",
 			req:     "/foo/bar",
 			target:  http.MethodTrace,
-			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
 		},
 		{
 			name:    "all route except the first one",
@@ -6036,8 +6046,16 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 			path:    "/foo/baz",
 			req:     "/foo/baz/",
 			target:  http.MethodGet,
-			want:    "POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD, TRACE",
+			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6049,7 +6067,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6063,7 +6081,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 		target  string
 		path    string
 		req     string
-		want    string
+		want    []string
 		methods []string
 	}{
 		{
@@ -6072,7 +6090,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 			path:    "/foo/bar",
 			req:     "/foo/bar",
 			target:  http.MethodTrace,
-			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
 		},
 		{
 			name:    "all route except the first one and inferred options from auto options",
@@ -6080,8 +6098,16 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 			path:    "/foo/baz/",
 			req:     "/foo/baz/",
 			target:  http.MethodGet,
-			want:    "POST, PUT, DELETE, PATCH, CONNECT, HEAD, TRACE, OPTIONS",
+			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "HEAD", "TRACE", "OPTIONS"},
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6093,7 +6119,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6164,7 +6190,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		name     string
 		target   string
 		path     string
-		want     string
+		want     []string
 		wantCode int
 		methods  []string
 	}{
@@ -6173,7 +6199,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6181,7 +6207,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6194,7 +6220,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6202,7 +6228,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, OPTIONS, PUT, TRACE",
+			want:     []string{"GET", "OPTIONS", "PUT", "TRACE"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -6212,6 +6238,17 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			methods:  []string{"GET", "TRACE", "PUT"},
 			wantCode: http.StatusNotFound,
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6229,7 +6266,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6239,7 +6276,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 		name     string
 		target   string
 		path     string
-		want     string
+		want     []string
 		wantCode int
 		methods  []string
 	}{
@@ -6248,7 +6285,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6256,7 +6293,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6269,7 +6306,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "/foo/",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6277,7 +6314,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo/",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, OPTIONS, PUT, TRACE",
+			want:     []string{"GET", "OPTIONS", "PUT", "TRACE"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -6287,6 +6324,17 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			methods:  []string{"GET", "TRACE", "PUT"},
 			wantCode: http.StatusNotFound,
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6302,7 +6350,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6362,8 +6410,20 @@ func TestRouterWithOptionsHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/foo/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
+	}
+
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.Equal(t, "GET, POST, OPTIONS", w.Header().Get("Allow"))
+	assert.ElementsMatch(t, []string{"GET", "POST", "OPTIONS"}, parseAllowHeader(w.Header().Get("Allow")))
 	f, err = New(WithOptionsHandler(nil))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
@@ -6870,147 +6930,31 @@ func TestEncodedPath(t *testing.T) {
 	assert.Equal(t, encodedPath, w.Body.String())
 }
 
-func TestEqualASCIIIgnoreCase(t *testing.T) {
-	tests := []struct {
-		name string
-		s    uint8
-		t    uint8
-		want bool
-	}{
-		// Exact matches
-		{"same lowercase letter", 'a', 'a', true},
-		{"same uppercase letter", 'A', 'A', true},
-		{"same digit", '5', '5', true},
-		{"same hyphen", '-', '-', true},
-
-		// Case-insensitive letter matches
-		{"A and a", 'A', 'a', true},
-		{"a and A", 'a', 'A', true},
-		{"Z and z", 'Z', 'z', true},
-		{"z and Z", 'z', 'Z', true},
-		{"M and m", 'M', 'm', true},
-		{"m and M", 'm', 'M', true},
-
-		// Different letters (should not match)
-		{"A and B", 'A', 'B', false},
-		{"a and b", 'a', 'b', false},
-		{"A and b", 'A', 'b', false},
-		{"a and B", 'a', 'B', false},
-
-		// Digits (only match exactly)
-		{"0 and 0", '0', '0', true},
-		{"9 and 9", '9', '9', true},
-		{"0 and 1", '0', '1', false},
-		{"5 and 6", '5', '6', false},
-
-		// Hyphen (only matches exactly)
-		{"hyphen and hyphen", '-', '-', true},
-		{"hyphen and A", '-', 'A', false},
-		{"hyphen and a", '-', 'a', false},
-		{"hyphen and 0", '-', '0', false},
-
-		// Characters just outside letter ranges
-		{"@ and A", '@', 'A', false},
-		{"Z and [", 'Z', '[', false},
-		{"` and a", '`', 'a', false},
-		{"z and {", 'z', '{', false},
-
-		// Special characters and control chars
-		{"null and A", 0, 'A', false},
-		{"A and null", 'A', 0, false},
-		{"space and A", ' ', 'A', false},
-		{"A and space", 'A', ' ', false},
-		{"! and A", '!', 'A', false},
-		{"A and !", 'A', '!', false},
-		{"/ and A", '/', 'A', false},
-		{"A and /", 'A', '/', false},
-
-		// High ASCII values
-		{"high byte and A", 0xFF, 'A', false},
-		{"A and high byte", 'A', 0xFF, false},
-		{"high byte and a", 0xFF, 'a', false},
-		{"a and high byte", 'a', 0xFF, false},
-
-		// Case difference edge cases
-		{"@ and `", '@', '`', false},
-		{"0 and P", '0', 'P', false},
-
-		// Boundary cases for the letter ranges
-		{"A-1 and a", 'A' - 1, 'a', false},
-		{"Z+1 and z", 'Z' + 1, 'z', false},
-		{"a-1 and A", 'a' - 1, 'A', false},
-		{"z+1 and Z", 'z' + 1, 'Z', false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := equalASCIIIgnoreCase(tt.s, tt.t); got != tt.want {
-				t.Errorf("equalASCIIIgnoreCase(%c=%d, %c=%d) = %v, want %v",
-					tt.s, tt.s, tt.t, tt.t, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestFuzzInsertLookupParam(t *testing.T) {
-	// no '*', '{}' and '/' and invalid escape char
-	unicodeRanges := fuzz.UnicodeRanges{
-		{First: 0x20, Last: 0x29},
-		{First: 0x2B, Last: 0x2E},
-		{First: 0x30, Last: 0x7A},
-		{First: 0x7C, Last: 0x7C},
-		{First: 0x7E, Last: 0x04FF},
-	}
-
-	r, _ := New()
-	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
-	routeFormat := "/%s/{%s}/%s/{%s}/{%s}"
-	reqFormat := "/%s/%s/%s/%s/%s"
-	for i := 0; i < 2000; i++ {
-		var s1, e1, s2, e2, e3 string
-		f.Fuzz(&s1)
-		f.Fuzz(&e1)
-		f.Fuzz(&s2)
-		f.Fuzz(&e2)
-		f.Fuzz(&e3)
-		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
-			continue
-		}
-		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
-		tree := r.getRoot()
-		txn := tree.txn(true)
-		if err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler, psLen: 3}); err == nil {
-			c := newTestContext(r)
-			n, tsr := lookupByPath(tree, txn.root[0].children[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
-			require.NotNil(t, n)
-			require.NotNil(t, n.route)
-			assert.False(t, tsr)
-			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.route.pattern)
-			assert.Equal(t, "xxxx", c.Param(e1))
-			assert.Equal(t, "xxxx", c.Param(e2))
-			assert.Equal(t, "xxxx", c.Param(e3))
-		}
-	}
-}
-
 func TestFuzzInsertNoPanics(t *testing.T) {
-	f := fuzz.New().NilChance(0).NumElements(5000, 10000)
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x6FF},
+	}
+	f := fuzz.New().NilChance(0).NumElements(1000000, 2000000).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	r, _ := New()
 
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
-	tree := r.getRoot()
-	txn := tree.txn(true)
-
-	for rte := range routes {
-		if rte == "" {
-			continue
+	_ = r.Updates(func(txn *Txn) error {
+		for rte := range routes {
+			if rte == "" {
+				continue
+			}
+			require.NotPanicsf(t, func() {
+				route, _ := txn.Handle(http.MethodGet, rte, emptyHandler)
+				if route != nil {
+					fmt.Println(route)
+				}
+			}, fmt.Sprintf("rte: %s", rte))
 		}
-		require.NotPanicsf(t, func() {
-			_ = txn.insert(http.MethodGet, &Route{pattern: rte, hself: emptyHandler, hostSplit: max(0, strings.IndexByte(rte, '/'))})
-		}, fmt.Sprintf("rte: %s", rte))
-	}
+		return nil
+	})
+
 }
 
 func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
@@ -7022,47 +6966,43 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 		{First: 0x7E, Last: 0x04FF},
 	}
 
-	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	f := fuzz.New().NilChance(0).NumElements(100000, 200000).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	r, _ := New()
 
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
-	tree := r.getRoot()
-	txn := tree.txn(true)
-	for rte := range routes {
-		path := "/" + rte
-		err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler})
-		require.NoError(t, err)
-	}
-	r.tree.Store(txn.commit())
+	inserted := 0
+	_ = r.Updates(func(txn *Txn) error {
+		for rte := range routes {
+			rte, err := txn.Handle(http.MethodGet, "/"+rte, emptyHandler)
+			if err != nil {
+				assert.Nil(t, rte, "route /%s", rte)
+				continue
+			}
+			assert.NotNilf(t, rte, "route /%s", rte)
+			inserted++
+		}
+		return nil
+	})
 
 	it := r.Iter()
 	countPath := len(slices.Collect(iterutil.Right(it.All())))
-	assert.Equal(t, len(routes), countPath)
+	assert.Equal(t, inserted, countPath)
 
-	tree = r.getRoot()
-	txn = tree.txn(true)
-	for rte := range routes {
-		c := newTestContext(r)
-		n, tsr := lookupByPath(tree, tree.root[0].children[0], "/"+rte, c, true)
-		require.NotNilf(t, n, "route /%s", rte)
-		require.NotNilf(t, n.route, "route /%s", rte)
-		require.Falsef(t, tsr, "tsr: %t", tsr)
-		require.Truef(t, n.isLeaf(), "route /%s", rte)
-		require.Equal(t, "/"+rte, n.route.pattern)
-		path := "/" + rte
-		require.NoError(t, txn.update(http.MethodGet, &Route{pattern: path, hself: emptyHandler}))
+	for method, route := range r.Iter().All() {
+		found := r.Route(method, route.Pattern())
+		require.NotNilf(t, found, "route /%s", route.Pattern())
 	}
 
-	for rte := range routes {
-		n, deleted := txn.remove(http.MethodGet, "/"+rte)
-		require.True(t, deleted)
-		require.NotNil(t, n)
-		require.NotNil(t, n.route)
-		assert.Equal(t, "/"+rte, n.route.pattern)
-	}
-	r.tree.Store(txn.commit())
+	_ = r.Updates(func(txn *Txn) error {
+		for method, route := range r.Iter().All() {
+			rte, err := txn.Delete(method, route.Pattern())
+			assert.NoErrorf(t, err, "route /%s", route.Pattern())
+			assert.NotNil(t, rte, "route /%s", route.Pattern())
+		}
+		return nil
+	})
 
 	it = r.Iter()
 	countPath = len(slices.Collect(iterutil.Right(it.All())))
@@ -7156,7 +7096,9 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	// With a pair number of iteration, we should always delete all domains
 	tree := f.getRoot()
 	for _, n := range tree.root {
-		assert.Len(t, n.children, 1)
+		assert.Len(t, n.statics, 1)
+		assert.Len(t, n.params, 0)
+		assert.Len(t, n.wildcards, 0)
 	}
 
 }
@@ -7324,19 +7266,11 @@ func TestNode_String(t *testing.T) {
 	tree := f.getRoot()
 
 	want := `path: GET
-      path: /foo/{bar}/*{baz} [leaf=/foo/{bar}/*{baz}] [bar (10), baz (-1)]`
-	assert.Equal(t, want, strings.TrimSuffix(tree.root[0].String(), "\n"))
-}
-
-func TestNode_Debug(t *testing.T) {
-	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/*{any}/bar", emptyHandler)))
-	tree := f.getRoot()
-
-	want := `path: GET
-      path: /foo/*{any}/bar [leaf=/foo/*{any}/bar] [any (11)]
-             inode: /bar`
-	assert.Equal(t, want, strings.TrimSuffix(tree.root[0].Debug(), "\n"))
+      path: /foo/ [params: 1]
+          path: ?
+              path: / [wildcards: 1]
+                  path: * [leaf=/foo/{bar}/*{baz}]`
+	assert.Equal(t, want, strings.TrimSuffix(tree.root[http.MethodGet].String(), "\n"))
 }
 
 // This example demonstrates how to create a simple router using the default options,

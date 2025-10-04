@@ -45,7 +45,7 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 		return nil, err
 	}
 
-	if err = txn.rootTxn.insert(method, rte); err != nil {
+	if err = txn.rootTxn.insert(method, rte, modeInsert); err != nil {
 		return nil, err
 	}
 	return rte, nil
@@ -75,7 +75,7 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 		return fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
-	return txn.rootTxn.insert(method, route)
+	return txn.rootTxn.insert(method, route, modeInsert)
 }
 
 // Update override an existing route for the given method and pattern. On success, it returns the newly registered [Route].
@@ -110,7 +110,7 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 		return nil, err
 	}
 
-	if err = txn.rootTxn.update(method, rte); err != nil {
+	if err = txn.rootTxn.insert(method, rte, modeUpdate); err != nil {
 		return nil, err
 	}
 
@@ -141,7 +141,7 @@ func (txn *Txn) UpdateRoute(method string, route *Route) error {
 		return fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
-	return txn.rootTxn.update(method, route)
+	return txn.rootTxn.insert(method, route, modeUpdate)
 }
 
 // Delete deletes an existing route for the given method and pattern. On success, it returns the deleted [Route].
@@ -164,17 +164,17 @@ func (txn *Txn) Delete(method, pattern string) (*Route, error) {
 		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
-	_, _, err := txn.fox.parseRoute(pattern)
+	tokens, _, _, err := txn.fox.parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	n, deleted := txn.rootTxn.remove(method, pattern)
+	route, deleted := txn.rootTxn.delete(method, tokens, pattern)
 	if !deleted {
 		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
 	}
 
-	return n.route, nil
+	return route, nil
 }
 
 // Truncate remove all routes for the provided methods. If no methods are provided,
@@ -210,12 +210,12 @@ func (txn *Txn) Route(method, pattern string) *Route {
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
 	n, tsr := txn.rootTxn.root.lookup(tree, method, host, path, c, true)
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 	if n != nil && !tsr && n.route.pattern == pattern {
 		return n.route
 	}
@@ -232,10 +232,10 @@ func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.resetNil()
 	n, tsr := txn.rootTxn.root.lookup(tree, method, host, path, c, true)
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 	if n != nil {
 		return n.route, tsr
 	}
@@ -253,7 +253,7 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.ctx.Get().(*cTx)
+	c := tree.pool.Get().(*cTx)
 	c.resetWithWriter(w, r)
 
 	path := r.URL.Path
@@ -268,7 +268,7 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 		c.tsr = tsr
 		return n.route, c, tsr
 	}
-	tree.ctx.Put(c)
+	tree.pool.Put(c)
 	return nil, nil, tsr
 }
 
@@ -289,7 +289,7 @@ func (txn *Txn) Iter() Iter {
 	return Iter{
 		tree:     txn.rootTxn.tree,
 		root:     rt,
-		maxDepth: txn.rootTxn.depth,
+		maxDepth: txn.rootTxn.maxDepth,
 	}
 }
 

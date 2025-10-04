@@ -175,6 +175,7 @@ func WithMaxRouteParams(max uint16) GlobalOption {
 
 // WithMaxRouteParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
 // math.MaxUint16.
+// TODO this madness
 func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.maxParamKeyBytes = max

@@ -104,15 +104,11 @@ type Context interface {
 type cTx struct {
 	w           ResponseWriter
 	req         *http.Request
-	params      *Params
-	tsrParams   *Params
-	params2     *[]string
-	tsrParams2  *[]string
-	skipNds     *skippedNodes
+	params      *[]string
+	tsrParams   *[]string
 	skipStack   *skipStack
 	route       *Route
-	tree        *iTree // no reset
-	tree2       *iTree2
+	tree2       *iTree
 	fox         *Router // no reset
 	cachedQuery url.Values
 	rec         recorder
@@ -211,15 +207,15 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 func (c *cTx) Params() iter.Seq[Param] {
 	return func(yield func(Param) bool) {
 		if c.tsr {
-			for _, p := range *c.tsrParams {
-				if !yield(p) {
+			for i, p := range *c.tsrParams {
+				if !yield(Param{Key: c.route.params[i], Value: p}) {
 					return
 				}
 			}
 			return
 		}
-		for _, p := range *c.params {
-			if !yield(p) {
+		for i, p := range *c.params {
+			if !yield(Param{Key: c.route.params[i], Value: p}) {
 				return
 			}
 		}
@@ -230,16 +226,18 @@ func (c *cTx) Params() iter.Seq[Param] {
 func (c *cTx) Param(name string) string {
 	if c.tsr {
 		for i := range *c.tsrParams {
-			if (*c.tsrParams)[i].Key == name {
-				return (*c.tsrParams)[i].Value
+			key := c.route.params[i]
+			if key == name {
+				return (*c.tsrParams)[i]
 			}
 		}
 		return ""
 	}
 
 	for i := range *c.params {
-		if (*c.params)[i].Key == name {
-			return (*c.params)[i].Value
+		key := c.route.params[i]
+		if key == name {
+			return (*c.params)[i]
 		}
 	}
 	return ""
@@ -357,11 +355,11 @@ func (c *cTx) Clone() Context {
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
 	cp.w = noUnwrap{&cp.rec}
 	if !c.tsr {
-		params := make(Params, len(*c.params))
+		params := make([]string, len(*c.params))
 		copy(params, *c.params)
 		cp.params = &params
 	} else {
-		tsrParams := make(Params, len(*c.tsrParams))
+		tsrParams := make([]string, len(*c.tsrParams))
 		copy(tsrParams, *c.tsrParams)
 		cp.tsrParams = &tsrParams
 	}
@@ -375,7 +373,7 @@ func (c *cTx) Clone() Context {
 // be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
 // their custom [ResponseWriter] while preserving the state of the original [Context].
 func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
-	cp := c.tree.ctx.Get().(*cTx)
+	cp := c.tree2.pool.Get().(*cTx)
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
@@ -411,7 +409,7 @@ func (c *cTx) Scope() HandlerScope {
 
 // Close releases the context to be reused later.
 func (c *cTx) Close() {
-	c.tree.ctx.Put(c)
+	c.tree2.pool.Put(c)
 }
 
 func (c *cTx) getQueries() url.Values {

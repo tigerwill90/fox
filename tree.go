@@ -1,774 +1,798 @@
-// Copyright 2022 Sylvain Müller. All rights reserved.
-// Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
-
 package fox
 
 import (
 	"fmt"
+	"maps"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/tigerwill90/fox/internal/simplelru"
 )
 
-const defaultModifiedCache = 4096
+const defaultModifiedCache2 = 4096
 
-// iTree implements an immutable Radix Tree. The immutability means that it is safe to
-// concurrently read from a tree without any coordination.
 type iTree struct {
-	ctx       sync.Pool
+	pool      sync.Pool
 	fox       *Router
-	root      roots
+	root      root
 	size      int
 	maxParams uint32
-	depth     uint32
+	maxDepth  uint32
 }
 
-func (t *iTree) txn(cache bool) *tXn {
+func (t *iTree) txn() *tXn {
 	return &tXn{
 		tree:      t,
 		root:      t.root,
 		size:      t.size,
 		maxParams: t.maxParams,
-		depth:     t.depth,
-		cache:     cache,
+		maxDepth:  t.maxDepth,
 	}
 }
 
-// lookup  returns the node matching the host and/or path. If lazy is false, it parses and record into c, path segment according to
-// the route definition. In case of indirect match, tsr is true and n != nil.
 func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
 	return t.root.lookup(t, method, hostPort, path, c, lazy)
 }
 
-// tXn is a transaction on the tree. This transaction is applied
-// atomically and returns a new tree when committed. A transaction
-// is not thread safe, and should only be used by a single goroutine.
+func (t *iTree) allocateContext() *cTx {
+	params := make([]string, 0, t.maxParams)
+	tsrParams := make([]string, 0, t.maxParams)
+	skipStack := make(skipStack, 0, t.maxDepth)
+	return &cTx{
+		params:    &params,
+		tsrParams: &tsrParams,
+		skipStack: &skipStack,
+		// This is a read only value, no reset. It's always the
+		// owner of the pool.
+		tree2: t,
+		// This is a read only value, no reset
+		fox: t.fox,
+	}
+}
+
 type tXn struct {
 	tree      *iTree
-	writable  *simplelru.LRU[*node, any]
-	root      roots
+	writable  *simplelru.LRU[*node, struct{}]
+	root      root
+	method    string
 	size      int
 	maxParams uint32
-	depth     uint32
-	cache     bool
+	maxDepth  uint32
+	forked    bool
+	mode      insertMode
 }
 
 func (t *tXn) commit() *iTree {
-	nt := &iTree{
+	tc := &iTree{
 		root:      t.root,
 		fox:       t.tree.fox,
 		size:      t.size,
 		maxParams: t.maxParams,
-		depth:     t.depth,
+		maxDepth:  t.maxDepth,
 	}
-	nt.ctx = sync.Pool{
+	tc.pool = sync.Pool{
 		New: func() any {
-			return nt.allocateContext()
+			return tc.allocateContext()
 		},
 	}
 	t.writable = nil
-	return nt
+	// t.forked = false // TODO verify
+	return tc
 }
 
 // clone capture a point-in-time clone of the transaction. The cloned transaction will contain
 // any uncommited writes in the original transaction but further mutations to either will be independent and result
 // in different tree on commit.
 func (t *tXn) clone() *tXn {
-	// reset the writable node cache to avoid leaking future writes into the clone
 	t.writable = nil
+	t.forked = false
 	tx := &tXn{
 		tree:      t.tree,
 		root:      t.root,
 		size:      t.size,
 		maxParams: t.maxParams,
-		depth:     t.depth,
+		maxDepth:  t.maxDepth,
 	}
 	return tx
 }
 
 // snapshot capture a point-in-time snapshot of the roots tree. Further mutation to txn
 // will not be reflected on the snapshot.
-func (t *tXn) snapshot() roots {
+func (t *tXn) snapshot() map[string]*node {
 	t.writable = nil
+	t.forked = false
 	return t.root
 }
 
-// copyOnWriteSearch find the node that match the provided path. It clones from the root
-// every node visited for the first time, except the matching one.
-func (t *tXn) copyOnWriteSearch(rootNode *node, path string) searchResult {
+// insert performs a recursive copy-on-write insertion of a route into the tree.
+// It uses path copying to create a new tree version: only nodes along the path
+// from root to the insertion point are cloned, while unmodified subtrees are
+// shared with the previous version. This enables lock-free concurrent reads
+// against the old root while the new version is being constructed.
+//
+// The insertion proceeds in two phases:
+// 1. Descend: traverse the tree (read-only) to find the insertion point
+// 2. Ascend: clone and modify nodes along the path during stack unwinding
+//
+// Upon successful insertion, the transaction's root is updated to point to the
+// new tree version.
+func (t *tXn) insert(method string, route *Route, mode insertMode) error {
+	root := t.root[method]
+	if root == nil {
+		if t.mode == modeUpdate {
+			return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, route.pattern)
+		}
+		root = &node{
+			key: method,
+		}
+	}
+
+	t.mode = mode
+	t.method = method
+
+	newRoot, err := t.insertTokens(root, route.tokens, route)
+	if err != nil {
+		return err
+	}
+	if newRoot != nil {
+		if !t.forked {
+			t.root = maps.Clone(t.root)
+			t.forked = true
+		}
+		t.root[method] = newRoot
+		t.maxDepth = max(t.maxDepth, t.computePathDepth(newRoot, route.tokens))
+		t.maxParams = max(t.maxParams, route.psLen)
+		t.size++
+	}
+	return nil
+}
+
+func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error) {
+
+	// Base case: no tokens left, attach route
+	if len(tokens) == 0 {
+		if t.mode == modeInsert && n.isLeaf() {
+			return nil, fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, t.method, route.pattern, n.route.pattern)
+		}
+		if t.mode == modeUpdate && (!n.isLeaf() || n.route.pattern != route.pattern) {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		nc := t.writeNode(n)
+		nc.route = route
+		return nc, nil
+	}
+
+	// TODO tokenize in place
+	tk := tokens[0]
+	remaining := tokens[1:]
+
+	switch tk.typ {
+	case nodeStatic:
+		return t.insertStatic(n, tk, remaining, route)
+	case nodeParam:
+		return t.insertParam(n, tk, remaining, route)
+	case nodeWildcard:
+		return t.insertWildcard(n, tk, remaining, route)
+	default:
+		panic("internal error: unknown token type")
+	}
+}
+
+func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (*node, error) {
+	search := tk.value
+
+	if len(search) == 0 {
+		return t.insertTokens(n, remaining, route)
+	}
+
+	idx, child := n.getStaticEdge(search[0])
+	if child == nil {
+		if t.mode == modeUpdate {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		newChild, err := t.insertTokens(
+			&node{
+				label: search[0],
+				key:   search,
+				host:  tk.hsplit,
+			},
+			remaining,
+			route,
+		)
+		if err != nil {
+			return nil, err
+		}
+		nc := t.writeNode(n)
+		nc.addStaticEdge(newChild)
+		return nc, nil
+	}
+
+	commonPrefix := longestPrefix(search, child.key)
+	if commonPrefix == len(child.key) {
+		search = search[commonPrefix:]
+		// TODO check if len(search) > 0 is probably a optimization
+		remaining = append([]token{{typ: nodeStatic, value: search, hsplit: tk.hsplit}}, remaining...)
+		// e.g. child /foo and want insert /fooo, insert "o"
+		newChild, err := t.insertTokens(child, remaining, route)
+		if err != nil {
+			return nil, err
+		}
+		nc := t.writeNode(n)
+		nc.statics[idx] = newChild
+		return nc, nil
+	}
+
+	if t.mode == modeUpdate {
+		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+	}
+
+	nc := t.writeNode(n)
+	splitNode := &node{
+		label: search[0],
+		key:   search[:commonPrefix],
+		host:  tk.hsplit,
+	}
+	nc.replaceStaticEdge(splitNode)
+
+	modChild := t.writeNode(child)
+	modChild.label = modChild.key[commonPrefix]
+	modChild.key = modChild.key[commonPrefix:]
+	splitNode.addStaticEdge(modChild)
+
+	search = search[commonPrefix:]
+	if len(search) == 0 {
+		// e.g. we have /foo and want to insert /fo,
+		// we first split /foo into /fo, o and then fo <- get the new route
+		// splitNode.route = route // SHOULD not need this
+		if len(remaining) > 0 {
+			newSplitNode, err := t.insertTokens(splitNode, remaining, route)
+			if err != nil {
+				return nil, err
+			}
+			nc.replaceStaticEdge(newSplitNode)
+			return nc, nil
+		}
+		splitNode.route = route
+		return nc, nil
+	}
+	// e.g. we have /foo and want to insert /fob
+	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
+
+	newChild, err := t.insertTokens(
+		&node{
+			label: search[0],
+			key:   search,
+			host:  tk.hsplit,
+		},
+		remaining,
+		route,
+	)
+	if err != nil {
+		return nil, err
+	}
+	splitNode.addStaticEdge(newChild)
+	return nc, nil
+}
+
+func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*node, error) {
+	key := canonicalKey(tk)
+	idx, child := n.getParamEdge(key)
+	if child == nil {
+		if t.mode == modeUpdate {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		newChild, err := t.insertTokens(
+			&node{
+				key:    key,
+				regexp: tk.regexp,
+			},
+			remaining,
+			route,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		nc := t.writeNode(n)
+		nc.addParamEdge(newChild)
+		return nc, nil
+	}
+
+	newChild, err := t.insertTokens(child, remaining, route)
+	if err != nil {
+		return nil, err
+	}
+
+	nc := t.writeNode(n)
+	nc.params[idx] = newChild
+	return nc, nil
+}
+
+func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route) (*node, error) {
+	key := canonicalKey(tk)
+	idx, child := n.getWildcardEdge(key)
+	if child == nil {
+		if t.mode == modeUpdate {
+			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		}
+
+		newChild, err := t.insertTokens(
+			&node{
+				key:    key,
+				regexp: tk.regexp,
+			},
+			remaining,
+			route,
+		)
+		if err != nil {
+			return nil, err
+		}
+		nc := t.writeNode(n)
+		nc.addWildcardEdge(newChild)
+		return nc, nil
+	}
+
+	newChild, err := t.insertTokens(child, remaining, route)
+	if err != nil {
+		return nil, err
+	}
+	nc := t.writeNode(n)
+	nc.wildcards[idx] = newChild
+	return nc, nil
+}
+
+// delete performs a recursive copy-on-write deletion of a route from the tree.
+// It uses path copying to create a new tree version: only nodes along the path
+// from root to the deletion point are cloned, while unmodified subtrees are
+// shared with the previous version. This enables lock-free concurrent reads
+// against the old root while the new version is being constructed.
+//
+// The deletion proceeds in two phases:
+//  1. Descend: traverse the tree (read-only) to find the target route
+//  2. Ascend: clone and modify nodes along the path during stack unwinding,
+//     pruning empty nodes and merging static nodes where appropriate
+//
+// Returns the deleted route and true if found, nil and false otherwise.
+// Upon successful deletion, the transaction's root is updated to point to the
+// new tree version.
+func (t *tXn) delete(method string, tokens []token, pattern string) (*Route, bool) {
+	root := t.root[method]
+	if root == nil {
+		return nil, false
+	}
+
+	newRoot, route := t.deleteTokens(root, root, tokens, pattern)
+	if newRoot != nil {
+		if !t.forked {
+			t.root = maps.Clone(t.root)
+			t.forked = true
+		}
+		t.root[method] = newRoot
+		if len(newRoot.wildcards) == 0 && len(newRoot.params) == 0 && len(newRoot.statics) == 0 {
+			delete(t.root, method)
+		}
+	}
+
+	if route != nil {
+		t.size--
+		return route, true
+	}
+
+	return nil, false
+}
+
+func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string) (*node, *Route) {
+	if len(tokens) == 0 {
+		if !n.isLeaf() {
+			return nil, nil
+		}
+
+		if n.route.pattern != pattern {
+			return nil, nil
+		}
+
+		// TODO should check that submitted pattern match this route pattern
+		oldRoute := n.route
+		nc := t.writeNode(n)
+		nc.route = nil
+
+		if n != root &&
+			len(nc.statics) == 1 &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
+			t.mergeChild(nc)
+		}
+
+		return nc, oldRoute
+	}
+
+	tk := tokens[0]
+	remaining := tokens[1:]
+
+	switch tk.typ {
+	case nodeStatic:
+		return t.deleteStatic(root, n, tk.value, remaining, pattern)
+	case nodeParam:
+		return t.deleteParam(root, n, canonicalKey(tk), remaining, pattern)
+	case nodeWildcard:
+		return t.deleteWildcard(root, n, canonicalKey(tk), remaining, pattern)
+	default:
+		panic("internal error: unknown token type")
+	}
+}
+
+func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, pattern string) (*node, *Route) {
+	if len(search) == 0 {
+		return t.deleteTokens(root, n, remaining, pattern)
+	}
+
+	label := search[0]
+	idx, child := n.getStaticEdge(label)
+	if child == nil || !strings.HasPrefix(search, child.key) {
+		return nil, nil
+	}
+
+	// Consume the matched portion
+	search = search[len(child.key):]
+
+	// Prepend remaining static portion if any
+	if len(search) > 0 {
+		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
+	}
+
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining, pattern)
+	if deletedRoute == nil {
+		return nil, nil
+	}
+
+	nc := t.writeNode(n)
+
+	if newChild.route == nil &&
+		len(newChild.statics) == 0 &&
+		len(newChild.params) == 0 &&
+		len(newChild.wildcards) == 0 {
+		nc.delStaticEdge(label)
+
+		if n != root &&
+			!nc.isLeaf() &&
+			len(nc.statics) == 1 &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
+			t.mergeChild(nc)
+		}
+	} else {
+		nc.statics[idx] = newChild
+	}
+
+	return nc, deletedRoute
+}
+
+func (t *tXn) deleteParam(root, n *node, key string, remaining []token, pattern string) (*node, *Route) {
+	idx, child := n.getParamEdge(key)
+	if child == nil {
+		return nil, nil
+	}
+
+	// Recurse into param's children
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining, pattern)
+	if deletedRoute == nil {
+		return nil, nil
+	}
+
+	nc := t.writeNode(n)
+
+	// If param node is now empty, remove it
+	if newChild.route == nil &&
+		len(newChild.statics) == 0 &&
+		len(newChild.params) == 0 &&
+		len(newChild.wildcards) == 0 {
+		nc.delParamEdge(key)
+
+		if n != root &&
+			len(nc.statics) == 1 &&
+			!nc.isLeaf() &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
+			t.mergeChild(nc)
+		}
+
+	} else {
+		nc.params[idx] = newChild
+	}
+
+	return nc, deletedRoute
+}
+
+func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, pattern string) (*node, *Route) {
+	idx, child := n.getWildcardEdge(key)
+	if child == nil {
+		return nil, nil
+	}
+
+	// Recurse into wildcard's children
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining, pattern)
+	if deletedRoute == nil {
+		return nil, nil
+	}
+
+	nc := t.writeNode(n)
+
+	// If wildcard node is now empty, remove it
+	if newChild.route == nil &&
+		len(newChild.statics) == 0 &&
+		len(newChild.params) == 0 &&
+		len(newChild.wildcards) == 0 {
+		nc.delWildcardEdge(key)
+
+		if n != root &&
+			len(nc.statics) == 1 &&
+			!nc.isLeaf() &&
+			len(nc.params) == 0 &&
+			len(nc.wildcards) == 0 {
+			t.mergeChild(nc)
+		}
+	} else {
+		nc.wildcards[idx] = newChild
+	}
+
+	return nc, deletedRoute
+}
+
+// TODO add coverage for metrics
+func (t *tXn) truncate(methods []string) {
+	if len(methods) == 0 {
+		t.root = make(map[string]*node)
+		t.maxDepth = 0
+		t.maxParams = 0
+		t.size = 0
+		t.forked = true
+		return
+	}
+
+	if !t.forked {
+		t.root = maps.Clone(t.root)
+		t.forked = true
+	}
+	for _, method := range methods {
+		delete(t.root, method)
+	}
+	t.slowMax()
+}
+
+func (t *tXn) computePathDepth(root *node, tokens []token) uint32 {
+	var depth uint32
+	current := root
+
+	if len(current.params) > 0 || len(current.wildcards) > 0 {
+		depth++
+	}
+
+	for _, tk := range tokens {
+		switch tk.typ {
+		case nodeStatic:
+			search := tk.value
+			for len(search) > 0 {
+				_, child := current.getStaticEdge(search[0])
+				if child == nil || !strings.HasPrefix(search, child.key) {
+					current = nil
+					break
+				}
+				search = search[len(child.key):]
+				current = child
+				if len(current.params) > 0 || len(current.wildcards) > 0 {
+					depth++
+				}
+			}
+		case nodeParam:
+			_, current = current.getParamEdge(canonicalKey(tk))
+		case nodeWildcard:
+			_, current = current.getWildcardEdge(canonicalKey(tk))
+		}
+
+		if current == nil {
+			break
+		}
+	}
+
+	return depth
+}
+
+func (t *tXn) slowMax() {
+	type stack struct {
+		edges []*node
+		depth uint32
+	}
+
+	var stacks []stack
+	if t.maxDepth < stackSizeThreshold {
+		stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
+	} else {
+		stacks = make([]stack, 0, t.maxDepth) // heap allocation
+	}
+
+	t.size = 0
+	t.maxDepth = 0
+	t.maxParams = 0
+
+	for _, root := range t.root {
+		stacks = append(stacks, stack{
+			edges: []*node{root},
+		})
+
+		for len(stacks) > 0 {
+			n := len(stacks)
+			last := stacks[n-1]
+			elem := last.edges[0]
+
+			if len(last.edges) > 1 {
+				stacks[n-1].edges = last.edges[1:]
+			} else {
+				stacks = stacks[:n-1]
+			}
+
+			depth := last.depth
+			if len(elem.params) > 0 || len(elem.wildcards) > 0 {
+				depth = depth + 1
+			}
+
+			if len(elem.statics) > 0 {
+				stacks = append(stacks, stack{edges: elem.statics, depth: depth})
+			}
+			if len(elem.params) > 0 {
+				stacks = append(stacks, stack{edges: elem.params, depth: depth})
+			}
+			if len(elem.wildcards) > 0 {
+				stacks = append(stacks, stack{edges: elem.wildcards, depth: depth})
+			}
+
+			if elem.isLeaf() {
+				t.size++
+				t.maxParams = max(t.maxParams, elem.route.psLen)
+				t.maxDepth = max(t.maxDepth, depth)
+			}
+		}
+	}
+}
+
+func (t *tXn) writeNode(n *node) *node {
 	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*node, any](defaultModifiedCache, nil)
+		lru, err := simplelru.NewLRU[*node, struct{}](defaultModifiedCache2, nil)
 		if err != nil {
 			panic(err)
 		}
 		t.writable = lru
 	}
 
-	current := rootNode
-
-	var (
-		ppp                     *node
-		pp                      *node
-		p                       *node
-		charsMatched            int
-		charsMatchedInNodeFound int
-		depth                   uint32
-	)
-
-STOP:
-	for charsMatched < len(path) {
-		next := current.getEdge(path[charsMatched])
-		if next == nil {
-			break STOP
-		}
-
-		depth++
-		ppp = pp
-		pp = p
-		p = current
-		if p != nil {
-			if _, ok := t.writable.Get(p); !ok {
-				cp := p.clone()
-				if t.cache {
-					t.writable.Add(cp, nil)
-				}
-				if pp == nil {
-					t.updateRoot(cp)
-				} else {
-					pp.updateEdge(cp)
-				}
-				p = cp
-			}
-		}
-		current = next
-		charsMatchedInNodeFound = 0
-		for i := 0; charsMatched < len(path); i++ {
-			if i >= len(current.key) {
-				break
-			}
-
-			if current.key[i] != path[charsMatched] {
-				break STOP
-			}
-
-			charsMatched++
-			charsMatchedInNodeFound++
-		}
+	if _, ok := t.writable.Get(n); ok {
+		return n
 	}
 
-	return searchResult{
-		path:                    path,
-		matched:                 current,
-		charsMatched:            charsMatched,
-		charsMatchedInNodeFound: charsMatchedInNodeFound,
-		p:                       p,
-		pp:                      pp,
-		ppp:                     ppp,
-		depth:                   depth,
+	nc := &node{
+		label:  n.label,
+		key:    n.key,
+		route:  n.route,
+		regexp: n.regexp,
+		host:   n.host,
 	}
+	if len(n.statics) != 0 {
+		nc.statics = make([]*node, len(n.statics))
+		copy(nc.statics, n.statics)
+	}
+	if len(n.params) != 0 {
+		nc.params = make([]*node, len(n.params))
+		copy(nc.params, n.params)
+	}
+	if len(n.wildcards) != 0 {
+		nc.wildcards = make([]*node, len(n.wildcards))
+		copy(nc.wildcards, n.wildcards)
+	}
+
+	t.writable.Add(nc, struct{}{})
+	return nc
 }
 
-// insert is not safe for concurrent use
-func (t *tXn) insert(method string, route *Route) error {
-	var rootNode *node
-	index := t.root.methodIndex(method)
-	if index < 0 {
-		rootNode = &node{
-			key:                method,
-			paramChildIndex:    -1,
-			wildcardChildIndex: -1,
-		}
-		t.addRoot(rootNode)
-	} else {
-		rootNode = t.root[index]
+// mergeChild is called to collapse the given node with its child. This is only
+// called when the given node is not a leaf and has a single edge.
+func (t *tXn) mergeChild(n *node) {
+	child := n.statics[0]
+
+	// A node that belong to a wildcar or param cannot be merged with a child.
+	if n.label == 0x00 {
+		return
 	}
-
-	path := route.pattern
-
-	result := t.copyOnWriteSearch(rootNode, path)
-	switch result.classify() {
-	case exactMatch:
-		// e.g. matched exactly "te" node when inserting "te" key.
-		// te
-		// ├── st
-		// └── am
-		// Create a new node from "st" reference and update the "te" (parent) reference to "st" node.
-		if result.matched.isLeaf() {
-			return fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, method, route.pattern, result.matched.route.pattern)
-		}
-
-		// We are updating an existing node. We only need to create a new node from
-		// the matched one with the updated/added value (handler and wildcard).
-		n := newNodeFromRef(
-			result.matched.key,
-			route,
-			result.matched.children,
-			result.matched.childKeys,
-			result.matched.paramChildIndex,
-			result.matched.wildcardChildIndex,
-		)
-
-		t.size++
-		t.updateMaxParams(route.psLen)
-		result.p.updateEdge(n)
-	case keyEndMidEdge:
-		// e.g. matched until "s" for "st" node when inserting "tes" key.
-		// te
-		// ├── st
-		// └── am
-		//
-		// After patching
-		// te
-		// ├── am
-		// └── s
-		//     └── t
-		// It requires to split "st" node.
-		// 1. Create a "t" node from "st" reference.
-		// 2. Create a new "s" node for "tes" key and link it to the child "t" node.
-		// 3. Update the "te" (parent) reference to the new "s" node (we are swapping old "st" to new "s" node, first
-		//    char remain the same).
-		// Note that for key end-mid-edge, we never have to deal with hostname/path split, as hostname
-		// always end with / per validation, so it end up on incomplete match case.
-
-		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
-		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-
-		child := newNodeFromRef(
-			suffixFromExistingEdge,
-			result.matched.route,
-			result.matched.children,
-			result.matched.childKeys,
-			result.matched.paramChildIndex,
-			result.matched.wildcardChildIndex,
-		)
-
-		parent := newNode(
-			cPrefix,
-			route,
-			[]*node{child},
-		)
-
-		t.size++
-		t.updateMaxParams(route.psLen)
-		t.updateMaxDepth(result.depth + 1)
-		result.p.updateEdge(parent)
-	case incompleteMatchToEndOfEdge:
-		// e.g. matched until "st" for "st" node but still have remaining char (ify) when inserting "testify" key.
-		// te
-		// ├── st
-		// └── am
-		//
-		// After patching
-		// te
-		// ├── am
-		// └── st
-		//     └── ify
-		// 1. Create a new "ify" child node.
-		// 2. Recreate the "st" node and link it to it's existing children and the new "ify" node.
-		// 3. Update the "te" (parent) node to the new "st" node.
-
-		keySuffix := path[result.charsMatched:]
-		addDepth := uint32(1)
-
-		// For hostname route, we always insert the path in a dedicated sub-child.
-		// This allows to perform lookup optimization for route with hostname name.
-		var child *node
-		if route.hostSplit > 0 && result.charsMatched < route.hostSplit {
-			host, p := keySuffix[:route.hostSplit-result.charsMatched], keySuffix[route.hostSplit-result.charsMatched:]
-			pathChild := newNode(p, route, nil)
-			child = newNode(host, nil, []*node{pathChild})
-			addDepth++
-		} else {
-			// No children, so no paramChild
-			child = newNode(keySuffix, route, nil)
-		}
-
-		edges := result.matched.getEdges()
-		// new edges slices, so it can be reordered by slices.SortFunc in newNode()
-		edges = append(edges, child)
-		n := newNode(
-			result.matched.key,
-			result.matched.route,
-			edges,
-		)
-
-		t.size++
-		t.updateMaxDepth(result.depth + addDepth)
-		t.updateMaxParams(route.psLen)
-
-		if result.matched == rootNode {
-			n.key = method
-			if t.cache {
-				t.writable.Add(n, nil)
-			}
-			t.updateRoot(n)
-			break
-		}
-		result.p.updateEdge(n)
-	case incompleteMatchToMiddleOfEdge:
-		// e.g. matched until "s" for "st" node but still have remaining char ("s") which does not match anything
-		// when inserting "tess" key.
-		// te
-		// ├── st
-		// └── am
-		//
-		// After patching
-		// te
-		// ├── am
-		// └── s
-		//     ├── s
-		//     └── t
-		// It requires to split "st" node.
-		// 1. Create a new "s" child node for "tess" key.
-		// 2. Create a new "t" node from "st" reference (link "st" children to new "t" node).
-		// 3. Create a new "s" node and link it to "s" and "t" node.
-		// 4. Update the "te" (parent) node to the new "s" node (we are swapping old "st" to new "s" node, first
-		//    char remain the same).
-
-		keyCharsFromStartOfNodeFound := path[result.charsMatched-result.charsMatchedInNodeFound:]
-		cPrefix := commonPrefix(keyCharsFromStartOfNodeFound, result.matched.key)
-		isHostname := result.charsMatched <= route.hostSplit
-		// Rule: a node with {param} or *{wildcard} has no child or has a separator before the end of the key
-		if !isHostname {
-			for i := len(cPrefix) - 1; i >= 0; i-- {
-				if cPrefix[i] == '/' {
-					break
-				}
-
-				if cPrefix[i] == '{' || cPrefix[i] == '*' {
-					return newConflictErr(method, path, getRouteConflict(result.matched))
-				}
-			}
-		} else if !strings.HasSuffix(cPrefix, "}") {
-			// e.g. a.{b} is valid
-			for i := len(cPrefix) - 1; i >= 0; i-- {
-				if cPrefix[i] == '.' {
-					break
-				}
-
-				if cPrefix[i] == '{' {
-					return newConflictErr(method, path, getRouteConflict(result.matched))
-				}
-			}
-		}
-
-		suffixFromExistingEdge := strings.TrimPrefix(result.matched.key, cPrefix)
-		keySuffix := path[result.charsMatched:]
-
-		addDepth := uint32(1)
-		// For domain route, we always insert the path in a dedicated sub-child.
-		// This allows to perform lookup optimization for domain name.
-		var n1 *node
-		if route.hostSplit > 0 && result.charsMatched < route.hostSplit {
-			host, p := keySuffix[:route.hostSplit-result.charsMatched], keySuffix[route.hostSplit-result.charsMatched:]
-			pathChild := newNodeFromRef(p, route, nil, nil, -1, -1)
-			n1 = newNode(host, nil, []*node{pathChild})
-			addDepth++
-		} else {
-			// No children, so no paramChild or wildcardChild
-			n1 = newNodeFromRef(keySuffix, route, nil, nil, -1, -1) // inserted node
-		}
-
-		n2 := newNodeFromRef(
-			suffixFromExistingEdge,
-			result.matched.route,
-			result.matched.children,
-			result.matched.childKeys,
-			result.matched.paramChildIndex,
-			result.matched.wildcardChildIndex,
-		) // previous matched node
-
-		// n3 children never start with a param
-		n3 := newNode(cPrefix, nil, []*node{n1, n2}) // intermediary node
-
-		t.size++
-		t.updateMaxDepth(result.depth + addDepth)
-		t.updateMaxParams(route.psLen)
-		result.p.updateEdge(n3)
-	default:
-		// safeguard against introducing a new result type
-		panic("internal error: unexpected result type")
-	}
-	return nil
-}
-
-// update is not safe for concurrent use
-func (t *tXn) update(method string, route *Route) error {
-	path := route.pattern
-	index := t.root.methodIndex(method)
-	if index < 0 {
-		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
-	}
-
-	result := t.copyOnWriteSearch(t.root[index], path)
-	if !result.isExactMatch() || !result.matched.isLeaf() {
-		return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, path)
-	}
-
-	// We are updating an existing node (could be a leaf or not). We only need to create a new node from
-	// the matched one with the updated/added value (handler and wildcard).
-	n := newNodeFromRef(
-		result.matched.key,
-		route,
-		result.matched.children,
-		result.matched.childKeys,
-		result.matched.paramChildIndex,
-		result.matched.wildcardChildIndex,
-	)
-
-	result.p.updateEdge(n)
-	return nil
-}
-
-// remove is not safe for concurrent use.
-func (t *tXn) remove(method, path string) (*node, bool) {
-	index := t.root.methodIndex(method)
-	if index < 0 {
-		return nil, false
-	}
-
-	result := t.copyOnWriteSearch(t.root[index], path)
-	if !result.isExactMatch() || !result.matched.isLeaf() {
-		// Not and exact match or this node was created after a split (KEY_END_MID_EGGE operation),
-		// therefore we cannot delete it.
-		return nil, false
-	}
-
-	t.size--
-	if len(result.matched.children) > 1 {
-		n := newNodeFromRef(
-			result.matched.key,
-			nil,
-			result.matched.children,
-			result.matched.childKeys,
-			result.matched.paramChildIndex,
-			result.matched.wildcardChildIndex,
-		)
-
-		result.p.updateEdge(n)
-		return result.matched, true
-	}
-
-	if len(result.matched.children) == 1 {
-		child := result.matched.children[0]
-		mergedPath := fmt.Sprintf("%s%s", result.matched.key, child.key)
-		n := newNodeFromRef(
-			mergedPath,
-			child.route,
-			child.children,
-			child.childKeys,
-			child.paramChildIndex,
-			child.wildcardChildIndex,
-		)
-
-		result.p.updateEdge(n)
-		return result.matched, true
-	}
-
-	// recreate the parent edges without the removed node
-	parentEdges := recreateParentEdge(result.p, result.matched)
-	parentIsRoot := result.p == t.root[index]
-
-	// The parent was the result of a previous hostname/path split, so we have at least depth 3,
-	// where p can not be root, but pp and ppp may.
-	if len(parentEdges) == 0 && !result.p.isLeaf() && !parentIsRoot {
-		parentEdges = recreateParentEdge(result.pp, result.p)
-		var parent *node
-		parentParentIsRoot := result.pp == t.root[index]
-		if len(parentEdges) == 1 && !result.pp.isLeaf() && !strings.HasPrefix(parentEdges[0].key, "/") && !parentParentIsRoot {
-			// Note that !strings.HasPrefix(parentEdges[0].key, "/") ensure that we do not merge back a hostname
-			// its path.
-			// 		DELETE a.b.c{d}/foo/bar
-			//		path: GET
-			//		      path: a.b
-			//		          path: .c{d}
-			//		              path: /foo/bar
-			//		          path: /
-			//
-			//		AFTER
-			//		path: GET
-			//		      path: a.b/ => bad
-			child := parentEdges[0]
-			mergedPath := fmt.Sprintf("%s%s", result.pp.key, child.key)
-			parent = newNodeFromRef(
-				mergedPath,
-				child.route,
-				child.children,
-				child.childKeys,
-				child.paramChildIndex,
-				child.wildcardChildIndex,
-			)
-		} else {
-			parent = newNode(result.pp.key, result.pp.route, parentEdges)
-		}
-
-		if parentParentIsRoot {
-			if len(parent.children) == 0 && isRemovable(method) {
-				return result.matched, t.removeRoot(method)
-			}
-			parent.key = method
-			if t.cache {
-				t.writable.Add(parent, nil)
-			}
-			t.updateRoot(parent)
-			return result.matched, true
-		}
-
-		result.ppp.updateEdge(parent)
-		return result.matched, true
-	}
-
-	var parent *node
-	if len(parentEdges) == 1 && !result.p.isLeaf() && !parentIsRoot {
-		child := parentEdges[0]
-		mergedPath := fmt.Sprintf("%s%s", result.p.key, child.key)
-		parent = newNodeFromRef(
-			mergedPath,
-			child.route,
-			child.children,
-			child.childKeys,
-			child.paramChildIndex,
-			child.wildcardChildIndex,
-		)
-	} else {
-		parent = newNode(
-			result.p.key,
-			result.p.route,
-			parentEdges,
-		)
-	}
-
-	if parentIsRoot {
-		if len(parent.children) == 0 && isRemovable(method) {
-			return result.matched, t.removeRoot(method)
-		}
-		parent.key = method
-		if t.cache {
-			t.writable.Add(parent, nil)
-		}
-		t.updateRoot(parent)
-		return result.matched, true
-	}
-
-	result.pp.updateEdge(parent)
-	return result.matched, true
-}
-
-// addRoot append a new root node to the tree.
-func (t *tXn) addRoot(n *node) {
-	nr := make([]*node, 0, len(t.root)+1)
-	nr = append(nr, t.root...)
-	nr = append(nr, n)
-	t.root = nr
-}
-
-// updateRoot replaces a root node in the tree.
-func (t *tXn) updateRoot(n *node) bool {
-	// for root node, the key contains the HTTP verb.
-	index := t.root.methodIndex(n.key)
-	if index < 0 {
-		return false
-	}
-	nr := make([]*node, 0, len(t.root))
-	nr = append(nr, t.root[:index]...)
-	nr = append(nr, n)
-	nr = append(nr, t.root[index+1:]...)
-	t.root = nr
-	return true
-}
-
-// removeRoot remove a root node from the tree.
-func (t *tXn) removeRoot(method string) bool {
-	index := t.root.methodIndex(method)
-	if index < 0 {
-		return false
-	}
-	nr := make([]*node, 0, len(t.root)-1)
-	nr = append(nr, t.root[:index]...)
-	nr = append(nr, t.root[index+1:]...)
-	t.root = nr
-	return true
-}
-
-// truncate truncates the tree for the provided methods. If not methods are provided,
-// all methods are truncated.
-func (t *tXn) truncate(methods []string) {
-	if len(methods) == 0 {
-		// Pre instantiate nodes for common http verb
-		nr := make(roots, len(commonVerbs))
-		for i := range commonVerbs {
-			nr[i] = new(node)
-			nr[i].key = commonVerbs[i]
-			nr[i].paramChildIndex = -1
-			nr[i].wildcardChildIndex = -1
-		}
-		t.root = nr
+	// A node that belong to a host cannot be merged with a child key that start with a '/'.
+	if n.host && strings.HasPrefix(child.key, "/") {
 		return
 	}
 
-	oldlen := len(t.root)
-	nr := make(roots, len(t.root))
-	copy(nr, t.root)
-
-	for _, method := range methods {
-		idx := nr.methodIndex(method)
-		if idx < 0 {
-			continue
-		}
-		if !isRemovable(method) {
-			nr[idx] = new(node)
-			nr[idx].key = commonVerbs[idx]
-			nr[idx].paramChildIndex = -1
-			nr[idx].wildcardChildIndex = -1
-			continue
-		}
-
-		nr = append(nr[:idx], nr[idx+1:]...)
+	// Merge nodes
+	n.key = concat(n.key, child.key)
+	n.route = child.route
+	if len(child.statics) != 0 {
+		n.statics = make([]*node, len(child.statics))
+		copy(n.statics, child.statics)
+	} else {
+		n.statics = nil
 	}
 
-	clear(nr[len(nr):oldlen]) // zero/nil out the obsolete elements, for GC
+	if len(child.params) != 0 {
+		n.params = make([]*node, len(child.params))
+		copy(n.params, child.params)
+	}
 
-	t.root = nr
-}
-
-// updateMaxParams perform an update only if max is greater than the current
-func (t *tXn) updateMaxParams(max uint32) {
-	if max > t.maxParams {
-		t.maxParams = max
+	if len(child.wildcards) != 0 {
+		n.wildcards = make([]*node, len(child.wildcards))
+		copy(n.wildcards, child.wildcards)
 	}
 }
 
-// updateMaxDepth perform an update only if max is greater than the current
-func (t *tXn) updateMaxDepth(max uint32) {
-	if max > t.depth {
-		t.depth = max
+// longestPrefix finds the length of the shared prefix of two strings
+func longestPrefix(k1, k2 string) int {
+	max := len(k1)
+	if l := len(k2); l < max {
+		max = l
 	}
-}
-
-func commonPrefix(k1, k2 string) string {
-	minLength := min(len(k1), len(k2))
-	for i := 0; i < minLength; i++ {
+	var i int
+	for i = 0; i < max; i++ {
 		if k1[i] != k2[i] {
-			return k1[:i]
+			break
 		}
 	}
-	return k1[:minLength]
+	return i
 }
 
-// recreateParentEdge returns a copy of parent children, minus the matched node.
-func recreateParentEdge(parent, matched *node) []*node {
-	parentEdges := make([]*node, len(parent.children)-1)
-	added := 0
-	for i := 0; i < len(parent.children); i++ {
-		n := parent.children[i]
-		if n != matched {
-			parentEdges[added] = n
-			added++
-		}
+// concat two string
+func concat(a, b string) string {
+	return a + b
+}
+
+// canonicalKey returns the internal key representation for a token.
+// Returns the regexp pattern if present, otherwise returns a normalized
+// placeholder ("?" for params, "*" for catch-alls).
+func canonicalKey(tk token) string {
+	if tk.regexp != nil {
+		return tk.regexp.String()
 	}
-	return parentEdges
-}
-
-func getRouteConflict(n *node) []string {
-	routes := make([]string, 0)
-	it := newRawIterator(n)
-	for it.hasNext() {
-		routes = append(routes, it.current.route.pattern)
-	}
-	return routes
-}
-
-func isRemovable(method string) bool {
-	for _, verb := range commonVerbs {
-		if verb == method {
-			return false
-		}
-	}
-	return true
-}
-
-func (t *iTree) allocateContext() *cTx {
-	params := make(Params, 0, t.maxParams)
-	tsrParams := make(Params, 0, t.maxParams)
-	skipNds := make(skippedNodes, 0, t.depth*2) // 2x since at each level, we may skip param and wildcard
-	return &cTx{
-		params:    &params,
-		skipNds:   &skipNds,
-		tsrParams: &tsrParams,
-		// This is a read only value, no reset. It's always the
-		// owner of the pool.
-		tree: t,
-		// This is a read only value, no reset
-		fox: t.fox,
+	switch tk.typ {
+	case nodeParam:
+		return "?"
+	case nodeWildcard:
+		return "*"
+	default:
+		panic("internal error: unknown token type")
 	}
 }
 
-type resultType int
+type insertMode uint8
 
 const (
-	exactMatch resultType = iota
-	incompleteMatchToEndOfEdge
-	incompleteMatchToMiddleOfEdge
-	keyEndMidEdge
+	modeInsert insertMode = iota
+	modeUpdate
 )
 
-type searchResult struct {
-	matched                 *node
-	p                       *node
-	pp                      *node
-	ppp                     *node
-	path                    string
-	charsMatched            int
-	charsMatchedInNodeFound int
-	depth                   uint32
-}
+type nodeType uint8
 
-func (r searchResult) classify() resultType {
-	if r.charsMatched == len(r.path) {
-		if r.charsMatchedInNodeFound == len(r.matched.key) {
-			return exactMatch
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return keyEndMidEdge
-		}
-	} else if r.charsMatched < len(r.path) {
-		// When the node matched is a root node, charsMatched & charsMatchedInNodeFound are both equals to 0, but the value of
-		// the key is the http verb instead of a segment of the path and therefore len(r.matched.key) > 0 instead of empty (0).
-		if r.charsMatchedInNodeFound == len(r.matched.key) || r.p == nil {
-			return incompleteMatchToEndOfEdge
-		}
-		if r.charsMatchedInNodeFound < len(r.matched.key) {
-			return incompleteMatchToMiddleOfEdge
-		}
-	}
-	panic("internal error: cannot classify the result")
-}
+const (
+	nodeStatic nodeType = iota
+	nodeParam
+	nodeWildcard
+)
 
-func (r searchResult) isExactMatch() bool {
-	return r.charsMatched == len(r.path) && r.charsMatchedInNodeFound == len(r.matched.key)
-}
-
-// equalASCIIIgnoreCase performs case-insensitive comparison of two ASCII bytes.
-// Only supports ASCII letters (A-Z, a-z), digits (0-9), and hyphen (-).
-// Used for hostname matching where registered routes follow LDH standard.
-func equalASCIIIgnoreCase(s, t uint8) bool {
-	// Easy case.
-	if t == s {
-		return true
-	}
-
-	// Make s < t to simplify what follows.
-	if t < s {
-		t, s = s, t
-	}
-
-	// ASCII only, s/t must be upper/lower case
-	if 'A' <= s && s <= 'Z' && t == s+'a'-'A' {
-		return true
-	}
-
-	return false
+type token struct {
+	// Compiled regular expression constraint for params/wildcards, nil if none.
+	regexp *regexp.Regexp
+	// The literal string value of this token segment.
+	value string
+	// The type of this token: static, param, or wildcard.
+	typ nodeType
+	// True if this token ends at the hostname/path boundary.
+	// Nodes created from tokens with hsplit=true cannot be merged
+	// during deletion to preserve the boundary for lookupByPath optimization.
+	// Only relevant for nodeStatic tokens since params and wildcards
+	// are isolated in their own nodes and never merged.
+	hsplit bool
 }

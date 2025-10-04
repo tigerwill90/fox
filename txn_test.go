@@ -91,15 +91,7 @@ func TestTxn_Truncate(t *testing.T) {
 			}
 
 			tree := f.getRoot()
-			for _, method := range methods {
-				idx := tree.root.methodIndex(method)
-				if isRemovable(method) {
-					assert.Equal(t, idx, -1)
-				} else {
-					assert.Len(t, tree.root[idx].children, 0)
-				}
-			}
-			assert.Len(t, tree.root, len(commonVerbs))
+			assert.Len(t, tree.root, 0)
 		})
 	}
 }
@@ -122,10 +114,7 @@ func TestTxn_TruncateAll(t *testing.T) {
 	}
 
 	tree := f.getRoot()
-	assert.Len(t, tree.root, len(commonVerbs))
-	for _, n := range tree.root {
-		assert.Len(t, n.children, 0)
-	}
+	assert.Len(t, tree.root, 0)
 }
 
 func TestTxn_Isolation(t *testing.T) {

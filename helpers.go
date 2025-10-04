@@ -23,8 +23,13 @@ func (c *TestContext) SetRoute(route *Route) {
 
 // SetParams affect the provided params to this context.
 func (c *TestContext) SetParams(params Params) {
-	if params != nil {
-		c.params = &params
+	if params != nil && c.route != nil {
+		c.route.params = make([]string, 0, len(params))
+		*c.params = make([]string, 0, len(params))
+		for _, ps := range params {
+			c.route.params = append(c.route.params, ps.Key)
+			*c.params = append(*c.params, ps.Value)
+		}
 	}
 }
 
