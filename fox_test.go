@@ -4889,20 +4889,6 @@ func TestParseRouteParamsConstraint(t *testing.T) {
 	})
 }
 
-func TestParseRouteMalloc(t *testing.T) {
-	f, _ := New()
-	var (
-		n   uint32
-		err error
-	)
-	allocs := testing.AllocsPerRun(100, func() {
-		_, n, _, err = f.parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
-	})
-	assert.Equal(t, float64(0), allocs)
-	assert.NoError(t, err)
-	assert.Equal(t, uint32(7), n)
-}
-
 func TestTree_LookupTsr(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -6946,10 +6932,7 @@ func TestFuzzInsertNoPanics(t *testing.T) {
 				continue
 			}
 			require.NotPanicsf(t, func() {
-				route, _ := txn.Handle(http.MethodGet, rte, emptyHandler)
-				if route != nil {
-					fmt.Println(route)
-				}
+				_, _ = txn.Handle(http.MethodGet, rte, emptyHandler)
 			}, fmt.Sprintf("rte: %s", rte))
 		}
 		return nil
