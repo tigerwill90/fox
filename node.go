@@ -241,10 +241,10 @@ Walk:
 					continue
 				}
 
-				if child.isLeaf() && strings.HasPrefix(child.key, search) {
+				if child.route != nil && strings.HasPrefix(child.key, search) {
 					// search consumed, key has more
 					remaining := child.key[len(search):]
-					if len(remaining) == 1 && remaining[0] == '/' {
+					if remaining == "/" {
 						tsr = true
 						n = child
 						if !lazy {
@@ -441,7 +441,16 @@ Walk:
 		// This requires tracking parent during Walk - add: var parent *node
 		// When descending: parent = current before current = child
 		// also charMatched == len(path)
-		if len(path) > 0 && path[len(path)-1] == '/' && parent != nil && parent.route != nil {
+		/*		if len(path) > 0 && path[len(path)-1] == '/' && parent != nil && parent.route != nil {
+				tsr = true
+				n = parent
+				if !lazy {
+					// Parent params = current params minus last segment
+					copyWithResize(c.tsrParams, c.params)
+				}
+			}*/
+
+		if current.key == "/" && parent != nil && parent.route != nil {
 			tsr = true
 			n = parent
 			if !lazy {
@@ -453,7 +462,7 @@ Walk:
 
 Backtrack:
 	// Incomplete match to end of edge
-	if !tsr && current.isLeaf() && charsMatched < len(path) {
+	/*	if !tsr && current.isLeaf() && charsMatched < len(path) {
 		// Tsr recommendation: remove the extra trailing slash (got an exact match)
 		remainingKeySuffix := path[charsMatched:]
 		// We also make sure that the path does not end with a //, as we should prioritize path cleaning first.
@@ -464,6 +473,15 @@ Backtrack:
 			if !lazy {
 				copyWithResize(c.tsrParams, c.params)
 			}
+		}
+	}*/
+
+	if !tsr && current.isLeaf() && search == "/" {
+		tsr = true
+		n = current
+		// Save also a copy of the matched params, it should not allocate anything in most case.
+		if !lazy {
+			copyWithResize(c.tsrParams, c.params)
 		}
 	}
 
