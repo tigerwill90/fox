@@ -19,8 +19,8 @@ func (rt root) lookup(tree *iTree, method, hostPort, path string, c *cTx, lazy b
 		return nil, false
 	}
 
-	// The tree for this method only have path registered
-	if len(root.statics) == 1 && root.statics[0].label == slashDelim {
+	// The tree for this method, we only have path registered
+	if len(root.params) == 0 && len(root.statics) == 1 && root.statics[0].label == slashDelim {
 		return lookupByPath(tree, root, path, c, lazy)
 	}
 
@@ -769,6 +769,9 @@ func (n *node) string(space int) string {
 	sb.WriteString(strings.Repeat(" ", space))
 	sb.WriteString("path: ")
 	sb.WriteString(n.key)
+	if n.host {
+		sb.WriteString(" (host)")
+	}
 
 	if len(n.params) > 0 {
 		sb.WriteString(" [params: ")

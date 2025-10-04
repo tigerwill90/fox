@@ -271,7 +271,7 @@ func (fox *Router) Has(method, pattern string) bool {
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
 // mutation on route are ongoing. See also [Router.Has] as an alternative.
 func (fox *Router) Route(method, pattern string) *Route {
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	c.resetNil()
 
@@ -290,7 +290,7 @@ func (fox *Router) Route(method, pattern string) *Route {
 // is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Lookup]
 // as an alternative.
 func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	c.resetNil()
 	n, tsr := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
@@ -307,7 +307,7 @@ func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 // [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Reverse] as an alternative.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	c.resetWithWriter(w, r)
 
@@ -372,7 +372,7 @@ func (fox *Router) HandleNoRoute(c Context) {
 
 // Len returns the number of registered route.
 func (fox *Router) Len() int {
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	return tree.size
 }
 
@@ -381,11 +381,11 @@ func (fox *Router) Len() int {
 // write on the router. This function is safe for concurrent use by multiple goroutine and while mutation on
 // routes are ongoing.
 func (fox *Router) Iter() Iter {
-	rt := fox.getRoot()
+	tree := fox.getTree()
 	return Iter{
-		tree:     rt,
-		root:     rt.root,
-		maxDepth: rt.maxDepth,
+		tree:     tree,
+		root:     tree.root,
+		maxDepth: tree.maxDepth,
 	}
 }
 
@@ -452,7 +452,7 @@ func (fox *Router) Txn(write bool) *Txn {
 	return &Txn{
 		fox:     fox,
 		write:   write,
-		rootTxn: fox.getRoot().txn(),
+		rootTxn: fox.getTree().txn(),
 	}
 }
 
@@ -469,8 +469,8 @@ func (fox *Router) newTree() *iTree {
 	return tree
 }
 
-// getRoot load the tree atomically.
-func (fox *Router) getRoot() *iTree {
+// getTree load the tree atomically.
+func (fox *Router) getTree() *iTree {
 	r := fox.tree.Load()
 	return r
 }
@@ -541,7 +541,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.RawPath
 	}
 
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	c.reset(w, r)
 
@@ -863,8 +863,9 @@ func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 			switch url[i] {
 			case '{':
 				tokens = append(tokens, token{
-					typ:   nodeStatic,
-					value: sb.String(),
+					typ:    nodeStatic,
+					value:  sb.String(),
+					hsplit: i < endHost,
 				})
 				sb.Reset()
 				state = stateParam

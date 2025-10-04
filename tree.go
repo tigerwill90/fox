@@ -77,7 +77,7 @@ func (t *tXn) commit() *iTree {
 		},
 	}
 	t.writable = nil
-	// t.forked = false // TODO verify
+	t.forked = false
 	return tc
 }
 

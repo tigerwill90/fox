@@ -90,7 +90,7 @@ func TestTxn_Truncate(t *testing.T) {
 				txn.Commit()
 			}
 
-			tree := f.getRoot()
+			tree := f.getTree()
 			assert.Len(t, tree.root, 0)
 		})
 	}
@@ -113,7 +113,7 @@ func TestTxn_TruncateAll(t *testing.T) {
 		txn.Commit()
 	}
 
-	tree := f.getRoot()
+	tree := f.getTree()
 	assert.Len(t, tree.root, 0)
 }
 
