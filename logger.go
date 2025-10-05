@@ -13,8 +13,32 @@ import (
 	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
+// Keys for "built-in" logger attribute for the logger middleware.
+const (
+	// LoggerStatusKey is the key used by the built-in logger middleware for the HTTP response status code
+	// when the log method is called. The associated [slog.Value] is a string.
+	LoggerStatusKey = "status"
+	// LoggerMethodKey is the key used by the built-in logger middleware for the HTTP request method.
+	// The associated [slog.Value] is a string.
+	LoggerMethodKey = "method"
+	// LoggerHostKey is the key used by the built-in logger middleware for the request host.
+	// The associated [slog.Value] is a string.
+	LoggerHostKey = "host"
+	// LoggerPathKey is the key used by the built-in logger middleware for the request path.
+	// The associated [slog.Value] is a string.
+	LoggerPathKey = "path"
+	// LoggerLatencyKey is the key used by the built-in logger middleware for the request processing duration.
+	// The associated [slog.Value] is a time.Duration.
+	LoggerLatencyKey = "latency"
+	// LoggerLocationKey is the key used by the built-in logger middleware for redirect location header.
+	// The associated [slog.Value] is a string.
+	LoggerLocationKey = "location"
+)
+
 // LoggerWithHandler returns a middleware that logs request information using the provided [slog.Handler].
 // It logs details such as the remote or client IP, HTTP method, request path, status code and latency.
+// Status codes are logged at different levels: 2xx at INFO, 3xx at DEBUG (with Location header if present),
+// 4xx at WARN, and 5xx at ERROR.
 func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 	log := slog.New(handler)
 	return func(next HandlerFunc) HandlerFunc {
@@ -40,36 +64,35 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 				ipStr = "unknown"
 			}
 
+			l := log.With(
+				slog.Int(LoggerStatusKey, c.Writer().Status()),
+				slog.String(LoggerMethodKey, c.Method()),
+				slog.String(LoggerHostKey, c.Host()),
+				slog.String(LoggerPathKey, cmp.Or(req.URL.RawPath, req.URL.Path)),
+				slog.Duration(LoggerLatencyKey, latency),
+			)
 			if location == "" {
-				log.LogAttrs(
+				l.Log(
 					req.Context(),
 					lvl,
 					ipStr,
-					slog.Int("status", c.Writer().Status()),
-					slog.String("method", c.Method()),
-					slog.String("host", c.Host()),
-					slog.String("path", cmp.Or(req.URL.RawPath, req.URL.Path)),
-					slog.Duration("latency", roundLatency(latency)),
 				)
-			} else {
-				log.LogAttrs(
-					req.Context(),
-					lvl,
-					ipStr,
-					slog.Int("status", c.Writer().Status()),
-					slog.String("method", c.Method()),
-					slog.String("host", c.Host()),
-					slog.String("path", cmp.Or(req.URL.RawPath, req.URL.Path)),
-					slog.Duration("latency", roundLatency(latency)),
-					slog.String("location", location),
-				)
+				return
 			}
+
+			l.LogAttrs(
+				req.Context(),
+				lvl,
+				ipStr,
+				slog.String(LoggerLocationKey, location),
+			)
 		}
 	}
 }
 
-// Logger returns a middleware that logs request information to [os.Stdout] or [os.Stderr] (for ERROR level).
-// It logs details such as the remote or client IP, HTTP method, request path, status code and latency.
+// Logger returns a middleware that logs request information using the built-in fox's slog handler.
+// This is a convenience wrapper around [LoggerWithHandler] with a default handler that outputs
+// to [os.Stdout] for INFO, WARN, and DEBUG levels, and [os.Stderr] for ERROR level.
 func Logger() MiddlewareFunc {
 	return LoggerWithHandler(slogpretty.DefaultHandler)
 }
@@ -86,24 +109,5 @@ func level(status int) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
-	}
-}
-
-func roundLatency(d time.Duration) time.Duration {
-	switch {
-	case d < 1*time.Microsecond:
-		return d.Round(100 * time.Nanosecond)
-	case d < 1*time.Millisecond:
-		return d.Round(10 * time.Microsecond)
-	case d < 10*time.Millisecond:
-		return d.Round(100 * time.Microsecond)
-	case d < 100*time.Millisecond:
-		return d.Round(1 * time.Millisecond)
-	case d < 1*time.Second:
-		return d.Round(10 * time.Millisecond)
-	case d < 10*time.Second:
-		return d.Round(100 * time.Millisecond)
-	default:
-		return d.Round(1 * time.Second)
 	}
 }

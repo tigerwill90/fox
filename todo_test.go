@@ -3,6 +3,7 @@ package fox
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 )
@@ -65,4 +66,18 @@ func BenchmarkT(b *testing.B) {
 		for range c.Params() {
 		}
 	}
+}
+
+func TestZ(t *testing.T) {
+
+	f, _ := New(DefaultOptions())
+	f.MustHandle(http.MethodGet, "/a", func(c Context) {
+		panic(struct {
+			foo string
+		}{foo: "bar"})
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/a", nil)
+	f.ServeHTTP(w, req)
 }
