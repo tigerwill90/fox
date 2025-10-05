@@ -12,7 +12,6 @@ type Route struct {
 	params      []string
 	tokens      []token
 	hostSplit   int // 0 if no host
-	psLen       uint32
 	handleSlash TrailingSlashOption
 }
 
@@ -64,5 +63,5 @@ func (r *Route) ClientIPResolver() ClientIPResolver {
 
 // ParamsLen returns the number of wildcard parameter for the route.
 func (r *Route) ParamsLen() int {
-	return int(r.psLen)
+	return len(r.params)
 }

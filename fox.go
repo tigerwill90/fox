@@ -99,8 +99,8 @@ type Router struct {
 	clientip               ClientIPResolver
 	mws                    []middleware
 	mu                     sync.Mutex
-	maxParams              uint16
-	maxParamKeyBytes       uint16
+	maxParams              int
+	maxParamKeyBytes       int
 	handleSlash            TrailingSlashOption
 	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
@@ -109,8 +109,8 @@ type Router struct {
 
 // RouterInfo hold information on the configured global options.
 type RouterInfo struct {
-	MaxRouteParams        uint16
-	MaxRouteParamKeyBytes uint16
+	MaxRouteParams        int
+	MaxRouteParamKeyBytes int
 	TrailingSlashOption   TrailingSlashOption
 	FixedPathOption       FixedPathOption
 	MethodNotAllowed      bool
@@ -136,8 +136,8 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.tsrRedirect = internalTrailingSlashHandler
 	r.pathRedirect = internalFixedPathHandler
 	r.clientip = noClientIPResolver{}
-	r.maxParams = math.MaxUint16
-	r.maxParamKeyBytes = math.MaxUint16
+	r.maxParams = math.MaxUint8
+	r.maxParamKeyBytes = math.MaxUint8
 	r.handleSlash = StrictSlash
 	r.handlePath = StrictPath
 
@@ -341,7 +341,6 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		pattern:     pattern,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
-		psLen:       n,
 		hostSplit:   endHost, // 0 if no host
 		tokens:      tokens,
 	}
@@ -684,7 +683,7 @@ const (
 )
 
 // parseRoute parse and validate the route in a single pass.
-func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
+func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {
@@ -706,7 +705,7 @@ func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 
 	state := stateDefault
 	previous := stateDefault
-	paramCnt := uint32(0)
+	paramCnt := 0
 	countStatic := 0
 	startParam := 0
 	inParam := false
@@ -714,7 +713,7 @@ func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 	partlen := 0
 	totallen := 0
 	last := dotDelim
-	tokens := make([]token, 0)
+	tokens := make([]token, 0, 1) // At least one segment
 	sb := strings.Builder{}
 
 	i := 0
@@ -749,7 +748,7 @@ func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 				continue
 			}
 
-			if i-startParam > int(fox.maxParamKeyBytes) {
+			if i-startParam > fox.maxParamKeyBytes {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
@@ -794,7 +793,7 @@ func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 				continue
 			}
 
-			if i-startParam > int(fox.maxParamKeyBytes) {
+			if i-startParam > fox.maxParamKeyBytes {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
@@ -958,7 +957,7 @@ func (fox *Router) parseRoute(url string) ([]token, uint32, int, error) {
 				}
 			}
 
-			if paramCnt > uint32(fox.maxParams) {
+			if paramCnt > fox.maxParams {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyParams)
 			}
 			i++

@@ -17,8 +17,8 @@ type iTree struct {
 	fox       *Router
 	root      root
 	size      int
-	maxParams uint32
-	maxDepth  uint32
+	maxParams int
+	maxDepth  int
 }
 
 func (t *iTree) txn() *tXn {
@@ -57,8 +57,8 @@ type tXn struct {
 	root      root
 	method    string
 	size      int
-	maxParams uint32
-	maxDepth  uint32
+	maxParams int
+	maxDepth  int
 	forked    bool
 	mode      insertMode
 }
@@ -142,7 +142,7 @@ func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 		}
 		t.root[method] = newRoot
 		t.maxDepth = max(t.maxDepth, t.computePathDepth(newRoot, route.tokens))
-		t.maxParams = max(t.maxParams, route.psLen)
+		t.maxParams = max(t.maxParams, len(route.params))
 		t.size++
 	}
 	return nil
@@ -562,8 +562,8 @@ func (t *tXn) truncate(methods []string) {
 	t.slowMax()
 }
 
-func (t *tXn) computePathDepth(root *node, tokens []token) uint32 {
-	var depth uint32
+func (t *tXn) computePathDepth(root *node, tokens []token) int {
+	var depth int
 	current := root
 
 	if len(current.params) > 0 || len(current.wildcards) > 0 {
@@ -603,7 +603,7 @@ func (t *tXn) computePathDepth(root *node, tokens []token) uint32 {
 func (t *tXn) slowMax() {
 	type stack struct {
 		edges []*node
-		depth uint32
+		depth int
 	}
 
 	var stacks []stack
@@ -650,7 +650,7 @@ func (t *tXn) slowMax() {
 
 			if elem.isLeaf() {
 				t.size++
-				t.maxParams = max(t.maxParams, elem.route.psLen)
+				t.maxParams = max(t.maxParams, len(elem.route.params))
 				t.maxDepth = max(t.maxDepth, depth)
 			}
 		}

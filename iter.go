@@ -7,6 +7,7 @@ package fox
 import (
 	"cmp"
 	"iter"
+	"slices"
 )
 
 const stackSizeThreshold = 25
@@ -21,7 +22,7 @@ type stack struct {
 type Iter struct {
 	tree     *iTree
 	root     map[string]*node
-	maxDepth uint32
+	maxDepth int
 }
 
 // Methods returns a range iterator over all HTTP methods registered in the routing tree. The iterator reflect a snapshot
@@ -145,7 +146,12 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 // and while mutation on routes are ongoing.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		for method, route := range it.Prefix(it.Methods(), "") {
+		methods := make([]string, 0, len(it.root))
+		for k := range it.root {
+			methods = append(methods, k)
+		}
+		slices.Sort(methods)
+		for method, route := range it.Prefix(slices.Values(methods), "") {
 			if !yield(method, route) {
 				return
 			}

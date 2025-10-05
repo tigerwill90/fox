@@ -300,6 +300,23 @@ func BenchmarkIter_Prefix(b *testing.B) {
 	}
 }
 
+func BenchmarkIter_All(b *testing.B) {
+	f, _ := New()
+	for _, route := range githubAPI {
+		require.NoError(b, onlyError(f.Handle(route.method, route.path, emptyHandler)))
+	}
+	it := f.Iter()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for range it.All() {
+
+		}
+	}
+}
+
 func ExampleIter_All() {
 	f, _ := New()
 	it := f.Iter()

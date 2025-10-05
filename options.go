@@ -165,8 +165,8 @@ func WithHandleFixedPath(opt FixedPathOption) GlobalOption {
 	})
 }
 
-// WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint16.
-func WithMaxRouteParams(max uint16) GlobalOption {
+// WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint8.
+func WithMaxRouteParams(max int) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.maxParams = max
 		return nil
@@ -174,8 +174,8 @@ func WithMaxRouteParams(max uint16) GlobalOption {
 }
 
 // WithMaxRouteParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
-// math.MaxUint16.
-func WithMaxRouteParamKeyBytes(max uint16) GlobalOption {
+// math.MaxUint8.
+func WithMaxRouteParamKeyBytes(max int) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.maxParamKeyBytes = max
 		return nil

@@ -4347,7 +4347,7 @@ func TestParseRoute(t *testing.T) {
 		wantErr error
 		name    string
 		path    string
-		wantN   uint32
+		wantN   int
 	}{
 		{
 			name: "valid static route",
