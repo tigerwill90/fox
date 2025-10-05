@@ -110,18 +110,17 @@ Since new route may be added at any given time, Fox, unlike other router, does n
 Instead, it returns the following error values:
 ```go
 var ErrRouteExist = errors.New("route already registered")
-var ErrRouteConflict = errors.New("route conflict")
 var ErrInvalidRoute = errors.New("invalid route")
 var ErrInvalidConfig = errors.New("invalid config")
 ```
 
 Conflict error may be unwrapped to retrieve conflicting route.
 ```go
-if errors.Is(err, fox.ErrRouteConflict) {
-    matched := err.(*fox.RouteConflictError).Matched
-    for _, route := range matched {
-        fmt.Println(route)
-    }
+var conflict *RouteConflict
+if errors.As(err, &conflict) {
+	fmt.Println(conflict.Method)             // GET
+	fmt.Println(conflict.New.Pattern())      // /foo/{bar}
+	fmt.Println(conflict.Existing.Pattern()) // /foo/{baz}
 }
 ```
 
