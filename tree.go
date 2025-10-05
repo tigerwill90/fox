@@ -153,7 +153,7 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 	// Base case: no tokens left, attach route
 	if len(tokens) == 0 {
 		if t.mode == modeInsert && n.isLeaf() {
-			return nil, fmt.Errorf("%w: new route %s %s conflict with %s", ErrRouteExist, t.method, route.pattern, n.route.pattern)
+			return nil, &RouteConflict{Method: t.method, New: route, Existing: n.route}
 		}
 		if t.mode == modeUpdate && (!n.isLeaf() || n.route.pattern != route.pattern) {
 			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)

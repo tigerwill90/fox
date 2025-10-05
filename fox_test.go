@@ -1840,6 +1840,15 @@ func TestOverlappingRoute(t *testing.T) {
 			wantMatch: "/products/new",
 		},
 		{
+			name: "basic test most specific with regexp param",
+			path: "/products/new",
+			routes: []string{
+				"/products/{id:[0-9]+}",
+				"/products/new",
+			},
+			wantMatch: "/products/new",
+		},
+		{
 			name: "basic test less specific",
 			path: "/products/123",
 			routes: []string{
@@ -1848,6 +1857,28 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 			wantMatch:  "/products/{id}",
 			wantParams: Params{{Key: "id", Value: "123"}},
+		},
+		{
+			name: "basic test less specific with regexp priority",
+			path: "/products/123",
+			routes: []string{
+				"/products/{name}",
+				"/products/{id:[0-9]+}",
+				"/products/new",
+			},
+			wantMatch:  "/products/{id:[0-9]+}",
+			wantParams: Params{{Key: "id", Value: "123"}},
+		},
+		{
+			name: "basic test less specific with regexp and less specific",
+			path: "/products/abc",
+			routes: []string{
+				"/products/{name}",
+				"/products/{id:[0-9]+}",
+				"/products/new",
+			},
+			wantMatch:  "/products/{name}",
+			wantParams: Params{{Key: "name", Value: "abc"}},
 		},
 		{
 			name: "ieof+backtrack to {id} wildcard while deleting {a}",
@@ -1859,6 +1890,31 @@ func TestOverlappingRoute(t *testing.T) {
 				"/{base}/val2",
 			},
 			wantMatch: "/{base}/val1/{id}/new/{name}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "barr",
+				},
+			},
+		},
+		{
+			name: "backtrack to {id} wildcard while deleting {a} with regexp constraint",
+			path: "/base/val1/123/new/barr",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/{id:[0-9]+}",
+				"/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
 			wantParams: Params{
 				{
 					Key:   "base",
@@ -1900,6 +1956,31 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "kme+backtrack to {id} wildcard while deleting {a} with regexp constraint",
+			path: "/base/val1/123/new/ba",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "ba",
+				},
+			},
+		},
+		{
 			name: "ime+backtrack to {id} wildcard while deleting {a}",
 			path: "/base/val1/123/new/bx",
 			routes: []string{
@@ -1925,12 +2006,58 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "ime+backtrack to {id} wildcard while deleting {a} with regex constraint",
+			path: "/base/val1/123/new/bx",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "bx",
+				},
+			},
+		},
+		{
 			name: "backtrack to catch while deleting {a}, {id} and {name}",
 			path: "/base/val1/123/new/bar/",
 			routes: []string{
 				"/{base}/val1/{id}",
 				"/{base}/val1/123/{a}/bar",
 				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val*{all}",
+			},
+			wantMatch: "/{base}/val*{all}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "all",
+					Value: "1/123/new/bar/",
+				},
+			},
+		},
+		{
+			name: "backtrack to catch while deleting {a}, {id} and {name} with regexp constraint",
+			path: "/base/val1/123/new/bar/",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/{id:[0-9]+}/new/{name:ba}",
 				"/{base}/val*{all}",
 			},
 			wantMatch: "/{base}/val*{all}",
@@ -1993,6 +2120,32 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "multi node most specific with multi name",
+			path: "/foo/1/2/3/bar",
+			routes: []string{
+				"/foo/{aa}",
+				"/foo/{bb}/{cc}",
+				"/foo/{dd}/{ee}/{ff}",
+				"/foo/{gg}/{hh}/{ii}/bar",
+				"/foo/{jj}/{kk}/{ll}/{mm}",
+			},
+			wantMatch: "/foo/{gg}/{hh}/{ii}/bar",
+			wantParams: Params{
+				{
+					Key:   "gg",
+					Value: "1",
+				},
+				{
+					Key:   "hh",
+					Value: "2",
+				},
+				{
+					Key:   "ii",
+					Value: "3",
+				},
+			},
+		},
+		{
 			name: "multi node less specific",
 			path: "/foo/1/2/3/john",
 			routes: []string{
@@ -2018,6 +2171,36 @@ func TestOverlappingRoute(t *testing.T) {
 				},
 				{
 					Key:   "fg",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "multi node less specific with multi name",
+			path: "/foo/1/2/3/john",
+			routes: []string{
+				"/foo/{aa}",
+				"/foo/{bb}/{cc}",
+				"/foo/{dd}/{ee}/{ff}",
+				"/foo/{gg}/{hh}/{ii}/bar",
+				"/foo/{jj}/{kk}/{ll}/{mm}",
+			},
+			wantMatch: "/foo/{jj}/{kk}/{ll}/{mm}",
+			wantParams: Params{
+				{
+					Key:   "jj",
+					Value: "1",
+				},
+				{
+					Key:   "kk",
+					Value: "2",
+				},
+				{
+					Key:   "ll",
+					Value: "3",
+				},
+				{
+					Key:   "mm",
 					Value: "john",
 				},
 			},
@@ -2274,11 +2457,113 @@ func TestOverlappingRoute(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "regexp param priority in register order",
+			path: "/foo/123",
+			routes: []string{
+				"/foo/{fallback}",
+				"/foo/{a:[0-9]+}",
+				"/foo/{b:[0-9-A-z]+}",
+				"/foo/{c:[0-9-A-Z]+}",
+			},
+			wantMatch: "/foo/{a:[0-9]+}",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "123",
+				},
+			},
+		},
+		{
+			name: "regexp param priority in register order, with last match",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/{fallback}",
+				"/foo/{a:[0-9]+}",
+				"/foo/{b:[0-9-A-Z]+}",
+				"/foo/{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/{c:[0-9-A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "c",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "regexp param priority with fallback",
+			path: "/foo/*",
+			routes: []string{
+				"/foo/{fallback}",
+				"/foo/{a:[0-9]+}",
+				"/foo/{b:[0-9-A-Z]+}",
+				"/foo/{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/{fallback}",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "*",
+				},
+			},
+		},
+		{
+			name: "regexp wildcard priority in register order",
+			path: "/foo/123",
+			routes: []string{
+				"/foo/*{fallback}",
+				"/foo/*{a:[0-9]+}",
+				"/foo/*{b:[0-9-A-z]+}",
+				"/foo/*{c:[0-9-A-Z]+}",
+			},
+			wantMatch: "/foo/*{a:[0-9]+}",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "123",
+				},
+			},
+		},
+		{
+			name: "regexp wildcard priority in register order, with last match",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/*{fallback}",
+				"/foo/*{a:[0-9]+}",
+				"/foo/*{b:[0-9-A-Z]+}",
+				"/foo/*{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/*{c:[0-9-A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "c",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "regexp wildcard priority with fallback",
+			path: "/foo/*",
+			routes: []string{
+				"/foo/*{fallback}",
+				"/foo/*{a:[0-9]+}",
+				"/foo/*{b:[0-9-A-Z]+}",
+				"/foo/*{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/*{fallback}",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "*",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
@@ -4161,125 +4446,123 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 
 func TestInsertConflict(t *testing.T) {
 	cases := []struct {
-		name   string
-		routes []struct {
-			wantErr   error
-			path      string
-			wantMatch []string
-		}
+		name      string
+		routes    []string
+		insert    string
+		wantErr   error
+		wantMatch string
 	}{
 		{
-			name: "exact match conflict",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
-				{path: "/john/*{y}", wantErr: ErrRouteExist, wantMatch: []string{"/john/*{x}"}},
-				{path: "/john/", wantErr: nil, wantMatch: nil},
-				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
-				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/ironman/{power}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/fox/", wantErr: nil, wantMatch: nil},
-				{path: "/fox/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: []string{"/fox/*{args}"}},
-				{path: "a.b.c/fox", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c/fox", wantErr: ErrRouteExist, wantMatch: []string{"a.b.c/fox"}},
-				{path: "a.{b}.c/fox", wantErr: nil, wantMatch: nil},
-				{path: "{a}.b.c/fox", wantErr: nil, wantMatch: nil},
-				{path: "a.{b}.c/fox", wantErr: ErrRouteExist, wantMatch: []string{"a.{b}.c/fox"}},
-			},
+			name:      "static route already exist",
+			routes:    []string{"/foo/bar", "/foo/baz"},
+			insert:    "/foo/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/bar",
 		},
 		{
-			name: "no conflict for incomplete match to end of edge",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c.d/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c{d}/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c{d}.com/foo/bar", wantErr: nil, wantMatch: nil},
-			},
+			name:      "route with same parameters",
+			routes:    []string{"/foo/{foo}"},
+			insert:    "/foo/{foo}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo}",
 		},
 		{
-			name: "no conflict for key match mid-edge",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				// Note that this is impossible for route with hostname to
-				// end mid-edge in the hostname part since it always end with /
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/a*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/john{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/john*{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/john/{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/joh{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
-			},
+			name:      "route with same wildcard",
+			routes:    []string{"/foo/*{foo}"},
+			insert:    "/foo/*{foo}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo}",
 		},
 		{
-			name: "incomplete match to middle of edge",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/foo/{id}"}},
-				{path: "/gchq/*{id}", wantErr: nil, wantMatch: nil},
-				{path: "/gchq/*{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/gchq/*{id}"}},
-				{path: "/foo{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/a{id}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/baz", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
-				{path: "/ironman/*{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{id}/baz", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{id}", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{abc}", wantErr: ErrRouteExist, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
-				{path: "foo.{bar}/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.{bar}.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.{baz}/baz", wantErr: ErrRouteExist, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/baz"}},
-				{path: "foo.ab{bar}.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.ab{x}.com/baz", wantErr: ErrRouteExist, wantMatch: []string{"foo.ab{bar}.com/baz"}},
-				{path: "foo.{bar}/", wantErr: nil, wantMatch: nil},
-				{path: "foo.{yyy}/", wantErr: ErrRouteExist, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/", "foo.{bar}/baz"}},
-				{path: "{foo}.bar/baz", wantErr: nil, wantMatch: nil},
-				{path: "{foo}.bar.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "{baz}.bar/baz", wantErr: ErrRouteExist, wantMatch: []string{"{foo}.bar.com/baz", "{foo}.bar/baz"}},
-			},
+			name:      "route with same parameters but different name",
+			routes:    []string{"/foo/{foo}"},
+			insert:    "/foo/{bar}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo}",
+		},
+		{
+			name:      "route with same wildcard but different name",
+			routes:    []string{"/foo/*{foo}"},
+			insert:    "/foo/*{bar}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo}",
+		},
+		{
+			name:      "route with middle same parameters but different name",
+			routes:    []string{"/{foo}/bar"},
+			insert:    "/{other}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/{foo}/bar",
+		},
+		{
+			name:      "route with middle same wildcard but different name",
+			routes:    []string{"/*{foo}/bar"},
+			insert:    "/*{other}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/*{foo}/bar",
+		},
+		{
+			name:      "route with same regexp parameter",
+			routes:    []string{"/foo/{foo:[A-z]+}"},
+			insert:    "/foo/{foo:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo:[A-z]+}",
+		},
+		{
+			name:      "route with same regexp parameter but different name",
+			routes:    []string{"/foo/{foo:[A-z]+}"},
+			insert:    "/foo/{bar:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo:[A-z]+}",
+		},
+		{
+			name:      "route with same regexp wildcard",
+			routes:    []string{"/foo/*{foo:[A-z]+}"},
+			insert:    "/foo/*{foo:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo:[A-z]+}",
+		},
+		{
+			name:      "route with same regexp wildcard but different name",
+			routes:    []string{"/foo/*{foo:[A-z]+}"},
+			insert:    "/foo/*{bar:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo:[A-z]+}",
+		},
+		{
+			name:      "route with middle same regexp parameter but different name",
+			routes:    []string{"/{foo:[A-z]+}/bar"},
+			insert:    "/{other:[A-z]+}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/{foo:[A-z]+}/bar",
+		},
+		{
+			name:      "route with middle same regexp wildcard but different name",
+			routes:    []string{"/*{foo:[A-z]+}/bar"},
+			insert:    "/*{other:[A-z]+}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/*{foo:[A-z]+}/bar",
+		},
+		{
+			name:      "simple hostname conflict",
+			routes:    []string{"a.{b}.c/fox", "{a}.b.c/fox"},
+			insert:    "a.{d}.c/fox",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "a.{b}.c/fox",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				r, err := f.Handle(http.MethodGet, rte.path, emptyHandler)
-				if err != nil {
-					assert.Nil(t, r)
-				}
-				assert.ErrorIsf(t, err, rte.wantErr, "route: %s", rte.path)
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
+			got := onlyError(f.Handle(http.MethodGet, tc.insert, emptyHandler))
+			assert.ErrorIs(t, got, ErrRouteExist)
+			var conflict *RouteConflict
+			require.ErrorAs(t, got, &conflict)
+			assert.Equal(t, tc.wantMatch, conflict.Existing.pattern)
 		})
 	}
 }
@@ -4311,25 +4594,22 @@ func TestUpdateConflict(t *testing.T) {
 			wantErr: ErrRouteNotFound,
 		},
 		{
-			name:      "wildcard have different name",
-			routes:    []string{"/foo/bar", "/foo/*{args}"},
-			update:    "/foo/*{all}",
-			wantErr:   ErrRouteNotFound,
-			wantMatch: []string{"/foo/*{args}"},
+			name:    "wildcard have different name",
+			routes:  []string{"/foo/bar", "/foo/*{args}"},
+			update:  "/foo/*{all}",
+			wantErr: ErrRouteNotFound,
 		},
 		{
-			name:      "replacing non wildcard by wildcard",
-			routes:    []string{"/foo/bar", "/foo/"},
-			update:    "/foo/*{all}",
-			wantErr:   ErrRouteNotFound,
-			wantMatch: []string{"/foo/"},
+			name:    "replacing non wildcard by wildcard",
+			routes:  []string{"/foo/bar", "/foo/"},
+			update:  "/foo/*{all}",
+			wantErr: ErrRouteNotFound,
 		},
 		{
-			name:      "replacing wildcard by non wildcard",
-			routes:    []string{"/foo/bar", "/foo/*{args}"},
-			update:    "/foo/",
-			wantErr:   ErrRouteNotFound,
-			wantMatch: []string{"/foo/*{args}"},
+			name:    "replacing wildcard by non wildcard",
+			routes:  []string{"/foo/bar", "/foo/*{args}"},
+			update:  "/foo/",
+			wantErr: ErrRouteNotFound,
 		},
 	}
 
@@ -5301,6 +5581,31 @@ func TestParseRoute(t *testing.T) {
 				paramToken("bar", "(?:foo|bar)"),
 			)),
 			wantN: 1,
+		},
+		{
+			name: "regexp wildcard at the beginning of the path",
+			path: "/*{foo:[A-z]+}/bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/", false),
+				wildcardToken("foo", "[A-z]+"),
+				staticToken("/bar", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name:    "consecutive infix wildcard at start with regexp not allowed",
+			path:    "/*{foo:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard at start with and without regexp not allowed",
+			path:    "/*{foo:[A-z]+}/*{baz}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard at start with regexp not allowed",
+			path:    "/*{foo}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
 		},
 		{
 			name:    "consecutive infix wildcard with regexp not allowed",

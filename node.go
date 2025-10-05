@@ -293,7 +293,14 @@ Walk:
 							*subCtx.params = (*subCtx.params)[:0]
 							offset += idx
 
+							// Skip empty captures for wildcards. Empty captures only occur on the first iteration
+							// when the path has consecutive slashes (e.g., /foo//bar matches /foo/*{any}/bar with any="").
+							// Subsequent iterations cannot produce empty captures since we advance past each slash.
 							capturedValue := path[startPath:offset]
+							if capturedValue == "" {
+								offset++
+								continue
+							}
 
 							if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(capturedValue) {
 								offset++
@@ -301,11 +308,7 @@ Walk:
 							}
 
 							subNode, subTsr := lookupByPath(tree, wildcardNode, path[offset:], subCtx, lazy)
-							if subNode == nil || startPath == offset {
-								// The wildcard must not be empty e.g. for /*{any}/ but may contain "intermediary" empty segment.
-								// '//' this is an empty segment
-								// '///' the middle '/' is captured as a dynamic part.
-								// This aligns to the ending catch all /*{any} where '//foo' capture '/foo'
+							if subNode == nil {
 								offset++
 								continue
 							}

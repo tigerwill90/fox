@@ -707,7 +707,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 	state := stateDefault
 	previous := stateDefault
 	paramCnt := 0
-	countStatic := 0
+	countStatic := 1
 	startParam := 0
 	inParam := false
 	nonNumeric := false // true once we've seen a letter or hyphen
