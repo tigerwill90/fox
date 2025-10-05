@@ -8,7 +8,7 @@ import (
 )
 
 func TestX(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
 
 	f.MustHandle(http.MethodGet, "/{iptv:(?:orange|sfr|free)-iptv}/track/", emptyHandler)
 	f.MustHandle(http.MethodGet, "/{tvs:(?:orange|sfr|free)-as}/track/", emptyHandler)
@@ -24,6 +24,23 @@ func TestX(t *testing.T) {
 	if n != nil {
 		c.tsr = tsr
 		c.route = n.route
+		fmt.Println(n.route.Pattern())
+		fmt.Println(slices.Collect(c.Params()))
+	}
+}
+
+func TestY(t *testing.T) {
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}", emptyHandler)
+	tree := f.getTree()
+	fmt.Println(tree.root[http.MethodGet])
+	c := tree.pool.Get().(*cTx)
+	*c.params = (*c.params)[:0]
+	n, tsr := tree.lookup(http.MethodGet, "abab.cccc.deffff.com", "/foo/bar/a/b/c/xa/b/c/y/a/b/c/bbb", c, false)
+	if n != nil {
+		c.tsr = tsr
+		c.route = n.route
+		fmt.Println(tsr)
 		fmt.Println(n.route.Pattern())
 		fmt.Println(slices.Collect(c.Params()))
 	}

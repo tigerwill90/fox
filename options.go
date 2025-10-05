@@ -182,6 +182,15 @@ func WithMaxRouteParamKeyBytes(max int) GlobalOption {
 	})
 }
 
+// AllowRegexpParam enables support for regular expressions in route parameters. When enabled, parameters can include
+// regex patterns (e.g., {id:[0-9]+}).
+func AllowRegexpParam(enable bool) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.allowRegexp = enable
+		return nil
+	})
+}
+
 // WithMiddleware attaches middleware to the router or to a specific route. The middlewares are executed
 // in the order they are added. When applied globally, the middleware affects all handlers, including special handlers
 // such as NotFound, MethodNotAllowed, AutoOption, and the internal redirect handler.

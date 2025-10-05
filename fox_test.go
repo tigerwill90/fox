@@ -4340,98 +4340,217 @@ func TestUpdateRoute(t *testing.T) {
 	}
 }
 
-// TODO good luck
 func TestParseRoute(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
+
+	staticToken := func(v string, hsplit bool) token {
+		return token{
+			value:  v,
+			typ:    nodeStatic,
+			hsplit: hsplit,
+		}
+	}
+
+	paramToken := func(v, reg string) token {
+		tk := token{
+			value: v,
+			typ:   nodeParam,
+		}
+		if reg != "" {
+			tk.regexp = regexp.MustCompile("^" + reg + "$")
+		}
+		return tk
+	}
+
+	wildcardToken := func(v, reg string) token {
+		tk := token{
+			value: v,
+			typ:   nodeWildcard,
+		}
+		if reg != "" {
+			tk.regexp = regexp.MustCompile("^" + reg + "$")
+		}
+		return tk
+	}
+
 	cases := []struct {
-		wantErr error
-		name    string
-		path    string
-		wantN   int
+		wantErr    error
+		name       string
+		path       string
+		wantN      int
+		wantTokens []token
 	}{
 		{
-			name: "valid static route",
-			path: "/foo/bar",
+			name:       "valid static route",
+			path:       "/foo/bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(staticToken("/foo/bar", false))),
 		},
 		{
 			name:  "top level domain",
 			path:  "{tld}/foo/bar",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("tld", ""),
+				staticToken("/foo/bar", false),
+			)),
 		},
 		{
 			name:  "valid catch all route",
 			path:  "/foo/bar/*{arg}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("arg", ""),
+			)),
 		},
 		{
 			name:  "valid param route",
 			path:  "/foo/bar/{baz}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "valid multi params route",
 			path:  "/foo/{bar}/{baz}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "valid same params route",
 			path:  "/foo/{bar}/{bar}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				paramToken("bar", ""),
+			)),
 		},
 		{
 			name:  "valid multi params and catch all route",
 			path:  "/foo/{bar}/{baz}/*{arg}",
 			wantN: 3,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+				staticToken("/", false),
+				wildcardToken("arg", ""),
+			)),
 		},
 		{
 			name:  "valid inflight param",
 			path:  "/foo/xyz:{bar}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/xyz:", false),
+				paramToken("bar", ""),
+			)),
 		},
 		{
 			name:  "valid inflight catchall",
 			path:  "/foo/xyz:*{bar}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/xyz:", false),
+				wildcardToken("bar", ""),
+			)),
 		},
 		{
 			name:  "valid multi inflight param and catch all",
 			path:  "/foo/xyz:{bar}/abc:{bar}/*{arg}",
 			wantN: 3,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/xyz:", false),
+				paramToken("bar", ""),
+				staticToken("/abc:", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				wildcardToken("arg", ""),
+			)),
 		},
 		{
 			name:  "catch all with arg in the middle of the route",
 			path:  "/foo/bar/*{bar}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name:  "multiple catch all suffix and inflight with arg in the middle of the route",
 			path:  "/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 4,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/x", false),
+				wildcardToken("args", ""),
+				staticToken("/y/", false),
+				wildcardToken("z", ""),
+				staticToken("/", false),
+				paramToken("b", ""),
+			)),
 		},
 		{
 			name:  "inflight catch all with arg in the middle of the route",
 			path:  "/foo/bar/damn*{bar}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/damn", false),
+				wildcardToken("bar", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name:  "catch all with arg in the middle of the route and param after",
 			path:  "/foo/bar/*{bar}/{baz}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "simple domain and path",
 			path:  "foo/bar",
 			wantN: 0,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("foo", true),
+				staticToken("/bar", false),
+			)),
 		},
 		{
 			name:  "simple domain with trailing slash",
 			path:  "foo/",
 			wantN: 0,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("foo", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "period in param path allowed",
 			path:  "foo/{.bar}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("foo", true),
+				staticToken("/", false),
+				paramToken(".bar", ""),
+			)),
 		},
 		{
 			name:    "missing a least one slash",
@@ -4593,6 +4712,11 @@ func TestParseRoute(t *testing.T) {
 			name:  "static hostname with catch-all path",
 			path:  "a.b.com/*{any}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.b.com", true),
+				staticToken("/", false),
+				wildcardToken("any", ""),
+			)),
 		},
 		{
 			name:    "illegal control character in path",
@@ -4712,6 +4836,12 @@ func TestParseRoute(t *testing.T) {
 			name:  "all-numeric label with wildcard",
 			path:  "123.{a}.456/",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("123.", true),
+				paramToken("a", ""),
+				staticToken(".456", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:    "all-numeric label with path wildcard",
@@ -4741,36 +4871,92 @@ func TestParseRoute(t *testing.T) {
 			name:  "2 regular params in domain",
 			path:  "{a}.{b}.com/",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", ""),
+				staticToken(".", true),
+				paramToken("b", ""),
+				staticToken(".com", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "255 character with .",
 			path:  "78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr/",
 			wantN: 0,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "param does not count at character",
 			path:  "{a}.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjx.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr/",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", ""),
+				staticToken(".78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjx.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "hostname variant with multiple catch all suffix and inflight with arg in the middle of the route",
 			path:  "example.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 4,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("example.com", true),
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/x", false),
+				wildcardToken("args", ""),
+				staticToken("/y/", false),
+				wildcardToken("z", ""),
+				staticToken("/", false),
+				paramToken("b", ""),
+			)),
 		},
 		{
 			name:  "hostname variant with inflight catch all with arg in the middle of the route",
 			path:  "example.com/foo/bar/damn*{bar}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("example.com", true),
+				staticToken("/foo/bar/damn", false),
+				wildcardToken("bar", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name:  "hostname variant catch all with arg in the middle of the route and param after",
 			path:  "example.com/foo/bar/*{bar}/{baz}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("example.com", true),
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "complex domain and path",
 			path:  "{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 7,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("ab", ""),
+				staticToken(".", true),
+				paramToken("c", ""),
+				staticToken(".de", true),
+				paramToken("f", ""),
+				staticToken(".com", true),
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/x", false),
+				wildcardToken("args", ""),
+				staticToken("/y/", false),
+				wildcardToken("z", ""),
+				staticToken("/", false),
+				paramToken("b", ""),
+			)),
 		},
 		// Reject path with traversal pattern
 		{
@@ -4827,69 +5013,319 @@ func TestParseRoute(t *testing.T) {
 		{
 			name: "last path segment starting with slash dot and text",
 			path: "/foo/.bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.bar", false),
+			)),
 		},
 		{
 			name: "last path segment starting with slash dot and text",
 			path: "/foo/..bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/..bar", false),
+			)),
 		},
 		{
 			name: "path segment starting with slash dot and text",
 			path: "/foo/.bar/baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.bar/baz", false),
+			)),
 		},
 		{
 			name:  "path segment starting with slash dot and param",
 			path:  "/foo/.{foo}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.", false),
+				paramToken("foo", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name: "path segment starting with slash dot and text",
 			path: "/foo/..bar/baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/..bar/baz", false),
+			)),
 		},
 		{
 			name:  "path segment starting with slash dot and param",
 			path:  "/foo/..{foo}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/..", false),
+				paramToken("foo", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name: "path segment ending with dot slash",
 			path: "/foo/bar./baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar./baz", false),
+			)),
 		},
 		{
 			name: "path segment ending with double dot slash",
 			path: "/foo/bar../baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar../baz", false),
+			)),
 		},
 		{
 			name: "path segment with > double dot",
 			path: "/foo/.../baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.../baz", false),
+			)),
 		},
 		{
 			name: "path segment ending with slash and > double dot",
 			path: "/foo/...",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/...", false),
+			)),
 		},
 		{
 			name: "last path segment ending with dot",
 			path: "/foo/bar.",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar.", false),
+			)),
 		},
 		{
 			name: "last path segment ending with double dot",
 			path: "/foo/bar..",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar..", false),
+			)),
 		},
 		{
 			name: "path segment with dot",
 			path: "/foo/a.b.c",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/a.b.c", false),
+			)),
 		},
 		{
 			name: "path segment with double dot",
 			path: "/foo/a..b..c",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/a..b..c", false),
+			)),
+		},
+		// Regexp
+		{
+			name: "simple ending param with regexp",
+			path: "/foo/{bar:[A-z]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "[A-z]+"),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "simple ending param with regexp",
+			path: "/foo/*{bar:[A-z]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("bar", "[A-z]+"),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "simple infix param with regexp",
+			path: "/foo/{bar:[A-z]+}/baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "[A-z]+"),
+				staticToken("/baz", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "multi infix and ending param with regexp",
+			path: "/foo/{bar:[A-z]+}/{baz:[0-9]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "[A-z]+"),
+				staticToken("/", false),
+				paramToken("baz", "[0-9]+"),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "multi infix and ending wildcard with regexp",
+			path: "/foo/*{bar:[A-z]+}/a*{baz:[0-9]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("bar", "[A-z]+"),
+				staticToken("/a", false),
+				wildcardToken("baz", "[0-9]+"),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "consecutive infix regexp wildcard and regexp param allowed",
+			path: "/foo/*{bar:[A-z]+}/{baz:[0-9]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("bar", "[A-z]+"),
+				staticToken("/", false),
+				paramToken("baz", "[0-9]+"),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "hostname starting with regexp",
+			path: "{a:[A-z]+}.b.c/foo",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", "[A-z]+"),
+				staticToken(".b.c", true),
+				staticToken("/foo", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "hostname with middle param regexp",
+			path: "a.{b:[A-z]+}.c/foo",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.", true),
+				paramToken("b", "[A-z]+"),
+				staticToken(".c", true),
+				staticToken("/foo", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "hostname ending with param regexp",
+			path: "a.b.{c:[A-z]+}/foo",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.b.", true),
+				paramToken("c", "[A-z]+"),
+				staticToken("/foo", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "non capturing group allowed in regexp",
+			path: "/foo/{bar:(?:foo|bar)}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "(?:foo|bar)"),
+			)),
+			wantN: 1,
+		},
+		{
+			name:    "consecutive infix wildcard with regexp not allowed",
+			path:    "/foo/*{bar:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with first regexp not allowed",
+			path:    "/foo/*{bar:[A-z]+}/*{baz}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with second regexp not allowed",
+			path:    "/foo/*{bar}/*{baz:[A-z]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "non slash char after regexp param not allowed",
+			path:    "/foo/{bar:[A-z]+}a/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "non slash char after regexp wildcard not allowed",
+			path:    "/foo/*{bar:[A-z]+}a/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "regexp wildcard not allowed in hostname",
+			path:    "*{a:[A-z]+}.b.c/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "regexp wildcard not allowed in hostname",
+			path:    "*{a.{b:[A-z]+}}.c/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "regexp wildcard not allowed in hostname",
+			path:    "*{a.b.{c:[A-z]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing param name with regexp",
+			path:    "/foo/{:[A-z]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing wildcard name with regexp",
+			path:    "/foo/*{:[A-z]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing regular expression",
+			path:    "/foo/{a:}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing regular expression with only ':'",
+			path:    "/foo/{:}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "unbalanced braces in param regexp",
+			path:    "/foo/{bar:[A-z]+",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "unbalanced braces in wildcard regexp",
+			path:    "/foo/*{bar:[A-z]+",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "balanced braces in param regexp with invalid char after",
+			path:    "/foo/{bar:{}}a",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "balanced braces in wildcard regexp with invalid brace after",
+			path:    "/foo/{bar:{}}}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "unbalanced braces in regexp complex",
+			path:    "/foo/{bar:{{{{}}}}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "invalid regular expression",
+			path:    "/foo/{bar:a{5,2}}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "invalid regular expression",
+			path:    "/foo/{bar:\\k}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "capture group in regexp are not allowed",
+			path:    "/foo/{bar:(foo|bar)}",
+			wantErr: ErrInvalidRoute,
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, n, _, err := f.parseRoute(tc.path)
-			fmt.Println(err)
+			tokens, n, hostSplit, err := f.parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
+			assert.Equal(t, tc.wantTokens, tokens)
+			if err == nil {
+				assert.Equal(t, strings.IndexByte(tc.path, '/'), hostSplit)
+			}
 		})
 	}
 }
@@ -4917,6 +5353,52 @@ func TestParseRouteParamsConstraint(t *testing.T) {
 		_, _, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
 		assert.Error(t, err)
 		_, _, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
+		assert.Error(t, err)
+	})
+	t.Run("param key limit with regexp", func(t *testing.T) {
+		f, _ := New(WithMaxRouteParamKeyBytes(3), AllowRegexpParam(true))
+		_, _, _, err := f.parseRoute("/{abc:a}/{abc:a}/{abc:a}")
+		assert.NoError(t, err)
+		_, _, _, err = f.parseRoute("/{abcd:a}/{abc:a}/{abc:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/{abcd:a}/{abc:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/{abcd:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/*{abcd:a}/{abc:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/*{abcdef:a}")
+		assert.Error(t, err)
+	})
+	t.Run("disabled regexp support for param", func(t *testing.T) {
+		f, _ := New()
+		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		assert.NoError(t, err)
+		// path params
+		_, _, _, err = f.parseRoute("/{a:a}/{b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/{b:b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/{b}/{c:c}")
+		assert.Error(t, err)
+		// hostname params
+		_, _, _, err = f.parseRoute("{a:a}.{b}.{c}/")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("{a}.{b:b}.{c}/")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("{a}.{b}.{c:c}/")
+		assert.Error(t, err)
+	})
+	t.Run("disabled regexp support for wildcard", func(t *testing.T) {
+		f, _ := New()
+		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		assert.NoError(t, err)
+		// wildcard
+		_, _, _, err = f.parseRoute("/*{a:a}/{b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/*{b:b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/{b}/*{c:c}")
 		assert.Error(t, err)
 	})
 }

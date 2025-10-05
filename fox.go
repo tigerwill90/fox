@@ -105,6 +105,7 @@ type Router struct {
 	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
 	handleOptions          bool
+	allowRegexp            bool
 }
 
 // RouterInfo hold information on the configured global options.
@@ -748,15 +749,15 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				continue
 			}
 
-			if i-startParam > fox.maxParamKeyBytes {
-				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
-			}
-
 			if url[i] == ':' {
 				previous = state
 				state = stateRegex
 				i++
 				continue
+			}
+
+			if i-startParam > fox.maxParamKeyBytes {
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
 			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
@@ -793,15 +794,15 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				continue
 			}
 
-			if i-startParam > fox.maxParamKeyBytes {
-				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
-			}
-
 			if url[i] == ':' {
 				previous = state
 				state = stateRegex
 				i++
 				continue
+			}
+
+			if i-startParam > fox.maxParamKeyBytes {
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
 			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
@@ -810,6 +811,13 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 			inParam = true
 			i++
 		case stateRegex:
+			if !fox.allowRegexp {
+				return nil, 0, 0, fmt.Errorf("%w: regex patterns in param are not allowed", ErrInvalidRoute)
+			}
+			if previous == stateCatchAll && countStatic <= 1 {
+				return nil, 0, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
+			}
+
 			idx := braceIndice(url[i:])
 			if idx == -1 {
 				return nil, 0, 0, fmt.Errorf("%w: unbalanced braces in regular expression", ErrInvalidRoute)
@@ -859,12 +867,14 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 
 			switch url[i] {
 			case '{':
-				tokens = append(tokens, token{
-					typ:    nodeStatic,
-					value:  sb.String(),
-					hsplit: i < endHost,
-				})
-				sb.Reset()
+				if sb.Len() > 0 {
+					tokens = append(tokens, token{
+						typ:    nodeStatic,
+						value:  sb.String(),
+						hsplit: i < endHost,
+					})
+					sb.Reset()
+				}
 				state = stateParam
 				startParam = i
 				paramCnt++
@@ -872,11 +882,13 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				if i < endHost {
 					return nil, 0, 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
 				}
-				tokens = append(tokens, token{
-					typ:   nodeStatic,
-					value: sb.String(),
-				})
-				sb.Reset()
+				if sb.Len() > 0 {
+					tokens = append(tokens, token{
+						typ:   nodeStatic,
+						value: sb.String(),
+					})
+					sb.Reset()
+				}
 				state = stateCatchAll
 				i++
 				startParam = i
