@@ -1541,8 +1541,8 @@ func TestOverlappingRouteMalloc(t *testing.T) {
 	}
 }
 
-func TestRouterWildcard(t *testing.T) {
-	r, _ := New()
+func TestWildcardSuffix(t *testing.T) {
+	r, _ := New(AllowRegexpParam(true))
 
 	routes := []struct {
 		path string
@@ -1552,6 +1552,8 @@ func TestRouterWildcard(t *testing.T) {
 		{"/github.com/johndoe/*{repo}", "/github.com/johndoe/buzz"},
 		{"/foo/bar/*{args}", "/foo/bar/baz"},
 		{"/filepath/path=*{path}", "/filepath/path=/file.txt"},
+		{"/john/doe/*{any:[A-z/]+}", "/john/doe/a/b/c"},
+		{"/filepath/key=*{any:[A-z/.]+}", "/filepath/key=/file.txt"},
 	}
 
 	for _, route := range routes {
@@ -1580,8 +1582,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/bar",
 		},
 		{
+			name:   "infix wildcard regexp",
+			routes: []string{"/foo/*{args:$^}/bar"},
+			path:   "/foo/bar",
+		},
+		{
 			name:   "infix wildcard with children",
 			routes: []string{"/foo/*{args}/bar", "/foo/*{args}/caz"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard with children regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/*{args:$^}/caz"},
 			path:   "/foo/bar",
 		},
 		{
@@ -1590,14 +1602,28 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/bar",
 		},
 		{
+			name:   "infix wildcard with static edge regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/baz"},
+			path:   "/foo/bar",
+		},
+		{
 			name:   "infix wildcard and suffix wildcard",
 			routes: []string{"/foo/*{args}/bar", "/foo/*{args}"},
 			path:   "/foo/",
 		},
-		//
+		{
+			name:   "infix wildcard and suffix wildcard regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/*{args:$^}"},
+			path:   "/foo/",
+		},
 		{
 			name:   "infix inflight wildcard",
 			routes: []string{"/foo/abc*{args}/bar"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar"},
 			path:   "/foo/abc/bar",
 		},
 		{
@@ -1606,8 +1632,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc/bar",
 		},
 		{
+			name:   "infix inflight wildcard with children regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc*{args:$^}/caz"},
+			path:   "/foo/abc/bar",
+		},
+		{
 			name:   "infix inflight wildcard with static edge",
 			routes: []string{"/foo/abc*{args}/bar", "/foo/abc/baz"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard with static edge regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc/baz"},
 			path:   "/foo/abc/bar",
 		},
 		{
@@ -1616,8 +1652,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc",
 		},
 		{
+			name:   "infix inflight wildcard and suffix wildcard regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc*{args:$^}"},
+			path:   "/foo/abc",
+		},
+		{
 			name:   "suffix wildcard wildcard with param edge",
 			routes: []string{"/foo/*{args}", "/foo/{param}"},
+			path:   "/foo/",
+		},
+		{
+			name:   "suffix wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/*{args:$^}", "/foo/{param:$^}"},
 			path:   "/foo/",
 		},
 		{
@@ -1626,8 +1672,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc",
 		},
 		{
+			name:   "suffix inflight wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/abc*{args:$^}", "/foo/abc{param:$^}"},
+			path:   "/foo/abc",
+		},
+		{
 			name:   "infix wildcard wildcard with param edge",
 			routes: []string{"/foo/*{args}/bar", "/foo/{param}/bar"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/{param:$^}/bar"},
 			path:   "/foo/bar",
 		},
 		{
@@ -1636,8 +1692,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc/bar",
 		},
 		{
+			name:   "infix inflight wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc{param:$^}/bar"},
+			path:   "/foo/abc/bar",
+		},
+		{
 			name:   "infix wildcard wildcard with trailing slash",
 			routes: []string{"/foo/*{args}/"},
+			path:   "/foo//",
+		},
+		{
+			name:   "infix wildcard wildcard with trailing slash regexp",
+			routes: []string{"/foo/*{args:$^}/"},
 			path:   "/foo//",
 		},
 		{
@@ -1645,11 +1711,16 @@ func TestEmptyCatchAll(t *testing.T) {
 			routes: []string{"/foo/abc*{args}/"},
 			path:   "/foo/abc/",
 		},
+		{
+			name:   "infix inflight wildcard wildcard with trailing slash regexp",
+			routes: []string{"/foo/abc*{args:$^}/"},
+			path:   "/foo/abc/",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
@@ -1697,7 +1768,7 @@ func TestRouteWithParams(t *testing.T) {
 }
 
 func TestRouteParamEmptySegment(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
 	cases := []struct {
 		name  string
 		route string
@@ -1709,13 +1780,28 @@ func TestRouteParamEmptySegment(t *testing.T) {
 			path:  "/cmd//sub",
 		},
 		{
+			name:  "empty segment regexp",
+			route: "/cmd/{tool:bar}/{sub}",
+			path:  "/cmd//sub",
+		},
+		{
 			name:  "empty inflight end of route",
 			route: "/command/exec:{tool}",
 			path:  "/command/exec:",
 		},
 		{
+			name:  "empty inflight end of route regexp",
+			route: "/command/exec:{tool:bar}",
+			path:  "/command/exec:",
+		},
+		{
 			name:  "empty inflight segment",
 			route: "/command/exec:{tool}/id",
+			path:  "/command/exec:/id",
+		},
+		{
+			name:  "empty inflight segment regexp",
+			route: "/command/exec:{tool:bar}/id",
 			path:  "/command/exec:/id",
 		},
 	}
