@@ -164,7 +164,6 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 		return nc, nil
 	}
 
-	// TODO tokenize in place
 	tk := tokens[0]
 	remaining := tokens[1:]
 
