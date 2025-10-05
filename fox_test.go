@@ -2559,6 +2559,23 @@ func TestOverlappingRoute(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "regexp infix wildcard priority with fallback",
+			path: "/foo/a/b/c/bar",
+			routes: []string{
+				"/foo/*{fallback}/bar",
+				"/foo/*{a:[0-9]+}/bar",
+				"/foo/*{b:[0-9-A-Z]+}/bar",
+				"/foo/*{c:[0-9-A-z]+}/bar",
+			},
+			wantMatch: "/foo/*{fallback}/bar",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "a/b/c",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
