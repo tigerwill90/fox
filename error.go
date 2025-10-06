@@ -28,12 +28,12 @@ var (
 // It contains the HTTP method, the route being registered, and the existing route
 // that caused the conflict.
 type RouteConflict struct {
-	// Method is the HTTP method for which the conflict occurred.
-	Method string
 	// New is the route that was being registered when the conflict was detected.
 	New *Route
 	// Existing is the previously registered route that conflicts with New.
 	Existing *Route
+	// Method is the HTTP method for which the conflict occurred.
+	Method string
 }
 
 func (e *RouteConflict) Error() string {

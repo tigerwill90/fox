@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 
@@ -936,6 +937,58 @@ func BenchmarkInsert(b *testing.B) {
 	}
 }
 
+// TODO delete me
+func BenchmarkOverlappingCatchAll(b *testing.B) {
+	r, _ := New(AllowRegexpParam(true))
+	routes := []string{
+		"/foo/{fallback}/bar",
+		"/foo/{b:[a-z]+}",
+		"/foo/{b:[a-z]+}/bar",
+		"/foo/{c:[A-Z]+}/bar",
+	}
+
+	for _, route := range routes {
+		require.NoError(b, onlyError(r.Handle(http.MethodGet, route, func(c Context) {
+			// fmt.Println(c.Pattern())
+		})))
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/123/bar", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkOverlappingCatchAll_GorillaMux(b *testing.B) {
+	r := mux.NewRouter()
+	routes := []string{
+		"/foo/{b:[a-z]+}",
+		"/foo/{b:[a-z]+}/bar",
+		"/foo/{c:[A-Z]+}/bar",
+		"/foo/{fallback}/bar",
+	}
+
+	for _, route := range routes {
+		r.HandleFunc(route, func(w http.ResponseWriter, r *http.Request) {
+		}).Methods(http.MethodGet)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/123/bar", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		r.ServeHTTP(w, req)
+	}
+}
+
 func BenchmarkStaticAll(b *testing.B) {
 	r, _ := New()
 	for _, route := range staticRoutes {
@@ -1012,11 +1065,13 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 	}
 }
 
+// BenchmarkInfixCatchAll-16    	 6818233	       175.0 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkInfixCatchAll(b *testing.B) {
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/foo/*{bar}/baz", emptyHandler)
+	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", func(c Context) {
+	})
 
-	req := httptest.NewRequest(http.MethodGet, "/foo/a1/b22/c333/baz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/x/y/z/b/x/y/z/d/x/y/z/f/x/y/z/j", nil)
 	w := new(mockResponseWriter)
 
 	b.ReportAllocs()
@@ -1726,7 +1781,7 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
+			n, tsr := lookupByPath(tree.root[http.MethodGet], tc.path, c, false)
 			require.False(t, tsr)
 			require.Nil(t, n)
 		})
@@ -1759,7 +1814,7 @@ func TestRouteWithParams(t *testing.T) {
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		n, tsr := lookupByPath(tree, tree.root[http.MethodGet], rte, c, false)
+		n, tsr := lookupByPath(tree.root[http.MethodGet], rte, c, false)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.route, "route: %s", rte)
 		assert.False(t, tsr)
@@ -1814,7 +1869,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
+			n, tsr := lookupByPath(tree.root[http.MethodGet], tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, tsr)
@@ -2588,7 +2643,7 @@ func TestOverlappingRoute(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
+			n, tsr := lookupByPath(tree.root[http.MethodGet], tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -2603,7 +2658,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			n, tsr = lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, true)
+			n, tsr = lookupByPath(tree.root[http.MethodGet], tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
 			assert.False(t, tsr)
@@ -3429,7 +3484,7 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
+			n, tsr := lookupByPath(tree.root[http.MethodGet], tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -4092,7 +4147,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[http.MethodGet], tc.path, c, false)
+			n, tsr := lookupByPath(tree.root[http.MethodGet], tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -5892,7 +5947,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n, got := lookupByPath(tree, tree.root[http.MethodGet], tc.key, c, true)
+			n, got := lookupByPath(tree.root[http.MethodGet], tc.key, c, true)
 			assert.Equal(t, tc.want, got)
 			if tc.want {
 				require.NotNil(t, n)
@@ -8369,4 +8424,62 @@ func ExampleRouter_View() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
+}
+
+func TestX(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:[A-z/]+}/bar/{baz}/", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:[A-z/]+}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:[A-z/*]+}", emptyHandler)))
+
+	// require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:a/b/c}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/{a}/{b}/{c}/bar/foo/f", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any}", emptyHandler)))
+
+	tree := f.getTree()
+	fmt.Println(tree.root[http.MethodGet])
+
+	c := newTestContext(f)
+	n, tsr := tree.lookup(http.MethodGet, "", "/a/?/c/bar/foo/ff", c, false)
+	fmt.Println(n, tsr)
+	fmt.Println(c.params)
+}
+
+func TestY(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "{a}/*{a}/b/*{c}/e", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "a/*{a}/b/*{c}/d/", emptyHandler)))
+	tree := f.getTree()
+	fmt.Println(tree.root[http.MethodGet])
+
+	c := newTestContext(f)
+	n, tsr := tree.lookup(http.MethodGet, "a", "/a/b/c/d", c, false)
+	if n != nil {
+		c.tsr = tsr
+		c.route = n.route
+		fmt.Println(tsr)
+		fmt.Println(n.route.pattern)
+		fmt.Println(slices.Collect(c.Params()))
+	}
+}
+
+func TestZ(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{args}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{c}/f", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{l}/g/", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{x:[A-z]+}/e", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{c}/d/", emptyHandler)))
+	tree := f.getTree()
+	fmt.Println(tree.root[http.MethodGet])
+
+	c := newTestContext(f)
+	n, tsr := tree.lookup(http.MethodGet, "", "/a/b/c/d", c, false)
+	if n != nil {
+		c.tsr = tsr
+		c.route = n.route
+		fmt.Println(tsr)
+		fmt.Println(n.route.pattern)
+		fmt.Println(slices.Collect(c.Params()))
+	}
 }
