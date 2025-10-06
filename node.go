@@ -304,8 +304,7 @@ Walk:
 								tsr = true
 								n = child
 								if !lazy {
-									*c.tsrParams = (*c.tsrParams)[:0]
-									*c.tsrParams = append(*c.tsrParams, *c.params...)
+									copyWithResize(c.tsrParams, c.params)
 									*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
 								}
 							}
