@@ -20,6 +20,7 @@ var (
 	ErrSettledTxn              = errors.New("transaction settled")
 	ErrParamKeyTooLarge        = errors.New("parameter key too large")
 	ErrTooManyParams           = errors.New("too many params")
+	ErrRegexpNotAllowed        = errors.New("regexp not allowed")
 	ErrInvalidConfig           = errors.New("invalid config")
 )
 

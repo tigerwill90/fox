@@ -812,7 +812,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 			i++
 		case stateRegex:
 			if !fox.allowRegexp {
-				return nil, 0, 0, fmt.Errorf("%w: regex patterns in param are not allowed", ErrInvalidRoute)
+				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrRegexpNotAllowed)
 			}
 			if previous == stateCatchAll && countStatic <= 1 {
 				return nil, 0, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
