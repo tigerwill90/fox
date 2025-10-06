@@ -124,7 +124,6 @@ Walk:
 			}
 		}
 
-		childParamIdx = 0
 		goto Backtrack
 	}
 
@@ -388,9 +387,6 @@ Walk:
 			}
 		}
 
-		childParamIdx = 0
-		childWildcardIdx = 0
-		wildcardOffset = 0
 		goto Backtrack
 	}
 

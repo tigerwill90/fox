@@ -38,11 +38,11 @@ func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) (n *nod
 func (t *iTree) allocateContext() *cTx {
 	params := make([]string, 0, t.maxParams)
 	tsrParams := make([]string, 0, t.maxParams)
-	skipStack := make(skipStack, 0, t.maxDepth)
+	stacks := make(skipStack, 0, t.maxDepth)
 	return &cTx{
 		params:    &params,
 		tsrParams: &tsrParams,
-		skipStack: &skipStack,
+		skipStack: &stacks,
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree2: t,
