@@ -209,12 +209,12 @@ func (txn *Txn) Route(method, pattern string) *Route {
 
 	tree := txn.rootTxn.tree
 	c := tree.pool.Get().(*cTx)
+	defer tree.pool.Put(c)
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
 	n := txn.rootTxn.root.lookup(method, host, path, c, true)
-	tree.pool.Put(c)
-	if n != nil && !c.tsr && n.route.pattern == pattern {
+	if n != nil && !c.tsr && n.route.pattern == pattern { // Race
 		return n.route
 	}
 	return nil
@@ -231,9 +231,10 @@ func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
 
 	tree := txn.rootTxn.tree
 	c := tree.pool.Get().(*cTx)
+	defer tree.pool.Put(c)
 	c.resetNil()
+
 	n := txn.rootTxn.root.lookup(method, host, path, c, true)
-	tree.pool.Put(c)
 	if n != nil {
 		return n.route, c.tsr
 	}

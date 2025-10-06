@@ -272,14 +272,15 @@ func (fox *Router) Has(method, pattern string) bool {
 func (fox *Router) Route(method, pattern string) *Route {
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
+	defer tree.pool.Put(c)
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
 	n := tree.lookup(method, host, path, c, true)
-	tree.pool.Put(c)
 	if n != nil && !c.tsr && n.route.pattern == pattern {
 		return n.route
 	}
+
 	return nil
 }
 
@@ -291,9 +292,10 @@ func (fox *Router) Route(method, pattern string) *Route {
 func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
+	defer tree.pool.Put(c)
 	c.resetNil()
+
 	n := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
-	tree.pool.Put(c)
 	if n != nil {
 		return n.route, c.tsr
 	}

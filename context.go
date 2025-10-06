@@ -128,7 +128,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.cachedQuery = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
-	c.tsr = false
+	c.tsr = false // TODO race
 }
 
 func (c *cTx) resetNil() {
