@@ -275,9 +275,9 @@ func (fox *Router) Route(method, pattern string) *Route {
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
-	n, tsr := tree.lookup(method, host, path, c, true)
+	n := tree.lookup(method, host, path, c, true)
 	tree.pool.Put(c)
-	if n != nil && !tsr && n.route.pattern == pattern {
+	if n != nil && !c.tsr && n.route.pattern == pattern {
 		return n.route
 	}
 	return nil
@@ -292,10 +292,10 @@ func (fox *Router) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	c.resetNil()
-	n, tsr := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
+	n := tree.lookup(method, host, cmp.Or(path, "/"), c, true)
 	tree.pool.Put(c)
 	if n != nil {
-		return n.route, tsr
+		return n.route, c.tsr
 	}
 	return nil, false
 }
@@ -316,14 +316,13 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 		path = r.URL.RawPath
 	}
 
-	n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
+	n := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.route
-		c.tsr = tsr
-		return n.route, c, tsr
+		return n.route, c, c.tsr
 	}
 	tree.pool.Put(c)
-	return nil, nil, tsr
+	return nil, nil, false
 }
 
 // NewRoute create a new [Route], configured with the provided options.
@@ -528,11 +527,7 @@ func internalFixedPathHandler(c Context) {
 // to the appropriate handler function based on the request's method and path.
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	var (
-		n   *node
-		tsr bool
-	)
-
+	var n *node
 	path := r.URL.Path
 	if len(r.URL.RawPath) > 0 {
 		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
@@ -543,20 +538,18 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := tree.pool.Get().(*cTx)
 	c.reset(w, r)
 
-	n, tsr = tree.lookup(r.Method, r.Host, path, c, false)
-	if !tsr && n != nil {
+	n = tree.lookup(r.Method, r.Host, path, c, false)
+	if !c.tsr && n != nil {
 		c.route = n.route
-		c.tsr = tsr
 		n.route.hall(c)
 		tree.pool.Put(c)
 		return
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" {
-		if tsr {
+		if c.tsr && n != nil {
 			if n.route.handleSlash == RelaxedSlash {
 				c.route = n.route
-				c.tsr = tsr
 				n.route.hall(c)
 				tree.pool.Put(c)
 				return
@@ -566,8 +559,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// Since is redirect, we should not share the route even if internally its available, so we reset params as
 				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
-				c.route = nil
 				c.tsr = false
+				c.route = nil
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				tree.pool.Put(c)
@@ -577,9 +570,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.handlePath == RelaxedPath {
 			*c.params = (*c.params)[:0]
-			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
+			c.tsr = false
+			if n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.route.handleSlash == RelaxedSlash) {
 				c.route = n.route
-				c.tsr = tsr
 				n.route.hall(c)
 				tree.pool.Put(c)
 				return
@@ -588,7 +581,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.handlePath == RedirectPath {
 			*c.params = (*c.params)[:0]
-			if n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.route.handleSlash != StrictSlash) {
+			c.tsr = false
+			if n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.route.handleSlash != StrictSlash) {
 				c.route = nil
 				c.tsr = false
 				c.scope = RedirectPathHandler
@@ -623,7 +617,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.root {
-				if n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
+				c.tsr = false
+				if n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.route.handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -647,7 +642,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hasOptions := false
 		for method := range tree.root {
 			if method != r.Method {
-				if n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.route.handleSlash == RelaxedSlash) {
+				c.tsr = false
+				if n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.route.handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}

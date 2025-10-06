@@ -13,34 +13,35 @@ import (
 
 type root map[string]*node
 
-func (rt root) lookup(tree *iTree, method, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
 	root := rt[method]
 	if root == nil {
-		return nil, false
+		return nil
 	}
+
+	*c.skipStack = (*c.skipStack)[:0]
 
 	// The tree for this method, we only have path registered
 	if len(root.params) == 0 && len(root.statics) == 1 && root.statics[0].label == slashDelim {
-		return lookupByPath(root, path, c, lazy)
+		return lookupByPath(root, path, c, lazy, 0)
 	}
 
 	host := netutil.StripHostPort(hostPort)
 	if host != "" {
 		// Try first by domain
-		n, tsr = lookupByHostname(tree, root, host, path, c, lazy)
-		if n != nil {
-			return n, tsr
+		if n := lookupByHostname(root, host, path, c, lazy); n != nil {
+			return n
 		}
 	}
 
-	// Fallback by path and reset any recorded params and tsrParams
+	// Fallback to path only and reset any recorded params and skip stack
+	*c.skipStack = (*c.skipStack)[:0]
 	*c.params = (*c.params)[:0]
 	c.tsr = false
-
-	return lookupByPath(root, path, c, lazy)
+	return lookupByPath(root, path, c, lazy, 0)
 }
 
-func lookupByHostname(tree *iTree, root *node, host, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (n *node) {
 	var (
 		charsMatched  int
 		skipStatic    bool
@@ -49,10 +50,6 @@ func lookupByHostname(tree *iTree, root *node, host, path string, c *cTx, lazy b
 
 	matched := root
 	search := host
-	*c.skipStack = (*c.skipStack)[:0]
-
-	subCtx := tree.pool.Get().(*cTx)
-	defer tree.pool.Put(subCtx)
 
 Walk:
 	for len(search) > 0 {
@@ -128,31 +125,24 @@ Walk:
 	}
 
 	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil {
-		*subCtx.params = (*subCtx.params)[:0]
-		subNode, subTsr := lookupByPath(matched, path, subCtx, lazy)
+		stackOffset := len(*c.skipStack)
+		subNode := lookupByPath(matched, path, c, lazy, stackOffset)
 		if subNode != nil {
-			if subTsr {
-				if !tsr {
-					tsr = true
-					n = subNode
-					if !lazy {
-						*c.tsrParams = (*c.tsrParams)[:0]
-						*c.tsrParams = append(*c.tsrParams, *c.params...)
-						*c.tsrParams = append(*c.tsrParams, *subCtx.tsrParams...)
-					}
-				}
+			if c.tsr {
+				n = subNode
 			} else {
-				if !lazy {
-					*c.params = append(*c.params, *subCtx.params...)
-				}
-				return subNode, false
+				c.tsr = false
+				return subNode
 			}
 		}
+
+		// Remove any unused skip nodes added during the path lookup.
+		*c.skipStack = (*c.skipStack)[:stackOffset]
 	}
 
 Backtrack:
 	if len(*c.skipStack) == 0 {
-		return n, tsr
+		return n
 	}
 
 	skipped := c.skipStack.pop()
@@ -161,7 +151,6 @@ Backtrack:
 		matched = skipped.node
 		*c.params = (*c.params)[:skipped.paramCnt]
 		search = host[skipped.pathIndex:]
-
 		charsMatched = skipped.pathIndex
 		skipStatic = true
 		childParamIdx = skipped.childParamIdx
@@ -169,11 +158,11 @@ Backtrack:
 		goto Walk
 	}
 
-	return n, tsr
+	return n
 
 }
 
-func lookupByPath(root *node, path string, c *cTx, lazy bool) (n *node, tsr bool) {
+func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (n *node) {
 
 	var (
 		charsMatched     int
@@ -186,7 +175,6 @@ func lookupByPath(root *node, path string, c *cTx, lazy bool) (n *node, tsr bool
 
 	matched := root
 	search := path
-	*c.skipStack = (*c.skipStack)[:0]
 
 Walk:
 	for len(search) > 0 {
@@ -214,10 +202,10 @@ Walk:
 					continue
 				}
 
-				if !tsr && child.route != nil && strings.HasPrefix(child.key, search) {
+				if !c.tsr && child.route != nil && strings.HasPrefix(child.key, search) {
 					remaining := child.key[len(search):]
 					if remaining == "/" {
-						tsr = true
+						c.tsr = true
 						n = child
 						if !lazy {
 							copyWithResize(c.tsrParams, c.params)
@@ -278,7 +266,6 @@ Walk:
 			}
 		}
 
-		// Wildcard handling - now fully iterative
 		wildcards := matched.wildcards[childWildcardIdx:]
 		if len(wildcards) > 0 {
 			offset := charsMatched
@@ -288,7 +275,8 @@ Walk:
 					continue // Not an infix wildcard
 				}
 
-				// Start searching from the wildcard's base position + any offset from backtracking
+				// Start searching from the wildcard's base position + any accumulated offset from last
+				// node put in the skip stack.
 				searchStart := charsMatched + wildcardOffset
 
 				for {
@@ -298,9 +286,9 @@ Walk:
 					idx := strings.IndexByte(path[searchStart:], slashDelim)
 					if idx < 0 {
 						// No more slashes - check for TSR opportunity at end of path
-						if !tsr && len(path[searchStart:]) > 0 {
+						if !c.tsr && len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-								tsr = true
+								c.tsr = true
 								n = child
 								if !lazy {
 									copyWithResize(c.tsrParams, c.params)
@@ -382,8 +370,8 @@ Walk:
 				if !lazy {
 					*c.params = append(*c.params, search)
 				}
-
-				return wildcardNode, false
+				c.tsr = false
+				return wildcardNode
 			}
 		}
 
@@ -391,12 +379,13 @@ Walk:
 	}
 
 	if matched.route != nil {
-		return matched, false
+		c.tsr = false
+		return matched
 	}
 
-	if !tsr {
+	if !c.tsr {
 		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-			tsr = true
+			c.tsr = true
 			n = child
 			if !lazy {
 				copyWithResize(c.tsrParams, c.params)
@@ -404,7 +393,7 @@ Walk:
 		}
 
 		if matched.key == "/" && parent != nil && parent.route != nil {
-			tsr = true
+			c.tsr = true
 			n = parent
 			if !lazy {
 				copyWithResize(c.tsrParams, c.params)
@@ -413,16 +402,16 @@ Walk:
 	}
 
 Backtrack:
-	if !tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
-		tsr = true
+	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
+		c.tsr = true
 		n = matched
 		if !lazy {
 			copyWithResize(c.tsrParams, c.params)
 		}
 	}
 
-	if len(*c.skipStack) == 0 {
-		return n, tsr
+	if len(*c.skipStack) == stackOffset {
+		return n
 	}
 
 	skipped := c.skipStack.pop()

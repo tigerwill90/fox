@@ -212,9 +212,9 @@ func (txn *Txn) Route(method, pattern string) *Route {
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
-	n, tsr := txn.rootTxn.root.lookup(tree, method, host, path, c, true)
+	n := txn.rootTxn.root.lookup(method, host, path, c, true)
 	tree.pool.Put(c)
-	if n != nil && !tsr && n.route.pattern == pattern {
+	if n != nil && !c.tsr && n.route.pattern == pattern {
 		return n.route
 	}
 	return nil
@@ -232,10 +232,10 @@ func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := txn.rootTxn.tree
 	c := tree.pool.Get().(*cTx)
 	c.resetNil()
-	n, tsr := txn.rootTxn.root.lookup(tree, method, host, path, c, true)
+	n := txn.rootTxn.root.lookup(method, host, path, c, true)
 	tree.pool.Put(c)
 	if n != nil {
-		return n.route, tsr
+		return n.route, c.tsr
 	}
 	return nil, false
 }
@@ -260,14 +260,13 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 		path = r.URL.RawPath
 	}
 
-	n, tsr := txn.rootTxn.root.lookup(tree, r.Method, r.Host, path, c, false)
+	n := txn.rootTxn.root.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.route
-		c.tsr = tsr
-		return n.route, c, tsr
+		return n.route, c, c.tsr
 	}
 	tree.pool.Put(c)
-	return nil, nil, tsr
+	return nil, nil, false
 }
 
 // Iter returns a collection of range iterators for traversing registered routes. When called on a write transaction,

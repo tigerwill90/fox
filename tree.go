@@ -31,8 +31,8 @@ func (t *iTree) txn() *tXn {
 	}
 }
 
-func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) (n *node, tsr bool) {
-	return t.root.lookup(t, method, hostPort, path, c, lazy)
+func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
+	return t.root.lookup(method, hostPort, path, c, lazy)
 }
 
 func (t *iTree) allocateContext() *cTx {
@@ -45,7 +45,7 @@ func (t *iTree) allocateContext() *cTx {
 		skipStack: &stacks,
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
-		tree2: t,
+		tree: t,
 		// This is a read only value, no reset
 		fox: t.fox,
 	}

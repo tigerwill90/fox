@@ -48,8 +48,8 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 		host, path := SplitHostPath(pattern)
 		for method := range methods {
 			c.resetNil()
-			n, tsr := it.tree.lookup(method, host, path, c, true)
-			if n != nil && !tsr && n.route.pattern == pattern {
+			n := it.tree.lookup(method, host, path, c, true)
+			if n != nil && !c.tsr && n.route.pattern == pattern {
 				if !yield(method, n.route) {
 					return
 				}
@@ -73,8 +73,8 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 		defer c.Close()
 		for method := range methods {
 			c.resetNil()
-			n, tsr := it.tree.lookup(method, host, cmp.Or(path, "/"), c, true)
-			if n != nil && (!tsr || n.route.handleSlash != StrictSlash) {
+			n := it.tree.lookup(method, host, cmp.Or(path, "/"), c, true)
+			if n != nil && (!c.tsr || n.route.handleSlash != StrictSlash) {
 				if !yield(method, n.route) {
 					return
 				}

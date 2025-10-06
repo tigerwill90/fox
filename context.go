@@ -86,7 +86,8 @@ type Context interface {
 	Stream(code int, contentType string, r io.Reader) error
 	// Redirect sends an HTTP redirect response with the given status code and URL.
 	Redirect(code int, url string) error
-	// Clone returns a copy of the [Context] that is safe to use after the [HandlerFunc] returns.
+	// Clone returns a deep copy of the [Context] that is safe to use after the [HandlerFunc] returns.
+	// Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
 	Clone() Context
 	// CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request]
 	// with the provided ones. The method is designed for zero allocation during the copy process. The returned
@@ -108,7 +109,7 @@ type cTx struct {
 	tsrParams   *[]string
 	skipStack   *skipStack
 	route       *Route
-	tree2       *iTree
+	tree        *iTree  // no reset
 	fox         *Router // no reset
 	cachedQuery url.Values
 	rec         recorder
@@ -127,6 +128,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.cachedQuery = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+	c.tsr = false
 }
 
 func (c *cTx) resetNil() {
@@ -135,17 +137,18 @@ func (c *cTx) resetNil() {
 	c.cachedQuery = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
+	c.tsr = false
 }
 
 // resetWithWriter resets the [Context] to its initial state, attaching the provided [ResponseWriter] and [http.Request].
 func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
-	c.tsr = false
 	c.cachedQuery = nil
-	c.route = nil
+	c.route = nil // TODO redondant
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+	c.tsr = false
 }
 
 // Request returns the [http.Request].
@@ -373,7 +376,7 @@ func (c *cTx) Clone() Context {
 // be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
 // their custom [ResponseWriter] while preserving the state of the original [Context].
 func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
-	cp := c.tree2.pool.Get().(*cTx)
+	cp := c.tree.pool.Get().(*cTx)
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
@@ -409,7 +412,7 @@ func (c *cTx) Scope() HandlerScope {
 
 // Close releases the context to be reused later.
 func (c *cTx) Close() {
-	c.tree2.pool.Put(c)
+	c.tree.pool.Put(c)
 }
 
 func (c *cTx) getQueries() url.Values {
