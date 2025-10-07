@@ -889,6 +889,9 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				}
 				state = stateCatchAll
 				i++
+				if i < len(url) && url[i] != '{' {
+					return nil, 0, 0, fmt.Errorf("%w: missing '{param}' after '*' catch-all delimiter", ErrInvalidRoute)
+				}
 				startParam = i
 				paramCnt++
 			default:

@@ -2761,7 +2761,7 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "mixing all together",
+			name: "mixing all together 1",
 			path: "/foo/1/2/3/bar/foo",
 			routes: []string{
 				"/foo/*{fallback}/bar/*{ab:[0-9]+}",
@@ -2782,7 +2782,7 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "mixing all together",
+			name: "mixing all together 2",
 			path: "/foo/1/2/3/bar/foo123",
 			routes: []string{
 				"/foo/*{fallback}/bar/*{ab:[0-9]+}",
@@ -2803,7 +2803,7 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "mixing all together",
+			name: "mixing all together 3",
 			path: "/foo/1/2/3/bar/foo",
 			routes: []string{
 				"/foo/*{fallback}/bar/*{ab:[0-9]+}",
@@ -2824,7 +2824,7 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "mixing all together",
+			name: "mixing all together 4",
 			path: "/foo/1/2/3/bar/foo/1/2/3",
 			routes: []string{
 				"/foo/*{fallback}/bar/*{ab:[A-z0-9/]+}",
@@ -2841,6 +2841,38 @@ func TestOverlappingRoute(t *testing.T) {
 				{
 					Key:   "ab",
 					Value: "foo/1/2/3",
+				},
+			},
+		},
+		{
+			name: "exhausting infix with suffix fallback at first position",
+			path: "/aa/b/c",
+			routes: []string{
+				"/*{args:.*}",
+				"/*{a:a}/b/c",
+				"/*{b:b}/b/c",
+			},
+			wantMatch: "/*{args:.*}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "aa/b/c",
+				},
+			},
+		},
+		{
+			name: "exhausting infix with suffix fallback at last position",
+			path: "/aa/b/c",
+			routes: []string{
+				"/*{a:a}/b/c",
+				"/*{b:b}/b/c",
+				"/*{args}",
+			},
+			wantMatch: "/*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "aa/b/c",
 				},
 			},
 		},
@@ -6604,6 +6636,11 @@ func TestParseRoute(t *testing.T) {
 			path:    "/foo/{bar:(foo|bar)}",
 			wantErr: ErrInvalidRoute,
 		},
+		{
+			name:    "no opening brace after * wildcard",
+			path:    "/foo/*:bar}",
+			wantErr: ErrInvalidRoute,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -9310,13 +9347,14 @@ func TestZ(t *testing.T) {
 
 func TestXyz(t *testing.T) {
 	f, _ := New(AllowRegexpParam(true))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/{a}/b", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/{a:a}/b/c", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{args:.*}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a:a}/b/c", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{b:b}/b/c", emptyHandler)))
 	tree := f.getTree()
 	fmt.Println(tree.root[http.MethodGet])
 
 	c := newTestContext(f)
-	n := tree.lookup(http.MethodGet, "", "/a/", c, false)
+	n := tree.lookup(http.MethodGet, "", "/aa/b/c", c, false)
 	if n != nil {
 		c.route = n.route
 		fmt.Println(c.tsr)
