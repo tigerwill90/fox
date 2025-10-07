@@ -11,6 +11,8 @@ import (
 	"github.com/tigerwill90/fox/internal/stringutil"
 )
 
+const offsetZero = 0
+
 type root map[string]*node
 
 func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
@@ -20,32 +22,37 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
 	}
 
 	*c.skipStack = (*c.skipStack)[:0]
-
 	// The tree for this method, we only have path registered
-	if len(root.params) == 0 && len(root.statics) == 1 && root.statics[0].label == slashDelim {
-		return lookupByPath(root, path, c, lazy, 0)
+	if len(root.params) == 0 && len(root.wildcards) == 0 && len(root.statics) == 1 && root.statics[0].label == slashDelim {
+		return lookupByPath(root, path, c, lazy, offsetZero)
 	}
 
 	host := netutil.StripHostPort(hostPort)
-	if host != "" {
-		// Try first by domain
-		if n := lookupByHostname(root, host, path, c, lazy); n != nil {
-			return n
-		}
+	if host == "" {
+		return lookupByPath(root, path, c, lazy, offsetZero)
 	}
 
-	// Fallback to path only and reset any recorded params and skip stack
-	*c.skipStack = (*c.skipStack)[:0]
-	*c.params = (*c.params)[:0]
-	c.tsr = false
-	return lookupByPath(root, path, c, lazy, 0)
+	n := lookupByHostname(root, host, path, c, lazy)
+	if n == nil || c.tsr {
+		// Either no match or match with tsr, try lookup by path with tsr enable
+		// so we won't check for tsr again.
+		*c.skipStack = (*c.skipStack)[:0]
+		*c.params = (*c.params)[:0]
+		if pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
+			return pathNode
+		}
+	}
+	// Hostname direct match
+	return n
 }
 
 func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (n *node) {
 	var (
-		charsMatched  int
-		skipStatic    bool
-		childParamIdx int
+		charsMatched     int
+		skipStatic       bool
+		childParamIdx    int
+		childWildcardIdx int
+		wildcardOffset   int
 	)
 
 	matched := root
@@ -61,18 +68,17 @@ Walk:
 				child := matched.statics[idx]
 				keyLen := len(child.key)
 				if keyLen <= len(search) && stringutil.EqualStringsASCIIIgnoreCase(search[:keyLen], child.key) {
-					if len(matched.params) > 0 {
+					if len(matched.params) > 0 || len(matched.wildcards) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
-							node:      matched,
-							pathIndex: charsMatched,
-							paramCnt:  len(*c.params),
+							node:         matched,
+							charsMatched: charsMatched,
+							paramCnt:     len(*c.params),
 						})
 					}
 
 					matched = child
 					search = search[keyLen:]
 					charsMatched += keyLen
-					childParamIdx = 0
 					continue
 				}
 			}
@@ -87,23 +93,29 @@ Walk:
 			}
 
 			if end == 0 {
+				if len(matched.wildcards) > 0 {
+					*c.skipStack = append(*c.skipStack, skipNode{
+						node:          matched,
+						charsMatched:  charsMatched,
+						paramCnt:      len(*c.params),
+						childParamIdx: len(matched.params),
+					})
+				}
 				goto Backtrack
 			}
 
 			segment := search[:end]
 
 			for i, paramNode := range params {
-				if paramNode.regexp != nil {
-					if !paramNode.regexp.MatchString(segment) {
-						continue
-					}
+				if paramNode.regexp != nil && !paramNode.regexp.MatchString(segment) {
+					continue
 				}
 
 				nextChildIx := i + 1
 				if nextChildIx < len(params) {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
-						pathIndex:     charsMatched,
+						charsMatched:  charsMatched,
 						paramCnt:      len(*c.params),
 						childParamIdx: nextChildIx + childParamIdx,
 					})
@@ -118,6 +130,97 @@ Walk:
 				charsMatched += end
 				childParamIdx = 0
 				goto Walk
+			}
+		}
+
+		wildcards := matched.wildcards[childWildcardIdx:]
+		if len(wildcards) > 0 {
+			offset := charsMatched
+			// Try infix wildcards first
+			for i, wildcardNode := range wildcards {
+				if len(wildcardNode.statics) == 1 && wildcardNode.statics[0].label == slashDelim {
+					continue // Not an infix wildcard
+				}
+
+				// Start searching from the wildcard's base position + any accumulated offset from last
+				// node put in the skip stack.
+				searchStart := charsMatched + wildcardOffset
+				for {
+					// Search for next dot from current offset
+					idx := strings.IndexByte(host[searchStart:], dotDelim)
+					if idx < 0 {
+						break
+					}
+
+					captureEnd := searchStart + idx
+					capturedValue := host[charsMatched:captureEnd]
+
+					// Skip empty captures (consecutive slashes)
+					if capturedValue == "" {
+						searchStart++
+						continue
+					}
+
+					if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(capturedValue) {
+						searchStart = captureEnd + 1
+						continue
+					}
+
+					// We have a potential match, save backtrack state
+					// The next attempt should search starting one position after current searchStart
+					*c.skipStack = append(*c.skipStack, skipNode{
+						node:             matched,
+						charsMatched:     charsMatched,
+						paramCnt:         len(*c.params),
+						childParamIdx:    len(matched.params),
+						childWildcardIdx: i + childWildcardIdx,
+						wildcardOffset:   captureEnd - charsMatched + 1,
+					})
+
+					if !lazy {
+						*c.params = append(*c.params, capturedValue)
+					}
+
+					// Descend into wildcard subtree
+					matched = wildcardNode
+					search = host[captureEnd:]
+					charsMatched = captureEnd
+					childParamIdx = 0
+					childWildcardIdx = 0
+					wildcardOffset = 0
+					goto Walk
+				}
+
+				nextChildIdx := i + 1
+				if nextChildIdx < len(wildcards) {
+					*c.skipStack = append(*c.skipStack, skipNode{
+						node:             matched,
+						charsMatched:     offset,
+						paramCnt:         len(*c.params),
+						childParamIdx:    len(matched.params),
+						childWildcardIdx: nextChildIdx + childWildcardIdx,
+						wildcardOffset:   0, // Next wildcard starts from beginning
+					})
+					goto Backtrack
+				}
+			}
+
+			// After trying all infix wildcards, try suffix catchalls
+			for _, wildcardNode := range matched.wildcards {
+				if len(wildcardNode.statics) == 1 && wildcardNode.statics[0].label == dotDelim {
+					continue // Not a suffix catchall
+				}
+
+				if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(search) {
+					continue
+				}
+
+				if !lazy {
+					*c.params = append(*c.params, search)
+				}
+
+				matched = wildcardNode
+				break Walk
 			}
 		}
 
@@ -150,16 +253,25 @@ Backtrack:
 	if skipped.childParamIdx < len(skipped.node.params) {
 		matched = skipped.node
 		*c.params = (*c.params)[:skipped.paramCnt]
-		search = host[skipped.pathIndex:]
-		charsMatched = skipped.pathIndex
+		search = host[skipped.charsMatched:]
+		charsMatched = skipped.charsMatched
 		skipStatic = true
 		childParamIdx = skipped.childParamIdx
-
+		childWildcardIdx = 0
+		wildcardOffset = 0
 		goto Walk
 	}
 
-	return n
+	matched = skipped.node
+	*c.params = (*c.params)[:skipped.paramCnt]
+	search = host[skipped.charsMatched:]
+	charsMatched = skipped.charsMatched
+	childParamIdx = skipped.childParamIdx
+	childWildcardIdx = skipped.childWildcardIdx
+	wildcardOffset = skipped.wildcardOffset
+	skipStatic = true
 
+	goto Walk
 }
 
 func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (n *node) {
@@ -188,10 +300,10 @@ Walk:
 				if keyLen <= len(search) && search[:keyLen] == child.key {
 					if len(matched.params) > 0 || len(matched.wildcards) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
-							node:      matched,
-							parent:    parent,
-							pathIndex: charsMatched,
-							paramCnt:  len(*c.params),
+							node:         matched,
+							parent:       parent,
+							charsMatched: charsMatched,
+							paramCnt:     len(*c.params),
 						})
 					}
 
@@ -228,7 +340,7 @@ Walk:
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						parent:        parent,
-						pathIndex:     charsMatched,
+						charsMatched:  charsMatched,
 						paramCnt:      len(*c.params),
 						childParamIdx: len(matched.params),
 					})
@@ -247,7 +359,7 @@ Walk:
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						parent:        parent,
-						pathIndex:     charsMatched,
+						charsMatched:  charsMatched,
 						paramCnt:      len(*c.params),
 						childParamIdx: nextChildIx + childParamIdx,
 					})
@@ -280,12 +392,9 @@ Walk:
 				searchStart := charsMatched + wildcardOffset
 
 				for {
-					/*					x := path[searchStart:]
-										_ = x*/
 					// Search for next slash from current offset
 					idx := strings.IndexByte(path[searchStart:], slashDelim)
 					if idx < 0 {
-						// No more slashes - check for TSR opportunity at end of path
 						if !c.tsr && len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
 								c.tsr = true
@@ -308,25 +417,23 @@ Walk:
 						continue
 					}
 
-					// Check regexp constraint
 					if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(capturedValue) {
 						searchStart = captureEnd + 1
 						continue
 					}
 
-					// We have a potential match - save backtrack state
+					// We have a potential match, save backtrack state
 					// The next attempt should search starting one position after current searchStart
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:             matched,
 						parent:           parent,
-						pathIndex:        charsMatched,
+						charsMatched:     charsMatched,
 						paramCnt:         len(*c.params),
 						childParamIdx:    len(matched.params),
 						childWildcardIdx: i + childWildcardIdx,
 						wildcardOffset:   captureEnd - charsMatched + 1,
 					})
 
-					// Capture the wildcard parameter
 					if !lazy {
 						*c.params = append(*c.params, capturedValue)
 					}
@@ -347,7 +454,7 @@ Walk:
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:             matched,
 						parent:           parent,
-						pathIndex:        offset,
+						charsMatched:     offset,
 						paramCnt:         len(*c.params),
 						childParamIdx:    len(matched.params),
 						childWildcardIdx: nextChildIdx + childWildcardIdx,
@@ -420,8 +527,8 @@ Backtrack:
 		matched = skipped.node
 		parent = skipped.parent
 		*c.params = (*c.params)[:skipped.paramCnt]
-		search = path[skipped.pathIndex:]
-		charsMatched = skipped.pathIndex
+		search = path[skipped.charsMatched:]
+		charsMatched = skipped.charsMatched
 		skipStatic = true
 		childParamIdx = skipped.childParamIdx
 		childWildcardIdx = 0
@@ -432,12 +539,13 @@ Backtrack:
 	matched = skipped.node
 	parent = skipped.parent
 	*c.params = (*c.params)[:skipped.paramCnt]
-	search = path[skipped.pathIndex:]
-	charsMatched = skipped.pathIndex
+	search = path[skipped.charsMatched:]
+	charsMatched = skipped.charsMatched
 	childParamIdx = skipped.childParamIdx
 	childWildcardIdx = skipped.childWildcardIdx
 	wildcardOffset = skipped.wildcardOffset
 	skipStatic = true
+
 	goto Walk
 }
 
@@ -748,7 +856,7 @@ func (n *skipStack) pop() skipNode {
 type skipNode struct {
 	node             *node
 	parent           *node
-	pathIndex        int
+	charsMatched     int
 	paramCnt         int
 	childParamIdx    int
 	childWildcardIdx int

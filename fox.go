@@ -705,7 +705,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 	state := stateDefault
 	previous := stateDefault
 	paramCnt := 0
-	countStatic := 1
+	countStatic := 2 // TODO test
 	startParam := 0
 	inParam := false
 	nonNumeric := false // true once we've seen a letter or hyphen
@@ -770,12 +770,16 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				}
 				inParam = false
 
-				if i+1 < len(url) && url[i+1] != '/' {
+				if i+1 < len(url) && url[i+1] != delim && url[i+1] != '/' {
 					return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' after '*{param}'", ErrInvalidRoute, string(url[i+1]))
 				}
 
 				if previous == stateCatchAll && countStatic <= 1 {
 					return nil, 0, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
+				}
+
+				if i < endHost {
+					nonNumeric = true
 				}
 
 				if previous != stateRegex {
@@ -803,7 +807,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				return nil, 0, 0, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrParamKeyTooLarge)
 			}
 
-			if url[i] == '/' || url[i] == '*' || url[i] == '{' {
+			if url[i] == delim || url[i] == '/' || url[i] == '*' || url[i] == '{' {
 				return nil, 0, 0, fmt.Errorf("%w: illegal character '%s' in '*{param}'", ErrInvalidRoute, string(url[i]))
 			}
 			inParam = true
@@ -861,6 +865,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 					sb.Reset()
 				}
 				delim = slashDelim
+				countStatic = 2 // reset
 			}
 
 			switch url[i] {
@@ -877,13 +882,11 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				startParam = i
 				paramCnt++
 			case '*':
-				if i < endHost {
-					return nil, 0, 0, fmt.Errorf("%w: catch-all wildcard not supported in hostname", ErrInvalidRoute)
-				}
 				if sb.Len() > 0 {
 					tokens = append(tokens, token{
-						typ:   nodeStatic,
-						value: sb.String(),
+						typ:    nodeStatic,
+						value:  sb.String(),
+						hsplit: i < endHost,
 					})
 					sb.Reset()
 				}

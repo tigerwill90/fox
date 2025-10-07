@@ -4576,7 +4576,7 @@ func TestDomainLookup(t *testing.T) {
 				"{a}.{b}.{c}/{d}",
 				"{a}.{b}.c/{d}",
 				"{a}.b.c/{path}/bar/",
-				"/{a}/bar",
+				"/{a}/bar/",
 			},
 			host:     "foo.b.c",
 			path:     "/john/bar",
@@ -4594,12 +4594,96 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
-			name: "fallback to must specific with path param and regexp",
+			name: "path priority with tsr hostname",
+			routes: []string{
+				"{a}.{b}.{c}/{d}",
+				"{a}.{b}.c/{d}",
+				"{a}.b.c/{path}/bar/",
+				"/{a}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a}/bar/",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a}/ba",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific path with path param and regexp",
 			routes: []string{
 				"{a:.*}.{b:.*}.{c}/{d}",
 				"{a:foo}.{b}.c/{d}",
 				"{a:[A-z]+}.b.c/{path}/bar/",
 				"/{a}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
 			},
 			host:     "foo.b.c",
 			path:     "/john/bar",
@@ -4641,7 +4725,7 @@ func TestDomainLookup(t *testing.T) {
 				"{a}.{b}.{c}/{d}",
 				"{a}.{b}.c/{d}",
 				"{a}.b.c/{path}/bar/",
-				"/{a}/bar",
+				"/{a}/barr",
 			},
 			host:     "FOO.B.C",
 			path:     "/john/bar",
@@ -5681,11 +5765,20 @@ func TestParseRoute(t *testing.T) {
 			wantTokens: slices.Collect(iterutil.SeqOf(staticToken("/foo/bar", false))),
 		},
 		{
-			name:  "top level domain",
+			name:  "top level domain param",
 			path:  "{tld}/foo/bar",
 			wantN: 1,
 			wantTokens: slices.Collect(iterutil.SeqOf(
 				paramToken("tld", ""),
+				staticToken("/foo/bar", false),
+			)),
+		},
+		{
+			name:  "top level domain wildcard",
+			path:  "*{tld}/foo/bar",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("tld", ""),
 				staticToken("/foo/bar", false),
 			)),
 		},
@@ -5932,8 +6025,20 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:    "unexpected character in wildcard hostname",
+			path:    "a.*{.bar}.c/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "unexpected character in param hostname",
 			path:    "a.{/bar}.c/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected character in wildcard hostname",
+			path:    "a.*{/bar}.c/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
@@ -5986,22 +6091,35 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
-			name:    "illegal catch-all in hostname",
-			path:    "*{any}.com/foo",
-			wantErr: ErrInvalidRoute,
-			wantN:   0,
+			name:  "prefix catch-all in hostname",
+			path:  "*{any}.com/foo",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("any", ""),
+				staticToken(".com", true),
+				staticToken("/foo", false),
+			)),
 		},
 		{
-			name:    "illegal catch-all in hostname",
-			path:    "a.*{any}.com/foo",
-			wantErr: ErrInvalidRoute,
-			wantN:   0,
+			name:  "infix catch-all in hostname",
+			path:  "a.*{any}.com/foo",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.", true),
+				wildcardToken("any", ""),
+				staticToken(".com", true),
+				staticToken("/foo", false),
+			)),
 		},
 		{
-			name:    "illegal catch-all in hostname",
-			path:    "a.b.*{any}/foo",
-			wantErr: ErrInvalidRoute,
-			wantN:   0,
+			name:  "illegal catch-all in hostname",
+			path:  "a.b.*{any}/foo",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.b.", true),
+				wildcardToken("any", ""),
+				staticToken("/foo", false),
+			)),
 		},
 		{
 			name:  "static hostname with catch-all path",
@@ -6128,12 +6246,23 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
-			name:  "all-numeric label with wildcard",
+			name:  "all-numeric label with param",
 			path:  "123.{a}.456/",
 			wantN: 1,
 			wantTokens: slices.Collect(iterutil.SeqOf(
 				staticToken("123.", true),
 				paramToken("a", ""),
+				staticToken(".456", true),
+				staticToken("/", false),
+			)),
+		},
+		{
+			name:  "all-numeric label with wildcard",
+			path:  "123.*{a}.456/",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("123.", true),
+				wildcardToken("a", ""),
 				staticToken(".456", true),
 				staticToken("/", false),
 			)),
@@ -6522,8 +6651,33 @@ func TestParseRoute(t *testing.T) {
 			wantN: 1,
 		},
 		{
+			name: "regexp wildcard at the beginning of the host",
+			path: "*{a:[A-z]+}.b.c/",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("a", "[A-z]+"),
+				staticToken(".b.c", true),
+				staticToken("/", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "consecutive wildcard from hostname to path",
+			path: "*{foo}/*{bar}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("foo", ""),
+				staticToken("/", false),
+				wildcardToken("bar", ""),
+			)),
+			wantN: 2,
+		},
+		{
 			name:    "consecutive infix wildcard at start with regexp not allowed",
 			path:    "/*{foo:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard at start with regexp not allowed",
+			path:    "/{foo:[A-z]+}.*{baz:[0-9]+}/",
 			wantErr: ErrInvalidRoute,
 		},
 		{
@@ -6532,8 +6686,18 @@ func TestParseRoute(t *testing.T) {
 			wantErr: ErrInvalidRoute,
 		},
 		{
+			name:    "hostname consecutive infix wildcard at start with and without regexp not allowed",
+			path:    "*{foo:[A-z]+}.*{baz}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
 			name:    "consecutive infix wildcard at start with regexp not allowed",
-			path:    "/*{foo}/*{baz:[0-9]+}",
+			path:    "/*{foo}/*{baz:[0-9]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard at start with regexp not allowed",
+			path:    "*{foo}.*{baz:[0-9]+}/",
 			wantErr: ErrInvalidRoute,
 		},
 		{
@@ -6542,13 +6706,28 @@ func TestParseRoute(t *testing.T) {
 			wantErr: ErrInvalidRoute,
 		},
 		{
+			name:    "hostname consecutive infix wildcard with regexp not allowed",
+			path:    "foo.*{bar:[A-z]+}.*{baz:[0-9]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
 			name:    "consecutive infix wildcard with first regexp not allowed",
 			path:    "/foo/*{bar:[A-z]+}/*{baz}",
 			wantErr: ErrInvalidRoute,
 		},
 		{
+			name:    "hostname consecutive infix wildcard with first regexp not allowed",
+			path:    "foo.*{bar:[A-z]+}.*{baz}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
 			name:    "consecutive infix wildcard with second regexp not allowed",
-			path:    "/foo/*{bar}/*{baz:[A-z]+}",
+			path:    "/foo/*{bar}/*{baz:[A-z]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard with second regexp not allowed",
+			path:    "foo.*{bar}.*{baz:[A-z]+}/",
 			wantErr: ErrInvalidRoute,
 		},
 		{
@@ -6559,11 +6738,6 @@ func TestParseRoute(t *testing.T) {
 		{
 			name:    "non slash char after regexp wildcard not allowed",
 			path:    "/foo/*{bar:[A-z]+}a/",
-			wantErr: ErrInvalidRoute,
-		},
-		{
-			name:    "regexp wildcard not allowed in hostname",
-			path:    "*{a:[A-z]+}.b.c/",
 			wantErr: ErrInvalidRoute,
 		},
 		{
@@ -9355,6 +9529,24 @@ func TestXyz(t *testing.T) {
 
 	c := newTestContext(f)
 	n := tree.lookup(http.MethodGet, "", "/aa/b/c", c, false)
+	if n != nil {
+		c.route = n.route
+		fmt.Println(c.tsr)
+		fmt.Println(n.route.pattern)
+		fmt.Println(slices.Collect(c.Params()))
+	}
+}
+
+func TestWildcardInHostname(t *testing.T) {
+	// Just non consecutive not allowed
+	f, _ := New(AllowRegexpParam(true))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "*{bar}/foo/bar/", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/bar", emptyHandler)))
+	tree := f.getTree()
+	fmt.Println(tree.root[http.MethodGet])
+
+	c := newTestContext(f)
+	n := tree.lookup(http.MethodGet, "a.b.c", "/foo/bar", c, false)
 	if n != nil {
 		c.route = n.route
 		fmt.Println(c.tsr)
