@@ -1,5 +1,8 @@
 package stringutil
 
+// EqualStringsASCIIIgnoreCase performs case-insensitive comparison of two strings
+// containing ASCII characters. Only supports ASCII letters (A-Z, a-z), digits (0-9), hyphen (-) and underscore (_).
+// Used for hostname matching where registered routes follow LDH standard.
 func EqualStringsASCIIIgnoreCase(s1, s2 string) bool {
 	// Easy case.
 	if len(s1) != len(s2) {
@@ -14,7 +17,7 @@ func EqualStringsASCIIIgnoreCase(s1, s2 string) bool {
 }
 
 // EqualASCIIIgnoreCase performs case-insensitive comparison of two ASCII bytes.
-// Only supports ASCII letters (A-Z, a-z), digits (0-9), and hyphen (-).
+// Only supports ASCII letters (A-Z, a-z), digits (0-9), hyphen (-) and underscore (_).
 // Used for hostname matching where registered routes follow LDH standard.
 func EqualASCIIIgnoreCase(s, t uint8) bool {
 	// Easy case.
@@ -35,6 +38,8 @@ func EqualASCIIIgnoreCase(s, t uint8) bool {
 	return false
 }
 
+// ToLowerASCII converts an ASCII uppercase letter (A-Z) to lowercase (a-z).
+// All other bytes are returned unchanged. Does not validate ASCII range;
 func ToLowerASCII(b byte) byte {
 	if 'A' <= b && b <= 'Z' {
 		return b + ('a' - 'A')
