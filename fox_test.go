@@ -4791,6 +4791,35 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "simple prefix wildcard overlap static",
+			routes: []string{
+				"a.b.com/bar",
+				"*{any}.com/bar",
+			},
+			host:       "a.b.com",
+			path:       "/bar",
+			wantPath:   "a.b.com/bar",
+			wantTsr:    false,
+			wantParams: Params(nil),
+		},
+		{
+			name: "simple prefix wildcard overlap static with fallback",
+			routes: []string{
+				"a.b.com/barr",
+				"*{any}.com/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.b",
+				},
+			},
+		},
+		{
 			name: "simple prefix wildcard with regexp",
 			routes: []string{
 				"*{any:[A-Z.]+}.com/bar",

@@ -551,14 +551,22 @@ func (t *tXn) truncate(methods []string) {
 		return
 	}
 
-	if !t.forked {
-		t.root = maps.Clone(t.root)
-		t.forked = true
-	}
+	updated := false
 	for _, method := range methods {
-		delete(t.root, method)
+		if _, ok := t.root[method]; ok {
+			// Only fork the root if we have something to delete
+			if !t.forked {
+				t.root = maps.Clone(t.root)
+				t.forked = true
+			}
+			delete(t.root, method)
+			updated = true
+		}
+
 	}
-	t.slowMax()
+	if updated {
+		t.slowMax()
+	}
 }
 
 func (t *tXn) computePathDepth(root *node, tokens []token) int {
