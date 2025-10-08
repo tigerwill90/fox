@@ -112,7 +112,7 @@ Walk:
 				}
 
 				nextChildIx := i + 1
-				if nextChildIx < len(params) {
+				if nextChildIx < len(params) || len(matched.wildcards) > 0 {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						charsMatched:  charsMatched,

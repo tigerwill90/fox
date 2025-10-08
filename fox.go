@@ -740,7 +740,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 					})
 				}
 
-				countStatic = 0
+				countStatic = 1
 				previous = state
 				state = stateDefault
 				i++

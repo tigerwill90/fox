@@ -4742,6 +4742,411 @@ func TestDomainLookup(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "simple hostname suffix wildcard",
+			routes: []string{
+				"*{any}/bar",
+			},
+			host:     "foo.com",
+			path:     "/bar",
+			wantPath: "*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "foo.com",
+				},
+			},
+		},
+		{
+			name: "simple hostname suffix wildcard with regexp",
+			routes: []string{
+				"*{any:[A-Z.]+}/bar",
+			},
+			host:     "FOO.COM",
+			path:     "/bar",
+			wantPath: "*{any:[A-Z.]+}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "FOO.COM",
+				},
+			},
+		},
+		{
+			name: "simple prefix wildcard",
+			routes: []string{
+				"*{any}.com/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.b",
+				},
+			},
+		},
+		{
+			name: "simple prefix wildcard with regexp",
+			routes: []string{
+				"*{any:[A-Z.]+}.com/bar",
+			},
+			host:     "A.B.com",
+			path:     "/bar",
+			wantPath: "*{any:[A-Z.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "A.B",
+				},
+			},
+		},
+		{
+			name: "simple infix wildcard",
+			routes: []string{
+				"example.*{any}.com/bar",
+			},
+			host:     "example.foo.bar.com",
+			path:     "/bar",
+			wantPath: "example.*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "foo.bar",
+				},
+			},
+		},
+		{
+			name: "simple infix wildcard with regexp",
+			routes: []string{
+				"example.*{any:[A-Z.]+}.com/bar",
+			},
+			host:     "example.FOO.BAR.com",
+			path:     "/bar",
+			wantPath: "example.*{any:[A-Z.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "FOO.BAR",
+				},
+			},
+		},
+		{
+			name: "prefix wildcard with params",
+			routes: []string{
+				"*{any}.{tld}/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.{tld}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.b",
+				},
+				{
+					Key:   "tld",
+					Value: "com",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with params",
+			routes: []string{
+				"{first}.*{any}.{tld}/bar",
+			},
+			host:     "foo.s1.s2.s3.com",
+			path:     "/bar",
+			wantPath: "{first}.*{any}.{tld}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "first",
+					Value: "foo",
+				},
+				{
+					Key:   "any",
+					Value: "s1.s2.s3",
+				},
+				{
+					Key:   "tld",
+					Value: "com",
+				},
+			},
+		},
+		{
+			name: "suffix wildcard with params",
+			routes: []string{
+				"{first}.{second}.*{any}/bar",
+			},
+			host:     "first.second.third.com",
+			path:     "/bar",
+			wantPath: "{first}.{second}.*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "first",
+					Value: "first",
+				},
+				{
+					Key:   "second",
+					Value: "second",
+				},
+				{
+					Key:   "any",
+					Value: "third.com",
+				},
+			},
+		},
+		{
+			name: "priority to params",
+			routes: []string{
+				"*{any}.b.com/bar",
+				"{ps}.b.com/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "{ps}.b.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name: "eval param with wildcard fallback",
+			routes: []string{
+				"*{any}.b.com/bar",
+				"{ps}.b.com/bar",
+			},
+			host:     "foo.b.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.b.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "foo.b",
+				},
+			},
+		},
+		{
+			name: "priority to infix wildcard",
+			routes: []string{
+				"a.*{any}.com/bar",
+				"a.*{any}/bar",
+			},
+			host:     "a.bar.baz.com",
+			path:     "/bar",
+			wantPath: "a.*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "bar.baz",
+				},
+			},
+		},
+		{
+			name: "eval infix with suffix fallback",
+			routes: []string{
+				"a.*{any}.com/bar",
+				"a.*{any}/bar",
+			},
+			host:     "a.bar.baz.ch",
+			path:     "/bar",
+			wantPath: "a.*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "bar.baz.ch",
+				},
+			},
+		},
+		{
+			name: "priority to regexp wildcard",
+			routes: []string{
+				"a.*{3}.com/bar",
+				"a.*{1:[A-z.]+}.com/bar",
+				"a.*{2:[0-9.]+}.com/bar",
+			},
+			host:     "a.b.c.com",
+			path:     "/bar",
+			wantPath: "a.*{1:[A-z.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "1",
+					Value: "b.c",
+				},
+			},
+		},
+		{
+			name: "priority to next regexp wildcard",
+			routes: []string{
+				"a.*{3}.com/bar",
+				"a.*{1:[A-z.]+}.com/bar",
+				"a.*{2:[0-9.]+}.com/bar",
+			},
+			host:     "a.1.2.com",
+			path:     "/bar",
+			wantPath: "a.*{2:[0-9.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "2",
+					Value: "1.2",
+				},
+			},
+		},
+		{
+			name: "fallback to non-regexp infix wildcard",
+			routes: []string{
+				"a.*{3}.com/bar",
+				"a.*{1:[A-z.]+}.com/bar",
+				"a.*{2:[0-9.]+}.com/bar",
+			},
+			host:     "a.b.2.com",
+			path:     "/bar",
+			wantPath: "a.*{3}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "3",
+					Value: "b.2",
+				},
+			},
+		},
+		{
+			name: "fallback to tsr with hostname priority and prefix wildcard",
+			routes: []string{
+				"*{a}.{b}.{c}/{d}",
+				"*{a}.{b}.c/{d}",
+				"*{a}.b.c/{path}/bar/",
+				"/{a}/barr",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "*{a}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to path priority with prefix wildcard",
+			routes: []string{
+				"*{a}.{b}.{c}/{d}",
+				"*{a}.{b}.c/{d}",
+				"*{a}.b.c/{path}/bar/",
+				"/{path}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{path}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param, wildcard and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.*{c:nomatch}/john/bar",
+				"*{a:nomatch}.{b}.c/{d}",
+				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "*{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with wildcard and regexp priority",
+			routes: []string{
+				"{a:.*}.{b:.*}.*{c:nomatch}/john/bar",
+				"*{a:foo}.{b}.c/{d}/bar",
+				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "*{a:foo}.{b}.c/{d}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "d",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "direct to must specific with wildcard and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.*{c:.*}/john/bar",
+				"*{a:foo}.{b}.c/{d}/bar",
+				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c.com",
+			path:     "/john/bar",
+			wantPath: "{a:.*}.{b:.*}.*{c:.*}/john/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "c",
+					Value: "c.com",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -5191,6 +5596,18 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				{path: "a.b.c/x"},
 				{path: "a.b.c.d/foo/bar"},
 				{path: "a.b.c{d}/foo/bar"},
+			},
+		},
+		{
+			name: "test mixed path wildcard",
+			routes: []struct {
+				path string
+			}{
+				{path: "/*{args}"},
+				{path: "/*{a}/b/*{c}/f"},
+				{path: "/*{a}/b/*{l}/g/"},
+				{path: "/*{a}/b/*{x}/e"},
+				{path: "/*{a}/b/*{c}/d/"},
 			},
 		},
 	}
@@ -6667,6 +7084,28 @@ func TestParseRoute(t *testing.T) {
 				wildcardToken("foo", ""),
 				staticToken("/", false),
 				wildcardToken("bar", ""),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "param then wildcard regexp",
+			path: "{a}.*{b:b}/",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", ""),
+				staticToken(".", true),
+				wildcardToken("b", "b"),
+				staticToken("/", false),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "param regexp then wildcard regexp",
+			path: "{a:a}.*{b:b}/",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", "a"),
+				staticToken(".", true),
+				wildcardToken("b", "b"),
+				staticToken("/", false),
 			)),
 			wantN: 2,
 		},
@@ -9460,97 +9899,4 @@ func ExampleRouter_View() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
-}
-
-func TestX(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:[A-z/]+}/bar/{baz}/", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:[A-z/]+}", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:[A-z/*]+}", emptyHandler)))
-
-	// require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any:a/b/c}", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/{a}/{b}/{c}/bar/foo/f", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{any}", emptyHandler)))
-
-	tree := f.getTree()
-	fmt.Println(tree.root[http.MethodGet])
-
-	c := newTestContext(f)
-	n := tree.lookup(http.MethodGet, "", "/a/?/c/bar/foo/ff", c, false)
-	fmt.Println(n, c.tsr)
-	fmt.Println(c.params)
-}
-
-func TestY(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "{a}/{abc}/", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "a/abc/", emptyHandler)))
-	// require.NoError(t, onlyError(f.Handle(http.MethodGet, "a/*{a}/b/", emptyHandler)))
-	tree := f.getTree()
-	fmt.Println(tree.root[http.MethodGet])
-
-	c := newTestContext(f)
-	n := tree.lookup(http.MethodGet, "a", "/abc", c, false)
-	if n != nil {
-		c.route = n.route
-		fmt.Println(c.tsr)
-		fmt.Println(n.route.pattern)
-		fmt.Println(slices.Collect(c.Params()))
-	}
-}
-
-func TestZ(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{args}", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{c}/f", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{l}/g/", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{x:[A-z]+}/e", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a}/b/*{c}/d/", emptyHandler)))
-	tree := f.getTree()
-	fmt.Println(tree.root[http.MethodGet])
-
-	c := newTestContext(f)
-	n := tree.lookup(http.MethodGet, "", "/a/b/c/d", c, false)
-	if n != nil {
-		c.route = n.route
-		fmt.Println(c.tsr)
-		fmt.Println(n.route.pattern)
-		fmt.Println(slices.Collect(c.Params()))
-	}
-}
-
-func TestXyz(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{args:.*}", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{a:a}/b/c", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/*{b:b}/b/c", emptyHandler)))
-	tree := f.getTree()
-	fmt.Println(tree.root[http.MethodGet])
-
-	c := newTestContext(f)
-	n := tree.lookup(http.MethodGet, "", "/aa/b/c", c, false)
-	if n != nil {
-		c.route = n.route
-		fmt.Println(c.tsr)
-		fmt.Println(n.route.pattern)
-		fmt.Println(slices.Collect(c.Params()))
-	}
-}
-
-func TestWildcardInHostname(t *testing.T) {
-	// Just non consecutive not allowed
-	f, _ := New(AllowRegexpParam(true))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "*{bar}/foo/bar/", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/bar", emptyHandler)))
-	tree := f.getTree()
-	fmt.Println(tree.root[http.MethodGet])
-
-	c := newTestContext(f)
-	n := tree.lookup(http.MethodGet, "a.b.c", "/foo/bar", c, false)
-	if n != nil {
-		c.route = n.route
-		fmt.Println(c.tsr)
-		fmt.Println(n.route.pattern)
-		fmt.Println(slices.Collect(c.Params()))
-	}
 }
