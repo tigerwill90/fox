@@ -83,3 +83,96 @@ func TestEqualASCIIIgnoreCase(t *testing.T) {
 		})
 	}
 }
+
+func TestEqualStringsASCIIIgnoreCase(t *testing.T) {
+	tests := []struct {
+		name string
+		s1   string
+		s2   string
+		want bool
+	}{
+		// Empty strings
+		{"empty strings", "", "", true},
+		{"empty and non-empty", "", "a", false},
+
+		// Same case strings
+		{"same lowercase", "hello", "hello", true},
+		{"same uppercase", "HELLO", "HELLO", true},
+		{"same mixed", "HeLLo", "HeLLo", true},
+
+		// Different case strings
+		{"different case simple", "hello", "HELLO", true},
+		{"different case mixed", "HeLLo", "hEllO", true},
+
+		// Different lengths
+		{"different length 1", "hello", "helloworld", false},
+		{"different length 2", "helloworld", "hello", false},
+
+		// Different content
+		{"different content", "hello", "world", false},
+		{"different content case", "HELLO", "world", false},
+
+		// With digits and hyphens
+		{"with digits same", "test123", "TEST123", true},
+		{"with digits different", "test123", "test456", false},
+		{"with hyphens", "hello-world", "HELLO-WORLD", true},
+		{"with underscore", "hello_world", "HELLO_WORLD", true},
+
+		// Mixed content
+		{"hostname like", "example.com", "EXAMPLE.COM", true},
+		{"subdomain", "api-v2.example.com", "API-V2.EXAMPLE.COM", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := EqualStringsASCIIIgnoreCase(tt.s1, tt.s2); got != tt.want {
+				t.Errorf("EqualStringsASCIIIgnoreCase(%q, %q) = %v, want %v",
+					tt.s1, tt.s2, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToLowerASCII(t *testing.T) {
+	tests := []struct {
+		name string
+		b    byte
+		want byte
+	}{
+		// Uppercase letters (should convert)
+		{"uppercase A", 'A', 'a'},
+		{"uppercase Z", 'Z', 'z'},
+		{"uppercase M", 'M', 'm'},
+
+		// Lowercase letters (should stay same)
+		{"lowercase a", 'a', 'a'},
+		{"lowercase z", 'z', 'z'},
+		{"lowercase m", 'm', 'm'},
+
+		// Digits (should stay same)
+		{"digit 0", '0', '0'},
+		{"digit 9", '9', '9'},
+		{"digit 5", '5', '5'},
+
+		// Special characters (should stay same)
+		{"hyphen", '-', '-'},
+		{"underscore", '_', '_'},
+		{"dot", '.', '.'},
+		{"space", ' ', ' '},
+
+		// Boundary cases
+		{"before A", 'A' - 1, 'A' - 1},
+		{"after Z", 'Z' + 1, 'Z' + 1},
+		{"before a", 'a' - 1, 'a' - 1},
+		{"after z", 'z' + 1, 'z' + 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ToLowerASCII(tt.b); got != tt.want {
+				t.Errorf("ToLowerASCII(%c=%d) = %c=%d, want %c=%d",
+					tt.b, tt.b, got, got, tt.want, tt.want)
+			}
+		})
+	}
+}
