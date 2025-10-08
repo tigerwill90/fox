@@ -134,15 +134,15 @@ the route, but only one parameter is allowed per segment (or hostname label) and
 ````
 Pattern /avengers/{name}
 
-/avengers/ironman              matches
-/avengers/thor                 matches
-/avengers/hulk/angry           no matches
-/avengers/                     no matches
+/avengers/ironman               matches
+/avengers/thor                  matches
+/avengers/hulk/angry            no matches
+/avengers/                      no matches
 
 Pattern /users/uuid:{id}
 
-/users/uuid:123                matches
-/users/uuid:                   no matches
+/users/uuid:123                 matches
+/users/uuid:                    no matches
 
 Pattern /users/uuid:{id}/config
 
@@ -162,8 +162,8 @@ contain capturing groups, but can use non-capturing groups `(?:pattern)` instead
 ````
 Pattern /products/{name:[A-Za-z]+}
 
-/products/laptop         matches
-/products/123            no matches
+/products/laptop        matches
+/products/123           no matches
 ````
 
 #### Named Wildcard (Catch-all)
@@ -176,27 +176,27 @@ Consecutive catch-all parameter are not allowed.
 ````
 Pattern /src/*{filepath}
 
-/src/conf.txt                       matches
-/src/dir/config.txt                  matches
-/src/                               no matches
+/src/conf.txt                      matches
+/src/dir/config.txt                 matches
+/src/                              no matches
 
 Pattern /src/file=*{path}
 
-/src/file=config.txt                  matches
-/src/file=/dir/config.txt             matches
-/src/file=                           no matches
+/src/file=config.txt                 matches
+/src/file=/dir/config.txt            matches
+/src/file=                          no matches
 
 Pattern: /assets/*{path}/thumbnail
 
-/assets/images/thumbnail            matches
-/assets/photos/2021/thumbnail       matches
-/assets/thumbnail                   no matches
+/assets/images/thumbnail           matches
+/assets/photos/2021/thumbnail      matches
+/assets//thumbnail                 no matches
 
 Pattern *{sub}.example.com/avengers
 
-first.example.com/avengers           matches
-first.second.example.com/avengers    matches
-example.com/avengers                no matches
+first.example.com/avengers          matches
+first.second.example.com/avengers   matches
+example.com/avengers               no matches
 ````
 
 Named wildcard can include regular expression using the syntax `{name:regexp}`. Regular expressions cannot
@@ -206,8 +206,8 @@ contain capturing groups, but can use non-capturing groups `(?:pattern)` instead
 ````
 Pattern /src/*{filepath:[A-Za-z/]+\.json}
 
-/src/dir/config.json           matches
-/src/dir/config.txt            no matches
+/src/dir/config.json            matches
+/src/dir/config.txt             no matches
 ````
 
 
@@ -242,8 +242,6 @@ available alternative following the same priority order.
 
 Note that routes with hostnames are always evaluated before path-only routes and when multiple regex-constrained 
 parameters or wildcards exist at the same level, they are evaluated in registration order.
-
-
 
 Additionally, let's consider an example to illustrate the prioritization:
 ````
