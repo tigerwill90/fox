@@ -500,7 +500,7 @@ func internalTrailingSlashHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	path := escapeLeadingSlashes(FixTrailingSlash(cmp.Or(req.URL.RawPath, req.URL.Path)))
+	path := escapeLeadingSlashes(fixTrailingSlash(cmp.Or(req.URL.RawPath, req.URL.Path)))
 	if q := req.URL.RawQuery; q != "" {
 		path += "?" + q
 	}

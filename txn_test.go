@@ -2,7 +2,9 @@ package fox
 
 import (
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,58 +20,92 @@ func TestTxn_Truncate(t *testing.T) {
 			method string
 			path   string
 		}
+		deletes       []string
+		wantMethods   []string
+		wantDepth     int
+		wantMaxParams int
+		wantSize      int
 	}{
 		{
-			name: "common verb node should have a root and no children",
+			name: "delete and recompute with slow max",
 			routes: []struct {
 				method string
 				path   string
 			}{
-				{method: http.MethodGet, path: "/foo/bar"},
-				{method: http.MethodGet, path: "/foo"},
+				{method: http.MethodGet, path: "/foo/{bar}"},
+				{method: http.MethodGet, path: "/{foo}/{bar}"},
 				{method: http.MethodPost, path: "/foo/bar"},
 				{method: http.MethodPost, path: "/foo"},
-				{method: http.MethodPut, path: "/foo/bar"},
+				{method: http.MethodPut, path: "/foo/{bar}"},
 				{method: http.MethodPut, path: "/foo"},
-				{method: http.MethodDelete, path: "/foo/bar"},
+				{method: http.MethodDelete, path: "/foo/bar/{bar}/{bar}/*{bar}"},
 				{method: http.MethodDelete, path: "/foo"},
 			},
+			deletes:       []string{http.MethodDelete, http.MethodPost},
+			wantMethods:   []string{http.MethodGet, http.MethodPut},
+			wantDepth:     2,
+			wantMaxParams: 2,
+			wantSize:      4,
 		},
 		{
-			name: "not common verb should be removed entirely",
+			name: "delete all methods and recompute with slow max",
 			routes: []struct {
 				method string
 				path   string
 			}{
-				{method: http.MethodTrace, path: "/foo/bar"},
-				{method: http.MethodTrace, path: "/foo"},
+				{method: http.MethodGet, path: "/foo/{bar}"},
+				{method: http.MethodGet, path: "/{foo}/{bar}"},
 				{method: http.MethodPost, path: "/foo/bar"},
 				{method: http.MethodPost, path: "/foo"},
-				{method: http.MethodPut, path: "/foo/bar"},
+				{method: http.MethodPut, path: "/foo/{bar}"},
 				{method: http.MethodPut, path: "/foo"},
-				{method: http.MethodOptions, path: "/foo/bar"},
-				{method: http.MethodOptions, path: "/foo"},
-			},
-		},
-		{
-			name: "custom verb should be removed entirely",
-			routes: []struct {
-				method string
-				path   string
-			}{
-				{method: http.MethodGet, path: "/foo/bar"},
-				{method: http.MethodGet, path: "/foo"},
-				{method: http.MethodPost, path: "/foo/bar"},
-				{method: http.MethodPost, path: "/foo"},
-				{method: http.MethodPut, path: "/foo/bar"},
-				{method: http.MethodPut, path: "/foo"},
-				{method: "BOULOU", path: "/foo/bar"},
-				{method: "BOULOU", path: "/foo"},
-				{method: http.MethodDelete, path: "/foo/bar"},
+				{method: http.MethodDelete, path: "/foo/bar/{bar}/{bar}/*{bar}"},
 				{method: http.MethodDelete, path: "/foo"},
-				{method: "ANY", path: "/foo/bar"},
-				{method: "ANY", path: "/foo"},
 			},
+			deletes:     []string{http.MethodDelete, http.MethodPost, http.MethodPut, http.MethodGet},
+			wantMethods: []string{},
+		},
+		{
+			name: "delete and recompute with slow max",
+			routes: []struct {
+				method string
+				path   string
+			}{
+				{method: http.MethodGet, path: "/foo/{bar}"},
+				{method: http.MethodGet, path: "/{foo}/{bar}"},
+				{method: http.MethodPost, path: "/foo/bar"},
+				{method: http.MethodPost, path: "/foo"},
+				{method: http.MethodPut, path: "/foo/{bar}"},
+				{method: http.MethodPut, path: "/foo"},
+				{method: http.MethodDelete, path: "/foo/bar/{bar}/{bar}/*{bar}"},
+				{method: http.MethodDelete, path: "/foo"},
+			},
+			deletes:       []string{http.MethodPost, http.MethodPut},
+			wantMethods:   []string{http.MethodDelete, http.MethodGet},
+			wantDepth:     3,
+			wantMaxParams: 3,
+			wantSize:      4,
+		},
+		{
+			name: "keep only one method recompute with slow max",
+			routes: []struct {
+				method string
+				path   string
+			}{
+				{method: http.MethodGet, path: "/foo/{bar}"},
+				{method: http.MethodGet, path: "/{foo}/{bar}"},
+				{method: http.MethodPost, path: "/foo/bar"},
+				{method: http.MethodPost, path: "/foo"},
+				{method: http.MethodPut, path: "/foo/{bar}"},
+				{method: http.MethodPut, path: "/foo"},
+				{method: http.MethodDelete, path: "/foo/bar/{bar}/{bar}/*{bar}"},
+				{method: http.MethodDelete, path: "/foo"},
+			},
+			deletes:       []string{http.MethodGet, http.MethodPost, http.MethodPut},
+			wantMethods:   []string{http.MethodDelete},
+			wantDepth:     3,
+			wantMaxParams: 3,
+			wantSize:      2,
 		},
 	}
 
@@ -82,17 +118,15 @@ func TestTxn_Truncate(t *testing.T) {
 			txn := f.Txn(true)
 			defer txn.Abort()
 
-			methods := make([]string, 0)
-			for _, rte := range tc.routes {
-				methods = append(methods, rte.method)
-			}
-
-			if assert.NoError(t, txn.Truncate(methods...)) {
+			if assert.NoError(t, txn.Truncate(tc.deletes...)) {
 				txn.Commit()
 			}
 
 			tree := f.getTree()
-			assert.Len(t, tree.root, 0)
+			assert.ElementsMatch(t, tc.wantMethods, slices.Collect(maps.Keys(tree.root)))
+			assert.Equal(t, tc.wantDepth, tree.maxDepth)
+			assert.Equal(t, tc.wantSize, tree.size)
+			assert.Equal(t, tc.wantMaxParams, tree.maxParams)
 		})
 	}
 }

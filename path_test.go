@@ -139,9 +139,9 @@ func TestPathCleanLong(t *testing.T) {
 }
 
 func TestFixTrailingSlash(t *testing.T) {
-	assert.Equal(t, "/foo/", FixTrailingSlash("/foo"))
-	assert.Equal(t, "/foo", FixTrailingSlash("/foo/"))
-	assert.Equal(t, "/", FixTrailingSlash(""))
+	assert.Equal(t, "/foo/", fixTrailingSlash("/foo"))
+	assert.Equal(t, "/foo", fixTrailingSlash("/foo/"))
+	assert.Equal(t, "/", fixTrailingSlash(""))
 }
 
 func TestSplitHostPath(t *testing.T) {

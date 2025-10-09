@@ -10,7 +10,7 @@ import (
 	"github.com/tigerwill90/fox/internal/simplelru"
 )
 
-const defaultModifiedCache2 = 4096
+const defaultModifiedCache = 4096
 
 type iTree struct {
 	pool      sync.Pool
@@ -105,18 +105,7 @@ func (t *tXn) snapshot() map[string]*node {
 	return t.root
 }
 
-// insert performs a recursive copy-on-write insertion of a route into the tree.
-// It uses path copying to create a new tree version: only nodes along the path
-// from root to the insertion point are cloned, while unmodified subtrees are
-// shared with the previous version. This enables lock-free concurrent reads
-// against the old root while the new version is being constructed.
-//
-// The insertion proceeds in two phases:
-// 1. Descend: traverse the tree (read-only) to find the insertion point
-// 2. Ascend: clone and modify nodes along the path during stack unwinding
-//
-// Upon successful insertion, the transaction's root is updated to point to the
-// new tree version.
+// insert performs a recursive copy-on-write insertion.
 func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 	root := t.root[method]
 	if root == nil {
@@ -344,20 +333,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 	return nc, nil
 }
 
-// delete performs a recursive copy-on-write deletion of a route from the tree.
-// It uses path copying to create a new tree version: only nodes along the path
-// from root to the deletion point are cloned, while unmodified subtrees are
-// shared with the previous version. This enables lock-free concurrent reads
-// against the old root while the new version is being constructed.
-//
-// The deletion proceeds in two phases:
-//  1. Descend: traverse the tree (read-only) to find the target route
-//  2. Ascend: clone and modify nodes along the path during stack unwinding,
-//     pruning empty nodes and merging static nodes where appropriate
-//
-// Returns the deleted route and true if found, nil and false otherwise.
-// Upon successful deletion, the transaction's root is updated to point to the
-// new tree version.
+// delete performs a recursive copy-on-write deletion.
 func (t *tXn) delete(method string, tokens []token, pattern string) (*Route, bool) {
 	root := t.root[method]
 	if root == nil {
@@ -540,7 +516,6 @@ func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, patte
 	return nc, deletedRoute
 }
 
-// TODO add coverage for metrics
 func (t *tXn) truncate(methods []string) {
 	if len(methods) == 0 {
 		t.root = make(map[string]*node)
@@ -666,7 +641,7 @@ func (t *tXn) slowMax() {
 
 func (t *tXn) writeNode(n *node) *node {
 	if t.writable == nil {
-		lru, err := simplelru.NewLRU[*node, struct{}](defaultModifiedCache2, nil)
+		lru, err := simplelru.NewLRU[*node, struct{}](defaultModifiedCache, nil)
 		if err != nil {
 			panic(err)
 		}
