@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 
@@ -900,93 +899,6 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 			router.ServeHTTP(w, r)
 		}
 	})
-}
-
-// BenchmarkInsert-16    	    9566	    117855 ns/op	  130380 B/op	    2338 allocs/op
-// BenchmarkInsert-16    	   12214	     97886 ns/op	  162061 B/op	    2172 allocs/op
-// BenchmarkInsert-16    	   16977	     69638 ns/op	   57129 B/op	    1574 allocs/op
-// BenchmarkInsert-16    	   14163	     85088 ns/op	   81112 B/op	    1837 allocs/op
-// TODO delete me
-func BenchmarkInsert(b *testing.B) {
-	r, _ := New()
-
-	precomputed := make([]struct {
-		method string
-		route  *Route
-	}, 0, len(staticRoutes))
-	for _, route := range staticRoutes {
-		rte, _ := r.NewRoute(route.path, emptyHandler)
-		precomputed = append(precomputed, struct {
-			method string
-			route  *Route
-		}{method: route.method, route: rte})
-	}
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		_ = r.Updates(func(txn *Txn) error {
-			for _, route := range precomputed {
-				_ = txn.HandleRoute(route.method, route.route)
-			}
-			for _, route := range precomputed {
-				_ = txn.HandleRoute(route.method, route.route)
-			}
-			return nil
-		})
-	}
-}
-
-// TODO delete me
-func BenchmarkOverlappingCatchAll(b *testing.B) {
-	r, _ := New(AllowRegexpParam(true))
-	routes := []string{
-		"/foo/{fallback}/bar",
-		"/foo/{b:[a-z]+}",
-		"/foo/{b:[a-z]+}/bar",
-		"/foo/{c:[A-Z]+}/bar",
-	}
-
-	for _, route := range routes {
-		require.NoError(b, onlyError(r.Handle(http.MethodGet, route, func(c Context) {
-			// fmt.Println(c.Pattern())
-		})))
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/foo/123/bar", nil)
-	w := new(mockResponseWriter)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
-}
-
-func BenchmarkOverlappingCatchAll_GorillaMux(b *testing.B) {
-	r := mux.NewRouter()
-	routes := []string{
-		"/foo/{b:[a-z]+}",
-		"/foo/{b:[a-z]+}/bar",
-		"/foo/{c:[A-Z]+}/bar",
-		"/foo/{fallback}/bar",
-	}
-
-	for _, route := range routes {
-		r.HandleFunc(route, func(w http.ResponseWriter, r *http.Request) {
-		}).Methods(http.MethodGet)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/foo/123/bar", nil)
-	w := new(mockResponseWriter)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		r.ServeHTTP(w, req)
-	}
 }
 
 func BenchmarkStaticAll(b *testing.B) {

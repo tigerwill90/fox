@@ -747,7 +747,7 @@ func (n *node) search(key string) (matched *node) {
 		if search[0] == bracketDelim {
 			end := strings.IndexByte(search, '}')
 			if end == -1 {
-				goto STATIC // TODO Would be an optimization to return nil, but in futur we may allow to escape special char such as *
+				goto STATIC
 			}
 			paramName := search[:end+1]
 			_, child := current.getParamEdge(paramName)

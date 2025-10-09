@@ -128,7 +128,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.cachedQuery = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
-	c.tsr = false // TODO race
+	c.tsr = false
 }
 
 func (c *cTx) resetNil() {
@@ -145,7 +145,7 @@ func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
 	c.cachedQuery = nil
-	c.route = nil // TODO redondant
+	c.route = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 	c.tsr = false

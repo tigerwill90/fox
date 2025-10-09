@@ -80,7 +80,6 @@ func newResponseWriter(w http.ResponseWriter) ResponseWriter {
 	}
 }
 
-// TODO move me in test file
 func unwrapContext(t *testing.T, c Context) *cTx {
 	t.Helper()
 	cc, ok := c.(*cTx)
