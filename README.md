@@ -50,7 +50,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
   * [Basic example](#basic-example)
   * [Route Validation and Error Handling](#route-validation-and-error-handling)
   * [Named parameters](#named-parameters)
-  * [Catch-all parameters](#catch-all-parameters)
+  * [Named wildcards](#named-wildcards-catch-all)
   * [Hostname validation & restrictions](#hostname-validation--restrictions)
   * [Priority rules](#priority-rules)
   * [Hostname routing](#hostname-routing)
@@ -126,7 +126,7 @@ if errors.As(err, &conflict) {
 ```
 
 #### Named parameters
-Routes can include named parameters using curly braces `{}` to match exactly one non-empty route segment. The matching 
+Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching 
 segment are recorder as [Param](https://pkg.go.dev/github.com/tigerwill90/fox#Param) and accessible via the 
 [Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context) interface. Named parameters are supported anywhere in 
 the route, but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
@@ -166,7 +166,7 @@ Pattern /products/{name:[A-Za-z]+}
 /products/123           no matches
 ````
 
-#### Named Wildcard (Catch-all)
+#### Named Wildcards (Catch-all)
 Named wildcard start with an asterisk `*` followed by a name `{param}` and match any sequence of characters
 including slashes, but cannot match an empty string. The matching segment are also accessible via
 [Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Catch-all parameters are supported anywhere in the route, 
@@ -199,7 +199,7 @@ first.second.example.com/avengers   matches
 example.com/avengers               no matches
 ````
 
-Named wildcard can include regular expression using the syntax `{name:regexp}`. Regular expressions cannot
+Named wildcard can include regular expression using the syntax `*{name:regexp}`. Regular expressions cannot
 contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via
 `fox.AllowRegexpParam(true)` option.
 
@@ -209,7 +209,6 @@ Pattern /src/*{filepath:[A-Za-z/]+\.json}
 /src/dir/config.json            matches
 /src/dir/config.txt             no matches
 ````
-
 
 #### Hostname validation & restrictions
 
