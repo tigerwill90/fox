@@ -454,11 +454,13 @@ Wrapping an `http.Handler`
 ```go
 articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
-    _, _ = fmt.Fprintf(w, "Article id: %s\n", params.Get("id"))
+    // Article id: 80
+    // Matched route: /articles/{id}
+    _, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
 })
 
 f, _ := fox.New(fox.DefaultOptions())
-f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
+f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(articles))
 ```
 
 ## Middleware
