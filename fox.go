@@ -543,6 +543,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n = tree.lookup(r.Method, r.Host, path, c, false)
 	if !c.tsr && n != nil {
 		c.route = n.route
+		r.Pattern = n.route.pattern
 		n.route.hall(c)
 		tree.pool.Put(c)
 		return
@@ -552,6 +553,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if c.tsr && n != nil {
 			if n.route.handleSlash == RelaxedSlash {
 				c.route = n.route
+				r.Pattern = n.route.pattern
 				n.route.hall(c)
 				tree.pool.Put(c)
 				return
@@ -575,6 +577,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			c.tsr = false
 			if n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.route.handleSlash == RelaxedSlash) {
 				c.route = n.route
+				r.Pattern = n.route.pattern
 				n.route.hall(c)
 				tree.pool.Put(c)
 				return
@@ -705,7 +708,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 	state := stateDefault
 	previous := stateDefault
 	paramCnt := 0
-	countStatic := 2 // TODO test
+	countStatic := 2
 	startParam := 0
 	inParam := false
 	nonNumeric := false // true once we've seen a letter or hyphen

@@ -201,7 +201,6 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 	commonPrefix := longestPrefix(search, child.key)
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
-		// TODO check if len(search) > 0 is probably a optimization
 		remaining = append([]token{{typ: nodeStatic, value: search, hsplit: tk.hsplit}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
 		newChild, err := t.insertTokens(child, remaining, route)
