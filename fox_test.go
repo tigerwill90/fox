@@ -5931,7 +5931,7 @@ func TestInsertConflict(t *testing.T) {
 			}
 			got := onlyError(f.Handle(http.MethodGet, tc.insert, emptyHandler))
 			assert.ErrorIs(t, got, ErrRouteExist)
-			var conflict *RouteConflict
+			var conflict *RouteConflictError
 			require.ErrorAs(t, got, &conflict)
 			assert.Equal(t, tc.wantMatch, conflict.Existing.pattern)
 		})

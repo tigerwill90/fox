@@ -117,7 +117,7 @@ var ErrInvalidConfig = errors.New("invalid config")
 
 Conflict error may be unwrapped to retrieve conflicting route.
 ```go
-var conflict *RouteConflict
+var conflict *RouteConflictError
 if errors.As(err, &conflict) {
 	fmt.Println(conflict.Method)             // GET
 	fmt.Println(conflict.New.Pattern())      // /users/{id}
