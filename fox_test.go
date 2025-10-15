@@ -977,7 +977,6 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 	}
 }
 
-// BenchmarkInfixCatchAll-16    	 6818233	       175.0 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkInfixCatchAll(b *testing.B) {
 	f, _ := New()
 	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", func(c Context) {
