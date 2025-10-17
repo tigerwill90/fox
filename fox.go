@@ -459,7 +459,7 @@ func (fox *Router) newTree() *iTree {
 	tree := new(iTree)
 	tree.fox = fox
 
-	tree.root = make(map[string]*node)
+	tree.root = make(root)
 	tree.pool = sync.Pool{
 		New: func() any {
 			return tree.allocateContext()

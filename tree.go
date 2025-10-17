@@ -517,7 +517,7 @@ func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, patte
 
 func (t *tXn) truncate(methods []string) {
 	if len(methods) == 0 {
-		t.root = make(map[string]*node)
+		t.root = make(root)
 		t.maxDepth = 0
 		t.maxParams = 0
 		t.size = 0
@@ -680,7 +680,7 @@ func (t *tXn) writeNode(n *node) *node {
 func (t *tXn) mergeChild(n *node) {
 	child := n.statics[0]
 
-	// A node that belong to a wildcar or param cannot be merged with a child.
+	// A node that belong to a wildcard or param cannot be merged with a child.
 	if n.label == 0x00 {
 		return
 	}

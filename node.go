@@ -622,7 +622,6 @@ func (n *node) addParamEdge(child *node) {
 	idx := slices.IndexFunc(n.params, func(node *node) bool {
 		return node.key == "?"
 	})
-
 	if idx >= 0 && idx < len(n.params)-1 {
 		lastIdx := len(n.params) - 1
 		n.params[idx], n.params[lastIdx] = n.params[lastIdx], n.params[idx]
@@ -643,7 +642,6 @@ func (n *node) addWildcardEdge(child *node) {
 	idx := slices.IndexFunc(n.wildcards, func(node *node) bool {
 		return node.key == "*"
 	})
-
 	if idx >= 0 && idx < len(n.wildcards)-1 {
 		lastIdx := len(n.wildcards) - 1
 		n.wildcards[idx], n.wildcards[lastIdx] = n.wildcards[lastIdx], n.wildcards[idx]
