@@ -99,7 +99,7 @@ func (t *tXn) clone() *tXn {
 
 // snapshot capture a point-in-time snapshot of the roots tree. Further mutation to txn
 // will not be reflected on the snapshot.
-func (t *tXn) snapshot() map[string]*node {
+func (t *tXn) snapshot() root {
 	t.writable = nil
 	t.forked = false
 	return t.root
