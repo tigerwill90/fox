@@ -154,7 +154,8 @@ func TestContext_Clone(t *testing.T) {
 
 	f, _ := New()
 	c := newTextContextOnly(f, httptest.NewRecorder(), req)
-	*c.params = Params{{Key: "foo", Value: "bar"}}
+	c.route = &Route{params: []string{"a"}}
+	*c.params = []string{"a"}
 
 	buf := []byte("foo bar")
 	_, err := c.w.Write(buf)
@@ -170,7 +171,7 @@ func TestContext_Clone(t *testing.T) {
 	})
 
 	c.tsr = true
-	*c.tsrParams = Params{{Key: "john", Value: "doe"}}
+	*c.tsrParams = []string{"b"}
 	cc = c.Clone()
 	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 }
@@ -181,7 +182,8 @@ func TestContext_CloneWith(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	f, _ := New()
 	c := newTextContextOnly(f, w, req)
-	*c.params = Params{{Key: "foo", Value: "bar"}}
+	c.route = &Route{params: []string{"a"}}
+	*c.params = []string{"a"}
 
 	cp := c.CloneWith(c.Writer(), c.Request())
 	cc := unwrapContext(t, cp)
@@ -193,7 +195,7 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Nil(t, cc.cachedQuery)
 
 	c.tsr = true
-	*c.tsrParams = Params{{Key: "john", Value: "doe"}}
+	*c.tsrParams = []string{"b"}
 	cp = c.CloneWith(c.Writer(), c.Request())
 	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 }

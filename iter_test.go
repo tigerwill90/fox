@@ -114,18 +114,13 @@ func TestIter_AllBreak(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
-	var (
-		lastMethod string
-		lastRoute  *Route
-	)
 	it := f.Iter()
-	for method, route := range it.All() {
-		lastMethod = method
-		lastRoute = route
+	iteration := 0
+	for range it.All() {
+		iteration++
 		break
 	}
-	assert.Equal(t, "GET", lastMethod)
-	assert.Equal(t, "/foo/bar/{baz}", lastRoute.Pattern())
+	assert.Equal(t, 1, iteration)
 }
 
 func TestIter_ReverseBreak(t *testing.T) {
@@ -136,18 +131,13 @@ func TestIter_ReverseBreak(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
-	var (
-		lastMethod string
-		lastRoute  *Route
-	)
 	it := f.Iter()
-	for method, route := range it.Reverse(it.Methods(), "", "/john/doe/1/2/3") {
-		lastMethod = method
-		lastRoute = route
+	iteration := 0
+	for range it.Reverse(it.Methods(), "", "/john/doe/1/2/3") {
+		iteration++
 		break
 	}
-	assert.Equal(t, "GET", lastMethod)
-	assert.Equal(t, "/john/doe/*{args}", lastRoute.Pattern())
+	assert.Equal(t, 1, iteration)
 }
 
 func TestIter_RouteBreak(t *testing.T) {
@@ -158,18 +148,13 @@ func TestIter_RouteBreak(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(http.MethodHead, rte, emptyHandler)))
 	}
 
-	var (
-		lastMethod string
-		lastRoute  *Route
-	)
 	it := f.Iter()
-	for method, route := range it.Routes(it.Methods(), "/john/doe/*{args}") {
-		lastMethod = method
-		lastRoute = route
+	iteration := 0
+	for range it.Routes(it.Methods(), "/john/doe/*{args}") {
+		iteration++
 		break
 	}
-	assert.Equal(t, "GET", lastMethod)
-	assert.Equal(t, "/john/doe/*{args}", lastRoute.Pattern())
+	assert.Equal(t, 1, iteration)
 }
 
 func TestIter_RootPrefixOneMethod(t *testing.T) {
@@ -310,6 +295,23 @@ func BenchmarkIter_Prefix(b *testing.B) {
 
 	for range b.N {
 		for range it.Prefix(it.Methods(), "/") {
+
+		}
+	}
+}
+
+func BenchmarkIter_All(b *testing.B) {
+	f, _ := New()
+	for _, route := range githubAPI {
+		require.NoError(b, onlyError(f.Handle(route.method, route.path, emptyHandler)))
+	}
+	it := f.Iter()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for range it.All() {
 
 		}
 	}

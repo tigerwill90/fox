@@ -979,9 +979,10 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 
 func BenchmarkInfixCatchAll(b *testing.B) {
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/foo/*{bar}/baz", emptyHandler)
+	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", func(c Context) {
+	})
 
-	req := httptest.NewRequest(http.MethodGet, "/foo/a1/b22/c333/baz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/x/y/z/b/x/y/z/d/x/y/z/f/x/y/z/j", nil)
 	w := new(mockResponseWriter)
 
 	b.ReportAllocs()
@@ -1506,8 +1507,8 @@ func TestOverlappingRouteMalloc(t *testing.T) {
 	}
 }
 
-func TestRouterWildcard(t *testing.T) {
-	r, _ := New()
+func TestWildcardSuffix(t *testing.T) {
+	r, _ := New(AllowRegexpParam(true))
 
 	routes := []struct {
 		path string
@@ -1517,6 +1518,8 @@ func TestRouterWildcard(t *testing.T) {
 		{"/github.com/johndoe/*{repo}", "/github.com/johndoe/buzz"},
 		{"/foo/bar/*{args}", "/foo/bar/baz"},
 		{"/filepath/path=*{path}", "/filepath/path=/file.txt"},
+		{"/john/doe/*{any:[A-z/]+}", "/john/doe/a/b/c"},
+		{"/filepath/key=*{any:[A-z/.]+}", "/filepath/key=/file.txt"},
 	}
 
 	for _, route := range routes {
@@ -1545,8 +1548,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/bar",
 		},
 		{
+			name:   "infix wildcard regexp",
+			routes: []string{"/foo/*{args:$^}/bar"},
+			path:   "/foo/bar",
+		},
+		{
 			name:   "infix wildcard with children",
 			routes: []string{"/foo/*{args}/bar", "/foo/*{args}/caz"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard with children regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/*{args:$^}/caz"},
 			path:   "/foo/bar",
 		},
 		{
@@ -1555,14 +1568,28 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/bar",
 		},
 		{
+			name:   "infix wildcard with static edge regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/baz"},
+			path:   "/foo/bar",
+		},
+		{
 			name:   "infix wildcard and suffix wildcard",
 			routes: []string{"/foo/*{args}/bar", "/foo/*{args}"},
 			path:   "/foo/",
 		},
-		//
+		{
+			name:   "infix wildcard and suffix wildcard regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/*{args:$^}"},
+			path:   "/foo/",
+		},
 		{
 			name:   "infix inflight wildcard",
 			routes: []string{"/foo/abc*{args}/bar"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar"},
 			path:   "/foo/abc/bar",
 		},
 		{
@@ -1571,8 +1598,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc/bar",
 		},
 		{
+			name:   "infix inflight wildcard with children regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc*{args:$^}/caz"},
+			path:   "/foo/abc/bar",
+		},
+		{
 			name:   "infix inflight wildcard with static edge",
 			routes: []string{"/foo/abc*{args}/bar", "/foo/abc/baz"},
+			path:   "/foo/abc/bar",
+		},
+		{
+			name:   "infix inflight wildcard with static edge regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc/baz"},
 			path:   "/foo/abc/bar",
 		},
 		{
@@ -1581,8 +1618,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc",
 		},
 		{
+			name:   "infix inflight wildcard and suffix wildcard regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc*{args:$^}"},
+			path:   "/foo/abc",
+		},
+		{
 			name:   "suffix wildcard wildcard with param edge",
 			routes: []string{"/foo/*{args}", "/foo/{param}"},
+			path:   "/foo/",
+		},
+		{
+			name:   "suffix wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/*{args:$^}", "/foo/{param:$^}"},
 			path:   "/foo/",
 		},
 		{
@@ -1591,8 +1638,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc",
 		},
 		{
+			name:   "suffix inflight wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/abc*{args:$^}", "/foo/abc{param:$^}"},
+			path:   "/foo/abc",
+		},
+		{
 			name:   "infix wildcard wildcard with param edge",
 			routes: []string{"/foo/*{args}/bar", "/foo/{param}/bar"},
+			path:   "/foo/bar",
+		},
+		{
+			name:   "infix wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/*{args:$^}/bar", "/foo/{param:$^}/bar"},
 			path:   "/foo/bar",
 		},
 		{
@@ -1601,8 +1658,18 @@ func TestEmptyCatchAll(t *testing.T) {
 			path:   "/foo/abc/bar",
 		},
 		{
+			name:   "infix inflight wildcard wildcard with param edge regexp",
+			routes: []string{"/foo/abc*{args:$^}/bar", "/foo/abc{param:$^}/bar"},
+			path:   "/foo/abc/bar",
+		},
+		{
 			name:   "infix wildcard wildcard with trailing slash",
 			routes: []string{"/foo/*{args}/"},
+			path:   "/foo//",
+		},
+		{
+			name:   "infix wildcard wildcard with trailing slash regexp",
+			routes: []string{"/foo/*{args:$^}/"},
 			path:   "/foo//",
 		},
 		{
@@ -1610,18 +1677,23 @@ func TestEmptyCatchAll(t *testing.T) {
 			routes: []string{"/foo/abc*{args}/"},
 			path:   "/foo/abc/",
 		},
+		{
+			name:   "infix inflight wildcard wildcard with trailing slash regexp",
+			routes: []string{"/foo/abc*{args:$^}/"},
+			path:   "/foo/abc/",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			tree := f.getRoot()
+			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
-			require.False(t, tsr)
+			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			require.False(t, c.tsr)
 			require.Nil(t, n)
 		})
 	}
@@ -1650,19 +1722,19 @@ func TestRouteWithParams(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 	}
 
-	tree := f.getRoot()
+	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		n, tsr := lookupByPath(tree, tree.root[0].children[0], rte, c, false)
+		n := lookupByPath(tree.root[http.MethodGet], rte, c, false, 0)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.route, "route: %s", rte)
-		assert.False(t, tsr)
+		assert.False(t, c.tsr)
 		assert.Equal(t, rte, n.route.pattern)
 	}
 }
 
 func TestRouteParamEmptySegment(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
 	cases := []struct {
 		name  string
 		route string
@@ -1674,13 +1746,28 @@ func TestRouteParamEmptySegment(t *testing.T) {
 			path:  "/cmd//sub",
 		},
 		{
+			name:  "empty segment regexp",
+			route: "/cmd/{tool:bar}/{sub}",
+			path:  "/cmd//sub",
+		},
+		{
 			name:  "empty inflight end of route",
 			route: "/command/exec:{tool}",
 			path:  "/command/exec:",
 		},
 		{
+			name:  "empty inflight end of route regexp",
+			route: "/command/exec:{tool:bar}",
+			path:  "/command/exec:",
+		},
+		{
 			name:  "empty inflight segment",
 			route: "/command/exec:{tool}/id",
+			path:  "/command/exec:/id",
+		},
+		{
+			name:  "empty inflight segment regexp",
+			route: "/command/exec:{tool:bar}/id",
 			path:  "/command/exec:/id",
 		},
 	}
@@ -1691,12 +1778,12 @@ func TestRouteParamEmptySegment(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tree := f.getRoot()
+			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			assert.Nil(t, n)
 			assert.Empty(t, slices.Collect(c.Params()))
-			assert.False(t, tsr)
+			assert.False(t, c.tsr)
 		})
 	}
 }
@@ -1719,6 +1806,15 @@ func TestOverlappingRoute(t *testing.T) {
 			wantMatch: "/products/new",
 		},
 		{
+			name: "basic test most specific with regexp param",
+			path: "/products/new",
+			routes: []string{
+				"/products/{id:[0-9]+}",
+				"/products/new",
+			},
+			wantMatch: "/products/new",
+		},
+		{
 			name: "basic test less specific",
 			path: "/products/123",
 			routes: []string{
@@ -1727,6 +1823,28 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 			wantMatch:  "/products/{id}",
 			wantParams: Params{{Key: "id", Value: "123"}},
+		},
+		{
+			name: "basic test less specific with regexp priority",
+			path: "/products/123",
+			routes: []string{
+				"/products/{name}",
+				"/products/{id:[0-9]+}",
+				"/products/new",
+			},
+			wantMatch:  "/products/{id:[0-9]+}",
+			wantParams: Params{{Key: "id", Value: "123"}},
+		},
+		{
+			name: "basic test less specific with regexp and less specific",
+			path: "/products/abc",
+			routes: []string{
+				"/products/{name}",
+				"/products/{id:[0-9]+}",
+				"/products/new",
+			},
+			wantMatch:  "/products/{name}",
+			wantParams: Params{{Key: "name", Value: "abc"}},
 		},
 		{
 			name: "ieof+backtrack to {id} wildcard while deleting {a}",
@@ -1738,6 +1856,31 @@ func TestOverlappingRoute(t *testing.T) {
 				"/{base}/val2",
 			},
 			wantMatch: "/{base}/val1/{id}/new/{name}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "barr",
+				},
+			},
+		},
+		{
+			name: "backtrack to {id} wildcard while deleting {a} with regexp constraint",
+			path: "/base/val1/123/new/barr",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/{id:[0-9]+}",
+				"/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
 			wantParams: Params{
 				{
 					Key:   "base",
@@ -1779,6 +1922,31 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "kme+backtrack to {id} wildcard while deleting {a} with regexp constraint",
+			path: "/base/val1/123/new/ba",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "ba",
+				},
+			},
+		},
+		{
 			name: "ime+backtrack to {id} wildcard while deleting {a}",
 			path: "/base/val1/123/new/bx",
 			routes: []string{
@@ -1804,12 +1972,58 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "ime+backtrack to {id} wildcard while deleting {a} with regex constraint",
+			path: "/base/val1/123/new/bx",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+				"/{base}/val2",
+			},
+			wantMatch: "/{base}/val1/{id:[0-9]+}/new/{name:[A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "id",
+					Value: "123",
+				},
+				{
+					Key:   "name",
+					Value: "bx",
+				},
+			},
+		},
+		{
 			name: "backtrack to catch while deleting {a}, {id} and {name}",
 			path: "/base/val1/123/new/bar/",
 			routes: []string{
 				"/{base}/val1/{id}",
 				"/{base}/val1/123/{a}/bar",
 				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val*{all}",
+			},
+			wantMatch: "/{base}/val*{all}",
+			wantParams: Params{
+				{
+					Key:   "base",
+					Value: "base",
+				},
+				{
+					Key:   "all",
+					Value: "1/123/new/bar/",
+				},
+			},
+		},
+		{
+			name: "backtrack to catch while deleting {a}, {id} and {name} with regexp constraint",
+			path: "/base/val1/123/new/bar/",
+			routes: []string{
+				"/{base}/val1/{id:[0-9]+}",
+				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/{id:[0-9]+}/new/{name:ba}",
 				"/{base}/val*{all}",
 			},
 			wantMatch: "/{base}/val*{all}",
@@ -1872,6 +2086,84 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "multi node most specific with regexp",
+			path: "/foo/1/2/3/bar",
+			routes: []string{
+				"/foo/{ab:[0-9]+}",
+				"/foo/{ab:[0-9]}/{bc:[0-9]+}",
+				"/foo/{ab:.*}/{bc:[0-9]}/{de:[0-9]+}",
+				"/foo/{ab:1}/{bc:2}/{de:3}/bar",
+				"/foo/{ab}/{bc}/{de}/{fg}",
+			},
+			wantMatch: "/foo/{ab:1}/{bc:2}/{de:3}/bar",
+			wantParams: Params{
+				{
+					Key:   "ab",
+					Value: "1",
+				},
+				{
+					Key:   "bc",
+					Value: "2",
+				},
+				{
+					Key:   "de",
+					Value: "3",
+				},
+			},
+		},
+		{
+			name: "multi node most specific with multi name",
+			path: "/foo/1/2/3/bar",
+			routes: []string{
+				"/foo/{aa}",
+				"/foo/{bb}/{cc}",
+				"/foo/{dd}/{ee}/{ff}",
+				"/foo/{gg}/{hh}/{ii}/bar",
+				"/foo/{jj}/{kk}/{ll}/{mm}",
+			},
+			wantMatch: "/foo/{gg}/{hh}/{ii}/bar",
+			wantParams: Params{
+				{
+					Key:   "gg",
+					Value: "1",
+				},
+				{
+					Key:   "hh",
+					Value: "2",
+				},
+				{
+					Key:   "ii",
+					Value: "3",
+				},
+			},
+		},
+		{
+			name: "multi node most specific with regexp and multi name",
+			path: "/foo/1/2/3/bar",
+			routes: []string{
+				"/foo/{aa:[0-9]+}",
+				"/foo/{bb:[0-9]}/{cc:[0-9]+}",
+				"/foo/{dd:.*}/{ee:[0-9]}/{ff:[0-9]+}",
+				"/foo/{gg:1}/{hh:2}/{ii:3}/bar",
+				"/foo/{jj}/{kk}/{ll}/{mm}",
+			},
+			wantMatch: "/foo/{gg:1}/{hh:2}/{ii:3}/bar",
+			wantParams: Params{
+				{
+					Key:   "gg",
+					Value: "1",
+				},
+				{
+					Key:   "hh",
+					Value: "2",
+				},
+				{
+					Key:   "ii",
+					Value: "3",
+				},
+			},
+		},
+		{
 			name: "multi node less specific",
 			path: "/foo/1/2/3/john",
 			routes: []string{
@@ -1902,6 +2194,66 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
+			name: "multi node less specific with regexp",
+			path: "/foo/1/2/3/john",
+			routes: []string{
+				"/foo/{ab:[0-9]+}",
+				"/foo/{ab:[0-9]}/{bc:[0-9]+}",
+				"/foo/{ab:.*}/{bc:[0-9]}/{de:[0-9]+}",
+				"/foo/{ab:1}/{bc:2}/{de:3}/bar",
+				"/foo/{ab}/{bc}/{de}/{fg}",
+			},
+			wantMatch: "/foo/{ab}/{bc}/{de}/{fg}",
+			wantParams: Params{
+				{
+					Key:   "ab",
+					Value: "1",
+				},
+				{
+					Key:   "bc",
+					Value: "2",
+				},
+				{
+					Key:   "de",
+					Value: "3",
+				},
+				{
+					Key:   "fg",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "multi node less specific with multi name",
+			path: "/foo/1/2/3/john",
+			routes: []string{
+				"/foo/{aa}",
+				"/foo/{bb}/{cc}",
+				"/foo/{dd}/{ee}/{ff}",
+				"/foo/{gg}/{hh}/{ii}/bar",
+				"/foo/{jj}/{kk}/{ll}/{mm}",
+			},
+			wantMatch: "/foo/{jj}/{kk}/{ll}/{mm}",
+			wantParams: Params{
+				{
+					Key:   "jj",
+					Value: "1",
+				},
+				{
+					Key:   "kk",
+					Value: "2",
+				},
+				{
+					Key:   "ll",
+					Value: "3",
+				},
+				{
+					Key:   "mm",
+					Value: "john",
+				},
+			},
+		},
+		{
 			name: "backtrack on empty mid key parameter",
 			path: "/foo/abc/bar",
 			routes: []string{
@@ -1917,7 +2269,22 @@ func TestOverlappingRoute(t *testing.T) {
 			},
 		},
 		{
-			name: "most specific wildcard between catch all",
+			name: "backtrack on empty mid key parameter with regexp",
+			path: "/foo/abc/bar",
+			routes: []string{
+				"/foo/abc{id:.*}/bar",
+				"/foo/{name:.*}/bar",
+			},
+			wantMatch: "/foo/{name:.*}/bar",
+			wantParams: Params{
+				{
+					Key:   "name",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "most specific param between catch all",
 			path: "/foo/123",
 			routes: []string{
 				"/foo/{id}",
@@ -1925,6 +2292,22 @@ func TestOverlappingRoute(t *testing.T) {
 				"/foo*{args}",
 			},
 			wantMatch: "/foo/{id}",
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "123",
+				},
+			},
+		},
+		{
+			name: "most specific param between catch all with regexp",
+			path: "/foo/123",
+			routes: []string{
+				"/foo/{id:.*}",
+				"/foo/a*{args:.*}",
+				"/foo*{args:.*}",
+			},
+			wantMatch: "/foo/{id:.*}",
 			wantParams: Params{
 				{
 					Key:   "id",
@@ -1941,6 +2324,22 @@ func TestOverlappingRoute(t *testing.T) {
 				"/foo*{args}",
 			},
 			wantMatch: "/foo/a*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bc",
+				},
+			},
+		},
+		{
+			name: "most specific catch all with param and regexp",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/{id:.*}",
+				"/foo/a*{args:.*}",
+				"/foo*{args:.*}",
+			},
+			wantMatch: "/foo/a*{args:.*}",
 			wantParams: Params{
 				{
 					Key:   "args",
@@ -2153,23 +2552,259 @@ func TestOverlappingRoute(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "regexp param priority in register order",
+			path: "/foo/123",
+			routes: []string{
+				"/foo/{fallback}",
+				"/foo/{a:[0-9]+}",
+				"/foo/{b:[0-9-A-z]+}",
+				"/foo/{c:[0-9-A-Z]+}",
+			},
+			wantMatch: "/foo/{a:[0-9]+}",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "123",
+				},
+			},
+		},
+		{
+			name: "regexp param priority in register order, with last match",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/{fallback}",
+				"/foo/{a:[0-9]+}",
+				"/foo/{b:[0-9-A-Z]+}",
+				"/foo/{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/{c:[0-9-A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "c",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "regexp param priority with fallback",
+			path: "/foo/*",
+			routes: []string{
+				"/foo/{fallback}",
+				"/foo/{a:[0-9]+}",
+				"/foo/{b:[0-9-A-Z]+}",
+				"/foo/{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/{fallback}",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "*",
+				},
+			},
+		},
+		{
+			name: "regexp wildcard priority in register order",
+			path: "/foo/123",
+			routes: []string{
+				"/foo/*{fallback}",
+				"/foo/*{a:[0-9]+}",
+				"/foo/*{b:[0-9-A-z]+}",
+				"/foo/*{c:[0-9-A-Z]+}",
+			},
+			wantMatch: "/foo/*{a:[0-9]+}",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "123",
+				},
+			},
+		},
+		{
+			name: "regexp wildcard priority in register order, with last match",
+			path: "/foo/abc",
+			routes: []string{
+				"/foo/*{fallback}",
+				"/foo/*{a:[0-9]+}",
+				"/foo/*{b:[0-9-A-Z]+}",
+				"/foo/*{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/*{c:[0-9-A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "c",
+					Value: "abc",
+				},
+			},
+		},
+		{
+			name: "regexp wildcard priority with fallback",
+			path: "/foo/*",
+			routes: []string{
+				"/foo/*{fallback}",
+				"/foo/*{a:[0-9]+}",
+				"/foo/*{b:[0-9-A-Z]+}",
+				"/foo/*{c:[0-9-A-z]+}",
+			},
+			wantMatch: "/foo/*{fallback}",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "*",
+				},
+			},
+		},
+		{
+			name: "regexp infix wildcard priority with fallback",
+			path: "/foo/a/b/c/bar",
+			routes: []string{
+				"/foo/*{fallback}/bar",
+				"/foo/*{a:[0-9]+}/bar",
+				"/foo/*{b:[0-9-A-Z]+}/bar",
+				"/foo/*{c:[0-9-A-z]+}/bar",
+			},
+			wantMatch: "/foo/*{fallback}/bar",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "mixing all together 1",
+			path: "/foo/1/2/3/bar/foo",
+			routes: []string{
+				"/foo/*{fallback}/bar/*{ab:[0-9]+}",
+				"/foo/*{a:.*}/bar/{b:[A-z]+}",
+				"/foo/*{b}/bar/{foo}",
+				"/foo/*{c:[0-9/]+}/bar/foo",
+			},
+			wantMatch: "/foo/*{a:.*}/bar/{b:[A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "1/2/3",
+				},
+				{
+					Key:   "b",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "mixing all together 2",
+			path: "/foo/1/2/3/bar/foo123",
+			routes: []string{
+				"/foo/*{fallback}/bar/*{ab:[0-9]+}",
+				"/foo/*{a:.*}/bar/{b:[A-z]+}",
+				"/foo/*{b}/bar/{foo}",
+				"/foo/*{c:[0-9/]+}/bar/foo",
+			},
+			wantMatch: "/foo/*{b}/bar/{foo}",
+			wantParams: Params{
+				{
+					Key:   "b",
+					Value: "1/2/3",
+				},
+				{
+					Key:   "foo",
+					Value: "foo123",
+				},
+			},
+		},
+		{
+			name: "mixing all together 3",
+			path: "/foo/1/2/3/bar/foo",
+			routes: []string{
+				"/foo/*{fallback}/bar/*{ab:[0-9]+}",
+				"/foo/*{a:.*}/bar/{b:[A-z]+}",
+				"/foo/*{b}/bar/{foo}",
+				"/foo/*{c:[0-9/]+}/bar/foo",
+			},
+			wantMatch: "/foo/*{a:.*}/bar/{b:[A-z]+}",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "1/2/3",
+				},
+				{
+					Key:   "b",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "mixing all together 4",
+			path: "/foo/1/2/3/bar/foo/1/2/3",
+			routes: []string{
+				"/foo/*{fallback}/bar/*{ab:[A-z0-9/]+}",
+				"/foo/*{a:.*}/bar/{b:[A-z]+}",
+				"/foo/*{b}/bar/{foo}",
+				"/foo/*{c:[0-9/]+}/bar/foo",
+			},
+			wantMatch: "/foo/*{fallback}/bar/*{ab:[A-z0-9/]+}",
+			wantParams: Params{
+				{
+					Key:   "fallback",
+					Value: "1/2/3",
+				},
+				{
+					Key:   "ab",
+					Value: "foo/1/2/3",
+				},
+			},
+		},
+		{
+			name: "exhausting infix with suffix fallback at first position",
+			path: "/aa/b/c",
+			routes: []string{
+				"/*{args:.*}",
+				"/*{a:a}/b/c",
+				"/*{b:b}/b/c",
+			},
+			wantMatch: "/*{args:.*}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "aa/b/c",
+				},
+			},
+		},
+		{
+			name: "exhausting infix with suffix fallback at last position",
+			path: "/aa/b/c",
+			routes: []string{
+				"/*{a:a}/b/c",
+				"/*{b:b}/b/c",
+				"/*{args}",
+			},
+			wantMatch: "/*{args}",
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "aa/b/c",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
 
-			tree := f.getRoot()
+			tree := f.getTree()
 
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
-			assert.False(t, tsr)
+			assert.False(t, c.tsr)
 			assert.Equal(t, tc.wantMatch, n.route.pattern)
+			c.route = n.route
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
@@ -2179,10 +2814,11 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			n, tsr = lookupByPath(tree, tree.root[0].children[0], tc.path, c, true)
+			n = lookupByPath(tree.root[http.MethodGet], tc.path, c, true, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.route)
-			assert.False(t, tsr)
+			assert.False(t, c.tsr)
+			c.route = n.route
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.Equal(t, tc.wantMatch, n.route.pattern)
 		})
@@ -2212,10 +2848,36 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix wildcard with regexp",
+			routes:   []string{"/foo/*{args:a}/bar"},
+			path:     "/foo/a/bar",
+			wantPath: "/foo/*{args:a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
 			name:     "simple infix wildcard capture slash",
 			routes:   []string{"/foo/*{args}/bar"},
 			path:     "/foo///bar",
 			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
+				},
+			},
+		},
+		{
+			name:     "simple infix wildcard capture slash with regexp",
+			routes:   []string{"/foo/*{args:/}/bar"},
+			path:     "/foo///bar",
+			wantPath: "/foo/*{args:/}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2238,6 +2900,19 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix wildcard capture anything not empty with regexp",
+			routes:   []string{"/foo/*{args:/a/}/bar"},
+			path:     "/foo//a//bar",
+			wantPath: "/foo/*{args:/a/}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/a/",
+				},
+			},
+		},
+		{
 			name:     "static with infix wildcard child",
 			routes:   []string{"/foo/", "/foo/*{args}/baz"},
 			path:     "/foo/bar/baz",
@@ -2251,8 +2926,47 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "static with infix wildcard regexp child",
+			routes:   []string{"/foo/", "/foo/*{args:[A-z]+}/baz"},
+			path:     "/foo/bar/baz",
+			wantPath: "/foo/*{args:[A-z]+}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name:     "static with 2 infix wildcard and regexp child",
+			routes:   []string{"/foo/", "/foo/*{args}/baz", "/foo/*{args:[A-z]+}/baz"},
+			path:     "/foo/bar/baz",
+			wantPath: "/foo/*{args:[A-z]+}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "bar",
+				},
+			},
+		},
+		{
 			name:     "static with infix wildcard child capture slash",
 			routes:   []string{"/foo/", "/foo/*{args}/baz"},
+			path:     "/foo///baz",
+			wantPath: "/foo/*{args}/baz",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
+				},
+			},
+		},
+		{
+			name:     "static with infix wildcard regexp child capture slash after fallback",
+			routes:   []string{"/foo/", "/foo/*{args}/baz", "/foo/*{args:a}/baz"},
 			path:     "/foo///baz",
 			wantPath: "/foo/*{args}/baz",
 			wantTsr:  false,
@@ -2277,6 +2991,19 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix wildcard regexp with route char",
+			routes:   []string{"/foo/*{args:.*}/bar"},
+			path:     "/foo/*{args:.*}/bar",
+			wantPath: "/foo/*{args:.*}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args:.*}",
+				},
+			},
+		},
+		{
 			name:     "simple infix wildcard with multi segment and route char",
 			routes:   []string{"/foo/*{args}/bar"},
 			path:     "/foo/*{args}/b/c/bar",
@@ -2290,10 +3017,36 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix wildcard regexp with multi segment and route char",
+			routes:   []string{"/foo/*{args:.*}/bar"},
+			path:     "/foo/*{args:.*}/b/c/bar",
+			wantPath: "/foo/*{args:.*}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args:.*}/b/c",
+				},
+			},
+		},
+		{
 			name:     "simple infix inflight wildcard",
 			routes:   []string{"/foo/z*{args}/bar"},
 			path:     "/foo/za/bar",
 			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name:     "simple infix regexp inflight wildcard",
+			routes:   []string{"/foo/z*{args:a}/bar"},
+			path:     "/foo/za/bar",
+			wantPath: "/foo/z*{args:a}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2316,6 +3069,19 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix regexp inflight wildcard capture slash",
+			routes:   []string{"/foo/z*{args:/}/bar"},
+			path:     "/foo/z//bar",
+			wantPath: "/foo/z*{args:/}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
+				},
+			},
+		},
+		{
 			name:     "simple infix inflight wildcard with route char",
 			routes:   []string{"/foo/z*{args}/bar"},
 			path:     "/foo/z*{args}/bar",
@@ -2329,10 +3095,49 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix regexp inflight wildcard with route char",
+			routes:   []string{"/foo/z*{args:.*}/bar"},
+			path:     "/foo/z*{args:.*}/bar",
+			wantPath: "/foo/z*{args:.*}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args:.*}",
+				},
+			},
+		},
+		{
 			name:     "simple infix inflight wildcard with multi segment",
 			routes:   []string{"/foo/z*{args}/bar"},
 			path:     "/foo/za/b/c/bar",
 			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard regexp with multi segment",
+			routes:   []string{"/foo/z*{args:[A-z/]+}/bar"},
+			path:     "/foo/za/b/c/bar",
+			wantPath: "/foo/z*{args:[A-z/]+}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard regexp with multi segment",
+			routes:   []string{"/foo/z*{args:a/b/c}/bar"},
+			path:     "/foo/za/b/c/bar",
+			wantPath: "/foo/z*{args:a/b/c}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2355,10 +3160,36 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "simple infix inflight wildcard regexp with multi slash",
+			routes:   []string{"/foo/z*{args:///}/bar"},
+			path:     "/foo/z////bar",
+			wantPath: "/foo/z*{args:///}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "///",
+				},
+			},
+		},
+		{
 			name:     "simple infix inflight wildcard with multi segment and route char",
 			routes:   []string{"/foo/z*{args}/bar"},
 			path:     "/foo/z*{args}/b/c/bar",
 			wantPath: "/foo/z*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "*{args}/b/c",
+				},
+			},
+		},
+		{
+			name:     "simple infix inflight wildcard regexp with multi segment and route char",
+			routes:   []string{"/foo/z*{args:.*}/bar"},
+			path:     "/foo/z*{args}/b/c/bar",
+			wantPath: "/foo/z*{args:.*}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2407,10 +3238,36 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "overlapping infix and suffix regexp wildcard match infix",
+			routes:   []string{"/foo/*{args:.*}", "/foo/*{args:.*}/bar"},
+			path:     "/foo/a/b/c/bar",
+			wantPath: "/foo/*{args:.*}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
 			name:     "overlapping infix and suffix wildcard match infix with slash",
 			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
 			path:     "/foo///bar",
 			wantPath: "/foo/*{args}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "/",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix and suffix regexp wildcard match infix with slash",
+			routes:   []string{"/foo/*{args:/}", "/foo/*{args:/}/bar"},
+			path:     "/foo///bar",
+			wantPath: "/foo/*{args:/}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2433,10 +3290,36 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name:     "overlapping infix and suffix regexp wildcard match suffix",
+			routes:   []string{"/foo/*{args:.*}", "/foo/*{args:.*}/bar"},
+			path:     "/foo/a/b/c/baz",
+			wantPath: "/foo/*{args:.*}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "a/b/c/baz",
+				},
+			},
+		},
+		{
 			name:     "overlapping infix and suffix wildcard match suffix with empty slash",
 			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar"},
 			path:     "/foo///baz",
 			wantPath: "/foo/*{args}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "args",
+					Value: "//baz",
+				},
+			},
+		},
+		{
+			name:     "overlapping infix and suffix regexp wildcard match suffix with empty slash",
+			routes:   []string{"/foo/*{args:.*}", "/foo/*{args:.*}/bar"},
+			path:     "/foo///baz",
+			wantPath: "/foo/*{args:.*}",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2979,6 +3862,22 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name: "infix regexp wildcard with trailing slash most specific",
+			routes: []string{
+				"/foo/*{any:.*}",
+				"/foo/*{any:.*}/",
+			},
+			path:     "/foo/x/y/z/",
+			wantPath: "/foo/*{any:.*}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
 			name: "infix wildcard with trailing slash most specific",
 			routes: []string{
 				"/foo/*{any}",
@@ -2994,21 +3893,37 @@ func TestInfixWildcard(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "infix regexp wildcard with trailing slash most specific",
+			routes: []string{
+				"/foo/*{any:.*}",
+				"/foo/*{any:.*}/",
+			},
+			path:     "/foo/x/y/z",
+			wantPath: "/foo/*{any:.*}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			tree := f.getRoot()
+			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
-			assert.Equal(t, tc.wantTsr, tsr)
-			c.tsr = tsr
+			assert.Equal(t, tc.wantTsr, c.tsr)
+			c.route = n.route
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -3044,6 +3959,24 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "static hostname with complex overlapping route with static priority and regexp",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1:[0-9]}/jo",
+				"exemple.com/foo/*{any:.*}/baz/{$1:.*}/jo",
+				"exemple.com/foo/{ps:.*}/baz/{$1:.*}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bar/baz/1/jo",
+			wantPath: "exemple.com/foo/bar/baz/{$1:[0-9]}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
 			name: "static hostname with complex overlapping route with param priority",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
@@ -3066,10 +3999,50 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "static hostname with complex overlapping route with param priority and regexp",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1:[0-9]}/jo",
+				"exemple.com/foo/*{any:.*}/baz/{$1:.*}/jo",
+				"exemple.com/foo/{ps:.*}/baz/{$1:.*}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bam/baz/1/jo",
+			wantPath: "exemple.com/foo/{ps:.*}/baz/{$1:.*}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "bam",
+				},
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
 			name: "wildcard hostname with complex overlapping route with static priority",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
 				"{any}.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
+			},
+			host:     "exemple.com",
+			path:     "/foo/bar/baz/1/jo",
+			wantPath: "exemple.com/foo/bar/baz/{$1}/jo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "$1",
+					Value: "1",
+				},
+			},
+		},
+		{
+			name: "wildcard hostname with complex overlapping route with static priority an regexp",
+			routes: []string{
+				"exemple.com/foo/bar/baz/{$1}/jo",
+				"{any:.*}.com/foo/*{any}/baz/{$1}/jo",
 				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "exemple.com",
@@ -3142,6 +4115,24 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "hostname not matching fallback to param with regexp",
+			routes: []string{
+				"{a:.*}/foo",
+				"fooxyz/foo",
+				"foobar/foo",
+			},
+			host:     "foo",
+			path:     "/foo",
+			wantPath: "{a:.*}/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+			},
+		},
+		{
 			name: "static priority in hostname",
 			routes: []string{
 				"{a}.{b}.{c}/foo",
@@ -3151,6 +4142,24 @@ func TestDomainLookup(t *testing.T) {
 			host:     "foo.b.c",
 			path:     "/foo",
 			wantPath: "{a}.b.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "static priority in hostname with regexp",
+			routes: []string{
+				"{a:foo}.{b}.{c}/foo",
+				"{a:foo}.{b}.c/foo",
+				"{a:foo}.b.c/foo",
+			},
+			host:     "foo.b.c",
+			path:     "/foo",
+			wantPath: "{a:foo}.b.c/foo",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -3174,6 +4183,50 @@ func TestDomainLookup(t *testing.T) {
 				{
 					Key:   "a",
 					Value: "FOO",
+				},
+			},
+		},
+		{
+			name: "static priority in hostname (case-insensitive) with regexp",
+			routes: []string{
+				"{a:[A-z]+}.{b}.{c}/foo",
+				"{a:[A-z]+}.{b}.c/foo",
+				"{a:[A-z]+}.b.c/foo",
+			},
+			host:     "FOO.B.C",
+			path:     "/foo",
+			wantPath: "{a:[A-z]+}.b.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "FOO",
+				},
+			},
+		},
+		{
+			name: "make hostname case sensitive with regexp",
+			routes: []string{
+				"{a:[a-z]+}.b.c/foo",
+				"{a:[A-Z]+}.{b:[A-Z]+}.{c:[A-Z]+}/foo",
+				"{a:[A-Z]+}.{b:[a-z]+}.c/foo",
+			},
+			host:     "FOO.B.C",
+			path:     "/foo",
+			wantPath: "{a:[A-Z]+}.{b:[A-Z]+}.{c:[A-Z]+}/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "FOO",
+				},
+				{
+					Key:   "b",
+					Value: "B",
+				},
+				{
+					Key:   "c",
+					Value: "C",
 				},
 			},
 		},
@@ -3240,6 +4293,162 @@ func TestDomainLookup(t *testing.T) {
 			wantParams: Params(nil),
 		},
 		{
+			name: "regexp priority",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo",
+				"{a:[A-z]+}.{b}.c/foo",
+				"{a:a}.b.c/foo",
+				"/foo/bar",
+			},
+			host:     "a.b.c",
+			path:     "/foo",
+			wantPath: "{a:.*}.{b}.{c}/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "c",
+					Value: "c",
+				},
+			},
+		},
+		{
+			name: "regexp priority with tsr but backtrack to most specific",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo/",
+				"{a:[A-z]+}.{b}.c/foo",
+				"{a:a}.b.c/foo",
+				"/foo/bar",
+			},
+			host:     "a.b.c",
+			path:     "/foo",
+			wantPath: "{a:[A-z]+}.{b}.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+			},
+		},
+		{
+			name: "regexp priority with tsr",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo",
+				"{a:[a-z]+}.{b}.c/foo",
+				"{a:a}.b.c/foo",
+				"/foo/bar",
+			},
+			host:     "A.b.c",
+			path:     "/foo/",
+			wantPath: "{a:.*}.{b}.{c}/foo",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "A",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "c",
+					Value: "c",
+				},
+			},
+		},
+		{
+			name: "regexp priority then next static",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo",
+				"{a:.*}.{b}.c/foo",
+				"{a:.*}.b.c/foo",
+				"/foo/bar",
+			},
+			host:     "a.b.c",
+			path:     "/foo",
+			wantPath: "{a:.*}.b.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name: "regexp priority then param then next static",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo",
+				"{a:.*}.{b}.c/foo",
+				"{a:.*}.b.c/foo",
+				"/foo/bar",
+			},
+			host:     "a.x.c",
+			path:     "/foo",
+			wantPath: "{a:.*}.{b}.c/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "b",
+					Value: "x",
+				},
+			},
+		},
+		{
+			name: "regexp priority with backtrack to most specific",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo",
+				"{a:[A-z]+}.{b}.c/foo",
+				"{a:a}.b.c/{bar}",
+				"/foo/bar",
+			},
+			host:     "a.b.c",
+			path:     "/bar",
+			wantPath: "{a:a}.b.c/{bar}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "bar",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name: "regexp priority with backtrack to path only",
+			routes: []string{
+				"{a:.*}.{b}.{c}/foo",
+				"{a:[A-z]+}.{b}.c/foo",
+				"{a:a}.b.c/{bar}",
+				"/foo/bar",
+			},
+			host:       "a.b.c",
+			path:       "/foo/bar",
+			wantPath:   "/foo/bar",
+			wantTsr:    false,
+			wantParams: Params(nil),
+		},
+		{
 			name: "fallback to path only (case-insenitive)",
 			routes: []string{
 				"{a}.{b}.{c}/foo",
@@ -3278,7 +4487,7 @@ func TestDomainLookup(t *testing.T) {
 				"{a}.{b}.{c}/{d}",
 				"{a}.{b}.c/{d}",
 				"{a}.b.c/{path}/bar/",
-				"/{a}/bar",
+				"/{a}/bar/",
 			},
 			host:     "foo.b.c",
 			path:     "/john/bar",
@@ -3296,12 +4505,138 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
-			name: "fallback to tsr with hostname priority (case-insensitive)",
+			name: "path priority with tsr hostname",
 			routes: []string{
 				"{a}.{b}.{c}/{d}",
 				"{a}.{b}.c/{d}",
 				"{a}.b.c/{path}/bar/",
 				"/{a}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a}/bar/",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a}/ba",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific path with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to path only with param",
+			routes: []string{
+				"{a:.*}.{b:.*}.{c}/{d}",
+				"{a:foo}.{b}.c/{d}",
+				"{a:[A-z]+}.b.c/{path}/bar/joh",
+				"/{a}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{a}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to tsr with hostname priority (case-insensitive)",
+			routes: []string{
+				"{a}.{b}.{c}/{d}",
+				"{a}.{b}.c/{d}",
+				"{a}.b.c/{path}/bar/",
+				"/{a}/barr",
 			},
 			host:     "FOO.B.C",
 			path:     "/john/bar",
@@ -3318,21 +4653,455 @@ func TestDomainLookup(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "simple hostname suffix wildcard",
+			routes: []string{
+				"*{any}/bar",
+			},
+			host:     "foo.com",
+			path:     "/bar",
+			wantPath: "*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "foo.com",
+				},
+			},
+		},
+		{
+			name: "simple hostname suffix wildcard with regexp",
+			routes: []string{
+				"*{any:[A-Z.]+}/bar",
+			},
+			host:     "FOO.COM",
+			path:     "/bar",
+			wantPath: "*{any:[A-Z.]+}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "FOO.COM",
+				},
+			},
+		},
+		{
+			name: "simple prefix wildcard",
+			routes: []string{
+				"*{any}.com/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.b",
+				},
+			},
+		},
+		{
+			name: "simple prefix wildcard overlap static",
+			routes: []string{
+				"a.b.com/bar",
+				"*{any}.com/bar",
+			},
+			host:       "a.b.com",
+			path:       "/bar",
+			wantPath:   "a.b.com/bar",
+			wantTsr:    false,
+			wantParams: Params(nil),
+		},
+		{
+			name: "simple prefix wildcard overlap static with fallback",
+			routes: []string{
+				"a.b.com/barr",
+				"*{any}.com/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.b",
+				},
+			},
+		},
+		{
+			name: "simple prefix wildcard with regexp",
+			routes: []string{
+				"*{any:[A-Z.]+}.com/bar",
+			},
+			host:     "A.B.com",
+			path:     "/bar",
+			wantPath: "*{any:[A-Z.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "A.B",
+				},
+			},
+		},
+		{
+			name: "simple infix wildcard",
+			routes: []string{
+				"example.*{any}.com/bar",
+			},
+			host:     "example.foo.bar.com",
+			path:     "/bar",
+			wantPath: "example.*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "foo.bar",
+				},
+			},
+		},
+		{
+			name: "simple infix wildcard with regexp",
+			routes: []string{
+				"example.*{any:[A-Z.]+}.com/bar",
+			},
+			host:     "example.FOO.BAR.com",
+			path:     "/bar",
+			wantPath: "example.*{any:[A-Z.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "FOO.BAR",
+				},
+			},
+		},
+		{
+			name: "prefix wildcard with params",
+			routes: []string{
+				"*{any}.{tld}/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.{tld}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.b",
+				},
+				{
+					Key:   "tld",
+					Value: "com",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with params",
+			routes: []string{
+				"{first}.*{any}.{tld}/bar",
+			},
+			host:     "foo.s1.s2.s3.com",
+			path:     "/bar",
+			wantPath: "{first}.*{any}.{tld}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "first",
+					Value: "foo",
+				},
+				{
+					Key:   "any",
+					Value: "s1.s2.s3",
+				},
+				{
+					Key:   "tld",
+					Value: "com",
+				},
+			},
+		},
+		{
+			name: "suffix wildcard with params",
+			routes: []string{
+				"{first}.{second}.*{any}/bar",
+			},
+			host:     "first.second.third.com",
+			path:     "/bar",
+			wantPath: "{first}.{second}.*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "first",
+					Value: "first",
+				},
+				{
+					Key:   "second",
+					Value: "second",
+				},
+				{
+					Key:   "any",
+					Value: "third.com",
+				},
+			},
+		},
+		{
+			name: "priority to params",
+			routes: []string{
+				"*{any}.b.com/bar",
+				"{ps}.b.com/bar",
+			},
+			host:     "a.b.com",
+			path:     "/bar",
+			wantPath: "{ps}.b.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "ps",
+					Value: "a",
+				},
+			},
+		},
+		{
+			name: "eval param with wildcard fallback",
+			routes: []string{
+				"*{any}.b.com/bar",
+				"{ps}.b.com/bar",
+			},
+			host:     "foo.b.b.com",
+			path:     "/bar",
+			wantPath: "*{any}.b.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "foo.b",
+				},
+			},
+		},
+		{
+			name: "priority to infix wildcard",
+			routes: []string{
+				"a.*{any}.com/bar",
+				"a.*{any}/bar",
+			},
+			host:     "a.bar.baz.com",
+			path:     "/bar",
+			wantPath: "a.*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "bar.baz",
+				},
+			},
+		},
+		{
+			name: "eval infix with suffix fallback",
+			routes: []string{
+				"a.*{any}.com/bar",
+				"a.*{any}/bar",
+			},
+			host:     "a.bar.baz.ch",
+			path:     "/bar",
+			wantPath: "a.*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "bar.baz.ch",
+				},
+			},
+		},
+		{
+			name: "priority to regexp wildcard",
+			routes: []string{
+				"a.*{3}.com/bar",
+				"a.*{1:[A-z.]+}.com/bar",
+				"a.*{2:[0-9.]+}.com/bar",
+			},
+			host:     "a.b.c.com",
+			path:     "/bar",
+			wantPath: "a.*{1:[A-z.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "1",
+					Value: "b.c",
+				},
+			},
+		},
+		{
+			name: "priority to next regexp wildcard",
+			routes: []string{
+				"a.*{3}.com/bar",
+				"a.*{1:[A-z.]+}.com/bar",
+				"a.*{2:[0-9.]+}.com/bar",
+			},
+			host:     "a.1.2.com",
+			path:     "/bar",
+			wantPath: "a.*{2:[0-9.]+}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "2",
+					Value: "1.2",
+				},
+			},
+		},
+		{
+			name: "fallback to non-regexp infix wildcard",
+			routes: []string{
+				"a.*{3}.com/bar",
+				"a.*{1:[A-z.]+}.com/bar",
+				"a.*{2:[0-9.]+}.com/bar",
+			},
+			host:     "a.b.2.com",
+			path:     "/bar",
+			wantPath: "a.*{3}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "3",
+					Value: "b.2",
+				},
+			},
+		},
+		{
+			name: "fallback to tsr with hostname priority and prefix wildcard",
+			routes: []string{
+				"*{a}.{b}.{c}/{d}",
+				"*{a}.{b}.c/{d}",
+				"*{a}.b.c/{path}/bar/",
+				"/{a}/barr",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "*{a}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to path priority with prefix wildcard",
+			routes: []string{
+				"*{a}.{b}.{c}/{d}",
+				"*{a}.{b}.c/{d}",
+				"*{a}.b.c/{path}/bar/",
+				"/{path}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "/{path}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with path param, wildcard and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.*{c:nomatch}/john/bar",
+				"*{a:nomatch}.{b}.c/{d}",
+				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "*{a:[A-z]+}.b.c/{path}/bar/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with wildcard and regexp priority",
+			routes: []string{
+				"{a:.*}.{b:.*}.*{c:nomatch}/john/bar",
+				"*{a:foo}.{b}.c/{d}/bar",
+				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c",
+			path:     "/john/bar",
+			wantPath: "*{a:foo}.{b}.c/{d}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "d",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "direct to must specific with wildcard and regexp",
+			routes: []string{
+				"{a:.*}.{b:.*}.*{c:.*}/john/bar",
+				"*{a:foo}.{b}.c/{d}/bar",
+				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"/{a:^$}/bar",
+			},
+			host:     "foo.b.c.com",
+			path:     "/john/bar",
+			wantPath: "{a:.*}.{b:.*}.*{c:.*}/john/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "c",
+					Value: "c.com",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
-			tree := f.getRoot()
+			tree := f.getTree()
 			c := newTestContext(f)
-			n, tsr := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
+			n := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
-			assert.Equal(t, tc.wantTsr, tsr)
-			c.tsr = tsr
+			assert.Equal(t, tc.wantTsr, c.tsr)
+			c.route = n.route
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -3662,14 +5431,14 @@ func TestInfixWildcardTsr(t *testing.T) {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
 
-			tree := f.getRoot()
+			tree := f.getTree()
 
 			c := newTestContext(f)
-			n, tsr := lookupByPath(tree, tree.root[0].children[0], tc.path, c, false)
+			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.route.pattern)
-			assert.Equal(t, tc.wantTsr, tsr)
-			c.tsr = tsr
+			assert.Equal(t, tc.wantTsr, c.tsr)
+			c.route = n.route
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -3769,6 +5538,18 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				{path: "a.b.c{d}/foo/bar"},
 			},
 		},
+		{
+			name: "test mixed path wildcard",
+			routes: []struct {
+				path string
+			}{
+				{path: "/*{args}"},
+				{path: "/*{a}/b/*{c}/f"},
+				{path: "/*{a}/b/*{l}/g/"},
+				{path: "/*{a}/b/*{x}/e"},
+				{path: "/*{a}/b/*{c}/d/"},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -3805,9 +5586,8 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				}
 			}
 
-			tree := f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			tree := f.getTree()
+			assert.Len(t, tree.root, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -3829,9 +5609,8 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 				}
 			}
 
-			tree = f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			tree = f.getTree()
+			assert.Len(t, tree.root, 0)
 		})
 	}
 }
@@ -3843,6 +5622,17 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			path string
 		}
 	}{
+		{
+			name: "test delete with merge and child param",
+			routes: []struct {
+				path string
+			}{
+				{path: "a.b.c/{foo}/{bar}"},
+				{path: "a.b.c.d/{foo}/{bar}"},
+				{path: "a.b.c{d}/{foo}/{bar}"},
+				{path: "a.b/"},
+			},
+		},
 		{
 			name: "test delete with merge",
 			routes: []struct {
@@ -3985,9 +5775,8 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 				return nil
 			}))
 
-			tree := f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			tree := f.getTree()
+			assert.Len(t, tree.root, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -4019,137 +5808,131 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 				return nil
 			}))
 
-			tree = f.getRoot()
-			assert.Equal(t, http.MethodGet, tree.root[0].key)
-			assert.Len(t, tree.root[0].children, 0)
+			tree = f.getTree()
+			assert.Len(t, tree.root, 0)
 		})
 	}
 }
 
 func TestInsertConflict(t *testing.T) {
 	cases := []struct {
-		name   string
-		routes []struct {
-			wantErr   error
-			path      string
-			wantMatch []string
-		}
+		name      string
+		routes    []string
+		insert    string
+		wantErr   error
+		wantMatch string
 	}{
 		{
-			name: "exact match conflict",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				{path: "/john/*{x}", wantErr: nil, wantMatch: nil},
-				{path: "/john/*{y}", wantErr: ErrRouteConflict, wantMatch: []string{"/john/*{x}"}},
-				{path: "/john/", wantErr: nil, wantMatch: nil},
-				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
-				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/ironman/{power}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/fox/", wantErr: nil, wantMatch: nil},
-				{path: "/fox/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/fox/*{args}", wantErr: ErrRouteExist, wantMatch: []string{"/fox/*{args}"}},
-				{path: "a.b.c/fox", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c/fox", wantErr: ErrRouteExist, wantMatch: []string{"a.b.c/fox"}},
-				{path: "a.{b}.c/fox", wantErr: nil, wantMatch: nil},
-				{path: "{a}.b.c/fox", wantErr: nil, wantMatch: nil},
-				{path: "a.{b}.c/fox", wantErr: ErrRouteExist, wantMatch: []string{"a.{b}.c/fox"}},
-			},
+			name:      "static route already exist",
+			routes:    []string{"/foo/bar", "/foo/baz"},
+			insert:    "/foo/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/bar",
 		},
 		{
-			name: "no conflict for incomplete match to end of edge",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				{path: "/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "/foo/baz", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c.d/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c{d}/foo/bar", wantErr: nil, wantMatch: nil},
-				{path: "a.b.c{d}.com/foo/bar", wantErr: nil, wantMatch: nil},
-			},
+			name:      "route with same parameters",
+			routes:    []string{"/foo/{foo}"},
+			insert:    "/foo/{foo}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo}",
 		},
 		{
-			name: "no conflict for key match mid-edge",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				// Note that this is impossible for route with hostname to
-				// end mid-edge in the hostname part since it always end with /
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/a*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/foo*{args}", wantErr: nil, wantMatch: nil},
-				{path: "/john{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/john*{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/john/{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/joh{doe}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/foo", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/*{args}", wantErr: nil, wantMatch: nil},
-			},
+			name:      "route with same wildcard",
+			routes:    []string{"/foo/*{foo}"},
+			insert:    "/foo/*{foo}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo}",
 		},
 		{
-			name: "incomplete match to middle of edge",
-			routes: []struct {
-				wantErr   error
-				path      string
-				wantMatch []string
-			}{
-				{path: "/foo/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/foo/{id}"}},
-				{path: "/gchq/*{id}", wantErr: nil, wantMatch: nil},
-				{path: "/gchq/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/gchq/*{id}"}},
-				{path: "/foo{id}", wantErr: nil, wantMatch: nil},
-				{path: "/foo/a{id}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}/baz", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{id}", wantErr: nil, wantMatch: nil},
-				{path: "/avengers/{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/avengers/{id}", "/avengers/{id}/bar", "/avengers/{id}/baz"}},
-				{path: "/ironman/*{id}/bar", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{id}/baz", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{id}", wantErr: nil, wantMatch: nil},
-				{path: "/ironman/*{abc}", wantErr: ErrRouteConflict, wantMatch: []string{"/ironman/*{id}", "/ironman/*{id}/bar", "/ironman/*{id}/baz"}},
-				{path: "foo.{bar}/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.{bar}.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.{baz}/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/baz"}},
-				{path: "foo.ab{bar}.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "foo.ab{x}.com/baz", wantErr: ErrRouteConflict, wantMatch: []string{"foo.ab{bar}.com/baz"}},
-				{path: "foo.{bar}/", wantErr: nil, wantMatch: nil},
-				{path: "foo.{yyy}/", wantErr: ErrRouteConflict, wantMatch: []string{"foo.{bar}.com/baz", "foo.{bar}/", "foo.{bar}/baz"}},
-				{path: "{foo}.bar/baz", wantErr: nil, wantMatch: nil},
-				{path: "{foo}.bar.com/baz", wantErr: nil, wantMatch: nil},
-				{path: "{baz}.bar/baz", wantErr: ErrRouteConflict, wantMatch: []string{"{foo}.bar.com/baz", "{foo}.bar/baz"}},
-			},
+			name:      "route with same parameters but different name",
+			routes:    []string{"/foo/{foo}"},
+			insert:    "/foo/{bar}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo}",
+		},
+		{
+			name:      "route with same wildcard but different name",
+			routes:    []string{"/foo/*{foo}"},
+			insert:    "/foo/*{bar}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo}",
+		},
+		{
+			name:      "route with middle same parameters but different name",
+			routes:    []string{"/{foo}/bar"},
+			insert:    "/{other}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/{foo}/bar",
+		},
+		{
+			name:      "route with middle same wildcard but different name",
+			routes:    []string{"/*{foo}/bar"},
+			insert:    "/*{other}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/*{foo}/bar",
+		},
+		{
+			name:      "route with same regexp parameter",
+			routes:    []string{"/foo/{foo:[A-z]+}"},
+			insert:    "/foo/{foo:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo:[A-z]+}",
+		},
+		{
+			name:      "route with same regexp parameter but different name",
+			routes:    []string{"/foo/{foo:[A-z]+}"},
+			insert:    "/foo/{bar:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/{foo:[A-z]+}",
+		},
+		{
+			name:      "route with same regexp wildcard",
+			routes:    []string{"/foo/*{foo:[A-z]+}"},
+			insert:    "/foo/*{foo:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo:[A-z]+}",
+		},
+		{
+			name:      "route with same regexp wildcard but different name",
+			routes:    []string{"/foo/*{foo:[A-z]+}"},
+			insert:    "/foo/*{bar:[A-z]+}",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/foo/*{foo:[A-z]+}",
+		},
+		{
+			name:      "route with middle same regexp parameter but different name",
+			routes:    []string{"/{foo:[A-z]+}/bar"},
+			insert:    "/{other:[A-z]+}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/{foo:[A-z]+}/bar",
+		},
+		{
+			name:      "route with middle same regexp wildcard but different name",
+			routes:    []string{"/*{foo:[A-z]+}/bar"},
+			insert:    "/*{other:[A-z]+}/bar",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "/*{foo:[A-z]+}/bar",
+		},
+		{
+			name:      "simple hostname conflict",
+			routes:    []string{"a.{b}.c/fox", "{a}.b.c/fox"},
+			insert:    "a.{d}.c/fox",
+			wantErr:   ErrRouteNotFound,
+			wantMatch: "a.{b}.c/fox",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				r, err := f.Handle(http.MethodGet, rte.path, emptyHandler)
-				if err != nil {
-					assert.Nil(t, r)
-				}
-				assert.ErrorIsf(t, err, rte.wantErr, "route: %s", rte.path)
-				if cErr, ok := err.(*RouteConflictError); ok {
-					assert.Equal(t, rte.wantMatch, cErr.Matched)
-				}
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 			}
+			got := onlyError(f.Handle(http.MethodGet, tc.insert, emptyHandler))
+			assert.ErrorIs(t, got, ErrRouteExist)
+			var conflict *RouteConflictError
+			require.ErrorAs(t, got, &conflict)
+			assert.Equal(t, tc.wantMatch, conflict.Existing.pattern)
 		})
 	}
 }
@@ -4181,25 +5964,22 @@ func TestUpdateConflict(t *testing.T) {
 			wantErr: ErrRouteNotFound,
 		},
 		{
-			name:      "wildcard have different name",
-			routes:    []string{"/foo/bar", "/foo/*{args}"},
-			update:    "/foo/*{all}",
-			wantErr:   ErrRouteNotFound,
-			wantMatch: []string{"/foo/*{args}"},
+			name:    "wildcard have different name",
+			routes:  []string{"/foo/bar", "/foo/*{args}"},
+			update:  "/foo/*{all}",
+			wantErr: ErrRouteNotFound,
 		},
 		{
-			name:      "replacing non wildcard by wildcard",
-			routes:    []string{"/foo/bar", "/foo/"},
-			update:    "/foo/*{all}",
-			wantErr:   ErrRouteNotFound,
-			wantMatch: []string{"/foo/"},
+			name:    "replacing non wildcard by wildcard",
+			routes:  []string{"/foo/bar", "/foo/"},
+			update:  "/foo/*{all}",
+			wantErr: ErrRouteNotFound,
 		},
 		{
-			name:      "replacing wildcard by non wildcard",
-			routes:    []string{"/foo/bar", "/foo/*{args}"},
-			update:    "/foo/",
-			wantErr:   ErrRouteNotFound,
-			wantMatch: []string{"/foo/*{args}"},
+			name:    "replacing wildcard by non wildcard",
+			routes:  []string{"/foo/bar", "/foo/*{args}"},
+			update:  "/foo/",
+			wantErr: ErrRouteNotFound,
 		},
 	}
 
@@ -4297,96 +6077,225 @@ func TestUpdateRoute(t *testing.T) {
 }
 
 func TestParseRoute(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
+
+	staticToken := func(v string, hsplit bool) token {
+		return token{
+			value:  v,
+			typ:    nodeStatic,
+			hsplit: hsplit,
+		}
+	}
+
+	paramToken := func(v, reg string) token {
+		tk := token{
+			value: v,
+			typ:   nodeParam,
+		}
+		if reg != "" {
+			tk.regexp = regexp.MustCompile("^" + reg + "$")
+		}
+		return tk
+	}
+
+	wildcardToken := func(v, reg string) token {
+		tk := token{
+			value: v,
+			typ:   nodeWildcard,
+		}
+		if reg != "" {
+			tk.regexp = regexp.MustCompile("^" + reg + "$")
+		}
+		return tk
+	}
+
 	cases := []struct {
-		wantErr error
-		name    string
-		path    string
-		wantN   uint32
+		wantErr    error
+		name       string
+		path       string
+		wantN      int
+		wantTokens []token
 	}{
 		{
-			name: "valid static route",
-			path: "/foo/bar",
+			name:       "valid static route",
+			path:       "/foo/bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(staticToken("/foo/bar", false))),
 		},
 		{
-			name:  "top level domain",
+			name:  "top level domain param",
 			path:  "{tld}/foo/bar",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("tld", ""),
+				staticToken("/foo/bar", false),
+			)),
+		},
+		{
+			name:  "top level domain wildcard",
+			path:  "*{tld}/foo/bar",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("tld", ""),
+				staticToken("/foo/bar", false),
+			)),
 		},
 		{
 			name:  "valid catch all route",
 			path:  "/foo/bar/*{arg}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("arg", ""),
+			)),
 		},
 		{
 			name:  "valid param route",
 			path:  "/foo/bar/{baz}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "valid multi params route",
 			path:  "/foo/{bar}/{baz}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "valid same params route",
 			path:  "/foo/{bar}/{bar}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				paramToken("bar", ""),
+			)),
 		},
 		{
 			name:  "valid multi params and catch all route",
 			path:  "/foo/{bar}/{baz}/*{arg}",
 			wantN: 3,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+				staticToken("/", false),
+				wildcardToken("arg", ""),
+			)),
 		},
 		{
 			name:  "valid inflight param",
 			path:  "/foo/xyz:{bar}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/xyz:", false),
+				paramToken("bar", ""),
+			)),
 		},
 		{
 			name:  "valid inflight catchall",
 			path:  "/foo/xyz:*{bar}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/xyz:", false),
+				wildcardToken("bar", ""),
+			)),
 		},
 		{
 			name:  "valid multi inflight param and catch all",
 			path:  "/foo/xyz:{bar}/abc:{bar}/*{arg}",
 			wantN: 3,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/xyz:", false),
+				paramToken("bar", ""),
+				staticToken("/abc:", false),
+				paramToken("bar", ""),
+				staticToken("/", false),
+				wildcardToken("arg", ""),
+			)),
 		},
 		{
 			name:  "catch all with arg in the middle of the route",
 			path:  "/foo/bar/*{bar}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name:  "multiple catch all suffix and inflight with arg in the middle of the route",
 			path:  "/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 4,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/x", false),
+				wildcardToken("args", ""),
+				staticToken("/y/", false),
+				wildcardToken("z", ""),
+				staticToken("/", false),
+				paramToken("b", ""),
+			)),
 		},
 		{
 			name:  "inflight catch all with arg in the middle of the route",
 			path:  "/foo/bar/damn*{bar}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/damn", false),
+				wildcardToken("bar", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name:  "catch all with arg in the middle of the route and param after",
 			path:  "/foo/bar/*{bar}/{baz}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "simple domain and path",
 			path:  "foo/bar",
 			wantN: 0,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("foo", true),
+				staticToken("/bar", false),
+			)),
 		},
 		{
 			name:  "simple domain with trailing slash",
 			path:  "foo/",
 			wantN: 0,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("foo", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "period in param path allowed",
 			path:  "foo/{.bar}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("foo", true),
+				staticToken("/", false),
+				paramToken(".bar", ""),
+			)),
 		},
 		{
 			name:    "missing a least one slash",
@@ -4473,8 +6382,20 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
+			name:    "unexpected character in wildcard hostname",
+			path:    "a.*{.bar}.c/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
 			name:    "unexpected character in param hostname",
 			path:    "a.{/bar}.c/",
+			wantErr: ErrInvalidRoute,
+			wantN:   0,
+		},
+		{
+			name:    "unexpected character in wildcard hostname",
+			path:    "a.*{/bar}.c/",
 			wantErr: ErrInvalidRoute,
 			wantN:   0,
 		},
@@ -4527,27 +6448,45 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
-			name:    "illegal catch-all in hostname",
-			path:    "*{any}.com/foo",
-			wantErr: ErrInvalidRoute,
-			wantN:   0,
+			name:  "prefix catch-all in hostname",
+			path:  "*{any}.com/foo",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("any", ""),
+				staticToken(".com", true),
+				staticToken("/foo", false),
+			)),
 		},
 		{
-			name:    "illegal catch-all in hostname",
-			path:    "a.*{any}.com/foo",
-			wantErr: ErrInvalidRoute,
-			wantN:   0,
+			name:  "infix catch-all in hostname",
+			path:  "a.*{any}.com/foo",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.", true),
+				wildcardToken("any", ""),
+				staticToken(".com", true),
+				staticToken("/foo", false),
+			)),
 		},
 		{
-			name:    "illegal catch-all in hostname",
-			path:    "a.b.*{any}/foo",
-			wantErr: ErrInvalidRoute,
-			wantN:   0,
+			name:  "illegal catch-all in hostname",
+			path:  "a.b.*{any}/foo",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.b.", true),
+				wildcardToken("any", ""),
+				staticToken("/foo", false),
+			)),
 		},
 		{
 			name:  "static hostname with catch-all path",
 			path:  "a.b.com/*{any}",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.b.com", true),
+				staticToken("/", false),
+				wildcardToken("any", ""),
+			)),
 		},
 		{
 			name:    "illegal control character in path",
@@ -4664,9 +6603,26 @@ func TestParseRoute(t *testing.T) {
 			wantN:   0,
 		},
 		{
-			name:  "all-numeric label with wildcard",
+			name:  "all-numeric label with param",
 			path:  "123.{a}.456/",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("123.", true),
+				paramToken("a", ""),
+				staticToken(".456", true),
+				staticToken("/", false),
+			)),
+		},
+		{
+			name:  "all-numeric label with wildcard",
+			path:  "123.*{a}.456/",
+			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("123.", true),
+				wildcardToken("a", ""),
+				staticToken(".456", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:    "all-numeric label with path wildcard",
@@ -4696,36 +6652,92 @@ func TestParseRoute(t *testing.T) {
 			name:  "2 regular params in domain",
 			path:  "{a}.{b}.com/",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", ""),
+				staticToken(".", true),
+				paramToken("b", ""),
+				staticToken(".com", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "255 character with .",
 			path:  "78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr/",
 			wantN: 0,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "param does not count at character",
 			path:  "{a}.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjx.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr/",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", ""),
+				staticToken(".78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjx.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr.78fayzyiqkt3hh2mquv9szfroeexx8qztscu3oudoyfarjl6jmdyxk2cefvzjxr", true),
+				staticToken("/", false),
+			)),
 		},
 		{
 			name:  "hostname variant with multiple catch all suffix and inflight with arg in the middle of the route",
 			path:  "example.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 4,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("example.com", true),
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/x", false),
+				wildcardToken("args", ""),
+				staticToken("/y/", false),
+				wildcardToken("z", ""),
+				staticToken("/", false),
+				paramToken("b", ""),
+			)),
 		},
 		{
 			name:  "hostname variant with inflight catch all with arg in the middle of the route",
 			path:  "example.com/foo/bar/damn*{bar}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("example.com", true),
+				staticToken("/foo/bar/damn", false),
+				wildcardToken("bar", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name:  "hostname variant catch all with arg in the middle of the route and param after",
 			path:  "example.com/foo/bar/*{bar}/{baz}",
 			wantN: 2,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("example.com", true),
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/", false),
+				paramToken("baz", ""),
+			)),
 		},
 		{
 			name:  "complex domain and path",
 			path:  "{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}",
 			wantN: 7,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("ab", ""),
+				staticToken(".", true),
+				paramToken("c", ""),
+				staticToken(".de", true),
+				paramToken("f", ""),
+				staticToken(".com", true),
+				staticToken("/foo/bar/", false),
+				wildcardToken("bar", ""),
+				staticToken("/x", false),
+				wildcardToken("args", ""),
+				staticToken("/y/", false),
+				wildcardToken("z", ""),
+				staticToken("/", false),
+				paramToken("b", ""),
+			)),
 		},
 		// Reject path with traversal pattern
 		{
@@ -4782,69 +6794,416 @@ func TestParseRoute(t *testing.T) {
 		{
 			name: "last path segment starting with slash dot and text",
 			path: "/foo/.bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.bar", false),
+			)),
 		},
 		{
 			name: "last path segment starting with slash dot and text",
 			path: "/foo/..bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/..bar", false),
+			)),
 		},
 		{
 			name: "path segment starting with slash dot and text",
 			path: "/foo/.bar/baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.bar/baz", false),
+			)),
 		},
 		{
 			name:  "path segment starting with slash dot and param",
 			path:  "/foo/.{foo}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.", false),
+				paramToken("foo", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name: "path segment starting with slash dot and text",
 			path: "/foo/..bar/baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/..bar/baz", false),
+			)),
 		},
 		{
 			name:  "path segment starting with slash dot and param",
 			path:  "/foo/..{foo}/baz",
 			wantN: 1,
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/..", false),
+				paramToken("foo", ""),
+				staticToken("/baz", false),
+			)),
 		},
 		{
 			name: "path segment ending with dot slash",
 			path: "/foo/bar./baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar./baz", false),
+			)),
 		},
 		{
 			name: "path segment ending with double dot slash",
 			path: "/foo/bar../baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar../baz", false),
+			)),
 		},
 		{
 			name: "path segment with > double dot",
 			path: "/foo/.../baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/.../baz", false),
+			)),
 		},
 		{
 			name: "path segment ending with slash and > double dot",
 			path: "/foo/...",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/...", false),
+			)),
 		},
 		{
 			name: "last path segment ending with dot",
 			path: "/foo/bar.",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar.", false),
+			)),
 		},
 		{
 			name: "last path segment ending with double dot",
 			path: "/foo/bar..",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/bar..", false),
+			)),
 		},
 		{
 			name: "path segment with dot",
 			path: "/foo/a.b.c",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/a.b.c", false),
+			)),
 		},
 		{
 			name: "path segment with double dot",
 			path: "/foo/a..b..c",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/a..b..c", false),
+			)),
+		},
+		// Regexp
+		{
+			name: "simple ending param with regexp",
+			path: "/foo/{bar:[A-z]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "[A-z]+"),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "simple ending param with regexp",
+			path: "/foo/*{bar:[A-z]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("bar", "[A-z]+"),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "simple infix param with regexp",
+			path: "/foo/{bar:[A-z]+}/baz",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "[A-z]+"),
+				staticToken("/baz", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "multi infix and ending param with regexp",
+			path: "/foo/{bar:[A-z]+}/{baz:[0-9]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "[A-z]+"),
+				staticToken("/", false),
+				paramToken("baz", "[0-9]+"),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "multi infix and ending wildcard with regexp",
+			path: "/foo/*{bar:[A-z]+}/a*{baz:[0-9]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("bar", "[A-z]+"),
+				staticToken("/a", false),
+				wildcardToken("baz", "[0-9]+"),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "consecutive infix regexp wildcard and regexp param allowed",
+			path: "/foo/*{bar:[A-z]+}/{baz:[0-9]+}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("bar", "[A-z]+"),
+				staticToken("/", false),
+				paramToken("baz", "[0-9]+"),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "hostname starting with regexp",
+			path: "{a:[A-z]+}.b.c/foo",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", "[A-z]+"),
+				staticToken(".b.c", true),
+				staticToken("/foo", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "hostname with middle param regexp",
+			path: "a.{b:[A-z]+}.c/foo",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.", true),
+				paramToken("b", "[A-z]+"),
+				staticToken(".c", true),
+				staticToken("/foo", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "hostname ending with param regexp",
+			path: "a.b.{c:[A-z]+}/foo",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("a.b.", true),
+				paramToken("c", "[A-z]+"),
+				staticToken("/foo", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "non capturing group allowed in regexp",
+			path: "/foo/{bar:(?:foo|bar)}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				paramToken("bar", "(?:foo|bar)"),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "regexp wildcard at the beginning of the path",
+			path: "/*{foo:[A-z]+}/bar",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/", false),
+				wildcardToken("foo", "[A-z]+"),
+				staticToken("/bar", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "regexp wildcard at the beginning of the host",
+			path: "*{a:[A-z]+}.b.c/",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("a", "[A-z]+"),
+				staticToken(".b.c", true),
+				staticToken("/", false),
+			)),
+			wantN: 1,
+		},
+		{
+			name: "consecutive wildcard from hostname to path",
+			path: "*{foo}/*{bar}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("foo", ""),
+				staticToken("/", false),
+				wildcardToken("bar", ""),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "param then wildcard regexp",
+			path: "{a}.*{b:b}/",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", ""),
+				staticToken(".", true),
+				wildcardToken("b", "b"),
+				staticToken("/", false),
+			)),
+			wantN: 2,
+		},
+		{
+			name: "param regexp then wildcard regexp",
+			path: "{a:a}.*{b:b}/",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				paramToken("a", "a"),
+				staticToken(".", true),
+				wildcardToken("b", "b"),
+				staticToken("/", false),
+			)),
+			wantN: 2,
+		},
+		{
+			name:    "consecutive infix wildcard at start with regexp not allowed",
+			path:    "/*{foo:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard at start with regexp not allowed",
+			path:    "/{foo:[A-z]+}.*{baz:[0-9]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard at start with and without regexp not allowed",
+			path:    "/*{foo:[A-z]+}/*{baz}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard at start with and without regexp not allowed",
+			path:    "*{foo:[A-z]+}.*{baz}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard at start with regexp not allowed",
+			path:    "/*{foo}/*{baz:[0-9]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard at start with regexp not allowed",
+			path:    "*{foo}.*{baz:[0-9]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with regexp not allowed",
+			path:    "/foo/*{bar:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard with regexp not allowed",
+			path:    "foo.*{bar:[A-z]+}.*{baz:[0-9]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with first regexp not allowed",
+			path:    "/foo/*{bar:[A-z]+}/*{baz}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard with first regexp not allowed",
+			path:    "foo.*{bar:[A-z]+}.*{baz}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with second regexp not allowed",
+			path:    "/foo/*{bar}/*{baz:[A-z]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "hostname consecutive infix wildcard with second regexp not allowed",
+			path:    "foo.*{bar}.*{baz:[A-z]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "non slash char after regexp param not allowed",
+			path:    "/foo/{bar:[A-z]+}a/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "non slash char after regexp wildcard not allowed",
+			path:    "/foo/*{bar:[A-z]+}a/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "regexp wildcard not allowed in hostname",
+			path:    "*{a.{b:[A-z]+}}.c/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "regexp wildcard not allowed in hostname",
+			path:    "*{a.b.{c:[A-z]+}/",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing param name with regexp",
+			path:    "/foo/{:[A-z]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing wildcard name with regexp",
+			path:    "/foo/*{:[A-z]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing regular expression",
+			path:    "/foo/{a:}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "missing regular expression with only ':'",
+			path:    "/foo/{:}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "unbalanced braces in param regexp",
+			path:    "/foo/{bar:[A-z]+",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "unbalanced braces in wildcard regexp",
+			path:    "/foo/*{bar:[A-z]+",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "balanced braces in param regexp with invalid char after",
+			path:    "/foo/{bar:{}}a",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "balanced braces in wildcard regexp with invalid brace after",
+			path:    "/foo/{bar:{}}}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "unbalanced braces in regexp complex",
+			path:    "/foo/{bar:{{{{}}}}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "invalid regular expression",
+			path:    "/foo/{bar:a{5,2}}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "invalid regular expression",
+			path:    "/foo/{bar:\\k}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "capture group in regexp are not allowed",
+			path:    "/foo/{bar:(foo|bar)}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "no opening brace after * wildcard",
+			path:    "/foo/*:bar}",
+			wantErr: ErrInvalidRoute,
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, _, err := f.parseRoute(tc.path)
-			fmt.Println(err)
+			tokens, n, hostSplit, err := f.parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, n)
+			assert.Equal(t, tc.wantTokens, tokens)
+			if err == nil {
+				assert.Equal(t, strings.IndexByte(tc.path, '/'), hostSplit)
+			}
 		})
 	}
 }
@@ -4852,42 +7211,74 @@ func TestParseRoute(t *testing.T) {
 func TestParseRouteParamsConstraint(t *testing.T) {
 	t.Run("param limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParams(3))
-		_, _, err := f.parseRoute("/{1}/{2}/{3}")
+		_, _, _, err := f.parseRoute("/{1}/{2}/{3}")
 		assert.NoError(t, err)
-		_, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
+		_, _, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
+		_, _, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
 		assert.Error(t, err)
 	})
 	t.Run("param key limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParamKeyBytes(3))
-		_, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
+		_, _, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
 		assert.NoError(t, err)
-		_, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
+		_, _, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
+		_, _, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
+		_, _, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
+		_, _, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
+		_, _, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
 		assert.Error(t, err)
 	})
-}
-
-func TestParseRouteMalloc(t *testing.T) {
-	f, _ := New()
-	var (
-		n   uint32
-		err error
-	)
-	allocs := testing.AllocsPerRun(100, func() {
-		n, _, err = f.parseRoute("{ab}.{c}.de{f}.com/foo/bar/*{bar}/x*{args}/y/*{z}/{b}")
+	t.Run("param key limit with regexp", func(t *testing.T) {
+		f, _ := New(WithMaxRouteParamKeyBytes(3), AllowRegexpParam(true))
+		_, _, _, err := f.parseRoute("/{abc:a}/{abc:a}/{abc:a}")
+		assert.NoError(t, err)
+		_, _, _, err = f.parseRoute("/{abcd:a}/{abc:a}/{abc:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/{abcd:a}/{abc:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/{abcd:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/*{abcd:a}/{abc:a}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/*{abcdef:a}")
+		assert.Error(t, err)
 	})
-	assert.Equal(t, float64(0), allocs)
-	assert.NoError(t, err)
-	assert.Equal(t, uint32(7), n)
+	t.Run("disabled regexp support for param", func(t *testing.T) {
+		f, _ := New()
+		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		assert.NoError(t, err)
+		// path params
+		_, _, _, err = f.parseRoute("/{a:a}/{b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/{b:b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/{b}/{c:c}")
+		assert.Error(t, err)
+		// hostname params
+		_, _, _, err = f.parseRoute("{a:a}.{b}.{c}/")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("{a}.{b:b}.{c}/")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("{a}.{b}.{c:c}/")
+		assert.Error(t, err)
+	})
+	t.Run("disabled regexp support for wildcard", func(t *testing.T) {
+		f, _ := New()
+		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		assert.NoError(t, err)
+		// wildcard
+		_, _, _, err = f.parseRoute("/*{a:a}/{b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/*{b:b}/{c}")
+		assert.Error(t, err)
+		_, _, _, err = f.parseRoute("/{a}/{b}/*{c:c}")
+		assert.Error(t, err)
+	})
 }
 
 func TestTree_LookupTsr(t *testing.T) {
@@ -4969,10 +7360,10 @@ func TestTree_LookupTsr(t *testing.T) {
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, path, emptyHandler)))
 			}
-			tree := f.getRoot()
+			tree := f.getTree()
 			c := newTestContext(f)
-			n, got := lookupByPath(tree, tree.root[0].children[0], tc.key, c, true)
-			assert.Equal(t, tc.want, got)
+			n := lookupByPath(tree.root[http.MethodGet], tc.key, c, true, 0)
+			assert.Equal(t, tc.want, c.tsr)
 			if tc.want {
 				require.NotNil(t, n)
 				require.NotNil(t, n.route)
@@ -5770,9 +8161,9 @@ func TestTree_Delete(t *testing.T) {
 	it := f.Iter()
 	cnt := len(slices.Collect(iterutil.Right(it.All())))
 
-	tree := f.getRoot()
+	tree := f.getTree()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 4, len(tree.root))
+	assert.Equal(t, 0, len(tree.root))
 }
 
 func TestTree_DeleteTxn(t *testing.T) {
@@ -5800,9 +8191,9 @@ func TestTree_DeleteTxn(t *testing.T) {
 	it := f.Iter()
 	cnt := len(slices.Collect(iterutil.Right(it.All())))
 
-	tree := f.getRoot()
+	tree := f.getTree()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 4, len(tree.root))
+	assert.Equal(t, 0, len(tree.root))
 }
 
 func TestTree_DeleteRoot(t *testing.T) {
@@ -5811,14 +8202,14 @@ func TestTree_DeleteRoot(t *testing.T) {
 	deletedRoute, err := f.Delete(http.MethodOptions, "/foo/bar")
 	require.NoError(t, err)
 	assert.Equal(t, "/foo/bar", deletedRoute.Pattern())
-	tree := f.getRoot()
-	assert.Equal(t, 4, len(tree.root))
+	tree := f.getTree()
+	assert.Equal(t, 0, len(tree.root))
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "exemple.com/foo/bar", emptyHandler)))
 	deletedRoute, err = f.Delete(http.MethodOptions, "exemple.com/foo/bar")
 	require.NoError(t, err)
 	assert.Equal(t, "exemple.com/foo/bar", deletedRoute.Pattern())
-	tree = f.getRoot()
-	assert.Equal(t, 4, len(tree.root))
+	tree = f.getTree()
+	assert.Equal(t, 0, len(tree.root))
 }
 
 func TestRouter_DeleteError(t *testing.T) {
@@ -5858,8 +8249,8 @@ func TestRouter_UpdatesError(t *testing.T) {
 		return wantErr
 	})
 	assert.ErrorIs(t, err, wantErr)
-	tree := f.getRoot()
-	assert.Len(t, tree.root[0].children, 0)
+	tree := f.getTree()
+	assert.Len(t, tree.root, 0)
 }
 
 func TestRouter_UpdatesPanic(t *testing.T) {
@@ -5876,8 +8267,8 @@ func TestRouter_UpdatesPanic(t *testing.T) {
 		})
 	})
 
-	tree := f.getRoot()
-	assert.Len(t, tree.root[0].children, 0)
+	tree := f.getTree()
+	assert.Len(t, tree.root, 0)
 }
 
 func TestTree_DeleteWildcard(t *testing.T) {
@@ -5934,7 +8325,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		name    string
 		target  string
 		path    string
-		want    string
+		want    []string
 		methods []string
 	}{
 		{
@@ -5942,22 +8333,30 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead},
 			path:    "/foo/bar",
 			target:  http.MethodTrace,
-			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
 		},
 		{
 			name:    "all route except the first one",
 			methods: []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace},
 			path:    "/foo/baz",
 			target:  http.MethodGet,
-			want:    "POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD, TRACE",
+			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
 		{
 			name:    "all route except patch and delete",
 			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodConnect, http.MethodOptions, http.MethodHead, http.MethodTrace},
 			path:    "/test",
 			target:  http.MethodPatch,
-			want:    "GET, POST, PUT, CONNECT, OPTIONS, HEAD, TRACE",
+			want:    []string{"GET", "POST", "PUT", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	rf := f.Stats()
@@ -5971,7 +8370,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6008,7 +8407,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 		target  string
 		path    string
 		req     string
-		want    string
+		want    []string
 		methods []string
 	}{
 		{
@@ -6017,7 +8416,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 			path:    "/foo/bar/",
 			req:     "/foo/bar",
 			target:  http.MethodTrace,
-			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
 		},
 		{
 			name:    "all route except the first one",
@@ -6025,8 +8424,16 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 			path:    "/foo/baz",
 			req:     "/foo/baz/",
 			target:  http.MethodGet,
-			want:    "POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD, TRACE",
+			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6038,7 +8445,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6052,7 +8459,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 		target  string
 		path    string
 		req     string
-		want    string
+		want    []string
 		methods []string
 	}{
 		{
@@ -6061,7 +8468,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 			path:    "/foo/bar",
 			req:     "/foo/bar",
 			target:  http.MethodTrace,
-			want:    "GET, POST, PUT, DELETE, PATCH, CONNECT, OPTIONS, HEAD",
+			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
 		},
 		{
 			name:    "all route except the first one and inferred options from auto options",
@@ -6069,8 +8476,16 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 			path:    "/foo/baz/",
 			req:     "/foo/baz/",
 			target:  http.MethodGet,
-			want:    "POST, PUT, DELETE, PATCH, CONNECT, HEAD, TRACE, OPTIONS",
+			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "HEAD", "TRACE", "OPTIONS"},
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6082,7 +8497,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6153,7 +8568,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		name     string
 		target   string
 		path     string
-		want     string
+		want     []string
 		wantCode int
 		methods  []string
 	}{
@@ -6162,7 +8577,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6170,7 +8585,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6183,7 +8598,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6191,7 +8606,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, OPTIONS, PUT, TRACE",
+			want:     []string{"GET", "OPTIONS", "PUT", "TRACE"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -6201,6 +8616,17 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			methods:  []string{"GET", "TRACE", "PUT"},
 			wantCode: http.StatusNotFound,
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6218,7 +8644,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6228,7 +8654,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 		name     string
 		target   string
 		path     string
-		want     string
+		want     []string
 		wantCode int
 		methods  []string
 	}{
@@ -6237,7 +8663,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6245,7 +8671,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "*",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6258,7 +8684,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "/foo/",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     "GET, PUT, TRACE, OPTIONS",
+			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -6266,7 +8692,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo/",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     "GET, OPTIONS, PUT, TRACE",
+			want:     []string{"GET", "OPTIONS", "PUT", "TRACE"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -6276,6 +8702,17 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			methods:  []string{"GET", "TRACE", "PUT"},
 			wantCode: http.StatusNotFound,
 		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
 	}
 
 	for _, tc := range cases {
@@ -6291,7 +8728,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.Equal(t, tc.want, w.Header().Get("Allow"))
+			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
@@ -6351,8 +8788,20 @@ func TestRouterWithOptionsHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/foo/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
+	}
+
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.Equal(t, "GET, POST, OPTIONS", w.Header().Get("Allow"))
+	assert.ElementsMatch(t, []string{"GET", "POST", "OPTIONS"}, parseAllowHeader(w.Header().Get("Allow")))
 	f, err = New(WithOptionsHandler(nil))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
@@ -6859,147 +9308,28 @@ func TestEncodedPath(t *testing.T) {
 	assert.Equal(t, encodedPath, w.Body.String())
 }
 
-func TestEqualASCIIIgnoreCase(t *testing.T) {
-	tests := []struct {
-		name string
-		s    uint8
-		t    uint8
-		want bool
-	}{
-		// Exact matches
-		{"same lowercase letter", 'a', 'a', true},
-		{"same uppercase letter", 'A', 'A', true},
-		{"same digit", '5', '5', true},
-		{"same hyphen", '-', '-', true},
-
-		// Case-insensitive letter matches
-		{"A and a", 'A', 'a', true},
-		{"a and A", 'a', 'A', true},
-		{"Z and z", 'Z', 'z', true},
-		{"z and Z", 'z', 'Z', true},
-		{"M and m", 'M', 'm', true},
-		{"m and M", 'm', 'M', true},
-
-		// Different letters (should not match)
-		{"A and B", 'A', 'B', false},
-		{"a and b", 'a', 'b', false},
-		{"A and b", 'A', 'b', false},
-		{"a and B", 'a', 'B', false},
-
-		// Digits (only match exactly)
-		{"0 and 0", '0', '0', true},
-		{"9 and 9", '9', '9', true},
-		{"0 and 1", '0', '1', false},
-		{"5 and 6", '5', '6', false},
-
-		// Hyphen (only matches exactly)
-		{"hyphen and hyphen", '-', '-', true},
-		{"hyphen and A", '-', 'A', false},
-		{"hyphen and a", '-', 'a', false},
-		{"hyphen and 0", '-', '0', false},
-
-		// Characters just outside letter ranges
-		{"@ and A", '@', 'A', false},
-		{"Z and [", 'Z', '[', false},
-		{"` and a", '`', 'a', false},
-		{"z and {", 'z', '{', false},
-
-		// Special characters and control chars
-		{"null and A", 0, 'A', false},
-		{"A and null", 'A', 0, false},
-		{"space and A", ' ', 'A', false},
-		{"A and space", 'A', ' ', false},
-		{"! and A", '!', 'A', false},
-		{"A and !", 'A', '!', false},
-		{"/ and A", '/', 'A', false},
-		{"A and /", 'A', '/', false},
-
-		// High ASCII values
-		{"high byte and A", 0xFF, 'A', false},
-		{"A and high byte", 'A', 0xFF, false},
-		{"high byte and a", 0xFF, 'a', false},
-		{"a and high byte", 'a', 0xFF, false},
-
-		// Case difference edge cases
-		{"@ and `", '@', '`', false},
-		{"0 and P", '0', 'P', false},
-
-		// Boundary cases for the letter ranges
-		{"A-1 and a", 'A' - 1, 'a', false},
-		{"Z+1 and z", 'Z' + 1, 'z', false},
-		{"a-1 and A", 'a' - 1, 'A', false},
-		{"z+1 and Z", 'z' + 1, 'Z', false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := equalASCIIIgnoreCase(tt.s, tt.t); got != tt.want {
-				t.Errorf("equalASCIIIgnoreCase(%c=%d, %c=%d) = %v, want %v",
-					tt.s, tt.s, tt.t, tt.t, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestFuzzInsertLookupParam(t *testing.T) {
-	// no '*', '{}' and '/' and invalid escape char
-	unicodeRanges := fuzz.UnicodeRanges{
-		{First: 0x20, Last: 0x29},
-		{First: 0x2B, Last: 0x2E},
-		{First: 0x30, Last: 0x7A},
-		{First: 0x7C, Last: 0x7C},
-		{First: 0x7E, Last: 0x04FF},
-	}
-
-	r, _ := New()
-	f := fuzz.New().NilChance(0).Funcs(unicodeRanges.CustomStringFuzzFunc())
-	routeFormat := "/%s/{%s}/%s/{%s}/{%s}"
-	reqFormat := "/%s/%s/%s/%s/%s"
-	for i := 0; i < 2000; i++ {
-		var s1, e1, s2, e2, e3 string
-		f.Fuzz(&s1)
-		f.Fuzz(&e1)
-		f.Fuzz(&s2)
-		f.Fuzz(&e2)
-		f.Fuzz(&e3)
-		if s1 == "" || s2 == "" || e1 == "" || e2 == "" || e3 == "" {
-			continue
-		}
-		path := fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3)
-		tree := r.getRoot()
-		txn := tree.txn(true)
-		if err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler, psLen: 3}); err == nil {
-			c := newTestContext(r)
-			n, tsr := lookupByPath(tree, txn.root[0].children[0], fmt.Sprintf(reqFormat, s1, "xxxx", s2, "xxxx", "xxxx"), c, false)
-			require.NotNil(t, n)
-			require.NotNil(t, n.route)
-			assert.False(t, tsr)
-			assert.Equal(t, fmt.Sprintf(routeFormat, s1, e1, s2, e2, e3), n.route.pattern)
-			assert.Equal(t, "xxxx", c.Param(e1))
-			assert.Equal(t, "xxxx", c.Param(e2))
-			assert.Equal(t, "xxxx", c.Param(e3))
-		}
-	}
-}
-
 func TestFuzzInsertNoPanics(t *testing.T) {
-	f := fuzz.New().NilChance(0).NumElements(5000, 10000)
+	unicodeRanges := fuzz.UnicodeRanges{
+		{First: 0x20, Last: 0x6FF},
+	}
+	f := fuzz.New().NilChance(0).NumElements(1000000, 2000000).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	r, _ := New()
 
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
-	tree := r.getRoot()
-	txn := tree.txn(true)
-
-	for rte := range routes {
-		if rte == "" {
-			continue
+	_ = r.Updates(func(txn *Txn) error {
+		for rte := range routes {
+			if rte == "" {
+				continue
+			}
+			require.NotPanicsf(t, func() {
+				_, _ = txn.Handle(http.MethodGet, rte, emptyHandler)
+			}, fmt.Sprintf("rte: %s", rte))
 		}
-		require.NotPanicsf(t, func() {
-			_ = txn.insert(http.MethodGet, &Route{pattern: rte, hself: emptyHandler, hostSplit: max(0, strings.IndexByte(rte, '/'))})
-		}, fmt.Sprintf("rte: %s", rte))
-	}
+		return nil
+	})
+
 }
 
 func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
@@ -7011,47 +9341,43 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 		{First: 0x7E, Last: 0x04FF},
 	}
 
-	f := fuzz.New().NilChance(0).NumElements(1000, 2000).Funcs(unicodeRanges.CustomStringFuzzFunc())
+	f := fuzz.New().NilChance(0).NumElements(100000, 200000).Funcs(unicodeRanges.CustomStringFuzzFunc())
 	r, _ := New()
 
 	routes := make(map[string]struct{})
 	f.Fuzz(&routes)
 
-	tree := r.getRoot()
-	txn := tree.txn(true)
-	for rte := range routes {
-		path := "/" + rte
-		err := txn.insert(http.MethodGet, &Route{pattern: path, hself: emptyHandler})
-		require.NoError(t, err)
-	}
-	r.tree.Store(txn.commit())
+	inserted := 0
+	_ = r.Updates(func(txn *Txn) error {
+		for rte := range routes {
+			rte, err := txn.Handle(http.MethodGet, "/"+rte, emptyHandler)
+			if err != nil {
+				assert.Nil(t, rte, "route /%s", rte)
+				continue
+			}
+			assert.NotNilf(t, rte, "route /%s", rte)
+			inserted++
+		}
+		return nil
+	})
 
 	it := r.Iter()
 	countPath := len(slices.Collect(iterutil.Right(it.All())))
-	assert.Equal(t, len(routes), countPath)
+	assert.Equal(t, inserted, countPath)
 
-	tree = r.getRoot()
-	txn = tree.txn(true)
-	for rte := range routes {
-		c := newTestContext(r)
-		n, tsr := lookupByPath(tree, tree.root[0].children[0], "/"+rte, c, true)
-		require.NotNilf(t, n, "route /%s", rte)
-		require.NotNilf(t, n.route, "route /%s", rte)
-		require.Falsef(t, tsr, "tsr: %t", tsr)
-		require.Truef(t, n.isLeaf(), "route /%s", rte)
-		require.Equal(t, "/"+rte, n.route.pattern)
-		path := "/" + rte
-		require.NoError(t, txn.update(http.MethodGet, &Route{pattern: path, hself: emptyHandler}))
+	for method, route := range r.Iter().All() {
+		found := r.Route(method, route.Pattern())
+		require.NotNilf(t, found, "route /%s", route.Pattern())
 	}
 
-	for rte := range routes {
-		n, deleted := txn.remove(http.MethodGet, "/"+rte)
-		require.True(t, deleted)
-		require.NotNil(t, n)
-		require.NotNil(t, n.route)
-		assert.Equal(t, "/"+rte, n.route.pattern)
-	}
-	r.tree.Store(txn.commit())
+	_ = r.Updates(func(txn *Txn) error {
+		for method, route := range r.Iter().All() {
+			rte, err := txn.Delete(method, route.Pattern())
+			assert.NoErrorf(t, err, "route /%s", route.Pattern())
+			assert.NotNil(t, rte, "route /%s", route.Pattern())
+		}
+		return nil
+	})
 
 	it = r.Iter()
 	countPath = len(slices.Collect(iterutil.Right(it.All())))
@@ -7143,9 +9469,11 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	wg.Wait()
 
 	// With a pair number of iteration, we should always delete all domains
-	tree := f.getRoot()
+	tree := f.getTree()
 	for _, n := range tree.root {
-		assert.Len(t, n.children, 1)
+		assert.Len(t, n.statics, 1)
+		assert.Len(t, n.params, 0)
+		assert.Len(t, n.wildcards, 0)
 	}
 
 }
@@ -7310,22 +9638,14 @@ func atomicSync() (start func(), wait func()) {
 func TestNode_String(t *testing.T) {
 	f, _ := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
-	tree := f.getRoot()
+	tree := f.getTree()
 
 	want := `path: GET
-      path: /foo/{bar}/*{baz} [leaf=/foo/{bar}/*{baz}] [bar (10), baz (-1)]`
-	assert.Equal(t, want, strings.TrimSuffix(tree.root[0].String(), "\n"))
-}
-
-func TestNode_Debug(t *testing.T) {
-	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/*{any}/bar", emptyHandler)))
-	tree := f.getRoot()
-
-	want := `path: GET
-      path: /foo/*{any}/bar [leaf=/foo/*{any}/bar] [any (11)]
-             inode: /bar`
-	assert.Equal(t, want, strings.TrimSuffix(tree.root[0].Debug(), "\n"))
+      path: /foo/ [params: 1]
+          path: ?
+              path: / [wildcards: 1]
+                  path: * [leaf=/foo/{bar}/*{baz}]`
+	assert.Equal(t, want, strings.TrimSuffix(tree.root[http.MethodGet].String(), "\n"))
 }
 
 // This example demonstrates how to create a simple router using the default options,

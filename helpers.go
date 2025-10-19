@@ -23,8 +23,13 @@ func (c *TestContext) SetRoute(route *Route) {
 
 // SetParams affect the provided params to this context.
 func (c *TestContext) SetParams(params Params) {
-	if params != nil {
-		c.params = &params
+	if params != nil && c.route != nil {
+		c.route.params = make([]string, 0, len(params))
+		*c.params = make([]string, 0, len(params))
+		for _, ps := range params {
+			c.route.params = append(c.route.params, ps.Key)
+			*c.params = append(*c.params, ps.Value)
+		}
 	}
 }
 
@@ -53,7 +58,7 @@ func NewTestContextOnly(w http.ResponseWriter, r *http.Request, opts ...GlobalOp
 }
 
 func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cTx {
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	c := tree.allocateContext()
 	c.resetNil()
 	c.reset(w, r)
@@ -61,7 +66,7 @@ func newTextContextOnly(fox *Router, w http.ResponseWriter, r *http.Request) *cT
 }
 
 func newTestContext(fox *Router) *cTx {
-	tree := fox.getRoot()
+	tree := fox.getTree()
 	c := tree.allocateContext()
 	c.resetNil()
 	return c

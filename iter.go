@@ -7,19 +7,8 @@ package fox
 import (
 	"cmp"
 	"iter"
+	"slices"
 )
-
-func newRawIterator(n *node) *rawIterator {
-	return &rawIterator{
-		stack: []stack{{edges: []*node{n}}},
-	}
-}
-
-type rawIterator struct {
-	current *node
-	path    string
-	stack   []stack
-}
 
 const stackSizeThreshold = 25
 
@@ -27,42 +16,13 @@ type stack struct {
 	edges []*node
 }
 
-func (it *rawIterator) hasNext() bool {
-	for len(it.stack) > 0 {
-		n := len(it.stack)
-		last := it.stack[n-1]
-		elem := last.edges[0]
-
-		if len(last.edges) > 1 {
-			it.stack[n-1].edges = last.edges[1:]
-		} else {
-			it.stack = it.stack[:n-1]
-		}
-
-		if len(elem.children) > 0 {
-			it.stack = append(it.stack, stack{edges: elem.children})
-		}
-
-		it.current = elem
-
-		if it.current.isLeaf() {
-			it.path = elem.route.Pattern()
-			return true
-		}
-	}
-
-	it.current = nil
-	it.path = ""
-	return false
-}
-
 // Iter provide a set of range iterators for traversing registered methods and routes. Iter capture a point-in-time
 // snapshot of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent write on the
 // router or on the transaction from which the Iter is created.
 type Iter struct {
 	tree     *iTree
-	root     roots
-	maxDepth uint32
+	root     root
+	maxDepth int
 }
 
 // Methods returns a range iterator over all HTTP methods registered in the routing tree. The iterator reflect a snapshot
@@ -70,11 +30,9 @@ type Iter struct {
 // while mutation on routes are ongoing.
 func (it Iter) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		for i := range it.root {
-			if len(it.root[i].children) > 0 {
-				if !yield(it.root[i].key) {
-					return
-				}
+		for k := range it.root {
+			if !yield(k) {
+				return
 			}
 		}
 	}
@@ -85,13 +43,13 @@ func (it Iter) Methods() iter.Seq[string] {
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		c := it.tree.ctx.Get().(*cTx)
+		c := it.tree.pool.Get().(*cTx)
 		defer c.Close()
 		host, path := SplitHostPath(pattern)
 		for method := range methods {
 			c.resetNil()
-			n, tsr := it.root.lookup(it.tree, method, host, path, c, true)
-			if n != nil && !tsr && n.route.pattern == pattern {
+			n := it.tree.lookup(method, host, path, c, true)
+			if n != nil && !c.tsr && n.route.pattern == pattern {
 				if !yield(method, n.route) {
 					return
 				}
@@ -111,12 +69,12 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		c := it.tree.ctx.Get().(*cTx)
+		c := it.tree.pool.Get().(*cTx)
 		defer c.Close()
 		for method := range methods {
 			c.resetNil()
-			n, tsr := it.root.lookup(it.tree, method, host, cmp.Or(path, "/"), c, true)
-			if n != nil && (!tsr || n.route.handleSlash != StrictSlash) {
+			n := it.tree.lookup(method, host, cmp.Or(path, "/"), c, true)
+			if n != nil && (!c.tsr || n.route.handleSlash != StrictSlash) {
 				if !yield(method, n.route) {
 					return
 				}
@@ -138,12 +96,12 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 		}
 
 		for method := range methods {
-			index := it.root.methodIndex(method)
-			if index < 0 || len(it.root[index].children) == 0 {
+			root := it.root[method]
+			if root == nil {
 				continue
 			}
 
-			matched := it.root.search(it.root[index], prefix)
+			matched := root.search(prefix)
 			if matched == nil {
 				continue
 			}
@@ -163,8 +121,14 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 					stacks = stacks[:n-1]
 				}
 
-				if len(elem.children) > 0 {
-					stacks = append(stacks, stack{edges: elem.children})
+				if len(elem.statics) > 0 {
+					stacks = append(stacks, stack{edges: elem.statics})
+				}
+				if len(elem.params) > 0 {
+					stacks = append(stacks, stack{edges: elem.params})
+				}
+				if len(elem.wildcards) > 0 {
+					stacks = append(stacks, stack{edges: elem.wildcards})
 				}
 
 				if elem.isLeaf() {
@@ -182,7 +146,12 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 // and while mutation on routes are ongoing.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		for method, route := range it.Prefix(it.Methods(), "") {
+		methods := make([]string, 0, len(it.root))
+		for k := range it.root {
+			methods = append(methods, k)
+		}
+		slices.Sort(methods)
+		for method, route := range it.Prefix(slices.Values(methods), "") {
 			if !yield(method, route) {
 				return
 			}

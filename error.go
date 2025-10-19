@@ -7,13 +7,11 @@ package fox
 import (
 	"errors"
 	"fmt"
-	"strings"
 )
 
 var (
 	ErrRouteNotFound           = errors.New("route not found")
 	ErrRouteExist              = errors.New("route already registered")
-	ErrRouteConflict           = errors.New("route conflict")
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
@@ -22,47 +20,27 @@ var (
 	ErrSettledTxn              = errors.New("transaction settled")
 	ErrParamKeyTooLarge        = errors.New("parameter key too large")
 	ErrTooManyParams           = errors.New("too many params")
+	ErrRegexpNotAllowed        = errors.New("regexp not allowed")
 	ErrInvalidConfig           = errors.New("invalid config")
 )
 
-// RouteConflictError is a custom error type used to represent conflicts when
-// registering or updating routes in the router. It holds information about the
-// conflicting method, path, and the matched routes that caused the conflict.
+// RouteConflictError represents a conflict that occurred during route registration.
+// It contains the HTTP method, the route being registered, and the existing route
+// that caused the conflict.
 type RouteConflictError struct {
-	err      error
-	Method   string
-	Path     string
-	Matched  []string
-	isUpdate bool
+	// New is the route that was being registered when the conflict was detected.
+	New *Route
+	// Existing is the previously registered route that conflicts with New.
+	Existing *Route
+	// Method is the HTTP method for which the conflict occurred.
+	Method string
 }
 
-func newConflictErr(method, path string, matched []string) *RouteConflictError {
-	return &RouteConflictError{
-		Method:  method,
-		Path:    path,
-		Matched: matched,
-		err:     ErrRouteConflict,
-	}
-}
-
-// Error returns a formatted error message for the [RouteConflictError].
 func (e *RouteConflictError) Error() string {
-	if !e.isUpdate {
-		return e.insertError()
-	}
-	return e.updateError()
-}
-
-func (e *RouteConflictError) insertError() string {
-	return fmt.Sprintf("%s: new route [%s] %s conflicts with %s", e.err, e.Method, e.Path, strings.Join(e.Matched, ", "))
-}
-
-func (e *RouteConflictError) updateError() string {
-	return fmt.Sprintf("wildcard conflict: updated route [%s] %s conflicts with %s", e.Method, e.Path, strings.Join(e.Matched, ", "))
-
+	return fmt.Sprintf("%s: new route %s %s conflict with %s", ErrRouteExist, e.Method, e.New.pattern, e.Existing.pattern)
 }
 
 // Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
-	return e.err
+	return ErrRouteExist
 }

@@ -208,7 +208,7 @@ func appendAttr(level slog.Level, buf []byte, attr slog.Attr) []byte {
 	case "location":
 		buf = append(buf, ansi.FgYellow...)
 	case "latency":
-		buf = append(buf, latencyColor(attr.Value.Duration())...)
+		buf = append(buf, latencyColor(roundLatency(attr.Value.Duration()))...)
 	case "error":
 		buf = append(buf, ansi.FgRed...)
 	default:
@@ -259,4 +259,23 @@ func latencyColor(d time.Duration) string {
 		return ansi.FgYellow
 	}
 	return ansi.FgRed
+}
+
+func roundLatency(d time.Duration) time.Duration {
+	switch {
+	case d < 1*time.Microsecond:
+		return d.Round(100 * time.Nanosecond)
+	case d < 1*time.Millisecond:
+		return d.Round(10 * time.Microsecond)
+	case d < 10*time.Millisecond:
+		return d.Round(100 * time.Microsecond)
+	case d < 100*time.Millisecond:
+		return d.Round(1 * time.Millisecond)
+	case d < 1*time.Second:
+		return d.Round(10 * time.Millisecond)
+	case d < 10*time.Second:
+		return d.Round(100 * time.Millisecond)
+	default:
+		return d.Round(1 * time.Second)
+	}
 }

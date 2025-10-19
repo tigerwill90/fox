@@ -50,7 +50,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
   * [Basic example](#basic-example)
   * [Route Validation and Error Handling](#route-validation-and-error-handling)
   * [Named parameters](#named-parameters)
-  * [Catch-all parameters](#catch-all-parameters)
+  * [Named wildcards](#named-wildcards-catch-all)
   * [Hostname validation & restrictions](#hostname-validation--restrictions)
   * [Priority rules](#priority-rules)
   * [Hostname routing](#hostname-routing)
@@ -105,100 +105,110 @@ func main() {
 	}
 }
 ````
+
 #### Route Validation and Error Handling
 Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another.
 Instead, it returns the following error values:
 ```go
 var ErrRouteExist = errors.New("route already registered")
-var ErrRouteConflict = errors.New("route conflict")
 var ErrInvalidRoute = errors.New("invalid route")
 var ErrInvalidConfig = errors.New("invalid config")
 ```
 
 Conflict error may be unwrapped to retrieve conflicting route.
 ```go
-if errors.Is(err, fox.ErrRouteConflict) {
-    matched := err.(*fox.RouteConflictError).Matched
-    for _, route := range matched {
-        fmt.Println(route)
-    }
+var conflict *RouteConflictError
+if errors.As(err, &conflict) {
+	fmt.Println(conflict.Method)             // GET
+	fmt.Println(conflict.New.Pattern())      // /users/{id}
+	fmt.Println(conflict.Existing.Pattern()) // /users/{name}
 }
 ```
 
 #### Named parameters
-Routes can include named parameters using curly braces `{}` to match exactly one non-empty route segment. The matching 
-segment are recorder into `fox.Param` accessible via `fox.Context`. `fox.Context.Params` provide an iterator to range 
-over `fox.Param` and `fox.Context.Param` allow to retrieve directly the value of a parameter using the placeholder name.
-Named parameters are supported anywhere in the route, but only one parameter is allowed per segment (or hostname label) 
-and must appear at the end of the segment.
+Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching 
+segment are recorder as [Param](https://pkg.go.dev/github.com/tigerwill90/fox#Param) and accessible via the 
+[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context) interface. Named parameters are supported anywhere in 
+the route, but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 
 ````
 Pattern /avengers/{name}
 
-/avengers/ironman           matches
-/avengers/thor              matches
-/avengers/hulk/angry        no matches
-/avengers/                  no matches
+/avengers/ironman               matches
+/avengers/thor                  matches
+/avengers/hulk/angry            no matches
+/avengers/                      no matches
 
 Pattern /users/uuid:{id}
 
-/users/uuid:123             matches
-/users/uuid:                no matches
+/users/uuid:123                 matches
+/users/uuid:                    no matches
 
 Pattern /users/uuid:{id}/config
 
-/users/uuid:123/config      matches
-/users/uuid:/config         no matches
+/users/uuid:123/config          matches
+/users/uuid:/config             no matches
+
+Pattern {sub}.example.com/avengers
+
+first.example.com/avengers      matches
+example.com/avengers           no matches
 ````
 
-Named parameters are also supported in hostname. Note that the path portion must still include at least `/`.
+Named parameters can include regular expression using the syntax `{name:regexp}`. Regular expressions cannot 
+contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via
+`fox.AllowRegexpParam(true)` option.
 
 ````
-Pattern example.com/avengers
+Pattern /products/{name:[A-Za-z]+}
 
-example.com/avengers            matches
-{sub}.com/avengers              matches
-example.{tld}/avengers          matches
-{sub}.example.com/avengers      no matches
+/products/laptop        matches
+/products/123           no matches
 ````
 
-#### Catch-all parameters
-Catch-all parameters start with an asterisk `*` followed by a name `{param}` and match any sequence of characters 
-including slashes, but cannot match an empty string. The matching segment are also accessible via `fox.Context`. Catch-all parameters are supported anywhere 
-in the route, but only one parameter is allowed per segment and must appear at the end of the segment. Consecutive catch-all 
-parameter are not allowed.
+#### Named Wildcards (Catch-all)
+Named wildcard start with an asterisk `*` followed by a name `{param}` and match any sequence of characters
+including slashes, but cannot match an empty string. The matching segment are also accessible via
+[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Catch-all parameters are supported anywhere in the route, 
+but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment. 
+Consecutive catch-all parameter are not allowed.
 
-**Example with ending catch all**
 ````
 Pattern /src/*{filepath}
 
-/src/conf.txt               matches
-/src/dir/config.txt         matches
-/src/                       no matches
+/src/conf.txt                      matches
+/src/dir/config.txt                 matches
+/src/                              no matches
 
 Pattern /src/file=*{path}
 
-/src/file=config.txt        matches
-/src/file=/dir/config.txt   matches
-/src/file=                  no matches
-````
+/src/file=config.txt                 matches
+/src/file=/dir/config.txt            matches
+/src/file=                          no matches
 
-**Example with infix catch all**
-````
 Pattern: /assets/*{path}/thumbnail
 
-/assets/images/thumbnail            matches
-/assets/photos/2021/thumbnail       matches
-/assets/thumbnail                   no matches
+/assets/images/thumbnail           matches
+/assets/photos/2021/thumbnail      matches
+/assets//thumbnail                 no matches
 
-Pattern: /assets/path:*{path}/thumbnail
+Pattern *{sub}.example.com/avengers
 
-/assets/path:images/thumbnail       matches
-/assets/path:photos/2021/thumbnail  matches
-/assets/path:thumbnail              no matches
+first.example.com/avengers          matches
+first.second.example.com/avengers   matches
+example.com/avengers               no matches
 ````
 
-Note that catch-all patterns are not supported in hostname.
+Named wildcard can include regular expression using the syntax `*{name:regexp}`. Regular expressions cannot
+contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via
+`fox.AllowRegexpParam(true)` option.
+
+````
+Pattern /src/*{filepath:[A-Za-z/]+\.json}
+
+/src/dir/config.json            matches
+/src/dir/config.txt             no matches
+````
 
 #### Hostname validation & restrictions
 
@@ -215,35 +225,28 @@ the route regardless of a trailing period. Note that FQDN (with trailing period)
 TLS stdlib (see traefik/traefik#9157 (comment)).
 
 #### Priority rules
-Routes are prioritized based on specificity, with static segments taking precedence over wildcard segments.
 
-The following rules apply:
+The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to 
+store routes efficiently. When a request is received, Fox finds the longest matching route by evaluating each path segment 
+in the following priority order:
 
-- Routes with hostnames are evaluated first, before any path-only routes.
-- If no route matches with a hostname, the router falls back to matching path-only routes. Path-only routes match requests with any hostname.
-- Static segments are always evaluated first.
-- A named parameter can only overlap with a catch-all parameter or static segments.
-- A catch-all parameter can only overlap with a named parameter or static segments.
-- When a named parameter overlaps with a catch-all parameter, the named parameter is evaluated first.
+1. Static segments
+2. Named parameters with regex constraints
+3. Named parameters without constraints
+4. Catch-all parameters with regex constraints
+5. Catch-all parameters without constraints
 
-For instance, `GET /users/{id}` and `GET /users/{name}/profile` cannot coexist, as the `{id}` and `{name}` segments 
-are overlapping. These limitations help to minimize the number of branches that need to be evaluated in order to find 
-the right match, thereby maintaining high-performance routing.
+If a match candidate fails to complete the full route, Fox returns to the last decision point and tries the next 
+available alternative following the same priority order.
 
-For example, the followings route are allowed:
-````
-GET /*{filepath}
-GET /users/{id}
-GET /users/{id}/emails
-GET /users/{id}/{actions}
-POST /users/{name}/emails
-````
+Note that routes with hostnames are always evaluated before path-only routes and when multiple regex-constrained 
+parameters or wildcards exist at the same level, they are evaluated in registration order.
 
 Additionally, let's consider an example to illustrate the prioritization:
 ````
 Route Definitions:
 
-1. GET /fs/avengers.txt          # Highest priority (static)
+1. GET /fs/avengers.txt         # Highest priority (static)
 2. GET /fs/{filename}            # Next priority (named parameter)
 3. GET /fs/*{filepath}           # Lowest priority (catch-all parameter)
 
@@ -261,12 +264,9 @@ additional configuration or action. If any route with a hostname is registered, 
 prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
 path-priority mode.
 
-- If the routing tree for a given method has no routes registered with hostnames, the router will perform a path-based lookup only.
-- If the routing tree for a given method includes at least one route with a hostname, the router will prioritize lookup based 
+- If the router for a given method has no routes registered with hostnames, the router will perform a path-based lookup only.
+- If the router for a given method includes at least one route with a hostname, the router will prioritize lookup based 
 on the request host and path. If no match is found, the router will then fall back to a path-only lookup.
-- Trailing slash handling (redirect or ignore) is mode-specific, either for hostname-prioritized or path-prioritized mode. 
-Therefore, if no exact match is found for a domain-based lookup but a trailing slash adjustment is possible, Fox will perform 
-the redirect (or ignore the trailing slash) without falling back to path-only lookup.
 
 Hostname matching is **case-insensitive**, so requests to `Example.COM`, `example.com`, and `EXAMPLE.COM` will all match a route registered for `example.com`.
 
@@ -454,11 +454,13 @@ Wrapping an `http.Handler`
 ```go
 articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     params := fox.ParamsFromContext(r.Context())
-    _, _ = fmt.Fprintf(w, "Article id: %s\n", params.Get("id"))
+    // Article id: 80
+    // Matched route: /articles/{id}
+    _, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
 })
 
 f, _ := fox.New(fox.DefaultOptions())
-f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(httpRateLimiter.RateLimit(articles)))
+f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(articles))
 ```
 
 ## Middleware

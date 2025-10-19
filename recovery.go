@@ -22,6 +22,21 @@ import (
 	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
+// Keys for "built-in" logger attribute for the recovery middleware.
+// Keys for "built-in" logger attributes used by the recovery middleware.
+const (
+	// LoggerRouteKey is the key used by the built-in recovery middleware for the matched route
+	// when the log method is called. The associated [slog.Value] is a string.
+	LoggerRouteKey = "route"
+	// LoggerParamsKey is the key used by the built-in recovery middleware for route parameters
+	// when the log method is called. The associated [slog.Value] is a [slog.GroupValue] containing parameter
+	// key-value pairs.
+	LoggerParamsKey = "params"
+	// LoggerPanicKey is the key used by the built-in recovery middleware for the panic value
+	// when the log method is called. The associated [slog.Value] is any.
+	LoggerPanicKey = "panic"
+)
+
 var reqHeaderSep = []byte("\r\n")
 
 // RecoveryFunc is a function type that defines how to handle panics that occur during the
@@ -40,14 +55,14 @@ func CustomRecoveryWithLogHandler(handler slog.Handler, handle RecoveryFunc) Mid
 	}
 }
 
-// CustomRecovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace,
-// and then calls the provided handle function to handle the recovery.
+// CustomRecovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace
+// using the built-in fox's slog handler and then calls the provided handle function to handle the recovery.
 func CustomRecovery(handle RecoveryFunc) MiddlewareFunc {
 	return CustomRecoveryWithLogHandler(slogpretty.DefaultHandler, handle)
 }
 
-// Recovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace,
-// and writes a 500 status code response if a panic occurs.
+// Recovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace
+// using the built-in fox's slog handler and writes a 500 status code response if a panic occurs.
 func Recovery() MiddlewareFunc {
 	return CustomRecovery(DefaultHandleRecovery)
 }
@@ -98,13 +113,6 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 			params = slices.AppendSeq(params, mapParamsToAttr(c.Params()))
 		}
 
-		var errAttr slog.Attr
-		if e, ok := err.(error); ok {
-			errAttr = slog.String("error", e.Error())
-		} else {
-			errAttr = slog.Any("error", err)
-		}
-
 		pattern := c.Pattern()
 		if pattern == "" {
 			pattern = scopeToString(c.Scope())
@@ -112,9 +120,9 @@ func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
 
 		logger.Error(
 			sb.String(),
-			slog.String("route", pattern),
-			slog.Group("params", params...),
-			errAttr,
+			slog.String(LoggerRouteKey, pattern),
+			slog.Group(LoggerParamsKey, params...),
+			slog.Any(LoggerPanicKey, err),
 		)
 
 		if !c.Writer().Written() && !connIsBroken(err) {
