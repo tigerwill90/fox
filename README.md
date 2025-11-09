@@ -779,6 +779,7 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 - [x] [Route overlapping (catch-all and params)](https://github.com/tigerwill90/fox/pull/24#issue-1784686061) @v0.10.0
 - [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32), [Builtin Logger Middleware](https://github.com/tigerwill90/fox/pull/33), [Client IP Derivation](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
 - [x] [Support infix wildcard](https://github.com/tigerwill90/fox/pull/46), [Support hostname routing](https://github.com/tigerwill90/fox/pull/48), [Support ACID transaction](https://github.com/tigerwill90/fox/pull/49) @v0.18.0
+- [x] [Support regexp params](https://github.com/tigerwill90/fox/pull/68) @v0.25.0
 - [ ] Improving performance and polishing
 - [ ] Stabilizing API
 
