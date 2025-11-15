@@ -43,9 +43,15 @@ type RouteOption interface {
 	applyRoute(sealedOption) error
 }
 
+type MatcherOption interface {
+	RouteOption
+	applyMatcher(sealedOption) error
+}
+
 type sealedOption struct {
-	router *Router
-	route  *Route
+	router   *Router
+	route    *Route
+	matchers []Matcher
 }
 
 type globOptionFunc func(sealedOption) error
@@ -67,6 +73,16 @@ func (o optionFunc) applyGlob(s sealedOption) error {
 }
 
 func (o optionFunc) applyRoute(s sealedOption) error {
+	return o(s)
+}
+
+type matcherOptionFunc func(sealedOption) error
+
+func (o matcherOptionFunc) applyMatcher(s sealedOption) error {
+	return o(s)
+}
+
+func (o matcherOptionFunc) applyRoute(s sealedOption) error {
 	return o(s)
 }
 
@@ -301,6 +317,25 @@ func WithAnnotation(key, value any) RouteOption {
 			s.route.annots = make(map[any]any, 1)
 		}
 		s.route.annots[key] = value
+		return nil
+	})
+}
+
+func WithQueryMatcher(key, value string) MatcherOption {
+	return WithMatcher(QueryMatcher{key, value})
+}
+
+func WithHeaderMatcher(key, value string) MatcherOption {
+	return WithMatcher(HeaderMatcher{key, value})
+}
+
+func WithMatcher(matcher Matcher) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		if s.route != nil {
+			s.route.matchers = append(s.route.matchers, matcher)
+			return nil
+		}
+		s.matchers = append(s.matchers, matcher)
 		return nil
 	})
 }

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 
@@ -9839,4 +9840,12 @@ func ExampleRouter_View() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
+}
+
+func TestX(t *testing.T) {
+	r := mux.NewRouter()
+	r.Queries()
+
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {}, WithQueryMatcher("foo", "bar"), WithHeaderMatcher("key", "value"))
 }

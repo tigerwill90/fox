@@ -26,19 +26,9 @@ type ContextCloser interface {
 	Close()
 }
 
-// Context represents the context of the current HTTP request. It provides methods to access request data and
-// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
-// duration of the [HandlerFunc] execution, as the underlying implementation may be reused a soon as the handler return.
-// (see [Context.Clone] method).
-type Context interface {
+type RequestContext interface {
 	// Request returns the current [http.Request].
 	Request() *http.Request
-	// SetRequest sets the [*http.Request].
-	SetRequest(r *http.Request)
-	// Writer method returns a custom [ResponseWriter] implementation.
-	Writer() ResponseWriter
-	// SetWriter sets the [ResponseWriter].
-	SetWriter(w ResponseWriter)
 	// RemoteIP parses the IP from [http.Request.RemoteAddr], normalizes it, and returns an IP address. The returned [net.IPAddr]
 	// may contain a zone identifier. RemoteIP never returns nil, even if parsing the IP fails.
 	RemoteIP() *net.IPAddr
@@ -53,6 +43,28 @@ type Context interface {
 	//
 	// The returned [net.IPAddr] may contain a zone identifier.
 	ClientIP() (*net.IPAddr, error)
+	// QueryParams parses the [http.Request] raw query and returns the corresponding values. The result is cached after
+	// the first call.
+	QueryParams() url.Values
+	// QueryParam returns the first query value associated with the given key. The query parameters are parsed and
+	// cached on first access.
+	QueryParam(name string) string
+	// Header retrieves the value of the request header for the given key.
+	Header(key string) string
+}
+
+// Context represents the context of the current HTTP request. It provides methods to access request data and
+// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
+// duration of the [HandlerFunc] execution, as the underlying implementation may be reused a soon as the handler return.
+// (see [Context.Clone] method).
+type Context interface {
+	RequestContext
+	// SetRequest sets the [*http.Request].
+	SetRequest(r *http.Request)
+	// Writer method returns a custom [ResponseWriter] implementation.
+	Writer() ResponseWriter
+	// SetWriter sets the [ResponseWriter].
+	SetWriter(w ResponseWriter)
 	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope
 	// other than [RouteHandler].
 	Pattern() string
@@ -68,16 +80,10 @@ type Context interface {
 	Path() string
 	// Host returns the request host.
 	Host() string
-	// QueryParams parses the [http.Request] raw query and returns the corresponding values.
-	QueryParams() url.Values
-	// QueryParam returns the first query value associated with the given key.
-	QueryParam(name string) string
 	// SetHeader sets the response header for the given key to the specified value.
 	SetHeader(key, value string)
 	// AddHeader add the response header for the given key to the specified value.
 	AddHeader(key, value string)
-	// Header retrieves the value of the request header for the given key.
-	Header(key string) string
 	// String sends a formatted string with the specified status code.
 	String(code int, format string, values ...any) error
 	// Blob sends a byte slice with the specified status code and content type.
