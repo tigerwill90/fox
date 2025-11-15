@@ -51,7 +51,7 @@ type MatcherOption interface {
 type sealedOption struct {
 	router   *Router
 	route    *Route
-	matchers []Matcher
+	matchers matchers // TODO this should be put in another struct
 }
 
 type globOptionFunc func(sealedOption) error

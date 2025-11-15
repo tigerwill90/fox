@@ -149,7 +149,7 @@ func (txn *Txn) UpdateRoute(method string, route *Route) error {
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
-func (txn *Txn) Delete(method, pattern string) (*Route, error) {
+func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, error) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
@@ -167,7 +167,14 @@ func (txn *Txn) Delete(method, pattern string) (*Route, error) {
 		return nil, err
 	}
 
-	route, deleted := txn.rootTxn.delete(method, tokens, pattern)
+	var sealed sealedOption
+	for _, opt := range opts {
+		if err := opt.applyMatcher(sealed); err != nil {
+			return nil, err
+		}
+	}
+
+	route, deleted := txn.rootTxn.delete(method, tokens, pattern, sealed.matchers)
 	if !deleted {
 		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
 	}
@@ -213,9 +220,9 @@ func (txn *Txn) Route(method, pattern string) *Route {
 	c.resetNil()
 
 	host, path := SplitHostPath(pattern)
-	n := txn.rootTxn.root.lookup(method, host, path, c, true)
-	if n != nil && !c.tsr && n.route.pattern == pattern { // Race
-		return n.route
+	idx, n := txn.rootTxn.root.lookup(method, host, path, c, true)
+	if n != nil && !c.tsr && n.routes[idx].pattern == pattern { // Race
+		return n.routes[idx]
 	}
 	return nil
 }
@@ -234,9 +241,9 @@ func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
 	defer tree.pool.Put(c)
 	c.resetNil()
 
-	n := txn.rootTxn.root.lookup(method, host, path, c, true)
+	idx, n := txn.rootTxn.root.lookup(method, host, path, c, true)
 	if n != nil {
-		return n.route, c.tsr
+		return n.routes[idx], c.tsr
 	}
 	return nil, false
 }
@@ -261,10 +268,10 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 		path = r.URL.RawPath
 	}
 
-	n := txn.rootTxn.root.lookup(r.Method, r.Host, path, c, false)
+	idx, n := txn.rootTxn.root.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
-		c.route = n.route
-		return n.route, c, c.tsr
+		c.route = n.routes[idx]
+		return n.routes[idx], c, c.tsr
 	}
 	tree.pool.Put(c)
 	return nil, nil, false

@@ -15,10 +15,10 @@ const offsetZero = 0
 
 type root map[string]*node
 
-func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
+func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
 	root := rt[method]
 	if root == nil {
-		return nil
+		return -1, nil
 	}
 
 	*c.skipStack = (*c.skipStack)[:0]
@@ -32,21 +32,21 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
 		return lookupByPath(root, path, c, lazy, offsetZero)
 	}
 
-	n := lookupByHostname(root, host, path, c, lazy)
+	idx, n := lookupByHostname(root, host, path, c, lazy)
 	if n == nil || c.tsr {
 		// Either no match or match with tsr, try lookup by path with tsr enable
 		// so we won't check for tsr again.
 		*c.skipStack = (*c.skipStack)[:0]
 		*c.params = (*c.params)[:0]
-		if pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
-			return pathNode
+		if idx, pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
+			return idx, pathNode
 		}
 	}
 	// Hostname direct match
-	return n
+	return idx, n
 }
 
-func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (n *node) {
+func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (index int, n *node) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -229,13 +229,14 @@ Walk:
 
 	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil {
 		stackOffset := len(*c.skipStack)
-		subNode := lookupByPath(matched, path, c, lazy, stackOffset)
+		idx, subNode := lookupByPath(matched, path, c, lazy, stackOffset)
 		if subNode != nil {
 			if c.tsr {
 				n = subNode
+				index = idx
 			} else {
 				c.tsr = false
-				return subNode
+				return idx, subNode
 			}
 		}
 
@@ -245,7 +246,7 @@ Walk:
 
 Backtrack:
 	if len(*c.skipStack) == 0 {
-		return n
+		return index, n
 	}
 
 	skipped := c.skipStack.pop()
@@ -274,7 +275,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (n *node) {
+func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (index int, n *node) {
 
 	var (
 		charsMatched     int
@@ -314,13 +315,20 @@ Walk:
 					continue
 				}
 
-				if !c.tsr && child.route != nil && strings.HasPrefix(child.key, search) {
+				if !c.tsr && child.isLeaf() && strings.HasPrefix(child.key, search) {
 					remaining := child.key[len(search):]
 					if remaining == "/" {
-						c.tsr = true
-						n = child
-						if !lazy {
-							copyWithResize(c.tsrParams, c.params)
+						for i, route := range child.routes {
+							c.cachedQueries = nil
+							if route.matchers.match(c) {
+								c.tsr = true
+								n = child
+								index = i
+								if !lazy {
+									copyWithResize(c.tsrParams, c.params)
+								}
+								break
+							}
 						}
 					}
 				}
@@ -396,12 +404,19 @@ Walk:
 					idx := strings.IndexByte(path[searchStart:], slashDelim)
 					if idx < 0 {
 						if !c.tsr && len(path[searchStart:]) > 0 {
-							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-								c.tsr = true
-								n = child
-								if !lazy {
-									copyWithResize(c.tsrParams, c.params)
-									*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
+							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
+								for i, route := range child.routes {
+									c.cachedQueries = nil
+									if route.matchers.match(c) {
+										c.tsr = true
+										n = child
+										index = i
+										if !lazy {
+											copyWithResize(c.tsrParams, c.params)
+											*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
+										}
+										break
+									}
 								}
 							}
 						}
@@ -474,51 +489,83 @@ Walk:
 					continue
 				}
 
-				if !lazy {
-					*c.params = append(*c.params, search)
+				for i, route := range wildcardNode.routes {
+					c.cachedQueries = nil
+					if route.matchers.match(c) {
+						if !lazy {
+							*c.params = append(*c.params, search)
+						}
+						c.tsr = false
+						return i, wildcardNode
+					}
 				}
-				c.tsr = false
-				return wildcardNode
 			}
 		}
 
 		goto Backtrack
 	}
 
-	if matched.route != nil {
-		c.tsr = false
-		return matched
+	if matched.isLeaf() {
+		for i, route := range matched.routes {
+			c.cachedQueries = nil
+			// TODO whoops
+			if route.matchers.match(c) {
+				c.tsr = false
+				return i, matched
+			}
+		}
 	}
 
 	if !c.tsr {
-		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-			c.tsr = true
-			n = child
-			if !lazy {
-				copyWithResize(c.tsrParams, c.params)
+		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
+			for i, route := range child.routes {
+				c.cachedQueries = nil
+				if route.matchers.match(c) {
+					c.tsr = true
+					n = child
+					index = i
+					if !lazy {
+						copyWithResize(c.tsrParams, c.params)
+					}
+					break
+				}
 			}
 		}
 
-		if matched.key == "/" && parent != nil && parent.route != nil {
-			c.tsr = true
-			n = parent
-			if !lazy {
-				copyWithResize(c.tsrParams, c.params)
+		if matched.key == "/" && parent != nil && parent.isLeaf() {
+			for i, route := range parent.routes {
+				c.cachedQueries = nil
+				if route.matchers.match(c) {
+					c.tsr = true
+					n = parent
+					index = i
+					if !lazy {
+						copyWithResize(c.tsrParams, c.params)
+					}
+					break
+				}
 			}
 		}
 	}
 
 Backtrack:
 	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
-		c.tsr = true
-		n = matched
-		if !lazy {
-			copyWithResize(c.tsrParams, c.params)
+		for i, route := range matched.routes {
+			c.cachedQueries = nil
+			if route.matchers.match(c) {
+				c.tsr = true
+				n = matched
+				index = i
+				if !lazy {
+					copyWithResize(c.tsrParams, c.params)
+				}
+				break
+			}
 		}
 	}
 
 	if len(*c.skipStack) == stackOffset {
-		return n
+		return index, n
 	}
 
 	skipped := c.skipStack.pop()
@@ -549,9 +596,20 @@ Backtrack:
 	goto Walk
 }
 
+type routes []*Route
+
+func (r routes) indexByMatcher(m matchers) int {
+	for i := range r {
+		if r[i].matchers.equal(m) {
+			return i
+		}
+	}
+	return -1
+}
+
 type node struct {
-	// route holds the registered handler if this node is a leaf.
-	route *Route
+	// routes holds the registered handlers if this node is a leaf.
+	routes routes
 
 	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.
 	// When present, captured segments must match this pattern during lookup.
@@ -569,7 +627,7 @@ type node struct {
 	// Wildcard nodes without regex: Contains "*" as a canonical placeholder,
 	// following the same sharing semantics as params.
 	//
-	// Param/wildcard nodes with regex: Contains the regex pattern string.
+	// Param/wildcard nodes with regex contains the regex pattern literal.
 	// Multiple regex nodes can exist at the same level, each with a distinct pattern.
 	// During lookup, patterns are evaluated in insertion order until one matches.
 	key string
@@ -592,6 +650,44 @@ type node struct {
 	// host indicates this node's key belongs to the hostname portion of the route.
 	// A node that belong to a host cannot be merged with a child key that start with a '/'.
 	host bool
+}
+
+func (n *node) addRoute(route *Route) {
+	n.routes = append(n.routes, route)
+
+	if len(route.matchers) == 0 {
+		return
+	}
+
+	idx := slices.IndexFunc(n.routes, func(route *Route) bool {
+		return len(route.matchers) == 0
+	})
+	if idx >= 0 && idx < len(n.routes)-1 {
+		lastIdx := len(n.routes) - 1
+		n.routes[idx], n.routes[lastIdx] = n.routes[lastIdx], n.routes[idx]
+	}
+}
+
+func (n *node) replaceRoute(route *Route) {
+	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+		return r.matchers.equal(route.matchers)
+	})
+	if idx >= 0 {
+		n.routes[idx] = route
+		return
+	}
+	panic("internal error: replacing missing route")
+}
+
+func (n *node) delRoute(route *Route) {
+	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+		return r.matchers.equal(route.matchers)
+	})
+	if idx >= 0 {
+		copy(n.routes[idx:], n.routes[idx+1:])
+		n.routes[len(n.routes)-1] = nil
+		n.routes = n.routes[:len(n.routes)-1]
+	}
 }
 
 // addStaticEdge inserts a static child node while maintaining sorted order by label byte.
@@ -791,7 +887,7 @@ func (n *node) search(key string) (matched *node) {
 }
 
 func (n *node) isLeaf() bool {
-	return n.route != nil
+	return len(n.routes) > 0
 }
 
 func (n *node) String() string {
@@ -820,12 +916,17 @@ func (n *node) string(space int) string {
 	}
 
 	if n.isLeaf() {
-		sb.WriteString(" [leaf=")
-		sb.WriteString(n.route.pattern)
-		sb.WriteString("]")
+		for _, route := range n.routes {
+			sb.WriteString(" [leaf=")
+			sb.WriteString(route.pattern)
+			sb.WriteString(", matchers=")
+			sb.WriteString(strconv.Itoa(len(route.matchers)))
+			sb.WriteByte(']')
+			sb.WriteByte('\n')
+		}
+	} else {
+		sb.WriteByte('\n')
 	}
-
-	sb.WriteByte('\n')
 
 	for _, child := range n.statics {
 		sb.WriteString("  ")

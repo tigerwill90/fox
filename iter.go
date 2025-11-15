@@ -48,9 +48,9 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 		host, path := SplitHostPath(pattern)
 		for method := range methods {
 			c.resetNil()
-			n := it.tree.lookup(method, host, path, c, true)
-			if n != nil && !c.tsr && n.route.pattern == pattern {
-				if !yield(method, n.route) {
+			idx, n := it.tree.lookup(method, host, path, c, true)
+			if n != nil && !c.tsr && n.routes[idx].pattern == pattern {
+				if !yield(method, n.routes[idx]) {
 					return
 				}
 			}
@@ -73,9 +73,9 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 		defer c.Close()
 		for method := range methods {
 			c.resetNil()
-			n := it.tree.lookup(method, host, cmp.Or(path, "/"), c, true)
-			if n != nil && (!c.tsr || n.route.handleSlash != StrictSlash) {
-				if !yield(method, n.route) {
+			idx, n := it.tree.lookup(method, host, cmp.Or(path, "/"), c, true)
+			if n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+				if !yield(method, n.routes[idx]) {
 					return
 				}
 			}
@@ -132,7 +132,8 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 				}
 
 				if elem.isLeaf() {
-					if !yield(method, elem.route) {
+					// TODO fix this mess
+					if !yield(method, elem.routes[0]) {
 						return
 					}
 				}

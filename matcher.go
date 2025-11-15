@@ -14,7 +14,6 @@ type QueryMatcher struct {
 }
 
 func (m QueryMatcher) Match(c RequestContext) bool {
-	// Uses cached query params from ctx.cachedQuery
 	return c.QueryParam(m.Key) == m.Value
 }
 
@@ -41,4 +40,27 @@ func (m HeaderMatcher) Equal(other Matcher) bool {
 		return false
 	}
 	return m.Key == om.Key && m.Value == om.Value
+}
+
+type matchers []Matcher
+
+func (ms matchers) match(req RequestContext) bool {
+	for _, m := range ms {
+		if !m.Match(req) {
+			return false
+		}
+	}
+	return true
+}
+
+func (ms matchers) equal(other matchers) bool {
+	if len(ms) != len(other) {
+		return false
+	}
+	for i := range ms {
+		if !ms[i].Equal(other[i]) {
+			return false
+		}
+	}
+	return true
 }

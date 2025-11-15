@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 
@@ -1693,9 +1692,10 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.False(t, c.tsr)
 			require.Nil(t, n)
+			assert.Equal(t, 0, idx)
 		})
 	}
 
@@ -1726,11 +1726,11 @@ func TestRouteWithParams(t *testing.T) {
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		n := lookupByPath(tree.root[http.MethodGet], rte, c, false, 0)
+		idx, n := lookupByPath(tree.root[http.MethodGet], rte, c, false, 0)
 		require.NotNilf(t, n, "route: %s", rte)
-		require.NotNilf(t, n.route, "route: %s", rte)
+		require.NotNilf(t, n.routes[idx], "route: %s", rte)
 		assert.False(t, c.tsr)
-		assert.Equal(t, rte, n.route.pattern)
+		assert.Equal(t, rte, n.routes[idx].pattern)
 	}
 }
 
@@ -1781,8 +1781,9 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			assert.Nil(t, n)
+			assert.Equal(t, 0, idx)
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.False(t, c.tsr)
 		})
@@ -2800,12 +2801,12 @@ func TestOverlappingRoute(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
-			require.NotNil(t, n.route)
+			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
-			assert.Equal(t, tc.wantMatch, n.route.pattern)
-			c.route = n.route
+			assert.Equal(t, tc.wantMatch, n.routes[idx].pattern)
+			c.route = n.routes[idx]
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
@@ -2815,13 +2816,13 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			n = lookupByPath(tree.root[http.MethodGet], tc.path, c, true, 0)
+			idx, n = lookupByPath(tree.root[http.MethodGet], tc.path, c, true, 0)
 			require.NotNil(t, n)
-			require.NotNil(t, n.route)
+			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
-			c.route = n.route
+			c.route = n.routes[idx]
 			assert.Empty(t, slices.Collect(c.Params()))
-			assert.Equal(t, tc.wantMatch, n.route.pattern)
+			assert.Equal(t, tc.wantMatch, n.routes[idx].pattern)
 		})
 	}
 }
@@ -3920,11 +3921,11 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
-			assert.Equal(t, tc.wantPath, n.route.pattern)
+			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
-			c.route = n.route
+			c.route = n.routes[idx]
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -5098,11 +5099,11 @@ func TestDomainLookup(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
+			idx, n := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
 			require.NotNil(t, n)
-			assert.Equal(t, tc.wantPath, n.route.pattern)
+			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
-			c.route = n.route
+			c.route = n.routes[idx]
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -5435,11 +5436,11 @@ func TestInfixWildcardTsr(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
-			assert.Equal(t, tc.wantPath, n.route.pattern)
+			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
-			c.route = n.route
+			c.route = n.routes[idx]
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -7363,12 +7364,12 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			n := lookupByPath(tree.root[http.MethodGet], tc.key, c, true, 0)
+			idx, n := lookupByPath(tree.root[http.MethodGet], tc.key, c, true, 0)
 			assert.Equal(t, tc.want, c.tsr)
 			if tc.want {
 				require.NotNil(t, n)
-				require.NotNil(t, n.route)
-				assert.Equal(t, tc.wantPath, n.route.pattern)
+				require.NotNil(t, n.routes[idx])
+				assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			}
 		})
 	}
@@ -9843,9 +9844,9 @@ func onlyError[T any](_ T, err error) error {
 }
 
 func TestX(t *testing.T) {
-	r := mux.NewRouter()
-	r.Queries()
 
 	f, _ := New()
 	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {}, WithQueryMatcher("foo", "bar"), WithHeaderMatcher("key", "value"))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {}, WithQueryMatcher("foo", "bar"), WithHeaderMatcher("key", "value"))
+
 }

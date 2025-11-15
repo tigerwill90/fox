@@ -11,9 +11,9 @@ type Route struct {
 	mws         []middleware
 	params      []string
 	tokens      []token
+	matchers    matchers
 	hostSplit   int // 0 if no host
 	handleSlash TrailingSlashOption
-	matchers    []Matcher
 }
 
 // Handle calls the handler with the provided [Context]. See also [Route.HandleMiddleware].

@@ -109,18 +109,18 @@ type Context interface {
 
 // cTx holds request-related information and allows interaction with the [ResponseWriter].
 type cTx struct {
-	w           ResponseWriter
-	req         *http.Request
-	params      *[]string
-	tsrParams   *[]string
-	skipStack   *skipStack
-	route       *Route
-	tree        *iTree  // no reset
-	fox         *Router // no reset
-	cachedQuery url.Values
-	rec         recorder
-	scope       HandlerScope
-	tsr         bool
+	w             ResponseWriter
+	req           *http.Request
+	params        *[]string
+	tsrParams     *[]string
+	skipStack     *skipStack
+	route         *Route
+	tree          *iTree  // no reset
+	fox           *Router // no reset
+	cachedQueries url.Values
+	rec           recorder
+	scope         HandlerScope
+	tsr           bool
 }
 
 // reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].
@@ -131,7 +131,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
-	c.cachedQuery = nil
+	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 	c.tsr = false
@@ -140,7 +140,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 func (c *cTx) resetNil() {
 	c.req = nil
 	c.w = nil
-	c.cachedQuery = nil
+	c.cachedQueries = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
 	c.tsr = false
@@ -150,7 +150,7 @@ func (c *cTx) resetNil() {
 func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
-	c.cachedQuery = nil
+	c.cachedQueries = nil
 	c.route = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
@@ -373,7 +373,7 @@ func (c *cTx) Clone() Context {
 		cp.tsrParams = &tsrParams
 	}
 
-	cp.cachedQuery = nil
+	cp.cachedQueries = nil
 	return &cp
 }
 
@@ -387,7 +387,7 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.w = w
 	cp.route = c.route
 	cp.scope = c.scope
-	cp.cachedQuery = nil
+	cp.cachedQueries = nil
 	cp.tsr = c.tsr
 
 	if !c.tsr {
@@ -422,14 +422,14 @@ func (c *cTx) Close() {
 }
 
 func (c *cTx) getQueries() url.Values {
-	if c.cachedQuery == nil {
+	if c.cachedQueries == nil {
 		if c.req != nil {
-			c.cachedQuery = c.req.URL.Query()
+			c.cachedQueries = c.req.URL.Query()
 		} else {
-			c.cachedQuery = url.Values{}
+			c.cachedQueries = url.Values{}
 		}
 	}
-	return c.cachedQuery
+	return c.cachedQueries
 }
 
 // WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
