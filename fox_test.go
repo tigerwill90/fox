@@ -8293,14 +8293,16 @@ func TestTree_Methods(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 	}
 
-	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/gists/123/star")))
+	req := httptest.NewRequest(http.MethodGet, "/gists/123/star", nil)
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
 	methods = slices.Sorted(f.Iter().Methods())
 	assert.Equal(t, []string{"DELETE", "GET", "POST", "PUT"}, methods)
 
 	// Ignore trailing slash disable
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/gists/123/star/")))
+	req = httptest.NewRequest(http.MethodGet, "/gists/123/star/", nil)
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
 	assert.Empty(t, methods)
 }
 
@@ -8311,13 +8313,16 @@ func TestTree_MethodsWithIgnoreTsEnable(t *testing.T) {
 		require.NoError(t, onlyError(f.Handle(method, "/john/doe/", emptyHandler)))
 	}
 
-	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/foo/bar/")))
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar/", nil)
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/john/doe")))
+	req = httptest.NewRequest(http.MethodGet, "/john/doe", nil)
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), "", "/foo/bar/baz")))
+	req = httptest.NewRequest(http.MethodGet, "/foo/bar/baz", nil)
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
 	assert.Empty(t, methods)
 }
 
@@ -8639,7 +8644,9 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			require.True(t, rf.AutoOptions)
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
+					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
+					req.Host = c.Host()
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), req))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -8723,7 +8730,9 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			f, _ := New(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
+					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
+					req.Host = c.Host()
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), req))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -8765,7 +8774,9 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 			f, _ := New(WithAutoOptions(true))
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), c.Host(), c.Path()))), ", "))
+					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
+					req.Host = c.Host()
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), req))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}

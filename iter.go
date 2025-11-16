@@ -5,8 +5,8 @@
 package fox
 
 import (
-	"cmp"
 	"iter"
+	"net/http"
 	"slices"
 	"strings"
 )
@@ -71,16 +71,23 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // routing tree at the time [Iter] is created.
 //
 // If [WithHandleTrailingSlash] option is enabled on a route with the [RelaxedSlash] or [RedirectSlash] flag, Reverse will
-// match it regardless of whether a trailing slash is present. If the path is empty, a default slash is automatically added.
+// match it regardless of whether a trailing slash is present.
 //
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
-func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[string, *Route] {
+func (it Iter) Reverse(methods iter.Seq[string], r *http.Request) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		c := it.tree.pool.Get().(*cTx)
 		defer c.Close()
 		for method := range methods {
-			c.resetNil()
-			idx, n := it.tree.lookup(method, host, cmp.Or(path, "/"), c, true)
+			c.resetWithRequest(r)
+
+			path := r.URL.Path
+			if len(r.URL.RawPath) > 0 {
+				// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+				path = r.URL.RawPath
+			}
+
+			idx, n := it.tree.lookup(method, r.Host, path, c, true)
 			if n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				if !yield(method, n.routes[idx]) {
 					return
@@ -157,7 +164,7 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 
 // All returns a range iterator over all routes registered in the routing tree. The iterator reflect a snapshot
 // of the routing tree at the time [Iter] is created. This function is safe for concurrent use by multiple goroutine
-// and while mutation on routes are ongoing.
+// and while mutation on routes are ongoing. See also [Iter.Prefix] as an alternative.
 func (it Iter) All() iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		methods := make([]string, 0, len(it.root))

@@ -7,6 +7,7 @@ package fox
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -133,7 +134,8 @@ func TestIter_ReverseBreak(t *testing.T) {
 
 	it := f.Iter()
 	iteration := 0
-	for range it.Reverse(it.Methods(), "", "/john/doe/1/2/3") {
+	req := httptest.NewRequest(http.MethodGet, "/john/doe/1/2/3", nil)
+	for range it.Reverse(it.Methods(), req) {
 		iteration++
 		break
 	}
@@ -203,10 +205,12 @@ func TestIter_EdgeCase(t *testing.T) {
 	f, _ := New()
 	it := f.Iter()
 
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("GET"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("CONNECT"), "/"))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), "", "/"))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), "", "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), req))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), req))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("GET"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("CONNECT"), "/"))))
 }
@@ -256,11 +260,12 @@ func BenchmarkIter_Reverse(b *testing.B) {
 	}
 	it := f.Iter()
 
+	req := httptest.NewRequest(http.MethodGet, "/user/subscriptions/fox/fox", nil)
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for range b.N {
-		for range it.Reverse(it.Methods(), "", "/user/subscriptions/fox/fox") {
+		for range it.Reverse(it.Methods(), req) {
 
 		}
 	}
@@ -336,7 +341,10 @@ func ExampleIter_Methods() {
 func ExampleIter_Reverse() {
 	f, _ := New()
 	it := f.Iter()
-	for method, route := range it.Reverse(slices.Values([]string{"GET", "POST"}), "exemple.com", "/foo") {
+
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+
+	for method, route := range it.Reverse(slices.Values([]string{"GET", "POST"}), req) {
 		fmt.Println(method, route.Pattern())
 	}
 }
