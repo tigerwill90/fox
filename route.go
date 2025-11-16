@@ -2,9 +2,7 @@ package fox
 
 import (
 	"iter"
-	"reflect"
 	"slices"
-	"strings"
 )
 
 // Route represents an immutable HTTP route with associated handlers and settings.
@@ -126,28 +124,4 @@ func (r *Route) Matchers() iter.Seq[Matcher] {
 			}
 		}
 	}
-}
-
-// TODO delete me
-func (r *Route) String() string {
-	sb := strings.Builder{}
-	sb.WriteString(r.pattern)
-	sb.WriteByte('{')
-	for _, matcher := range r.matchers {
-		sb.WriteString(reflect.TypeOf(matcher).String())
-		sb.WriteByte(' ')
-	}
-	sb.WriteByte('}')
-	return sb.String()
-}
-
-func (r *Route) isUnique() bool {
-	for i := range r.matchers {
-		for j := i + 1; j < len(r.matchers); j++ {
-			if r.matchers[i].Equal(r.matchers[j]) {
-				return false
-			}
-		}
-	}
-	return true
 }
