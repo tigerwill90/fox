@@ -38,8 +38,8 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *n
 		// so we won't check for tsr again.
 		*c.skipStack = (*c.skipStack)[:0]
 		*c.params = (*c.params)[:0]
-		if idx, pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
-			return idx, pathNode
+		if i, pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
+			return i, pathNode
 		}
 	}
 	// Hostname direct match

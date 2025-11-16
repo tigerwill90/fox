@@ -3,6 +3,7 @@ package fox
 import (
 	"bytes"
 	"net"
+	"regexp"
 )
 
 // Matcher evaluates if an HTTP request satisfies specific conditions.
@@ -11,16 +12,26 @@ type Matcher interface {
 	Match(c RequestContext) bool
 	// Equal checks if this matcher is structurally equivalent to m.
 	Equal(m Matcher) bool
+	// As set target to this matcher if target is a pointer to the matcher's concrete type.
+	// It returns true if the assignment was successful, false otherwise.
 	As(target any) bool
 }
 
 type QueryMatcher struct {
-	Key   string
-	Value string
+	key   string
+	value string
+}
+
+func (m QueryMatcher) Key() string {
+	return m.key
+}
+
+func (m QueryMatcher) Value() string {
+	return m.value
 }
 
 func (m QueryMatcher) Match(c RequestContext) bool {
-	return c.QueryParam(m.Key) == m.Value
+	return c.QueryParam(m.key) == m.value
 }
 
 func (m QueryMatcher) Equal(matcher Matcher) bool {
@@ -28,7 +39,7 @@ func (m QueryMatcher) Equal(matcher Matcher) bool {
 	if !ok {
 		return false
 	}
-	return m.Key == om.Key && m.Value == om.Value
+	return m.key == om.key && m.value == om.value
 }
 
 func (m QueryMatcher) As(target any) bool {
@@ -41,17 +52,60 @@ func (m QueryMatcher) As(target any) bool {
 	return true
 }
 
+type QueryRegexpMatcher struct {
+	key   string
+	regex *regexp.Regexp
+}
+
+func (m QueryRegexpMatcher) Key() string {
+	return m.key
+}
+
+func (m QueryRegexpMatcher) Regex() *regexp.Regexp {
+	return m.regex
+}
+
+func (m QueryRegexpMatcher) Match(c RequestContext) bool {
+	return m.regex.MatchString(c.QueryParam(m.key))
+}
+
+func (m QueryRegexpMatcher) Equal(matcher Matcher) bool {
+	om, ok := matcher.(QueryRegexpMatcher)
+	if !ok {
+		return false
+	}
+	return m.key == om.key && m.regex.String() == om.regex.String()
+}
+
+func (m QueryRegexpMatcher) As(target any) bool {
+	switch x := target.(type) {
+	case *QueryRegexpMatcher:
+		*x = m
+	default:
+		return false
+	}
+	return true
+}
+
 type HeaderMatcher struct {
-	CanonicalKey string
-	Value        string
+	canonicalKey string
+	value        string
+}
+
+func (m HeaderMatcher) Key() string {
+	return m.canonicalKey
+}
+
+func (m HeaderMatcher) Value() string {
+	return m.value
 }
 
 func (m HeaderMatcher) Match(c RequestContext) bool {
-	values := c.Request().Header[m.CanonicalKey]
+	values := c.Request().Header[m.canonicalKey]
 	if len(values) == 0 {
 		return false
 	}
-	return values[0] == m.Value
+	return values[0] == m.value
 }
 
 func (m HeaderMatcher) Equal(matcher Matcher) bool {
@@ -59,7 +113,7 @@ func (m HeaderMatcher) Equal(matcher Matcher) bool {
 	if !ok {
 		return false
 	}
-	return m.CanonicalKey == om.CanonicalKey && m.Value == om.Value
+	return m.canonicalKey == om.canonicalKey && m.value == om.value
 }
 
 func (m HeaderMatcher) As(target any) bool {
@@ -72,8 +126,51 @@ func (m HeaderMatcher) As(target any) bool {
 	return true
 }
 
+type HeaderRegexpMatcher struct {
+	canonicalKey string
+	regex        *regexp.Regexp
+}
+
+func (m HeaderRegexpMatcher) Key() string {
+	return m.canonicalKey
+}
+
+func (m HeaderRegexpMatcher) Regex() *regexp.Regexp {
+	return m.regex
+}
+
+func (m HeaderRegexpMatcher) Match(c RequestContext) bool {
+	values := c.Request().Header[m.canonicalKey]
+	if len(values) == 0 {
+		return false
+	}
+	return m.regex.MatchString(values[0])
+}
+
+func (m HeaderRegexpMatcher) Equal(matcher Matcher) bool {
+	om, ok := matcher.(HeaderRegexpMatcher)
+	if !ok {
+		return false
+	}
+	return m.canonicalKey == om.canonicalKey && m.regex.String() == om.regex.String()
+}
+
+func (m HeaderRegexpMatcher) As(target any) bool {
+	switch x := target.(type) {
+	case *HeaderRegexpMatcher:
+		*x = m
+	default:
+		return false
+	}
+	return true
+}
+
 type ClientIpMatcher struct {
-	IPNet *net.IPNet
+	ipNet *net.IPNet
+}
+
+func (m ClientIpMatcher) IPNet() *net.IPNet {
+	return m.ipNet
 }
 
 func (m ClientIpMatcher) Match(c RequestContext) bool {
@@ -81,7 +178,7 @@ func (m ClientIpMatcher) Match(c RequestContext) bool {
 	if err != nil {
 		return false
 	}
-	return m.IPNet.Contains(addr.IP)
+	return m.ipNet.Contains(addr.IP)
 }
 
 func (m ClientIpMatcher) Equal(matcher Matcher) bool {
@@ -89,7 +186,7 @@ func (m ClientIpMatcher) Equal(matcher Matcher) bool {
 	if !ok {
 		return false
 	}
-	return m.IPNet.IP.Equal(om.IPNet.IP) && bytes.Equal(m.IPNet.Mask, om.IPNet.Mask)
+	return m.ipNet.IP.Equal(om.ipNet.IP) && bytes.Equal(m.ipNet.Mask, om.ipNet.Mask)
 }
 
 func (m ClientIpMatcher) As(target any) bool {

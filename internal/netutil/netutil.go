@@ -75,13 +75,13 @@ func validOptionalPort(port string) bool {
 
 func ParseCIDR(cidr string) (*net.IPNet, error) {
 	// Try parsing as CIDR first
-	ip, ipNet, err := net.ParseCIDR(cidr)
+	_, ipNet, err := net.ParseCIDR(cidr)
 	if err == nil {
 		return ipNet, nil
 	}
 
 	// If not a CIDR, try parsing as a plain IP address
-	ip = net.ParseIP(cidr)
+	ip := net.ParseIP(cidr)
 	if ip == nil {
 		return nil, err // return original CIDR parsing error
 	}

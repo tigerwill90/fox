@@ -5,12 +5,6 @@
 
 package fox
 
-import (
-	"strings"
-
-	"github.com/tigerwill90/fox/internal/netutil"
-)
-
 // CleanPath is the URL version of [path.Clean], it returns a canonical URL path
 // for p, eliminating . and .. elements.
 //
@@ -153,28 +147,6 @@ func bufApp(buf *[]byte, s string, w int, c byte) {
 		copy(b, s[:w])
 	}
 	b[w] = c
-}
-
-// TODO check if still useful ??
-// SplitHostPath separates the host and path from a URL string. If url includes a valid numeric port, the port is
-// stripped from the host; otherwise, it remains part of the host. If url is empty or lacks a path, the path
-// defaults to "/". SplitHostPath does not perform host validation.
-func SplitHostPath(url string) (host, path string) {
-	hostEnd := strings.IndexByte(url, '/')
-	// no host
-	if hostEnd == 0 {
-		return "", url
-	}
-
-	// no path
-	if hostEnd < 0 {
-		host, _ = netutil.SplitHostPort(url)
-		return host, "/"
-	}
-
-	host, _ = netutil.SplitHostPort(url[:hostEnd])
-	path = url[hostEnd:]
-	return
 }
 
 // escapeLeadingSlashes prevents open redirect vulnerabilities, in the context of trailing slash redirect, by URL-encoding

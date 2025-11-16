@@ -591,11 +591,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if route.handleSlash == RedirectSlash {
-				// TODO reset query params ?
 				// Since is redirect, we should not share the route even if internally its available, so we reset params as
 				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
-				c.cachedQueries = nil
 				c.tsr = false
 				c.route = nil
 				c.scope = RedirectSlashHandler

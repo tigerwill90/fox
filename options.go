@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"regexp"
 
 	"github.com/tigerwill90/fox/internal/netutil"
 )
@@ -52,9 +53,8 @@ type MatcherOption interface {
 }
 
 type sealedOption struct {
-	router   *Router
-	route    *Route
-	matchers []Matcher
+	router *Router
+	route  *Route
 }
 
 type globOptionFunc func(sealedOption) error
@@ -332,11 +332,26 @@ func WithQueryMatcher(key, value string) MatcherOption {
 		if key == "" {
 			return fmt.Errorf("%w: empty query key", ErrInvalidMatcher)
 		}
-		if s.route != nil {
-			s.route.matchers = append(s.route.matchers, QueryMatcher{Key: key, Value: value})
-			return nil
+		s.route.matchers = append(s.route.matchers, QueryMatcher{key: key, value: value})
+		return nil
+	})
+}
+
+// WithQueryRegexpMatcher attaches a query parameter matcher with regular expression support to a route.
+// The matcher ensures that requests are only routed to the handler if the specified query parameter value
+// matches the given regular expression. The expression is automatically anchored at both ends, requiring a
+// full match of the parameter value. Multiple matchers can be attached to the same route. All matchers
+// must match for the route to be selected.
+func WithQueryRegexpMatcher(key, expr string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		if key == "" {
+			return fmt.Errorf("%w: empty query key", ErrInvalidMatcher)
 		}
-		s.matchers = append(s.matchers, QueryMatcher{Key: key, Value: value})
+		regex, err := regexp.Compile("^" + expr + "$")
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, QueryRegexpMatcher{key: key, regex: regex})
 		return nil
 	})
 }
@@ -349,26 +364,41 @@ func WithHeaderMatcher(key, value string) MatcherOption {
 		if key == "" {
 			return fmt.Errorf("%w: empty header key", ErrInvalidMatcher)
 		}
-		if s.route != nil {
-			s.route.matchers = append(s.route.matchers, HeaderMatcher{CanonicalKey: http.CanonicalHeaderKey(key), Value: value})
-			return nil
-		}
-		s.matchers = append(s.matchers, HeaderMatcher{CanonicalKey: http.CanonicalHeaderKey(key), Value: value})
+		s.route.matchers = append(s.route.matchers, HeaderMatcher{canonicalKey: http.CanonicalHeaderKey(key), value: value})
 		return nil
 	})
 }
 
+// WithHeaderRegexpMatcher attaches an HTTP header matcher with regular expression support to a route.
+// The matcher ensures that requests are only routed to the handler if the specified header value
+// matches the given regular expression. The expression is automatically anchored at both ends, requiring
+// a full match of the header value. Multiple matchers can be attached to the same route. All matchers
+// must match for the route to be selected.
+func WithHeaderRegexpMatcher(key, expr string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		if key == "" {
+			return fmt.Errorf("%w: empty header key", ErrInvalidMatcher)
+		}
+		regex, err := regexp.Compile("^" + expr + "$")
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, HeaderRegexpMatcher{canonicalKey: http.CanonicalHeaderKey(key), regex: regex})
+		return nil
+	})
+}
+
+// WithClientIPMatcher attaches a client IP address matcher to a route. The matcher ensures that requests
+// are only routed to the handler if the client IP address matches the specified CIDR notation or IP address.
+// The ip parameter accepts both single IP addresses (e.g., "192.168.1.1") and CIDR ranges (e.g., "192.168.1.0/24").
+// Multiple matchers can be attached to the same route. All matchers must match for the route to be selected.
 func WithClientIPMatcher(ip string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
 		ipNet, err := netutil.ParseCIDR(ip)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
 		}
-		if s.route != nil {
-			s.route.matchers = append(s.route.matchers, ClientIpMatcher{ipNet})
-			return nil
-		}
-		s.matchers = append(s.matchers, ClientIpMatcher{ipNet})
+		s.route.matchers = append(s.route.matchers, ClientIpMatcher{ipNet: ipNet})
 		return nil
 	})
 }
@@ -378,21 +408,11 @@ func WithClientIPMatcher(ip string) MatcherOption {
 // All matchers must match for the route to be selected, and they are evaluated in registration order.
 func WithMatcher(matchers ...Matcher) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
-		if s.route != nil {
-			for i := range matchers {
-				if matchers[i] == nil {
-					return fmt.Errorf("%w: matcher cannot be nil", ErrInvalidMatcher)
-				}
-				s.route.matchers = append(s.route.matchers, matchers[i])
-			}
-			return nil
-		}
-
 		for i := range matchers {
 			if matchers[i] == nil {
 				return fmt.Errorf("%w: matcher cannot be nil", ErrInvalidMatcher)
 			}
-			s.matchers = append(s.matchers, matchers[i])
+			s.route.matchers = append(s.route.matchers, matchers[i])
 		}
 		return nil
 	})

@@ -9967,19 +9967,25 @@ func TestX(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestY(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee", func(c Context) {
+func TestZ(t *testing.T) {
 
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		fmt.Println("1")
+	}, WithQueryMatcher("c", "d"), WithQueryMatcher("a", "b"))
+	fmt.Println(f.Has(http.MethodGet, "/foo", QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}))
+
+}
+
+func BenchmarkX(b *testing.B) {
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		fmt.Println("1")
 	})
-	f.MustHandle(http.MethodGet, "/repos/{boulou}/{repo}/assignees/:assignee", func(c Context) {
 
-	}, WithQueryMatcher("foo", "bar"))
-	f.MustHandle(http.MethodGet, "/repos/{boulou}/{repo}/assignees/:assignee", func(c Context) {
-
-	}, WithQueryMatcher("foo", "bar"), WithQueryMatcher("foo", "bar"))
-	iter := f.Iter()
-	for method, route := range iter.Prefix(iter.Methods(), "/repos/{boulou}") {
-		fmt.Println(method, route.pattern)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		f.Has(http.MethodGet, "/foo")
 	}
 }

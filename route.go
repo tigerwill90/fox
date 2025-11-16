@@ -74,6 +74,7 @@ func (r *Route) ParamsLen() int {
 	return len(r.params)
 }
 
+// Match returns true if all matchers attached to the route match the request.
 func (r *Route) Match(c RequestContext) bool {
 	for _, m := range r.matchers {
 		if !m.Match(c) {
@@ -83,18 +84,40 @@ func (r *Route) Match(c RequestContext) bool {
 	return true
 }
 
+// MatchersEqual reports whether the route's matchers are equal to the provided matchers using unordered comparison.
 func (r *Route) MatchersEqual(matchers []Matcher) bool {
-	return slices.EqualFunc(r.matchers, matchers, func(m1 Matcher, m2 Matcher) bool { return m1.Equal(m2) })
+	if len(r.matchers) != len(matchers) {
+		return false
+	}
+
+	matched := make([]bool, len(matchers))
+	for _, a := range r.matchers {
+		found := false
+		for i, b := range matchers {
+			if !matched[i] && a.Equal(b) {
+				matched[i] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
+// MatchersIndex returns the index of the first matcher equal to the provided matcher, or -1 if not found.
 func (r *Route) MatchersIndex(matcher Matcher) int {
 	return slices.IndexFunc(r.matchers, func(m Matcher) bool { return m.Equal(matcher) })
 }
 
+// MatchersContains reports whether the route contains a matcher equal to the provided matcher.
 func (r *Route) MatchersContains(matcher Matcher) bool {
 	return r.MatchersIndex(matcher) >= 0
 }
 
+// Matchers returns an iterator over all matchers attached to the route.
 func (r *Route) Matchers() iter.Seq[Matcher] {
 	return func(yield func(Matcher) bool) {
 		for _, m := range r.matchers {
@@ -116,4 +139,15 @@ func (r *Route) String() string {
 	}
 	sb.WriteByte('}')
 	return sb.String()
+}
+
+func (r *Route) isUnique() bool {
+	for i := range r.matchers {
+		for j := i + 1; j < len(r.matchers); j++ {
+			if r.matchers[i].Equal(r.matchers[j]) {
+				return false
+			}
+		}
+	}
+	return true
 }
