@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -262,26 +263,30 @@ func (fox *Router) Delete(method, pattern string) (*Route, error) {
 
 // Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Route] as an alternative.
-func (fox *Router) Has(method, pattern string) bool {
-	return fox.Route(method, pattern) != nil
+func (fox *Router) Has(method, pattern string, matchers ...Matcher) bool {
+	return fox.Route(method, pattern, matchers...) != nil
 }
 
 // Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
 // mutation on route are ongoing. See also [Router.Has] as an alternative.
-func (fox *Router) Route(method, pattern string) *Route {
+func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
 	tree := fox.getTree()
-	c := tree.pool.Get().(*cTx)
-	defer tree.pool.Put(c)
-	c.resetNil()
 
-	host, path := SplitHostPath(pattern)
-	idx, n := tree.lookup(method, host, path, c, true)
-	if n != nil && !c.tsr && n.routes[idx].pattern == pattern {
-		return n.routes[idx]
+	root := tree.root[method]
+	if root == nil {
+		return nil
 	}
 
-	return nil
+	matched := root.search(pattern)
+	if matched == nil || !matched.isLeaf() || matched.routes[0].pattern != pattern {
+		return nil
+	}
+	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.MatchersEqual(matchers) })
+	if idx < 0 {
+		return nil
+	}
+	return matched.routes[idx]
 }
 
 // Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]

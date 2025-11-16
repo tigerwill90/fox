@@ -72,3 +72,30 @@ func validOptionalPort(port string) bool {
 	}
 	return true
 }
+
+func ParseCIDR(cidr string) (*net.IPNet, error) {
+	// Try parsing as CIDR first
+	ip, ipNet, err := net.ParseCIDR(cidr)
+	if err == nil {
+		return ipNet, nil
+	}
+
+	// If not a CIDR, try parsing as a plain IP address
+	ip = net.ParseIP(cidr)
+	if ip == nil {
+		return nil, err // return original CIDR parsing error
+	}
+
+	// Create a /32 or /128 network for the single IP
+	var mask net.IPMask
+	if ip.To4() != nil {
+		mask = net.CIDRMask(32, 32) // IPv4
+	} else {
+		mask = net.CIDRMask(128, 128) // IPv6
+	}
+
+	return &net.IPNet{
+		IP:   ip,
+		Mask: mask,
+	}, nil
+}

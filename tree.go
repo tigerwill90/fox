@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -138,20 +139,21 @@ func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 }
 
 func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error) {
-
 	// Base case: no tokens left, attach route
 	if len(tokens) == 0 {
 		if t.mode == modeInsert && n.isLeaf() {
-			if idx := n.routes.indexByMatcher(route.matchers); idx >= 0 {
+			if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.MatchersEqual(route.matchers) }); idx >= 0 {
 				return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[idx]}
 			}
 		}
-		if t.mode == modeUpdate && (!n.isLeaf() || n.routes[0].pattern != route.pattern || n.routes.indexByMatcher(route.matchers) == -1) {
+		if t.mode == modeUpdate &&
+			(!n.isLeaf() ||
+				n.routes[0].pattern != route.pattern ||
+				slices.IndexFunc(n.routes, func(r *Route) bool { return r.MatchersEqual(route.matchers) }) == -1) {
 			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
 		}
 
 		nc := t.writeNode(n)
-		// TODO make addRoute upsertRoute
 		if t.mode == modeInsert {
 			nc.addRoute(route)
 		} else {
@@ -249,13 +251,12 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 			nc.replaceStaticEdge(newSplitNode)
 			return nc, nil
 		}
-		// TODO probably only need splitNode.routes = []*Route{route}
 		splitNode.addRoute(route)
 		return nc, nil
 	}
+
 	// e.g. we have /foo and want to insert /fob
 	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
-
 	newChild, err := t.insertTokens(
 		&node{
 			label: search[0],
@@ -341,7 +342,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 }
 
 // delete performs a recursive copy-on-write deletion.
-func (t *tXn) delete(method string, tokens []token, pattern string, matchers matchers) (*Route, bool) {
+func (t *tXn) delete(method string, tokens []token, pattern string, matchers []Matcher) (*Route, bool) {
 	root := t.root[method]
 	if root == nil {
 		return nil, false
@@ -367,7 +368,7 @@ func (t *tXn) delete(method string, tokens []token, pattern string, matchers mat
 	return nil, false
 }
 
-func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string, matchers matchers) (*node, *Route) {
+func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string, matchers []Matcher) (*node, *Route) {
 	if len(tokens) == 0 {
 		if !n.isLeaf() {
 			return nil, nil
@@ -376,14 +377,14 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string, matche
 		if n.routes[0].pattern != pattern {
 			return nil, nil
 		}
-		idx := n.routes.indexByMatcher(matchers)
+		idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.MatchersEqual(matchers) })
 		if idx == -1 {
 			return nil, nil
 		}
 
 		oldRoute := n.routes[idx]
 		nc := t.writeNode(n)
-		nc.delRoute(oldRoute) // TODO whoops RACE
+		nc.delRoute(oldRoute)
 
 		if n != root &&
 			len(nc.statics) == 1 &&
@@ -410,7 +411,7 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string, matche
 	}
 }
 
-func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, pattern string, matchers matchers) (*node, *Route) {
+func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, pattern string, matchers []Matcher) (*node, *Route) {
 	if len(search) == 0 {
 		return t.deleteTokens(root, n, remaining, pattern, matchers)
 	}
@@ -456,7 +457,7 @@ func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, patt
 	return nc, deletedRoute
 }
 
-func (t *tXn) deleteParam(root, n *node, key string, remaining []token, pattern string, matchers matchers) (*node, *Route) {
+func (t *tXn) deleteParam(root, n *node, key string, remaining []token, pattern string, matchers []Matcher) (*node, *Route) {
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		return nil, nil
@@ -492,7 +493,7 @@ func (t *tXn) deleteParam(root, n *node, key string, remaining []token, pattern 
 	return nc, deletedRoute
 }
 
-func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, pattern string, matchers matchers) (*node, *Route) {
+func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, pattern string, matchers []Matcher) (*node, *Route) {
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		return nil, nil
@@ -671,7 +672,7 @@ func (t *tXn) writeNode(n *node) *node {
 	}
 
 	if len(n.routes) != 0 {
-		nc.routes = make(routes, len(n.routes))
+		nc.routes = make([]*Route, len(n.routes))
 		copy(nc.routes, n.routes)
 	}
 	if len(n.statics) != 0 {
@@ -707,7 +708,12 @@ func (t *tXn) mergeChild(n *node) {
 
 	// Merge nodes
 	n.key = concat(n.key, child.key)
-	n.routes = child.routes
+
+	if len(child.routes) != 0 {
+		n.routes = make([]*Route, len(child.routes))
+		copy(n.routes, child.routes)
+	}
+
 	if len(child.statics) != 0 {
 		n.statics = make([]*node, len(child.statics))
 		copy(n.statics, child.statics)

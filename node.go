@@ -18,7 +18,7 @@ type root map[string]*node
 func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
 	root := rt[method]
 	if root == nil {
-		return -1, nil
+		return 0, nil
 	}
 
 	*c.skipStack = (*c.skipStack)[:0]
@@ -320,7 +320,7 @@ Walk:
 					if remaining == "/" {
 						for i, route := range child.routes {
 							c.cachedQueries = nil
-							if route.matchers.match(c) {
+							if route.Match(c) {
 								c.tsr = true
 								n = child
 								index = i
@@ -407,7 +407,7 @@ Walk:
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								for i, route := range child.routes {
 									c.cachedQueries = nil
-									if route.matchers.match(c) {
+									if route.Match(c) {
 										c.tsr = true
 										n = child
 										index = i
@@ -491,7 +491,7 @@ Walk:
 
 				for i, route := range wildcardNode.routes {
 					c.cachedQueries = nil
-					if route.matchers.match(c) {
+					if route.Match(c) {
 						if !lazy {
 							*c.params = append(*c.params, search)
 						}
@@ -508,8 +508,7 @@ Walk:
 	if matched.isLeaf() {
 		for i, route := range matched.routes {
 			c.cachedQueries = nil
-			// TODO whoops
-			if route.matchers.match(c) {
+			if route.Match(c) {
 				c.tsr = false
 				return i, matched
 			}
@@ -520,7 +519,7 @@ Walk:
 		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 			for i, route := range child.routes {
 				c.cachedQueries = nil
-				if route.matchers.match(c) {
+				if route.Match(c) {
 					c.tsr = true
 					n = child
 					index = i
@@ -535,7 +534,7 @@ Walk:
 		if matched.key == "/" && parent != nil && parent.isLeaf() {
 			for i, route := range parent.routes {
 				c.cachedQueries = nil
-				if route.matchers.match(c) {
+				if route.Match(c) {
 					c.tsr = true
 					n = parent
 					index = i
@@ -552,7 +551,7 @@ Backtrack:
 	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
 			c.cachedQueries = nil
-			if route.matchers.match(c) {
+			if route.Match(c) {
 				c.tsr = true
 				n = matched
 				index = i
@@ -596,20 +595,9 @@ Backtrack:
 	goto Walk
 }
 
-type routes []*Route
-
-func (r routes) indexByMatcher(m matchers) int {
-	for i := range r {
-		if r[i].matchers.equal(m) {
-			return i
-		}
-	}
-	return -1
-}
-
 type node struct {
 	// routes holds the registered handlers if this node is a leaf.
-	routes routes
+	routes []*Route
 
 	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.
 	// When present, captured segments must match this pattern during lookup.
@@ -670,7 +658,7 @@ func (n *node) addRoute(route *Route) {
 
 func (n *node) replaceRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return r.matchers.equal(route.matchers)
+		return r.MatchersEqual(route.matchers)
 	})
 	if idx >= 0 {
 		n.routes[idx] = route
@@ -681,7 +669,7 @@ func (n *node) replaceRoute(route *Route) {
 
 func (n *node) delRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return r.matchers.equal(route.matchers)
+		return r.MatchersEqual(route.matchers)
 	})
 	if idx >= 0 {
 		copy(n.routes[idx:], n.routes[idx+1:])

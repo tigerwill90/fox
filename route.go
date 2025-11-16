@@ -1,5 +1,12 @@
 package fox
 
+import (
+	"iter"
+	"reflect"
+	"slices"
+	"strings"
+)
+
 // Route represents an immutable HTTP route with associated handlers and settings.
 type Route struct {
 	clientip    ClientIPResolver
@@ -11,7 +18,7 @@ type Route struct {
 	mws         []middleware
 	params      []string
 	tokens      []token
-	matchers    matchers
+	matchers    []Matcher
 	hostSplit   int // 0 if no host
 	handleSlash TrailingSlashOption
 }
@@ -65,4 +72,48 @@ func (r *Route) ClientIPResolver() ClientIPResolver {
 // ParamsLen returns the number of wildcard parameter for the route.
 func (r *Route) ParamsLen() int {
 	return len(r.params)
+}
+
+func (r *Route) Match(c RequestContext) bool {
+	for _, m := range r.matchers {
+		if !m.Match(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Route) MatchersEqual(matchers []Matcher) bool {
+	return slices.EqualFunc(r.matchers, matchers, func(m1 Matcher, m2 Matcher) bool { return m1.Equal(m2) })
+}
+
+func (r *Route) MatchersIndex(matcher Matcher) int {
+	return slices.IndexFunc(r.matchers, func(m Matcher) bool { return m.Equal(matcher) })
+}
+
+func (r *Route) MatchersContains(matcher Matcher) bool {
+	return r.MatchersIndex(matcher) >= 0
+}
+
+func (r *Route) Matchers() iter.Seq[Matcher] {
+	return func(yield func(Matcher) bool) {
+		for _, m := range r.matchers {
+			if !yield(m) {
+				return
+			}
+		}
+	}
+}
+
+// TODO delete me
+func (r *Route) String() string {
+	sb := strings.Builder{}
+	sb.WriteString(r.pattern)
+	sb.WriteByte('{')
+	for _, matcher := range r.matchers {
+		sb.WriteString(reflect.TypeOf(matcher).String())
+		sb.WriteByte(' ')
+	}
+	sb.WriteByte('}')
+	return sb.String()
 }

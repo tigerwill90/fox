@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 
@@ -9646,7 +9647,7 @@ func TestNode_String(t *testing.T) {
       path: /foo/ [params: 1]
           path: ?
               path: / [wildcards: 1]
-                  path: * [leaf=/foo/{bar}/*{baz}]`
+                  path: * [leaf=/foo/{bar}/*{baz}, matchers=0]`
 	assert.Equal(t, want, strings.TrimSuffix(tree.root[http.MethodGet].String(), "\n"))
 }
 
@@ -9843,10 +9844,42 @@ func onlyError[T any](_ T, err error) error {
 	return err
 }
 
+func handler(w http.ResponseWriter, r *http.Request) {
+	return
+}
+
 func TestX(t *testing.T) {
+	r := mux.NewRouter()
+	r.HandleFunc("/", handler)
+	r.HandleFunc("/products", handler).Methods("POST")
+	r.HandleFunc("/articles", handler).Methods("GET")
+	r.HandleFunc("/articles/{id}", handler).Methods("GET", "PUT")
+	r.HandleFunc("/authors", handler).Queries("surname", "boulou")
+	r.HandleFunc("/authors", handler)
 
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {}, WithQueryMatcher("foo", "bar"), WithHeaderMatcher("key", "value"))
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {}, WithQueryMatcher("foo", "bar"), WithHeaderMatcher("key", "value"))
-
+	err := r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		pathTemplate, err := route.GetPathTemplate()
+		if err == nil {
+			fmt.Println("ROUTE:", pathTemplate)
+		}
+		pathRegexp, err := route.GetPathRegexp()
+		if err == nil {
+			fmt.Println("Path regexp:", pathRegexp)
+		}
+		queriesTemplates, err := route.GetQueriesTemplates()
+		if err == nil {
+			fmt.Println("Queries templates:", strings.Join(queriesTemplates, ","))
+		}
+		queriesRegexps, err := route.GetQueriesRegexp()
+		if err == nil {
+			fmt.Println("Queries regexps:", strings.Join(queriesRegexps, ","))
+		}
+		methods, err := route.GetMethods()
+		if err == nil {
+			fmt.Println("Methods:", strings.Join(methods, ","))
+		}
+		fmt.Println()
+		return nil
+	})
+	require.NoError(t, err)
 }

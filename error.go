@@ -22,6 +22,7 @@ var (
 	ErrTooManyParams           = errors.New("too many params")
 	ErrRegexpNotAllowed        = errors.New("regexp not allowed")
 	ErrInvalidConfig           = errors.New("invalid config")
+	ErrInvalidMatcher          = errors.New("invalid matcher")
 )
 
 // RouteConflictError represents a conflict that occurred during route registration.
