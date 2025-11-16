@@ -757,7 +757,8 @@ func concat(a, b string) string {
 // placeholder ("?" for params, "*" for catch-alls).
 func canonicalKey(tk token) string {
 	if tk.regexp != nil {
-		return tk.regexp.String()
+		expr := tk.regexp.String()
+		return expr[1 : len(expr)-1]
 	}
 	switch tk.typ {
 	case nodeParam:

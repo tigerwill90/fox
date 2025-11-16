@@ -9108,11 +9108,21 @@ func TestTree_Has(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}",
+		"/welcome/*{name}",
+		"/welcome/{name}/ch",
+		"/welcome/*{name}/fr",
+		"/welcome/{name:[A-z]+}",
+		"/welcome/*{name:[A-z]+}",
+		"/welcome/{name:[A-z]+}/ch",
+		"/welcome/*{name:[A-z]+}/fr",
 		"/users/uid_{id}",
+		"/users/uid_{id}/ch",
+		"/users/uid_{id:[A-z]+}",
+		"/users/uid_{id:[A-z]+}/ch",
 		"/john/doe/",
 	}
 
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
 	for _, rte := range routes {
 		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
 	}
@@ -9146,12 +9156,62 @@ func TestTree_Has(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "strict match route regexp params",
+			path: "/welcome/{name:[A-z]+}",
+			want: true,
+		},
+		{
+			name: "strict match route wildcard",
+			path: "/welcome/*{name}",
+			want: true,
+		},
+		{
+			name: "strict match route regexp wildcard",
+			path: "/welcome/*{name:[A-z]+}",
+			want: true,
+		},
+		{
+			name: "strict match infix params",
+			path: "/welcome/{name}/ch",
+			want: true,
+		},
+		{
+			name: "strict match infix regexp params",
+			path: "/welcome/{name:[A-z]+}/ch",
+			want: true,
+		},
+		{
+			name: "strict match infix wildcard",
+			path: "/welcome/*{name}/fr",
+			want: true,
+		},
+		{
+			name: "strict match infix regexp wildcard",
+			path: "/welcome/*{name:[A-z]+}/fr",
+			want: true,
+		},
+		{
 			name: "no match route params",
 			path: "/welcome/fox",
 		},
 		{
 			name: "strict match mid route params",
 			path: "/users/uid_{id}",
+			want: true,
+		},
+		{
+			name: "strict match mid route regexp params",
+			path: "/users/uid_{id:[A-z]+}",
+			want: true,
+		},
+		{
+			name: "strict match mid route infix params",
+			path: "/users/uid_{id}/ch",
+			want: true,
+		},
+		{
+			name: "strict match mid route infix regexp params",
+			path: "/users/uid_{id:[A-z]+}/ch",
 			want: true,
 		},
 		{
@@ -9882,4 +9942,12 @@ func TestX(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestY(t *testing.T) {
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee", func(c Context) {
+
+	})
+	fmt.Println(f.Has(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee"))
 }

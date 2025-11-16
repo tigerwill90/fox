@@ -827,11 +827,10 @@ func (n *node) search(key string) (matched *node) {
 
 	for len(search) > 0 {
 		if search[0] == bracketDelim {
-			end := strings.IndexByte(search, '}')
-			if end == -1 {
+			end, paramName := parseCanonicalKey(search)
+			if paramName == "" {
 				goto STATIC
 			}
-			paramName := search[:end+1]
 			_, child := current.getParamEdge(paramName)
 			if child == nil {
 				return nil
@@ -842,11 +841,10 @@ func (n *node) search(key string) (matched *node) {
 		}
 
 		if search[0] == starDelim {
-			end := strings.IndexByte(search, '}')
-			if end == -1 {
+			end, paramName := parseCanonicalKey(search)
+			if paramName == "" {
 				goto STATIC
 			}
-			paramName := search[:end+1]
 			_, child := current.getWildcardEdge(paramName)
 			if child == nil {
 				return nil
@@ -872,6 +870,36 @@ func (n *node) search(key string) (matched *node) {
 	}
 
 	return current
+}
+
+// TODO test that extensively (fuzzing) ??
+// parseCanonicalKey ...
+func parseCanonicalKey(pattern string) (int, string) {
+	length := len(pattern)
+	if length == 0 {
+		return 0, pattern
+	}
+
+	key := "?"
+	if strings.HasPrefix(pattern, "*{") {
+		key = "*"
+	}
+
+	end := braceIndice(pattern, 0)
+	if end <= 0 {
+		return 0, ""
+	}
+
+	idx := strings.IndexByte(pattern[:end], ':')
+	if idx == -1 {
+		return end, key
+	}
+	// Handle missing param name such as {:[A-z]} here since it would be an invalid route anyway.
+	if idx == 0 {
+		return 0, ""
+	}
+
+	return end, pattern[idx+1 : end]
 }
 
 func (n *node) isLeaf() bool {

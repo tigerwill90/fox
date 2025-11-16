@@ -837,7 +837,7 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 				return nil, 0, 0, fmt.Errorf("%w: consecutive wildcard not allowed", ErrInvalidRoute)
 			}
 
-			idx := braceIndice(url[i:])
+			idx := braceIndice(url[i:], 1)
 			if idx == -1 {
 				return nil, 0, 0, fmt.Errorf("%w: unbalanced braces in regular expression", ErrInvalidRoute)
 			}
@@ -1038,13 +1038,12 @@ func (fox *Router) parseRoute(url string) ([]token, int, int, error) {
 }
 
 // braceIndices returns the index of the closing brace that balances an opening
-// brace assumed to exist before the string. It starts at level 1, expecting the
-// caller has already consumed the opening '{'. Returns -1 if braces are unbalanced.
+// brace. It starts at startLevel opened brace.
 //
-// Example: For pattern "{id:[0-9]{1,3}}", the caller would pass "[0-9]{1,3}}"
-// (everything after the initial '{'), and this returns 10 (index of the final '}')
-func braceIndice(s string) int {
-	level := 1
+// Example: For pattern "{id:[0-9]{1,3}}", the caller would pass "[0-9]{1,3}}" and 1
+// (everything after the initial '{'), and this returns 10 (index of the final '}').
+func braceIndice(s string, startLevel int) int {
+	level := startLevel
 
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
