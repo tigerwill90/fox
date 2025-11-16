@@ -93,6 +93,7 @@ func (it Iter) Reverse(methods iter.Seq[string], host, path string) iter.Seq2[st
 // Prefix returns a range iterator over all routes in the routing tree that match a given prefix and HTTP methods.
 // The iterator reflect a snapshot of the routing tree at the time [Iter] is created. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing.
+// Note: Partial parameter syntax (e.g., /users/{name:) is not supported and will not match any routes.
 func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
 		var stacks []stack
@@ -140,10 +141,12 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 
 				if elem.isLeaf() {
 					for _, route := range elem.routes {
-						if strings.HasPrefix(route.pattern, prefix) {
-							if !yield(method, route) {
-								return
-							}
+						if len(route.params) > 0 && !strings.HasPrefix(route.pattern, prefix) {
+							continue
+						}
+
+						if !yield(method, route) {
+							return
 						}
 					}
 				}

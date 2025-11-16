@@ -21,6 +21,7 @@ type Txn struct {
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
@@ -54,7 +55,6 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 // HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
-//   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
@@ -82,6 +82,7 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
@@ -120,7 +121,6 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
-//   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
@@ -147,6 +147,7 @@ func (txn *Txn) UpdateRoute(method string, route *Route) error {
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
@@ -154,7 +155,6 @@ func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, e
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
-
 	if !txn.write {
 		return nil, ErrReadOnlyTxn
 	}
@@ -163,24 +163,59 @@ func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, e
 		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
-	tokens, _, _, err := txn.fox.parseRoute(pattern)
+	tokens, _, endHost, err := txn.fox.parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	var sealed sealedOption
+	rte := &Route{
+		pattern:   pattern,
+		hostSplit: endHost,
+		tokens:    tokens,
+	}
+
 	for _, opt := range opts {
-		if err := opt.applyMatcher(sealed); err != nil {
+		if err = opt.applyMatcher(sealedOption{route: rte}); err != nil {
 			return nil, err
 		}
 	}
 
-	route, deleted := txn.rootTxn.delete(method, tokens, pattern, sealed.matchers)
+	route, deleted := txn.rootTxn.delete(method, rte)
 	if !deleted {
 		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)
 	}
 
 	return route, nil
+}
+
+// DeleteRoute deletes an existing route that match the provided [Route]. On success, it returns the deleted [Route].
+// If an error occurs, it returns one of the following:
+//   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrReadOnlyTxn]: On write in a read-only transaction.
+//
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
+func (txn *Txn) DeleteRoute(method string, route *Route) (*Route, error) {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+	if !txn.write {
+		return nil, ErrReadOnlyTxn
+	}
+
+	if route == nil {
+		return nil, fmt.Errorf("%w: nil route", ErrInvalidRoute)
+	}
+	if !validMethod(method) {
+		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
+	}
+
+	rte, deleted := txn.rootTxn.delete(method, route)
+	if !deleted {
+		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, route.pattern)
+	}
+
+	return rte, nil
 }
 
 // Truncate remove all routes for the provided methods. If no methods are provided,
@@ -231,11 +266,11 @@ func (txn *Txn) Route(method, pattern string, matchers ...Matcher) *Route {
 	return matched.routes[idx]
 }
 
-// Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]
+// Reverse perform a reverse lookup for the given [http.Request] and return the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Lookup] as an alternative.
-func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
+func (txn *Txn) Reverse(r *http.Request) (route *Route, tsr bool) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
@@ -243,9 +278,15 @@ func (txn *Txn) Reverse(method, host, path string) (route *Route, tsr bool) {
 	tree := txn.rootTxn.tree
 	c := tree.pool.Get().(*cTx)
 	defer tree.pool.Put(c)
-	c.resetNil()
+	c.resetWithRequest(r)
 
-	idx, n := txn.rootTxn.root.lookup(method, host, path, c, true)
+	path := r.URL.Path
+	if len(r.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		path = r.URL.RawPath
+	}
+
+	idx, n := txn.rootTxn.root.lookup(r.Method, r.Host, path, c, true)
 	if n != nil {
 		return n.routes[idx], c.tsr
 	}

@@ -9045,7 +9045,8 @@ func TestRouter_Reverse(t *testing.T) {
 			require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
 		for _, rte := range staticRoutes {
-			route, tsr := f.Reverse(rte.method, "", rte.path)
+			req := httptest.NewRequest(rte.method, rte.path, nil)
+			route, tsr := f.Reverse(req)
 			assert.False(t, tsr)
 			require.NotNil(t, route)
 			assert.Equal(t, rte.path, route.Pattern())
@@ -9064,7 +9065,8 @@ func TestRouter_Reverse(t *testing.T) {
 			if rte.path == "/" {
 				continue
 			}
-			route, tsr := f.Reverse(rte.method, "", rte.path)
+			req := httptest.NewRequest(rte.method, rte.path, nil)
+			route, tsr := f.Reverse(req)
 			require.True(t, tsr)
 			assert.Equal(t, rte.path+"/", route.Pattern())
 		}
@@ -9076,7 +9078,8 @@ func TestRouter_Reverse(t *testing.T) {
 			require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
 		}
 		for _, rte := range staticRoutes {
-			route, tsr := f.Reverse(rte.method, "", rte.path)
+			req := httptest.NewRequest(rte.method, rte.path, nil)
+			route, tsr := f.Reverse(req)
 			assert.False(t, tsr)
 			require.NotNil(t, route)
 			assert.Equal(t, rte.path, route.Pattern())
@@ -9087,7 +9090,9 @@ func TestRouter_Reverse(t *testing.T) {
 		f, _ := New()
 		route, err := f.Handle(http.MethodGet, "{sub}.exemple.com/foo", emptyHandler)
 		require.NoError(t, err)
-		got, tsr := f.Reverse(http.MethodGet, "foo.exemple.com", "/foo")
+		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+		req.Host = "foo.exemple.com"
+		got, tsr := f.Reverse(req)
 		assert.False(t, tsr)
 		require.NotNil(t, route)
 		assert.Equal(t, route, got)
@@ -9097,7 +9102,9 @@ func TestRouter_Reverse(t *testing.T) {
 		f, _ := New()
 		route, err := f.Handle(http.MethodGet, "{sub}.exemple.com/foo", emptyHandler)
 		require.NoError(t, err)
-		got, tsr := f.Reverse(http.MethodGet, "FOO.EXEMPLE.COM", "/foo")
+		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+		req.Host = "FOO.EXEMPLE.COM"
+		got, tsr := f.Reverse(req)
 		assert.False(t, tsr)
 		require.NotNil(t, route)
 		assert.Equal(t, route, got)
@@ -9227,7 +9234,7 @@ func TestTree_Has(t *testing.T) {
 	}
 }
 
-func TestTree_Route(t *testing.T) {
+func TestFoxReverse(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
 		"/welcome/{name}",
@@ -9274,7 +9281,8 @@ func TestTree_Route(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			route, tsr := f.Reverse(http.MethodGet, "", tc.path)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			route, tsr := f.Reverse(req)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Pattern())
@@ -9345,7 +9353,8 @@ func TestTree_RouteWithIgnoreTrailingSlashEnable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			route, tsr := f.Reverse(http.MethodGet, "", tc.path)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			route, tsr := f.Reverse(req)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Pattern())
@@ -9815,8 +9824,11 @@ func ExampleRouter_Lookup() {
 func ExampleRouter_Reverse() {
 	f, _ := New()
 	f.MustHandle(http.MethodGet, "exemple.com/hello/{name}", emptyHandler)
-	route, _ := f.Reverse(http.MethodGet, "exemple.com", "/hello/fox")
-	fmt.Println(route.Pattern()) // /hello/{name}
+
+	req := httptest.NewRequest(http.MethodGet, "/hello/fox", nil)
+
+	route, tsr := f.Reverse(req)
+	fmt.Println(route.Pattern(), tsr) // exemple.com/hello/{name} false
 }
 
 // This example demonstrates how to check if a given route is registered in the tree.
@@ -9952,27 +9964,11 @@ func TestY(t *testing.T) {
 	f.MustHandle(http.MethodGet, "/repos/{boulou}/{repo}/assignees/:assignee", func(c Context) {
 
 	}, WithQueryMatcher("foo", "bar"))
+	f.MustHandle(http.MethodGet, "/repos/{boulou}/{repo}/assignees/:assignee", func(c Context) {
+
+	}, WithQueryMatcher("foo", "bar"), WithQueryMatcher("foo", "bar"))
 	iter := f.Iter()
-	for method, route := range iter.Prefix(iter.Methods(), "/repos/{owner}") {
+	for method, route := range iter.Prefix(iter.Methods(), "/repos/{boulou}") {
 		fmt.Println(method, route.pattern)
 	}
-}
-
-// BenchmarkIterPrefix-16    	15855084	        74.38 ns/op	       8 B/op	       1 allocs/op
-func BenchmarkIterPrefix(b *testing.B) {
-	f, _ := New(AllowRegexpParam(true))
-	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee", emptyHandler)
-	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}", emptyHandler)
-	f.MustHandle(http.MethodGet, "/repos/{owner}/", emptyHandler)
-
-	iter := f.Iter()
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for range b.N {
-		for range iter.Prefix(iter.Methods(), "/repos/{owner}") {
-
-		}
-	}
-
 }

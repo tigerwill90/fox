@@ -146,7 +146,17 @@ func (c *cTx) resetNil() {
 	c.tsr = false
 }
 
-// resetWithWriter resets the [Context] to its initial state, attaching the provided [ResponseWriter] and [http.Request].
+// resetWithRequest resets the [Context] to its initial state, with the provided [http.Request].
+func (c *cTx) resetWithRequest(r *http.Request) {
+	c.req = r
+	c.w = nil
+	c.cachedQueries = nil
+	c.route = nil
+	*c.params = (*c.params)[:0]
+	c.tsr = false
+}
+
+// resetWithWriter resets the [Context] to its initial state, with the provided [ResponseWriter] and [http.Request].
 func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w

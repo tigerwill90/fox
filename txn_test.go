@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -314,7 +315,8 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 		txn.Has(http.MethodGet, "/foo")
 	})
 	assert.Panics(t, func() {
-		txn.Reverse(http.MethodGet, "host", "/foo")
+		req := httptest.NewRequest(http.MethodGet, "example.com/foo", nil)
+		txn.Reverse(req)
 	})
 	assert.Panics(t, func() {
 		txn.Lookup(nil, nil)

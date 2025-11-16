@@ -342,13 +342,13 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 }
 
 // delete performs a recursive copy-on-write deletion.
-func (t *tXn) delete(method string, tokens []token, pattern string, matchers []Matcher) (*Route, bool) {
+func (t *tXn) delete(method string, route *Route) (*Route, bool) {
 	root := t.root[method]
 	if root == nil {
 		return nil, false
 	}
 
-	newRoot, route := t.deleteTokens(root, root, tokens, pattern, matchers)
+	newRoot, route := t.deleteTokens(root, root, route.tokens, route)
 	if newRoot != nil {
 		if !t.forked {
 			t.root = maps.Clone(t.root)
@@ -368,16 +368,16 @@ func (t *tXn) delete(method string, tokens []token, pattern string, matchers []M
 	return nil, false
 }
 
-func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string, matchers []Matcher) (*node, *Route) {
+func (t *tXn) deleteTokens(root, n *node, tokens []token, route *Route) (*node, *Route) {
 	if len(tokens) == 0 {
 		if !n.isLeaf() {
 			return nil, nil
 		}
 
-		if n.routes[0].pattern != pattern {
+		if n.routes[0].pattern != route.pattern {
 			return nil, nil
 		}
-		idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.MatchersEqual(matchers) })
+		idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.MatchersEqual(route.matchers) })
 		if idx == -1 {
 			return nil, nil
 		}
@@ -401,19 +401,19 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, pattern string, matche
 
 	switch tk.typ {
 	case nodeStatic:
-		return t.deleteStatic(root, n, tk.value, remaining, pattern, matchers)
+		return t.deleteStatic(root, n, tk.value, remaining, route)
 	case nodeParam:
-		return t.deleteParam(root, n, canonicalKey(tk), remaining, pattern, matchers)
+		return t.deleteParam(root, n, canonicalKey(tk), remaining, route)
 	case nodeWildcard:
-		return t.deleteWildcard(root, n, canonicalKey(tk), remaining, pattern, matchers)
+		return t.deleteWildcard(root, n, canonicalKey(tk), remaining, route)
 	default:
 		panic("internal error: unknown token type")
 	}
 }
 
-func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, pattern string, matchers []Matcher) (*node, *Route) {
+func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, route *Route) (*node, *Route) {
 	if len(search) == 0 {
-		return t.deleteTokens(root, n, remaining, pattern, matchers)
+		return t.deleteTokens(root, n, remaining, route)
 	}
 
 	label := search[0]
@@ -430,7 +430,7 @@ func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, patt
 		remaining = append([]token{{typ: nodeStatic, value: search}}, remaining...)
 	}
 
-	newChild, deletedRoute := t.deleteTokens(root, child, remaining, pattern, matchers)
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining, route)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -457,14 +457,14 @@ func (t *tXn) deleteStatic(root, n *node, search string, remaining []token, patt
 	return nc, deletedRoute
 }
 
-func (t *tXn) deleteParam(root, n *node, key string, remaining []token, pattern string, matchers []Matcher) (*node, *Route) {
+func (t *tXn) deleteParam(root, n *node, key string, remaining []token, route *Route) (*node, *Route) {
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		return nil, nil
 	}
 
 	// Recurse into param's children
-	newChild, deletedRoute := t.deleteTokens(root, child, remaining, pattern, matchers)
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining, route)
 	if deletedRoute == nil {
 		return nil, nil
 	}
@@ -493,14 +493,14 @@ func (t *tXn) deleteParam(root, n *node, key string, remaining []token, pattern 
 	return nc, deletedRoute
 }
 
-func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, pattern string, matchers []Matcher) (*node, *Route) {
+func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, route *Route) (*node, *Route) {
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		return nil, nil
 	}
 
 	// Recurse into wildcard's children
-	newChild, deletedRoute := t.deleteTokens(root, child, remaining, pattern, matchers)
+	newChild, deletedRoute := t.deleteTokens(root, child, remaining, route)
 	if deletedRoute == nil {
 		return nil, nil
 	}
