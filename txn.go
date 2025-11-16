@@ -3,6 +3,7 @@ package fox
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"golang.org/x/net/http/httpguts"
@@ -198,33 +199,36 @@ func (txn *Txn) Truncate(methods ...string) error {
 
 // Has allows to check if the given method and route pattern exactly match a registered route. This function is NOT
 // thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Route] as an alternative.
-func (txn *Txn) Has(method, pattern string) bool {
+func (txn *Txn) Has(method, pattern string, matchers ...Matcher) bool {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
 
-	return txn.Route(method, pattern) != nil
+	return txn.Route(method, pattern, matchers...) != nil
 }
 
 // Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
 // match is found or nil otherwise. This function is NOT thread-safe and should be run serially, along with all
-// other [Txn] APIs. See also [Txn.Has] as an alternative.
-func (txn *Txn) Route(method, pattern string) *Route {
+// other [Txn] APIs. See also [Txn.Has] or [Iter.Routes] as an alternative.
+func (txn *Txn) Route(method, pattern string, matchers ...Matcher) *Route {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
 
-	tree := txn.rootTxn.tree
-	c := tree.pool.Get().(*cTx)
-	defer tree.pool.Put(c)
-	c.resetNil()
-
-	host, path := SplitHostPath(pattern)
-	idx, n := txn.rootTxn.root.lookup(method, host, path, c, true)
-	if n != nil && !c.tsr && n.routes[idx].pattern == pattern { // Race
-		return n.routes[idx]
+	root := txn.rootTxn.root[method]
+	if root == nil {
+		return nil
 	}
-	return nil
+
+	matched := root.search(pattern)
+	if matched == nil || !matched.isLeaf() || matched.routes[0].pattern != pattern {
+		return nil
+	}
+	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.MatchersEqual(matchers) })
+	if idx < 0 {
+		return nil
+	}
+	return matched.routes[idx]
 }
 
 // Reverse perform a reverse lookup for the given method, host and path and return the matching registered [Route]

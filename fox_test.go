@@ -9945,9 +9945,34 @@ func TestX(t *testing.T) {
 }
 
 func TestY(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRegexpParam(true))
 	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee", func(c Context) {
 
 	})
-	fmt.Println(f.Has(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee"))
+	f.MustHandle(http.MethodGet, "/repos/{boulou}/{repo}/assignees/:assignee", func(c Context) {
+
+	}, WithQueryMatcher("foo", "bar"))
+	iter := f.Iter()
+	for method, route := range iter.Prefix(iter.Methods(), "/repos/{owner}") {
+		fmt.Println(method, route.pattern)
+	}
+}
+
+// BenchmarkIterPrefix-16    	15855084	        74.38 ns/op	       8 B/op	       1 allocs/op
+func BenchmarkIterPrefix(b *testing.B) {
+	f, _ := New(AllowRegexpParam(true))
+	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}/assignees/:assignee", emptyHandler)
+	f.MustHandle(http.MethodGet, "/repos/{owner}/{repo}", emptyHandler)
+	f.MustHandle(http.MethodGet, "/repos/{owner}/", emptyHandler)
+
+	iter := f.Iter()
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		for range iter.Prefix(iter.Methods(), "/repos/{owner}") {
+
+		}
+	}
+
 }

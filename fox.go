@@ -174,6 +174,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing handler, use [Router.Update].
@@ -192,6 +193,7 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // It's safe to add a new route while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.UpdateRoute].
@@ -210,6 +212,7 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
 // be removed, and the route will fall back to using global configuration (if any). It's safe to update a handler while
@@ -231,6 +234,7 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To add new route, use [Router.HandleRoute] method.
@@ -247,13 +251,14 @@ func (fox *Router) UpdateRoute(method string, route *Route) error {
 // Delete deletes an existing route for the given method and pattern. On success, it returns the deleted [Route].
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
-func (fox *Router) Delete(method, pattern string) (*Route, error) {
+func (fox *Router) Delete(method, pattern string, opts ...MatcherOption) (*Route, error) {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	route, err := txn.Delete(method, pattern)
+	route, err := txn.Delete(method, pattern, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +274,7 @@ func (fox *Router) Has(method, pattern string, matchers ...Matcher) bool {
 
 // Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
-// mutation on route are ongoing. See also [Router.Has] as an alternative.
+// mutation on route are ongoing. See also [Router.Has] or [Iter.Routes] as an alternative.
 func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
 	tree := fox.getTree()
 

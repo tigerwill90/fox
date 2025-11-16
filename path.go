@@ -155,6 +155,7 @@ func bufApp(buf *[]byte, s string, w int, c byte) {
 	b[w] = c
 }
 
+// TODO check if still useful ??
 // SplitHostPath separates the host and path from a URL string. If url includes a valid numeric port, the port is
 // stripped from the host; otherwise, it remains part of the host. If url is empty or lacks a path, the path
 // defaults to "/". SplitHostPath does not perform host validation.

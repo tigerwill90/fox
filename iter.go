@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"iter"
 	"slices"
+	"strings"
 )
 
 const stackSizeThreshold = 25
@@ -43,14 +44,20 @@ func (it Iter) Methods() iter.Seq[string] {
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
 func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
 	return func(yield func(string, *Route) bool) {
-		c := it.tree.pool.Get().(*cTx)
-		defer c.Close()
-		host, path := SplitHostPath(pattern)
+
 		for method := range methods {
-			c.resetNil()
-			idx, n := it.tree.lookup(method, host, path, c, true)
-			if n != nil && !c.tsr && n.routes[idx].pattern == pattern {
-				if !yield(method, n.routes[idx]) {
+			root := it.root[method]
+			if root == nil {
+				continue
+			}
+
+			matched := root.search(pattern)
+			if matched == nil || !matched.isLeaf() || matched.routes[0].pattern != pattern {
+				continue
+			}
+
+			for _, route := range matched.routes {
+				if !yield(method, route) {
 					return
 				}
 			}
@@ -132,9 +139,12 @@ func (it Iter) Prefix(methods iter.Seq[string], prefix string) iter.Seq2[string,
 				}
 
 				if elem.isLeaf() {
-					// TODO fix this mess
-					if !yield(method, elem.routes[0]) {
-						return
+					for _, route := range elem.routes {
+						if strings.HasPrefix(route.pattern, prefix) {
+							if !yield(method, route) {
+								return
+							}
+						}
 					}
 				}
 			}
