@@ -68,9 +68,20 @@ func (r *Route) ClientIPResolver() ClientIPResolver {
 	return r.clientip
 }
 
-// ParamsLen returns the number of wildcard parameter for the route.
+// ParamsLen returns the number of parameters for the route.
 func (r *Route) ParamsLen() int {
 	return len(r.params)
+}
+
+// Params returns an iterator over all parameters for the route.
+func (r *Route) Params() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, param := range r.params {
+			if !yield(param) {
+				return
+			}
+		}
+	}
 }
 
 // Match returns true if all matchers attached to the route match the request.
@@ -108,14 +119,9 @@ func (r *Route) MatchersEqual(matchers []Matcher) bool {
 	return true
 }
 
-// MatchersIndex returns the index of the first matcher equal to the provided matcher, or -1 if not found.
-func (r *Route) MatchersIndex(matcher Matcher) int {
-	return slices.IndexFunc(r.matchers, func(m Matcher) bool { return m.Equal(matcher) })
-}
-
 // MatchersContains reports whether the route contains a matcher equal to the provided matcher.
 func (r *Route) MatchersContains(matcher Matcher) bool {
-	return r.MatchersIndex(matcher) >= 0
+	return slices.ContainsFunc(r.matchers, func(m Matcher) bool { return m.Equal(matcher) })
 }
 
 // Matchers returns an iterator over all matchers attached to the route.
