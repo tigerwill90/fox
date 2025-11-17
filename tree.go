@@ -387,6 +387,7 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, route *Route) (*node, 
 		nc.delRoute(oldRoute)
 
 		if n != root &&
+			!nc.isLeaf() &&
 			len(nc.statics) == 1 &&
 			len(nc.params) == 0 &&
 			len(nc.wildcards) == 0 {
