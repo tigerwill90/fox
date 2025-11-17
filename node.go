@@ -642,19 +642,26 @@ type node struct {
 }
 
 func (n *node) addRoute(route *Route) {
-	n.routes = append(n.routes, route)
-
+	// route with no matcher always goes at the end
 	if len(route.matchers) == 0 {
+		n.routes = append(n.routes, route)
 		return
 	}
 
-	idx := slices.IndexFunc(n.routes, func(route *Route) bool {
-		return len(route.matchers) == 0
-	})
-	if idx >= 0 && idx < len(n.routes)-1 {
-		lastIdx := len(n.routes) - 1
-		n.routes[idx], n.routes[lastIdx] = n.routes[lastIdx], n.routes[idx]
+	insertPos := len(n.routes)
+	for i, existing := range n.routes {
+		if len(existing.matchers) == 0 {
+			insertPos = i
+			break
+		}
+
+		if route.priority > existing.priority {
+			insertPos = i
+			break
+		}
 	}
+
+	n.routes = slices.Insert(n.routes, insertPos, route)
 }
 
 func (n *node) replaceRoute(route *Route) {

@@ -376,6 +376,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		hostSplit:   endHost, // 0 if no host
+		priority:    -1,
 		tokens:      tokens,
 	}
 
@@ -398,7 +399,13 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	if len(rte.matchers) > fox.maxMatchers {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
 	}
+	if len(rte.matchers) == 0 && rte.priority > 0 {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matcher")
+	}
 
+	if rte.priority == -1 {
+		rte.priority = len(rte.matchers)
+	}
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte, nil

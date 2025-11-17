@@ -18,6 +18,7 @@ type Route struct {
 	tokens      []token
 	matchers    []Matcher
 	hostSplit   int // 0 if no host
+	priority    int
 	handleSlash TrailingSlashOption
 }
 
