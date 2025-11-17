@@ -53,8 +53,8 @@ func (m QueryMatcher) As(target any) bool {
 }
 
 type QueryRegexpMatcher struct {
-	key   string
 	regex *regexp.Regexp
+	key   string
 }
 
 func (m QueryRegexpMatcher) Key() string {
@@ -127,8 +127,8 @@ func (m HeaderMatcher) As(target any) bool {
 }
 
 type HeaderRegexpMatcher struct {
-	canonicalKey string
 	regex        *regexp.Regexp
+	canonicalKey string
 }
 
 func (m HeaderRegexpMatcher) Key() string {
