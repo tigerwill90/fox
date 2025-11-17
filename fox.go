@@ -102,11 +102,13 @@ type Router struct {
 	mu                     sync.Mutex
 	maxParams              int
 	maxParamKeyBytes       int
+	maxMatchers            int
 	handleSlash            TrailingSlashOption
 	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	allowRegexp            bool
+	allowMatcher           bool
 }
 
 // RouterInfo hold information on the configured global options.
@@ -140,6 +142,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.clientip = noClientIPResolver{}
 	r.maxParams = math.MaxUint8
 	r.maxParamKeyBytes = math.MaxUint8
+	r.maxMatchers = math.MaxUint8
 	r.handleSlash = StrictSlash
 	r.handlePath = StrictPath
 
@@ -388,6 +391,14 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 			return nil, err
 		}
 	}
+
+	if !fox.allowMatcher && len(rte.matchers) > 0 {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrMatcherNotAllowed)
+	}
+	if len(rte.matchers) > fox.maxMatchers {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
+	}
+
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte, nil

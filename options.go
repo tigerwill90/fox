@@ -203,12 +203,31 @@ func WithMaxRouteParamKeyBytes(max int) GlobalOption {
 	})
 }
 
+// WithMaxRouteMatchers set the maximum number of matchers allowed in a route. The default max is math.MaxUint8.
+// Routes exceeding this limit will fail with an error that Is ErrInvalidRoute and ErrTooManyMatchers.
+func WithMaxRouteMatchers(max int) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.maxMatchers = max
+		return nil
+	})
+}
+
 // AllowRegexpParam enables support for regular expressions in route parameters. When enabled, parameters can include
 // regex patterns (e.g., {id:[0-9]+}). When disabled, routes containing regex patterns will fail with and error that
 // Is ErrInvalidRoute and ErrRegexpNotAllowed.
 func AllowRegexpParam(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		s.router.allowRegexp = enable
+		return nil
+	})
+}
+
+// AllowRouteMatcher enables support for route matchers. When enabled, routes can include matcher conditions for
+// filtering requests beyond pattern matching. When disabled, routes containing matchers will fail with an error that
+// Is ErrInvalidRoute and ErrMatcherNotAllowed.
+func AllowRouteMatcher(enable bool) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.allowMatcher = enable
 		return nil
 	})
 }

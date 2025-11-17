@@ -82,12 +82,14 @@ func (r *Route) Match(c RequestContext) bool {
 	return true
 }
 
-// MatchersEqual reports whether the route's matchers are equal to the provided matchers using unordered comparison.
+// MatchersEqual reports whether the route's matchers are equal to the provided matchers.
 func (r *Route) MatchersEqual(matchers []Matcher) bool {
 	if len(r.matchers) != len(matchers) {
 		return false
 	}
 
+	// O(n²) in the worst case, but the matched slice is stack-allocated when using a reasonable number of matchers
+	// (<15 per route, which is already extreme), making this faster than O(n) map-based algorithms for typical use cases.
 	matched := make([]bool, len(matchers))
 	for _, a := range r.matchers {
 		found := false

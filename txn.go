@@ -180,6 +180,13 @@ func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, e
 		}
 	}
 
+	if !txn.fox.allowMatcher && len(rte.matchers) > 0 {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrMatcherNotAllowed)
+	}
+	if len(rte.matchers) > txn.fox.maxMatchers {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
+	}
+
 	route, deleted := txn.rootTxn.delete(method, rte)
 	if !deleted {
 		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, pattern)

@@ -9967,25 +9967,50 @@ func TestX(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestZ(t *testing.T) {
-
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
-		fmt.Println("1")
-	}, WithQueryMatcher("c", "d"), WithQueryMatcher("a", "b"))
-	fmt.Println(f.Has(http.MethodGet, "/foo", QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}))
-
-}
-
+// BenchmarkX-16    	13688498	        80.50 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkX(b *testing.B) {
-	f, _ := New()
+	f, _ := New(AllowRouteMatcher(true))
 	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
 		fmt.Println("1")
-	})
+	},
+		WithQueryMatcher("a", "b"),
+		WithQueryMatcher("c", "d"),
+		WithQueryMatcher("e", "f"),
+		WithQueryMatcher("g", "h"),
+		WithQueryMatcher("i", "j"),
+		WithQueryMatcher("a", "b"),
+		WithQueryMatcher("c", "d"),
+		WithQueryMatcher("e", "f"),
+		WithQueryMatcher("g", "h"),
+		WithQueryMatcher("i", "j"),
+		WithQueryMatcher("k", "l"),
+		WithQueryMatcher("m", "n"),
+		WithQueryMatcher("o", "p"),
+		WithQueryMatcher("q", "r"),
+		WithQueryMatcher("s", "t"),
+	)
+
+	matchers := []Matcher{
+		QueryMatcher{"s", "t"},
+		QueryMatcher{"q", "r"},
+		QueryMatcher{"o", "p"},
+		QueryMatcher{"m", "n"},
+		QueryMatcher{"k", "l"},
+		QueryMatcher{"i", "j"},
+		QueryMatcher{"g", "h"},
+		QueryMatcher{"e", "f"},
+		QueryMatcher{"c", "d"},
+		QueryMatcher{"a", "b"},
+		QueryMatcher{"i", "j"},
+		QueryMatcher{"g", "h"},
+		QueryMatcher{"e", "f"},
+		QueryMatcher{"c", "d"},
+		QueryMatcher{"a", "b"},
+	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		f.Has(http.MethodGet, "/foo")
+		f.Has(http.MethodGet, "/foo", matchers...)
 	}
 }
