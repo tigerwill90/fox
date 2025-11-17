@@ -9749,15 +9749,30 @@ func atomicSync() (start func(), wait func()) {
 }
 
 func TestNode_String(t *testing.T) {
-	f, _ := New()
+	f, _ := New(AllowRouteMatcher(true))
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(
+		http.MethodGet, "/foo/bar",
+		emptyHandler,
+		WithQueryMatcher("a", "b"),
+		WithHeaderMatcher("b", "c"),
+	)))
+	require.NoError(t, onlyError(f.Handle(
+		http.MethodGet, "/foo/bar",
+		emptyHandler,
+		WithQueryMatcher("a", "b"),
+	)))
 	tree := f.getTree()
 
 	want := `path: GET
       path: /foo/ [params: 1]
+          path: bar
+                => /foo/bar [matchers: fox.QueryMatcher, fox.HeaderMatcher]
+                => /foo/bar [matchers: fox.QueryMatcher]
           path: ?
               path: / [wildcards: 1]
-                  path: * [leaf=/foo/{bar}/*{baz}, matchers=0]`
+                  path: *
+                        => /foo/{bar}/*{baz}`
 	assert.Equal(t, want, strings.TrimSuffix(tree.root[http.MethodGet].String(), "\n"))
 }
 

@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -931,18 +932,24 @@ func (n *node) string(space int) string {
 		sb.WriteByte(']')
 	}
 
-	if n.isLeaf() {
-		for _, route := range n.routes {
-			sb.WriteString(" [leaf=")
-			sb.WriteString(route.pattern)
-			sb.WriteString(", matchers=")
-			sb.WriteString(strconv.Itoa(len(route.matchers)))
-			sb.WriteByte(']')
-			sb.WriteByte('\n')
-		}
-	} else {
+	for _, route := range n.routes {
 		sb.WriteByte('\n')
+		sb.WriteString(strings.Repeat(" ", space+8))
+		sb.WriteString("=> ")
+		sb.WriteString(route.pattern)
+		if len(route.matchers) > 0 {
+			sb.WriteString(" [matchers: ")
+			for i, matcher := range route.matchers {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(reflect.TypeOf(matcher).String())
+			}
+			sb.WriteByte(']')
+		}
 	}
+
+	sb.WriteByte('\n')
 
 	for _, child := range n.statics {
 		sb.WriteString("  ")
