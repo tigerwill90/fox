@@ -18,14 +18,8 @@ import (
 	"github.com/tigerwill90/fox/internal/netutil"
 )
 
-// ContextCloser extends [Context] for manually created instances, adding a Close method
-// to release resources after use.
-type ContextCloser interface {
-	Context
-	// Close releases the context to be reused later.
-	Close()
-}
-
+// RequestContext provides read-only access to incoming HTTP request data, including request properties,
+// headers, query parameters, and client IP information.
 type RequestContext interface {
 	// Request returns the current [http.Request].
 	Request() *http.Request
@@ -43,6 +37,12 @@ type RequestContext interface {
 	//
 	// The returned [net.IPAddr] may contain a zone identifier.
 	ClientIP() (*net.IPAddr, error)
+	// Method returns the request method.
+	Method() string
+	// Path returns the request URL path.
+	Path() string
+	// Host returns the request host.
+	Host() string
 	// QueryParams parses the [http.Request] raw query and returns the corresponding values. The result is cached after
 	// the first call.
 	QueryParams() url.Values
@@ -74,12 +74,6 @@ type Context interface {
 	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
-	// Method returns the request method.
-	Method() string
-	// Path returns the request URL path.
-	Path() string
-	// Host returns the request host.
-	Host() string
 	// SetHeader sets the response header for the given key to the specified value.
 	SetHeader(key, value string)
 	// AddHeader add the response header for the given key to the specified value.
@@ -105,6 +99,14 @@ type Context interface {
 	Scope() HandlerScope
 	// Fox returns the [Router] instance.
 	Fox() *Router
+}
+
+// ContextCloser extends [Context] for manually created instances, adding a Close method
+// to release resources after use.
+type ContextCloser interface {
+	Context
+	// Close releases the context to be reused later.
+	Close()
 }
 
 // cTx holds request-related information and allows interaction with the [ResponseWriter].
