@@ -22,7 +22,6 @@ var (
 	ErrTooManyParams           = errors.New("too many params")
 	ErrTooManyMatchers         = errors.New("too many matchers")
 	ErrRegexpNotAllowed        = errors.New("regexp not allowed")
-	ErrMatcherNotAllowed       = errors.New("matcher not allowed")
 	ErrInvalidConfig           = errors.New("invalid config")
 	ErrInvalidMatcher          = errors.New("invalid matcher")
 )

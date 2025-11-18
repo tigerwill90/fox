@@ -16,7 +16,7 @@ type Txn struct {
 	write   bool
 }
 
-// Handle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
+// Handle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -77,7 +77,7 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 	return txn.rootTxn.insert(method, route, modeInsert)
 }
 
-// Update override an existing route for the given method and pattern. On success, it returns the newly registered [Route].
+// Update override an existing route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -143,7 +143,7 @@ func (txn *Txn) UpdateRoute(method string, route *Route) error {
 	return txn.rootTxn.insert(method, route, modeUpdate)
 }
 
-// Delete deletes an existing route for the given method and pattern. On success, it returns the deleted [Route].
+// Delete deletes an existing route for the given method, pattern and matchers. On success, it returns the deleted [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -180,9 +180,6 @@ func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, e
 		}
 	}
 
-	if !txn.fox.allowMatcher && len(rte.matchers) > 0 {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrMatcherNotAllowed)
-	}
 	if len(rte.matchers) > txn.fox.maxMatchers {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
 	}

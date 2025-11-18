@@ -668,11 +668,34 @@ func (n *node) replaceRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
 		return r.MatchersEqual(route.matchers)
 	})
-	if idx >= 0 {
+	if idx < 0 {
+		panic("internal error: replacing missing route")
+	}
+
+	oldRoute := n.routes[idx]
+
+	// priority unchanged or there is no matchers, replace in place.
+	if oldRoute.priority == route.priority || len(route.matchers) == 0 {
 		n.routes[idx] = route
 		return
 	}
-	panic("internal error: replacing missing route")
+
+	n.routes = slices.Delete(n.routes, idx, idx+1)
+	insertPos := len(n.routes)
+
+	for i, existing := range n.routes {
+		if len(existing.matchers) == 0 {
+			insertPos = i
+			break
+		}
+
+		if route.priority > existing.priority {
+			insertPos = i
+			break
+		}
+	}
+
+	n.routes = slices.Insert(n.routes, insertPos, route)
 }
 
 func (n *node) delRoute(route *Route) {
@@ -954,6 +977,9 @@ func (n *node) string(space int) string {
 			}
 			sb.WriteByte(']')
 		}
+		sb.WriteString(" [priority: ")
+		sb.WriteString(strconv.Itoa(route.priority))
+		sb.WriteByte(']')
 	}
 
 	sb.WriteByte('\n')

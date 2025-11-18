@@ -223,16 +223,6 @@ func AllowRegexpParam(enable bool) GlobalOption {
 	})
 }
 
-// AllowRouteMatcher enables support for route matchers. When enabled, routes can include matcher conditions for
-// filtering requests beyond pattern matching. When disabled, routes containing matchers will fail with an error that
-// Is ErrInvalidRoute and ErrMatcherNotAllowed.
-func AllowRouteMatcher(enable bool) GlobalOption {
-	return globOptionFunc(func(s sealedOption) error {
-		s.router.allowMatcher = enable
-		return nil
-	})
-}
-
 // WithMiddleware attaches middleware to the router or to a specific route. The middlewares are executed
 // in the order they are added. When applied globally, the middleware affects all handlers, including special handlers
 // such as NotFound, MethodNotAllowed, AutoOption, and the internal redirect handler.

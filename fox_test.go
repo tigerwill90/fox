@@ -9471,7 +9471,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	f, _ := New(AllowRouteMatcher(true))
+	f, _ := New()
 
 	h := func(c Context) {}
 
@@ -9749,7 +9749,7 @@ func atomicSync() (start func(), wait func()) {
 }
 
 func TestNode_String(t *testing.T) {
-	f, _ := New(AllowRouteMatcher(true))
+	f, _ := New()
 	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
 	require.NoError(t, onlyError(f.Handle(
 		http.MethodGet, "/foo/bar",
@@ -9767,12 +9767,12 @@ func TestNode_String(t *testing.T) {
 	want := `path: GET
       path: /foo/ [params: 1]
           path: bar
-                => /foo/bar [matchers: fox.QueryMatcher, fox.HeaderMatcher]
-                => /foo/bar [matchers: fox.QueryMatcher]
+                => /foo/bar [matchers: fox.QueryMatcher, fox.HeaderMatcher] [priority: 2]
+                => /foo/bar [matchers: fox.QueryMatcher] [priority: 1]
           path: ?
               path: / [wildcards: 1]
                   path: *
-                        => /foo/{bar}/*{baz}`
+                        => /foo/{bar}/*{baz} [priority: 0]`
 	assert.Equal(t, want, strings.TrimSuffix(tree.root[http.MethodGet].String(), "\n"))
 }
 
@@ -10014,7 +10014,7 @@ func TestX(t *testing.T) {
 
 // BenchmarkX-16    	13688498	        80.50 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkX(b *testing.B) {
-	f, _ := New(AllowRouteMatcher(true))
+	f, _ := New()
 	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
 		fmt.Println("1")
 	},

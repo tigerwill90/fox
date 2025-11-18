@@ -108,7 +108,6 @@ type Router struct {
 	handleMethodNotAllowed bool
 	handleOptions          bool
 	allowRegexp            bool
-	allowMatcher           bool
 }
 
 // RouterInfo hold information on the configured global options.
@@ -162,7 +161,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	return r, nil
 }
 
-// MustHandle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
+// MustHandle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // This function is a convenience wrapper for the [Router.Handle] function and panics on error.
 func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
 	rte, err := fox.Handle(method, pattern, handler, opts...)
@@ -172,7 +171,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 	return rte
 }
 
-// Handle registers a new route for the given method and pattern. On success, it returns the newly registered [Route].
+// Handle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -208,7 +207,7 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 	return nil
 }
 
-// Update override an existing route for the given method and pattern. On success, it returns the newly registered [Route].
+// Update override an existing route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -247,7 +246,7 @@ func (fox *Router) UpdateRoute(method string, route *Route) error {
 	return nil
 }
 
-// Delete deletes an existing route for the given method and pattern. On success, it returns the deleted [Route].
+// Delete deletes an existing route for the given method, pattern and matchers. On success, it returns the deleted [Route].
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -363,6 +362,7 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 // If an error occurs, it returns one of the following:
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	tokens, n, endHost, err := fox.parseRoute(pattern)
 	if err != nil {
@@ -393,9 +393,6 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		}
 	}
 
-	if !fox.allowMatcher && len(rte.matchers) > 0 {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrMatcherNotAllowed)
-	}
 	if len(rte.matchers) > fox.maxMatchers {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
 	}
