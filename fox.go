@@ -294,20 +294,36 @@ func (fox *Router) Has(method, pattern string, matchers ...Matcher) bool {
 func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
 	tree := fox.getTree()
 
-	root := tree.root[method]
+	root := tree.patterns[method]
 	if root == nil {
 		return nil
 	}
 
-	matched := root.search(pattern)
-	if matched == nil || !matched.isLeaf() || matched.routes[0].pattern != pattern {
+	matched := root.searchPattern(pattern)
+	if matched == nil || !matched.isLeaf() {
 		return nil
 	}
-	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.MatchersEqual(matchers) })
+	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.pattern == pattern && r.MatchersEqual(matchers) })
 	if idx < 0 {
 		return nil
 	}
 	return matched.routes[idx]
+}
+
+func (fox *Router) Name(method, name string) *Route {
+	tree := fox.getTree()
+
+	root := tree.names[method]
+	if root == nil {
+		return nil
+	}
+
+	matched := root.searchName(name)
+	if matched == nil || !matched.isLeaf() || matched.routes[0].name != name {
+		return nil
+	}
+
+	return matched.routes[0]
 }
 
 // Reverse perform a reverse lookup for the given [http.Request] and return the matching registered [Route]
@@ -427,7 +443,8 @@ func (fox *Router) Iter() Iter {
 	tree := fox.getTree()
 	return Iter{
 		tree:     tree,
-		root:     tree.root,
+		patterns: tree.patterns,
+		names:    tree.names,
 		maxDepth: tree.maxDepth,
 	}
 }
@@ -503,7 +520,8 @@ func (fox *Router) newTree() *iTree {
 	tree := new(iTree)
 	tree.fox = fox
 
-	tree.root = make(root)
+	tree.patterns = make(root)
+	tree.names = make(root)
 	tree.pool = sync.Pool{
 		New: func() any {
 			return tree.allocateContext()
@@ -656,11 +674,11 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions && fox.handleOptions {
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
-		sb.Grow(min((len(tree.root)+1)*5, 150))
+		sb.Grow(min((len(tree.patterns)+1)*5, 150))
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 		if path == "*" {
-			for method := range tree.root {
+			for method := range tree.patterns {
 				if method != http.MethodOptions {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
@@ -670,7 +688,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-			for method := range tree.root {
+			for method := range tree.patterns {
 				c.tsr = false
 				c.cachedQueries = nil
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
@@ -693,9 +711,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
-		sb.Grow(min((len(tree.root)+1)*5, 150))
+		sb.Grow(min((len(tree.patterns)+1)*5, 150))
 		hasOptions := false
-		for method := range tree.root {
+		for method := range tree.patterns {
 			if method != r.Method {
 				c.tsr = false
 				c.cachedQueries = nil

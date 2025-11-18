@@ -1693,7 +1693,7 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.False(t, c.tsr)
 			require.Nil(t, n)
 			assert.Equal(t, 0, idx)
@@ -1727,7 +1727,7 @@ func TestRouteWithParams(t *testing.T) {
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		idx, n := lookupByPath(tree.root[http.MethodGet], rte, c, false, 0)
+		idx, n := lookupByPath(tree.patterns[http.MethodGet], rte, c, false, 0)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.routes[idx], "route: %s", rte)
 		assert.False(t, c.tsr)
@@ -1782,7 +1782,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			assert.Nil(t, n)
 			assert.Equal(t, 0, idx)
 			assert.Empty(t, slices.Collect(c.Params()))
@@ -2802,7 +2802,7 @@ func TestOverlappingRoute(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
@@ -2817,7 +2817,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			idx, n = lookupByPath(tree.root[http.MethodGet], tc.path, c, true, 0)
+			idx, n = lookupByPath(tree.patterns[http.MethodGet], tc.path, c, true, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
@@ -3922,7 +3922,7 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
@@ -5437,7 +5437,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.root[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
@@ -5590,7 +5590,7 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 			}
 
 			tree := f.getTree()
-			assert.Len(t, tree.root, 0)
+			assert.Len(t, tree.patterns, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -5613,7 +5613,7 @@ func TestInsertUpdateAndDeleteWithHostname(t *testing.T) {
 			}
 
 			tree = f.getTree()
-			assert.Len(t, tree.root, 0)
+			assert.Len(t, tree.patterns, 0)
 		})
 	}
 }
@@ -5779,7 +5779,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			}))
 
 			tree := f.getTree()
-			assert.Len(t, tree.root, 0)
+			assert.Len(t, tree.patterns, 0)
 
 			// Now let's do it in reverse
 			routeCopy = make([]struct{ path string }, len(tc.routes))
@@ -5812,7 +5812,7 @@ func TestInsertUpdateAndDeleteWithHostnameTxn(t *testing.T) {
 			}))
 
 			tree = f.getTree()
-			assert.Len(t, tree.root, 0)
+			assert.Len(t, tree.patterns, 0)
 		})
 	}
 }
@@ -7365,7 +7365,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.root[http.MethodGet], tc.key, c, true, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.key, c, true, 0)
 			assert.Equal(t, tc.want, c.tsr)
 			if tc.want {
 				require.NotNil(t, n)
@@ -8166,7 +8166,7 @@ func TestTree_Delete(t *testing.T) {
 
 	tree := f.getTree()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 0, len(tree.root))
+	assert.Equal(t, 0, len(tree.patterns))
 }
 
 func TestTree_DeleteTxn(t *testing.T) {
@@ -8196,7 +8196,7 @@ func TestTree_DeleteTxn(t *testing.T) {
 
 	tree := f.getTree()
 	assert.Equal(t, 0, cnt)
-	assert.Equal(t, 0, len(tree.root))
+	assert.Equal(t, 0, len(tree.patterns))
 }
 
 func TestTree_DeleteRoot(t *testing.T) {
@@ -8206,13 +8206,13 @@ func TestTree_DeleteRoot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "/foo/bar", deletedRoute.Pattern())
 	tree := f.getTree()
-	assert.Equal(t, 0, len(tree.root))
+	assert.Equal(t, 0, len(tree.patterns))
 	require.NoError(t, onlyError(f.Handle(http.MethodOptions, "exemple.com/foo/bar", emptyHandler)))
 	deletedRoute, err = f.Delete(http.MethodOptions, "exemple.com/foo/bar")
 	require.NoError(t, err)
 	assert.Equal(t, "exemple.com/foo/bar", deletedRoute.Pattern())
 	tree = f.getTree()
-	assert.Equal(t, 0, len(tree.root))
+	assert.Equal(t, 0, len(tree.patterns))
 }
 
 func TestRouter_DeleteError(t *testing.T) {
@@ -8253,7 +8253,7 @@ func TestRouter_UpdatesError(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, wantErr)
 	tree := f.getTree()
-	assert.Len(t, tree.root, 0)
+	assert.Len(t, tree.patterns, 0)
 }
 
 func TestRouter_UpdatesPanic(t *testing.T) {
@@ -8271,7 +8271,7 @@ func TestRouter_UpdatesPanic(t *testing.T) {
 	})
 
 	tree := f.getTree()
-	assert.Len(t, tree.root, 0)
+	assert.Len(t, tree.patterns, 0)
 }
 
 func TestTree_DeleteWildcard(t *testing.T) {
@@ -9433,7 +9433,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	inserted := 0
 	_ = r.Updates(func(txn *Txn) error {
 		for rte := range routes {
-			rte, err := txn.Handle(http.MethodGet, "/"+rte, emptyHandler)
+			rte, err := txn.Handle(http.MethodGet, "/"+rte, emptyHandler, WithName("/"+rte))
 			if err != nil {
 				assert.Nil(t, rte, "route /%s", rte)
 				continue
@@ -9447,10 +9447,16 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	it := r.Iter()
 	countPath := len(slices.Collect(iterutil.Right(it.All())))
 	assert.Equal(t, inserted, countPath)
+	countNames := len(slices.Collect(iterutil.Right(it.Names())))
+	assert.Equal(t, inserted, countNames)
 
 	for method, route := range r.Iter().All() {
 		found := r.Route(method, route.Pattern())
 		require.NotNilf(t, found, "route /%s", route.Pattern())
+	}
+	for method, route := range r.Iter().Names() {
+		found := r.Name(method, route.Name())
+		require.NotNilf(t, found, "route /%s", route.Name())
 	}
 
 	_ = r.Updates(func(txn *Txn) error {
@@ -9465,6 +9471,8 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	it = r.Iter()
 	countPath = len(slices.Collect(iterutil.Right(it.All())))
 	assert.Equal(t, 0, countPath)
+	countNames = len(slices.Collect(iterutil.Right(it.Names())))
+	assert.Equal(t, 0, countNames)
 }
 
 func TestRaceHostnamePathSwitch(t *testing.T) {
@@ -9583,10 +9591,13 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	// With a pair number of iteration, we should always delete all domains
 	tree := f.getTree()
-	for _, n := range tree.root {
+	for _, n := range tree.patterns {
 		assert.Len(t, n.statics, 1)
 		assert.Len(t, n.params, 0)
 		assert.Len(t, n.wildcards, 0)
+	}
+	for _, n := range tree.names {
+		assert.Len(t, n.statics, 1)
 	}
 
 }
@@ -9773,7 +9784,7 @@ func TestNode_String(t *testing.T) {
               path: / [wildcards: 1]
                   path: *
                         => /foo/{bar}/*{baz} [priority: 0]`
-	assert.Equal(t, want, strings.TrimSuffix(tree.root[http.MethodGet].String(), "\n"))
+	assert.Equal(t, want, strings.TrimSuffix(tree.patterns[http.MethodGet].String(), "\n"))
 }
 
 // This example demonstrates how to create a simple router using the default options,
@@ -9913,8 +9924,8 @@ func ExampleRouter_Updates() {
 		it := txn.Iter()
 		// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
 		// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
-		// observed in the result returned by Prefix (or any other iterator).
-		for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
+		// observed in the result returned by PatternPrefix (or any other iterator).
+		for method, route := range it.PatternPrefix(it.Methods(), "tmp.exemple.com/") {
 			if _, err := f.Delete(method, route.Pattern()); err != nil {
 				return err
 			}
@@ -9944,8 +9955,8 @@ func ExampleRouter_Txn() {
 	it := txn.Iter()
 	// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
 	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
-	// observed in the result returned by Prefix (or any other iterator).
-	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
+	// observed in the result returned by PatternPrefix (or any other iterator).
+	for method, route := range it.PatternPrefix(it.Methods(), "tmp.exemple.com/") {
 		if _, err := f.Delete(method, route.Pattern()); err != nil {
 			log.Printf("error deleting route: %s", err)
 			return
@@ -10057,5 +10068,24 @@ func BenchmarkX(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		f.Has(http.MethodGet, "/foo", matchers...)
+	}
+}
+
+func TestA(t *testing.T) {
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/foo/bar", emptyHandler, WithQueryMatcher("a", "b"), WithName("asdf"))
+	f.MustHandle(http.MethodGet, "/foo/{bar}", emptyHandler, WithQueryMatcher("a", "b"), WithName("bili"))
+	f.MustHandle(http.MethodGet, "/foo/{baz}", emptyHandler, WithQueryMatcher("c", "d"), WithName("boulou"))
+
+	it := f.Iter()
+	for method, route := range it.NamePrefix(it.Methods(), "") {
+		fmt.Println(method, route.Name())
+	}
+
+	fmt.Println(f.Update(http.MethodGet, "/foo/{baz}", emptyHandler, WithQueryMatcher("c", "d"), WithName("asdf")))
+
+	it = f.Iter()
+	for method, route := range it.NamePrefix(it.Methods(), "") {
+		fmt.Println(method, route.Name())
 	}
 }

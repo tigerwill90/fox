@@ -13,6 +13,7 @@ type Route struct {
 	hall        HandlerFunc
 	annots      map[any]any
 	pattern     string
+	name        string
 	mws         []middleware
 	params      []string
 	tokens      []token
@@ -49,18 +50,23 @@ func (r *Route) Path() string {
 	return r.pattern[r.hostSplit:]
 }
 
+// Name returns the name of this [Route].
+func (r *Route) Name() string {
+	return r.name
+}
+
 // Annotation returns the value associated with this [Route] for key, or nil if no value is associated with key.
 // Successive calls to Annotation with the same key returns the same result.
 func (r *Route) Annotation(key any) any {
 	return r.annots[key]
 }
 
-// TrailingSlashOption returns the configured [TrailingSlashOption] for this route.
+// TrailingSlashOption returns the configured [TrailingSlashOption] for this [Route].
 func (r *Route) TrailingSlashOption() TrailingSlashOption {
 	return r.handleSlash
 }
 
-// ClientIPResolver returns the [ClientIPResolver] configured for the route, if any.
+// ClientIPResolver returns the [ClientIPResolver] configured for this [Route], if any.
 func (r *Route) ClientIPResolver() ClientIPResolver {
 	if _, ok := r.clientip.(noClientIPResolver); ok {
 		return nil
@@ -68,12 +74,12 @@ func (r *Route) ClientIPResolver() ClientIPResolver {
 	return r.clientip
 }
 
-// ParamsLen returns the number of parameters for the route.
+// ParamsLen returns the number of parameters for this [Route].
 func (r *Route) ParamsLen() int {
 	return len(r.params)
 }
 
-// Params returns an iterator over all parameters for the route.
+// Params returns an iterator over all parameters for this [Route].
 func (r *Route) Params() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for _, param := range r.params {
@@ -84,7 +90,7 @@ func (r *Route) Params() iter.Seq[string] {
 	}
 }
 
-// Match returns true if all matchers attached to the route match the request.
+// Match returns true if all matchers attached to this [Route] match the request.
 func (r *Route) Match(c RequestContext) bool {
 	for _, m := range r.matchers {
 		if !m.Match(c) {
@@ -94,7 +100,7 @@ func (r *Route) Match(c RequestContext) bool {
 	return true
 }
 
-// MatchersEqual reports whether the route's matchers are equal to the provided matchers.
+// MatchersEqual reports whether this [Route]'s matchers are equal to the provided matchers.
 func (r *Route) MatchersEqual(matchers []Matcher) bool {
 	if len(r.matchers) != len(matchers) {
 		return false
@@ -119,12 +125,12 @@ func (r *Route) MatchersEqual(matchers []Matcher) bool {
 	return true
 }
 
-// MatchersContains reports whether the route contains a matcher equal to the provided matcher.
+// MatchersContains reports whether this [Route] contains a matcher equal to the provided matcher.
 func (r *Route) MatchersContains(matcher Matcher) bool {
 	return slices.ContainsFunc(r.matchers, func(m Matcher) bool { return m.Equal(matcher) })
 }
 
-// Matchers returns an iterator over all matchers attached to the route.
+// Matchers returns an iterator over all matchers attached to this [Route].
 func (r *Route) Matchers() iter.Seq[Matcher] {
 	return func(yield func(Matcher) bool) {
 		for _, m := range r.matchers {

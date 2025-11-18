@@ -704,8 +704,9 @@ func (n *node) delRoute(route *Route) {
 	})
 	if idx >= 0 {
 		copy(n.routes[idx:], n.routes[idx+1:])
-		n.routes[len(n.routes)-1] = nil
-		n.routes = n.routes[:len(n.routes)-1]
+		last := len(n.routes) - 1
+		n.routes[last] = nil
+		n.routes = n.routes[:last:last]
 	}
 }
 
@@ -852,7 +853,7 @@ func (n *node) delWildcardEdge(key string) {
 	}
 }
 
-func (n *node) search(key string) (matched *node) {
+func (n *node) searchPattern(key string) (matched *node) {
 	current := n
 	search := key
 
@@ -886,6 +887,28 @@ func (n *node) search(key string) (matched *node) {
 		}
 
 	STATIC:
+		label := search[0]
+		_, child := current.getStaticEdge(label)
+		if child == nil {
+			return nil
+		}
+
+		keyLen := min(len(child.key), len(search))
+		if search[:keyLen] != child.key[:keyLen] {
+			return nil
+		}
+		search = search[keyLen:]
+		current = child
+	}
+
+	return current
+}
+
+func (n *node) searchName(key string) (matched *node) {
+	current := n
+	search := key
+
+	for len(search) > 0 {
 		label := search[0]
 		_, child := current.getStaticEdge(label)
 		if child == nil {

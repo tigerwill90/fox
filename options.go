@@ -334,6 +334,16 @@ func WithAnnotation(key, value any) RouteOption {
 	})
 }
 
+func WithName(name string) RouteOption {
+	return routeOptionFunc(func(s sealedOption) error {
+		if name == "" {
+			return fmt.Errorf("%w: empty name", ErrInvalidConfig)
+		}
+		s.route.name = name
+		return nil
+	})
+}
+
 // WithMatcherPriority sets the priority for a route with matchers. When multiple routes share the same pattern,
 // routes matchers are evaluated by priority order (highest first), then by insertion order for equal priorities. Route
 // without matchers are always evaluated last. By default, the priority is the number of matchers.

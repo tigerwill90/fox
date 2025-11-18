@@ -254,20 +254,38 @@ func (txn *Txn) Route(method, pattern string, matchers ...Matcher) *Route {
 		panic(ErrSettledTxn)
 	}
 
-	root := txn.rootTxn.root[method]
+	root := txn.rootTxn.patterns[method]
 	if root == nil {
 		return nil
 	}
 
-	matched := root.search(pattern)
-	if matched == nil || !matched.isLeaf() || matched.routes[0].pattern != pattern {
+	matched := root.searchPattern(pattern)
+	if matched == nil || !matched.isLeaf() {
 		return nil
 	}
-	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.MatchersEqual(matchers) })
+	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.pattern == pattern && r.MatchersEqual(matchers) })
 	if idx < 0 {
 		return nil
 	}
 	return matched.routes[idx]
+}
+
+func (txn *Txn) Name(method, name string) *Route {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+
+	root := txn.rootTxn.names[method]
+	if root == nil {
+		return nil
+	}
+
+	matched := root.searchName(name)
+	if matched == nil || !matched.isLeaf() || matched.routes[0].name != name {
+		return nil
+	}
+
+	return matched.routes[0]
 }
 
 // Reverse perform a reverse lookup for the given [http.Request] and return the matching registered [Route]
@@ -290,7 +308,7 @@ func (txn *Txn) Reverse(r *http.Request) (route *Route, tsr bool) {
 		path = r.URL.RawPath
 	}
 
-	idx, n := txn.rootTxn.root.lookup(r.Method, r.Host, path, c, true)
+	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, true)
 	if n != nil {
 		return n.routes[idx], c.tsr
 	}
@@ -317,7 +335,7 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 		path = r.URL.RawPath
 	}
 
-	idx, n := txn.rootTxn.root.lookup(r.Method, r.Host, path, c, false)
+	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
 		return n.routes[idx], c, c.tsr
@@ -335,14 +353,15 @@ func (txn *Txn) Iter() Iter {
 		panic(ErrSettledTxn)
 	}
 
-	rt := txn.rootTxn.root
+	patterns, names := txn.rootTxn.patterns, txn.rootTxn.names
 	if txn.write {
-		rt = txn.rootTxn.snapshot()
+		patterns, names = txn.rootTxn.snapshot()
 	}
 
 	return Iter{
 		tree:     txn.rootTxn.tree,
-		root:     rt,
+		patterns: patterns,
+		names:    names,
 		maxDepth: txn.rootTxn.maxDepth,
 	}
 }

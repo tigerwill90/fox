@@ -170,7 +170,7 @@ func TestIter_RootPrefixOneMethod(t *testing.T) {
 	results := make(map[string][]string)
 	it := f.Iter()
 
-	for method, route := range it.Prefix(iterutil.SeqOf(http.MethodHead), "/") {
+	for method, route := range it.PatternPrefix(iterutil.SeqOf(http.MethodHead), "/") {
 		assert.NotNil(t, route)
 		results[method] = append(results[method], route.Pattern())
 	}
@@ -191,7 +191,7 @@ func TestIter_Prefix(t *testing.T) {
 	results := make(map[string][]string)
 
 	it := f.Iter()
-	for method, route := range it.Prefix(it.Methods(), "/foo") {
+	for method, route := range it.PatternPrefix(it.Methods(), "/foo") {
 		assert.NotNil(t, route)
 		results[method] = append(results[method], route.Pattern())
 	}
@@ -207,8 +207,8 @@ func TestIter_EdgeCase(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("GET"), "/"))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Prefix(iterutil.SeqOf("CONNECT"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.PatternPrefix(iterutil.SeqOf("GET"), "/"))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.PatternPrefix(iterutil.SeqOf("CONNECT"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), req))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), req))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("GET"), "/"))))
@@ -227,7 +227,7 @@ func TestIter_PrefixWithMethod(t *testing.T) {
 	results := make(map[string][]string)
 
 	it := f.Iter()
-	for method, route := range it.Prefix(iterutil.SeqOf(http.MethodHead), "/foo") {
+	for method, route := range it.PatternPrefix(iterutil.SeqOf(http.MethodHead), "/foo") {
 		assert.NotNil(t, route)
 		results[method] = append(results[method], route.Pattern())
 	}
@@ -299,7 +299,7 @@ func BenchmarkIter_Prefix(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for range it.Prefix(it.Methods(), "/") {
+		for range it.PatternPrefix(it.Methods(), "/") {
 
 		}
 	}
@@ -357,10 +357,10 @@ func ExampleIter_Routes() {
 	}
 }
 
-func ExampleIter_Prefix() {
+func ExampleIter_PatternPrefix() {
 	f, _ := New()
 	it := f.Iter()
-	for method, route := range it.Prefix(slices.Values([]string{"GET", "POST"}), "/foo") {
+	for method, route := range it.PatternPrefix(slices.Values([]string{"GET", "POST"}), "/foo") {
 		fmt.Println(method, route.Pattern())
 	}
 }
