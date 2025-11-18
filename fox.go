@@ -215,9 +215,9 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
-// be removed, and the route will fall back to using global configuration (if any). It's safe to update a handler while
-// the router is serving requests. This function is safe for concurrent use by multiple goroutine. To add new handler,
-// use [Router.Handle] method.
+// be removed (or reset to their default value), and the route will fall back to using global configuration (if any).
+// It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
+// multiple goroutine. To add new handler, use [Router.Handle] method.
 func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	txn := fox.Txn(true)
 	defer txn.Abort()
@@ -264,8 +264,8 @@ func (fox *Router) Delete(method, pattern string, opts ...MatcherOption) (*Route
 	return route, nil
 }
 
-// DeleteRoute deletes an existing route that match the provided [Route]. On success, it returns the deleted [Route].
-// If an error occurs, it returns one of the following:
+// DeleteRoute deletes an existing route that match the provided [Route] pattern and matchers. On success, it returns
+// the deleted [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //

@@ -86,8 +86,8 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
-// be removed, and the route will fall back to using global configuration (if any). This function is NOT thread-safe
-// and should be run serially, along with all other [Txn] APIs.
+// be removed (or reset to their default value), and the route will fall back to using global configuration (if any).
+// This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To add a new handler, use [Txn.Handle].
 func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if txn.rootTxn == nil {
@@ -192,8 +192,8 @@ func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, e
 	return route, nil
 }
 
-// DeleteRoute deletes an existing route that match the provided [Route]. On success, it returns the deleted [Route].
-// If an error occurs, it returns one of the following:
+// DeleteRoute deletes an existing route that match the provided [Route] pattern and matchers. On success, it returns
+// the deleted [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
