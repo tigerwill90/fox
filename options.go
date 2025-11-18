@@ -334,10 +334,12 @@ func WithAnnotation(key, value any) RouteOption {
 	})
 }
 
+// WithName assigns a name to a route for identification and lookup purposes.
+// The name must be unique among routes registered with the same HTTP method.
 func WithName(name string) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
 		if name == "" {
-			return fmt.Errorf("%w: empty name", ErrInvalidConfig)
+			return fmt.Errorf("%w: empty route name", ErrInvalidConfig)
 		}
 		s.route.name = name
 		return nil
