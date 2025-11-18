@@ -553,7 +553,7 @@ func (t *tXn) truncate(methods []string) {
 
 	}
 	if updated {
-		t.slowMax()
+		t.recomputeTreeStats()
 	}
 }
 
@@ -595,7 +595,7 @@ func (t *tXn) computePathDepth(root *node, tokens []token) int {
 	return depth
 }
 
-func (t *tXn) slowMax() {
+func (t *tXn) recomputeTreeStats() {
 	type stack struct {
 		edges []*node
 		depth int
