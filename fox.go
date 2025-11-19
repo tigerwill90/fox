@@ -638,7 +638,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.handlePath == RelaxedPath {
 			*c.params = (*c.params)[:0]
-			c.cachedQueries = nil
 			c.tsr = false
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
@@ -651,7 +650,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.handlePath == RedirectPath {
 			*c.params = (*c.params)[:0]
-			c.cachedQueries = nil
 			c.tsr = false
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				c.route = nil
@@ -669,7 +667,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	*c.params = (*c.params)[:0]
 	c.route = nil
 	c.tsr = false
-	c.cachedQueries = nil
 
 	if r.Method == http.MethodOptions && fox.handleOptions {
 		var sb strings.Builder
@@ -690,7 +687,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.patterns {
 				c.tsr = false
-				c.cachedQueries = nil
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
@@ -716,7 +712,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for method := range tree.patterns {
 			if method != r.Method {
 				c.tsr = false
-				c.cachedQueries = nil
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")

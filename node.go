@@ -320,7 +320,6 @@ Walk:
 					remaining := child.key[len(search):]
 					if remaining == "/" {
 						for i, route := range child.routes {
-							c.cachedQueries = nil
 							if route.Match(c) {
 								c.tsr = true
 								n = child
@@ -407,7 +406,6 @@ Walk:
 						if !c.tsr && len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								for i, route := range child.routes {
-									c.cachedQueries = nil
 									if route.Match(c) {
 										c.tsr = true
 										n = child
@@ -491,7 +489,6 @@ Walk:
 				}
 
 				for i, route := range wildcardNode.routes {
-					c.cachedQueries = nil
 					if route.Match(c) {
 						if !lazy {
 							*c.params = append(*c.params, search)
@@ -508,7 +505,6 @@ Walk:
 
 	if matched.isLeaf() {
 		for i, route := range matched.routes {
-			c.cachedQueries = nil
 			if route.Match(c) {
 				c.tsr = false
 				return i, matched
@@ -519,7 +515,6 @@ Walk:
 	if !c.tsr {
 		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 			for i, route := range child.routes {
-				c.cachedQueries = nil
 				if route.Match(c) {
 					c.tsr = true
 					n = child
@@ -534,7 +529,6 @@ Walk:
 
 		if matched.key == "/" && parent != nil && parent.isLeaf() {
 			for i, route := range parent.routes {
-				c.cachedQueries = nil
 				if route.Match(c) {
 					c.tsr = true
 					n = parent
@@ -551,7 +545,6 @@ Walk:
 Backtrack:
 	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
-			c.cachedQueries = nil
 			if route.Match(c) {
 				c.tsr = true
 				n = matched
