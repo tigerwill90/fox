@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -122,7 +123,7 @@ func TestTxn_Truncate(t *testing.T) {
 			}
 
 			tree := f.getTree()
-			assert.ElementsMatch(t, tc.wantMethods, slices.Collect(maps.Keys(tree.root)))
+			assert.ElementsMatch(t, tc.wantMethods, slices.Collect(maps.Keys(tree.patterns)))
 			assert.Equal(t, tc.wantDepth, tree.maxDepth)
 			assert.Equal(t, tc.wantSize, tree.size)
 			assert.Equal(t, tc.wantMaxParams, tree.maxParams)
@@ -148,7 +149,7 @@ func TestTxn_TruncateAll(t *testing.T) {
 	}
 
 	tree := f.getTree()
-	assert.Len(t, tree.root, 0)
+	assert.Len(t, tree.patterns, 0)
 }
 
 func TestTxn_Isolation(t *testing.T) {
@@ -314,7 +315,8 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 		txn.Has(http.MethodGet, "/foo")
 	})
 	assert.Panics(t, func() {
-		txn.Reverse(http.MethodGet, "host", "/foo")
+		req := httptest.NewRequest(http.MethodGet, "example.com/foo", nil)
+		txn.Reverse(req)
 	})
 	assert.Panics(t, func() {
 		txn.Lookup(nil, nil)

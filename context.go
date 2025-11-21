@@ -18,27 +18,11 @@ import (
 	"github.com/tigerwill90/fox/internal/netutil"
 )
 
-// ContextCloser extends [Context] for manually created instances, adding a Close method
-// to release resources after use.
-type ContextCloser interface {
-	Context
-	// Close releases the context to be reused later.
-	Close()
-}
-
-// Context represents the context of the current HTTP request. It provides methods to access request data and
-// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
-// duration of the [HandlerFunc] execution, as the underlying implementation may be reused a soon as the handler return.
-// (see [Context.Clone] method).
-type Context interface {
+// RequestContext provides read-only access to incoming HTTP request data, including request properties,
+// headers, query parameters, and client IP information.
+type RequestContext interface {
 	// Request returns the current [http.Request].
 	Request() *http.Request
-	// SetRequest sets the [*http.Request].
-	SetRequest(r *http.Request)
-	// Writer method returns a custom [ResponseWriter] implementation.
-	Writer() ResponseWriter
-	// SetWriter sets the [ResponseWriter].
-	SetWriter(w ResponseWriter)
 	// RemoteIP parses the IP from [http.Request.RemoteAddr], normalizes it, and returns an IP address. The returned [net.IPAddr]
 	// may contain a zone identifier. RemoteIP never returns nil, even if parsing the IP fails.
 	RemoteIP() *net.IPAddr
@@ -53,6 +37,34 @@ type Context interface {
 	//
 	// The returned [net.IPAddr] may contain a zone identifier.
 	ClientIP() (*net.IPAddr, error)
+	// Method returns the request method.
+	Method() string
+	// Path returns the request URL path.
+	Path() string
+	// Host returns the request host.
+	Host() string
+	// QueryParams parses the [http.Request] raw query and returns the corresponding values. The result is cached after
+	// the first call.
+	QueryParams() url.Values
+	// QueryParam returns the first query value associated with the given key. The query parameters are parsed and
+	// cached on first access.
+	QueryParam(name string) string
+	// Header retrieves the value of the request header for the given key.
+	Header(key string) string
+}
+
+// Context represents the context of the current HTTP request. It provides methods to access request data and
+// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
+// duration of the [HandlerFunc] execution, as the underlying implementation may be reused a soon as the handler return.
+// (see [Context.Clone] method).
+type Context interface {
+	RequestContext
+	// SetRequest sets the [*http.Request].
+	SetRequest(r *http.Request)
+	// Writer method returns a custom [ResponseWriter] implementation.
+	Writer() ResponseWriter
+	// SetWriter sets the [ResponseWriter].
+	SetWriter(w ResponseWriter)
 	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope
 	// other than [RouteHandler].
 	Pattern() string
@@ -62,22 +74,10 @@ type Context interface {
 	Params() iter.Seq[Param]
 	// Param retrieve a matching wildcard parameter by name.
 	Param(name string) string
-	// Method returns the request method.
-	Method() string
-	// Path returns the request URL path.
-	Path() string
-	// Host returns the request host.
-	Host() string
-	// QueryParams parses the [http.Request] raw query and returns the corresponding values.
-	QueryParams() url.Values
-	// QueryParam returns the first query value associated with the given key.
-	QueryParam(name string) string
 	// SetHeader sets the response header for the given key to the specified value.
 	SetHeader(key, value string)
 	// AddHeader add the response header for the given key to the specified value.
 	AddHeader(key, value string)
-	// Header retrieves the value of the request header for the given key.
-	Header(key string) string
 	// String sends a formatted string with the specified status code.
 	String(code int, format string, values ...any) error
 	// Blob sends a byte slice with the specified status code and content type.
@@ -101,20 +101,28 @@ type Context interface {
 	Fox() *Router
 }
 
+// ContextCloser extends [Context] for manually created instances, adding a Close method
+// to release resources after use.
+type ContextCloser interface {
+	Context
+	// Close releases the context to be reused later.
+	Close()
+}
+
 // cTx holds request-related information and allows interaction with the [ResponseWriter].
 type cTx struct {
-	w           ResponseWriter
-	req         *http.Request
-	params      *[]string
-	tsrParams   *[]string
-	skipStack   *skipStack
-	route       *Route
-	tree        *iTree  // no reset
-	fox         *Router // no reset
-	cachedQuery url.Values
-	rec         recorder
-	scope       HandlerScope
-	tsr         bool
+	w             ResponseWriter
+	req           *http.Request
+	params        *[]string
+	tsrParams     *[]string
+	skipStack     *skipStack
+	route         *Route
+	tree          *iTree  // no reset
+	fox           *Router // no reset
+	cachedQueries url.Values
+	rec           recorder
+	scope         HandlerScope
+	tsr           bool
 }
 
 // reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].
@@ -125,7 +133,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
-	c.cachedQuery = nil
+	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
 	c.tsr = false
@@ -134,17 +142,27 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 func (c *cTx) resetNil() {
 	c.req = nil
 	c.w = nil
-	c.cachedQuery = nil
+	c.cachedQueries = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
 	c.tsr = false
 }
 
-// resetWithWriter resets the [Context] to its initial state, attaching the provided [ResponseWriter] and [http.Request].
+// resetWithRequest resets the [Context] to its initial state, with the provided [http.Request].
+func (c *cTx) resetWithRequest(r *http.Request) {
+	c.req = r
+	c.w = nil
+	c.cachedQueries = nil
+	c.route = nil
+	*c.params = (*c.params)[:0]
+	c.tsr = false
+}
+
+// resetWithWriter resets the [Context] to its initial state, with the provided [ResponseWriter] and [http.Request].
 func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
-	c.cachedQuery = nil
+	c.cachedQueries = nil
 	c.route = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
@@ -367,7 +385,7 @@ func (c *cTx) Clone() Context {
 		cp.tsrParams = &tsrParams
 	}
 
-	cp.cachedQuery = nil
+	cp.cachedQueries = nil
 	return &cp
 }
 
@@ -381,7 +399,7 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.w = w
 	cp.route = c.route
 	cp.scope = c.scope
-	cp.cachedQuery = nil
+	cp.cachedQueries = nil
 	cp.tsr = c.tsr
 
 	if !c.tsr {
@@ -416,14 +434,14 @@ func (c *cTx) Close() {
 }
 
 func (c *cTx) getQueries() url.Values {
-	if c.cachedQuery == nil {
+	if c.cachedQueries == nil {
 		if c.req != nil {
-			c.cachedQuery = c.req.URL.Query()
+			c.cachedQueries = c.req.URL.Query()
 		} else {
-			c.cachedQuery = url.Values{}
+			c.cachedQueries = url.Values{}
 		}
 	}
-	return c.cachedQuery
+	return c.cachedQueries
 }
 
 // WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.

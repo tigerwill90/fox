@@ -67,7 +67,7 @@ func TestContext_QueryParams(t *testing.T) {
 	c.req = req
 	values := c.QueryParams()
 	assert.Equal(t, wantValues, values)
-	assert.Equal(t, wantValues, c.cachedQuery)
+	assert.Equal(t, wantValues, c.cachedQueries)
 }
 
 func TestContext_QueryParam(t *testing.T) {
@@ -84,7 +84,7 @@ func TestContext_QueryParam(t *testing.T) {
 	c.req = req
 	assert.Equal(t, "b", c.QueryParam("a"))
 	assert.Equal(t, "d", c.QueryParam("c"))
-	assert.Equal(t, wantValues, c.cachedQuery)
+	assert.Equal(t, wantValues, c.cachedQueries)
 }
 
 func TestContext_Route(t *testing.T) {
@@ -192,7 +192,7 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Pattern(), cp.Pattern())
 	assert.Equal(t, c.Fox(), cp.Fox())
-	assert.Nil(t, cc.cachedQuery)
+	assert.Nil(t, cc.cachedQueries)
 
 	c.tsr = true
 	*c.tsrParams = []string{"b"}
