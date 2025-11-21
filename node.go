@@ -994,7 +994,7 @@ func (n *node) string(space int) string {
 			sb.WriteByte(']')
 		}
 		sb.WriteString(" [priority: ")
-		sb.WriteString(strconv.Itoa(route.priority))
+		sb.WriteString(strconv.FormatUint(uint64(route.priority), 10))
 		sb.WriteByte(']')
 	}
 

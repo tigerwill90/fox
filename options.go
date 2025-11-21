@@ -7,7 +7,6 @@ package fox
 import (
 	"cmp"
 	"fmt"
-	"math"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -347,11 +346,11 @@ func WithName(name string) RouteOption {
 }
 
 // WithMatcherPriority sets the priority for a route with matchers. When multiple routes share the same pattern,
-// routes matchers are evaluated by priority order (highest first), then by insertion order for equal priorities. Route
-// without matchers are always evaluated last. By default, the priority is the number of matchers.
+// route matchers are evaluated by priority order (highest first). Routes with equal priority may be evaluated in any order.
+// Routes without matchers are always evaluated last. If unset or 0, the priority defaults to the number of matchers.
 func WithMatcherPriority(priority uint) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
-		s.route.priority = int(min(priority, uint(math.MaxInt)))
+		s.route.priority = priority
 		return nil
 	})
 }

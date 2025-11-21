@@ -392,7 +392,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		hostSplit:   endHost, // 0 if no host
-		priority:    -1,
+		priority:    0,
 		tokens:      tokens,
 	}
 
@@ -416,9 +416,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matcher")
 	}
 
-	if rte.priority == -1 {
-		rte.priority = len(rte.matchers)
-	}
+	rte.priority = cmp.Or(rte.priority, uint(len(rte.matchers)))
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
 	return rte, nil
