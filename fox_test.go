@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/tigerwill90/fox/internal/iterutil"
 	"github.com/tigerwill90/fox/internal/netutil"
 
@@ -9983,109 +9982,11 @@ func onlyError[T any](_ T, err error) error {
 	return err
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	return
-}
-
-func TestX(t *testing.T) {
-	r := mux.NewRouter()
-	r.HandleFunc("/", handler)
-	r.HandleFunc("/products", handler).Methods("POST")
-	r.HandleFunc("/articles", handler).Methods("GET")
-	r.HandleFunc("/articles/{id}", handler).Methods("GET", "PUT")
-	r.HandleFunc("/authors", handler).Queries("surname", "boulou")
-	r.HandleFunc("/authors", handler)
-
-	err := r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
-		pathTemplate, err := route.GetPathTemplate()
-		if err == nil {
-			fmt.Println("ROUTE:", pathTemplate)
+func valueOrFail[T any](t *testing.T) func(v T, err error) T {
+	return func(v T, err error) T {
+		if err != nil {
+			t.Fatal(err)
 		}
-		pathRegexp, err := route.GetPathRegexp()
-		if err == nil {
-			fmt.Println("Path regexp:", pathRegexp)
-		}
-		queriesTemplates, err := route.GetQueriesTemplates()
-		if err == nil {
-			fmt.Println("Queries templates:", strings.Join(queriesTemplates, ","))
-		}
-		queriesRegexps, err := route.GetQueriesRegexp()
-		if err == nil {
-			fmt.Println("Queries regexps:", strings.Join(queriesRegexps, ","))
-		}
-		methods, err := route.GetMethods()
-		if err == nil {
-			fmt.Println("Methods:", strings.Join(methods, ","))
-		}
-		fmt.Println()
-		return nil
-	})
-	require.NoError(t, err)
-}
-
-// BenchmarkX-16    	13688498	        80.50 ns/op	       0 B/op	       0 allocs/op
-func BenchmarkX(b *testing.B) {
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
-		fmt.Println("1")
-	},
-		WithQueryMatcher("a", "b"),
-		WithQueryMatcher("c", "d"),
-		WithQueryMatcher("e", "f"),
-		WithQueryMatcher("g", "h"),
-		WithQueryMatcher("i", "j"),
-		WithQueryMatcher("a", "b"),
-		WithQueryMatcher("c", "d"),
-		WithQueryMatcher("e", "f"),
-		WithQueryMatcher("g", "h"),
-		WithQueryMatcher("i", "j"),
-		WithQueryMatcher("k", "l"),
-		WithQueryMatcher("m", "n"),
-		WithQueryMatcher("o", "p"),
-		WithQueryMatcher("q", "r"),
-		WithQueryMatcher("s", "t"),
-	)
-
-	matchers := []Matcher{
-		QueryMatcher{"s", "t"},
-		QueryMatcher{"q", "r"},
-		QueryMatcher{"o", "p"},
-		QueryMatcher{"m", "n"},
-		QueryMatcher{"k", "l"},
-		QueryMatcher{"i", "j"},
-		QueryMatcher{"g", "h"},
-		QueryMatcher{"e", "f"},
-		QueryMatcher{"c", "d"},
-		QueryMatcher{"a", "b"},
-		QueryMatcher{"i", "j"},
-		QueryMatcher{"g", "h"},
-		QueryMatcher{"e", "f"},
-		QueryMatcher{"c", "d"},
-		QueryMatcher{"a", "b"},
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		f.Has(http.MethodGet, "/foo", matchers...)
-	}
-}
-
-func TestA(t *testing.T) {
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/foo/bar", emptyHandler, WithQueryMatcher("a", "b"), WithName("asdf"))
-	f.MustHandle(http.MethodGet, "/foo/{bar}", emptyHandler, WithQueryMatcher("a", "b"), WithName("bili"))
-	f.MustHandle(http.MethodGet, "/foo/{baz}", emptyHandler, WithQueryMatcher("c", "d"), WithName("boulou"))
-
-	it := f.Iter()
-	for method, route := range it.NamePrefix(it.Methods(), "") {
-		fmt.Println(method, route.Name())
-	}
-
-	fmt.Println(f.Update(http.MethodGet, "/foo/{baz}", emptyHandler, WithQueryMatcher("c", "d"), WithName("asdf")))
-
-	it = f.Iter()
-	for method, route := range it.NamePrefix(it.Methods(), "") {
-		fmt.Println(method, route.Name())
+		return v
 	}
 }

@@ -68,7 +68,7 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 	}
 }
 
-// Reverse returns a range iterator over all routes registered in the routing tree that match the given host and path
+// Reverse returns a range iterator over all routes registered in the routing tree that match the given [http.Request]
 // for the provided HTTP methods. Unlike [Iter.Routes], which matches an exact route, Reverse is used to match an url
 // (e.g., a path from an incoming request) to a registered routes in the tree. The iterator reflect a snapshot of the
 // routing tree at the time [Iter] is created.
