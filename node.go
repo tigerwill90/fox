@@ -852,7 +852,7 @@ func (n *node) searchPattern(key string) (matched *node) {
 
 	for len(search) > 0 {
 		if search[0] == bracketDelim {
-			end, paramName := parseCanonicalKey(search)
+			end, paramName := parseBraceSegment(search)
 			if paramName == "" {
 				goto STATIC
 			}
@@ -866,7 +866,7 @@ func (n *node) searchPattern(key string) (matched *node) {
 		}
 
 		if search[0] == starDelim {
-			end, paramName := parseCanonicalKey(search)
+			end, paramName := parseBraceSegment(search)
 			if paramName == "" {
 				goto STATIC
 			}
@@ -919,9 +919,17 @@ func (n *node) searchName(key string) (matched *node) {
 	return current
 }
 
-// TODO test that extensively (fuzzing) ??
-// parseCanonicalKey ...
-func parseCanonicalKey(pattern string) (int, string) {
+// parseBraceSegment extracts the node key from a param or wildcard segment in a route pattern.
+// It returns the index of the closing brace and the corresponding node key used for tree lookups:
+//   - For params {name}: returns (end, "?")
+//   - For wildcards *{name}: returns (end, "*")
+//   - For params with regex {name:pattern}: returns (end, "pattern")
+//   - For wildcards with regex *{name:pattern}: returns (end, "pattern")
+//   - For invalid/malformed segments: returns (0, "") to signal early exit
+//
+// This is a lightweight parser that does not fully validate the segment. It assumes the caller
+// will verify that the retrieved route's pattern matches the search pattern after tree lookup.
+func parseBraceSegment(pattern string) (int, string) {
 	length := len(pattern)
 	if length == 0 {
 		return 0, pattern
