@@ -238,12 +238,12 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 	// Base case: no tokens left, attach route
 	if len(tokens) == 0 {
 		if t.mode == modeInsert && n.isLeaf() {
-			if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.MatchersEqual(route.matchers) }); idx >= 0 {
+			if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.matchersEqual(route.matchers) }); idx >= 0 {
 				return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[idx]}
 			}
 		}
 		if t.mode == modeUpdate {
-			idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.MatchersEqual(route.matchers) })
+			idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.matchersEqual(route.matchers) })
 			if idx == -1 {
 				return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
 			}
@@ -553,7 +553,7 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, route *Route) (*node, 
 			return nil, nil
 		}
 
-		idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.MatchersEqual(route.matchers) })
+		idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.matchersEqual(route.matchers) })
 		if idx == -1 {
 			return nil, nil
 		}

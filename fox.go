@@ -303,7 +303,7 @@ func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
 	if matched == nil || !matched.isLeaf() {
 		return nil
 	}
-	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.pattern == pattern && r.MatchersEqual(matchers) })
+	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.pattern == pattern && r.matchersEqual(matchers) })
 	if idx < 0 {
 		return nil
 	}

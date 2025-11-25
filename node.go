@@ -320,7 +320,7 @@ Walk:
 					remaining := child.key[len(search):]
 					if remaining == "/" {
 						for i, route := range child.routes {
-							if route.Match(c) {
+							if route.match(c) {
 								c.tsr = true
 								n = child
 								index = i
@@ -406,7 +406,7 @@ Walk:
 						if !c.tsr && len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								for i, route := range child.routes {
-									if route.Match(c) {
+									if route.match(c) {
 										c.tsr = true
 										n = child
 										index = i
@@ -489,7 +489,7 @@ Walk:
 				}
 
 				for i, route := range wildcardNode.routes {
-					if route.Match(c) {
+					if route.match(c) {
 						if !lazy {
 							*c.params = append(*c.params, search)
 						}
@@ -505,7 +505,7 @@ Walk:
 
 	if matched.isLeaf() {
 		for i, route := range matched.routes {
-			if route.Match(c) {
+			if route.match(c) {
 				c.tsr = false
 				return i, matched
 			}
@@ -515,7 +515,7 @@ Walk:
 	if !c.tsr {
 		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 			for i, route := range child.routes {
-				if route.Match(c) {
+				if route.match(c) {
 					c.tsr = true
 					n = child
 					index = i
@@ -529,7 +529,7 @@ Walk:
 
 		if matched.key == "/" && parent != nil && parent.isLeaf() {
 			for i, route := range parent.routes {
-				if route.Match(c) {
+				if route.match(c) {
 					c.tsr = true
 					n = parent
 					index = i
@@ -545,7 +545,7 @@ Walk:
 Backtrack:
 	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
-			if route.Match(c) {
+			if route.match(c) {
 				c.tsr = true
 				n = matched
 				index = i
@@ -659,7 +659,7 @@ func (n *node) addRoute(route *Route) {
 
 func (n *node) replaceRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return r.MatchersEqual(route.matchers)
+		return r.matchersEqual(route.matchers)
 	})
 	if idx < 0 {
 		panic("internal error: replacing missing route")
@@ -693,7 +693,7 @@ func (n *node) replaceRoute(route *Route) {
 
 func (n *node) delRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return r.MatchersEqual(route.matchers)
+		return r.matchersEqual(route.matchers)
 	})
 	if idx >= 0 {
 		copy(n.routes[idx:], n.routes[idx+1:])

@@ -2,7 +2,6 @@ package fox
 
 import (
 	"iter"
-	"slices"
 )
 
 // Route represents an immutable HTTP route with associated handlers and settings.
@@ -79,7 +78,7 @@ func (r *Route) ParamsLen() int {
 	return len(r.params)
 }
 
-// Params returns an iterator over all parameters for this [Route].
+// Params returns an iterator over all parameters name for this [Route].
 func (r *Route) Params() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for _, param := range r.params {
@@ -90,8 +89,31 @@ func (r *Route) Params() iter.Seq[string] {
 	}
 }
 
-// Match returns true if all matchers attached to this [Route] match the request.
-func (r *Route) Match(c RequestContext) bool {
+// MatchersLen returns the number of matchers for this [Route].
+func (r *Route) MatchersLen() int {
+	return len(r.matchers)
+}
+
+// Matchers returns an iterator over all matchers attached to this [Route].
+func (r *Route) Matchers() iter.Seq[Matcher] {
+	return func(yield func(Matcher) bool) {
+		for _, m := range r.matchers {
+			if !yield(m) {
+				return
+			}
+		}
+	}
+}
+
+// Equal reports whether two routes are structurally equivalent, meaning they have
+// identical routing behavior. This compares the pattern and matchers only, not other
+// configuration such as handlers, middleware, or annotations.
+func (r *Route) Equal(route *Route) bool {
+	return r.pattern == route.pattern && r.matchersEqual(route.matchers)
+}
+
+// match returns true if all matchers attached to this [Route] match the request.
+func (r *Route) match(c RequestContext) bool {
 	for _, m := range r.matchers {
 		if !m.Match(c) {
 			return false
@@ -100,8 +122,8 @@ func (r *Route) Match(c RequestContext) bool {
 	return true
 }
 
-// MatchersEqual reports whether this [Route]'s matchers are equal to the provided matchers.
-func (r *Route) MatchersEqual(matchers []Matcher) bool {
+// matchersEqual reports whether this [Route]'s matchers are equal to the provided matchers.
+func (r *Route) matchersEqual(matchers []Matcher) bool {
 	if len(r.matchers) != len(matchers) {
 		return false
 	}
@@ -123,20 +145,4 @@ func (r *Route) MatchersEqual(matchers []Matcher) bool {
 		}
 	}
 	return true
-}
-
-// MatchersContains reports whether this [Route] contains a matcher equal to the provided matcher.
-func (r *Route) MatchersContains(matcher Matcher) bool {
-	return slices.ContainsFunc(r.matchers, func(m Matcher) bool { return m.Equal(matcher) })
-}
-
-// Matchers returns an iterator over all matchers attached to this [Route].
-func (r *Route) Matchers() iter.Seq[Matcher] {
-	return func(yield func(Matcher) bool) {
-		for _, m := range r.matchers {
-			if !yield(m) {
-				return
-			}
-		}
-	}
 }
