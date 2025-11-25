@@ -6,14 +6,18 @@ import (
 	"regexp"
 )
 
-// Matcher evaluates if an HTTP request satisfies specific conditions.
+// Matcher evaluates if an HTTP request satisfies specific conditions. Matchers are evaluated after hostname and path
+// matching succeeds. All matchers associated with a route must match for the route to be selected.
+// Matcher implementations must be safe for concurrent use by multiple goroutines.
 type Matcher interface {
 	// Match evaluates if the [RequestContext] satisfies this matcher.
 	Match(c RequestContext) bool
-	// Equal checks if this matcher is structurally equivalent to m.
+	// Equal reports whether this matcher is semantically equivalent to another. Implementation must
+	// - Handle type checking: matchers of different types are not equal
+	// - Be reflexive: m.Equal(m) == true
+	// - Be symmetric: m.Equal(n) == n.Equal(m)
 	Equal(m Matcher) bool
-	// As set target to this matcher if target is a pointer to the matcher's concrete type.
-	// It returns true if the assignment was successful, false otherwise.
+	// As attempts to convert the matcher to the type pointed to by target.
 	As(target any) bool
 }
 
