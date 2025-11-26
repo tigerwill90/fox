@@ -107,7 +107,6 @@ func (t *tXn) clone() *tXn {
 
 // snapshot capture a point-in-time snapshot of the roots tree. Further mutation to txn
 // will not be reflected on the snapshot.
-// TODO should return both patterns and names.
 func (t *tXn) snapshot() (patterns, names root) {
 	t.writable = nil
 	t.pForked = false
@@ -202,6 +201,72 @@ func (t *tXn) insertNameIn(n *node, search string, route *Route) (*node, error) 
 	return nc, nil
 }
 
+func (t *tXn) deleteName(method string, route *Route) bool {
+	root := t.names[method]
+	if root == nil {
+		return false
+	}
+
+	newRoot := t.deleteNameIn(root, root, route.name)
+	if newRoot != nil {
+		if !t.nForked {
+			t.names = maps.Clone(t.names)
+			t.nForked = true
+		}
+		t.names[method] = newRoot
+		if len(newRoot.statics) == 0 {
+			delete(t.names, method)
+		}
+		return true
+	}
+
+	return false
+}
+
+func (t *tXn) deleteNameIn(root, n *node, search string) *node {
+	if len(search) == 0 {
+		if !n.isLeaf() {
+			return nil
+		}
+
+		nc := t.writeNode(n)
+		nc.routes = nil
+
+		if n != root && len(nc.statics) == 1 {
+			t.mergeChild(nc)
+		}
+
+		return nc
+	}
+
+	label := search[0]
+	idx, child := n.getStaticEdge(label)
+	if child == nil || !strings.HasPrefix(search, child.key) {
+		return nil
+	}
+
+	// Consume the matched portion
+	search = search[len(child.key):]
+
+	newChild := t.deleteNameIn(root, child, search)
+	if newChild == nil {
+		return nil
+	}
+
+	nc := t.writeNode(n)
+
+	if !newChild.isLeaf() && len(newChild.statics) == 0 {
+		nc.delStaticEdge(label)
+		if n != root && !nc.isLeaf() && len(nc.statics) == 1 {
+			t.mergeChild(nc)
+		}
+	} else {
+		nc.statics[idx] = newChild
+	}
+
+	return nc
+}
+
 // insert performs a recursive copy-on-write insertion.
 func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 	root := t.patterns[method]
@@ -280,72 +345,6 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 	default:
 		panic("internal error: unknown token type")
 	}
-}
-
-func (t *tXn) deleteName(method string, route *Route) bool {
-	root := t.names[method]
-	if root == nil {
-		return false
-	}
-
-	newRoot := t.deleteNameIn(root, root, route.name)
-	if newRoot != nil {
-		if !t.nForked {
-			t.names = maps.Clone(t.names)
-			t.nForked = true
-		}
-		t.names[method] = newRoot
-		if len(newRoot.statics) == 0 {
-			delete(t.names, method)
-		}
-		return true
-	}
-
-	return false
-}
-
-func (t *tXn) deleteNameIn(root, n *node, search string) *node {
-	if len(search) == 0 {
-		if !n.isLeaf() {
-			return nil
-		}
-
-		nc := t.writeNode(n)
-		nc.routes = nil
-
-		if n != root && len(nc.statics) == 1 {
-			t.mergeChild(nc)
-		}
-
-		return nc
-	}
-
-	label := search[0]
-	idx, child := n.getStaticEdge(label)
-	if child == nil || !strings.HasPrefix(search, child.key) {
-		return nil
-	}
-
-	// Consume the matched portion
-	search = search[len(child.key):]
-
-	newChild := t.deleteNameIn(root, child, search)
-	if newChild == nil {
-		return nil
-	}
-
-	nc := t.writeNode(n)
-
-	if !newChild.isLeaf() && len(newChild.statics) == 0 {
-		nc.delStaticEdge(label)
-		if n != root && !nc.isLeaf() && len(nc.statics) == 1 {
-			t.mergeChild(nc)
-		}
-	} else {
-		nc.statics[idx] = newChild
-	}
-
-	return nc
 }
 
 func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (*node, error) {
