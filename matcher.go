@@ -2,6 +2,7 @@ package fox
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"regexp"
 )
@@ -19,6 +20,16 @@ type Matcher interface {
 	Equal(m Matcher) bool
 	// As attempts to convert the matcher to the type pointed to by target.
 	As(target any) bool
+}
+
+func MatchQuery(key, value string) (QueryMatcher, error) {
+	if key == "" {
+		return QueryMatcher{}, errors.New("empty query key")
+	}
+	return QueryMatcher{
+		key:   key,
+		value: value,
+	}, nil
 }
 
 type QueryMatcher struct {

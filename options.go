@@ -360,8 +360,9 @@ func WithMatcherPriority(priority uint) RouteOption {
 // matchers can be attached to the same route. All matchers must match for the route to be eligible.
 func WithQueryMatcher(key, value string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
-		if key == "" {
-			return fmt.Errorf("%w: empty query key", ErrInvalidMatcher)
+		matcher, err := MatchQuery(key, value)
+		if err != nil {
+			return fmt.Errorf("%w: %s", ErrInvalidMatcher, matcher)
 		}
 		s.route.matchers = append(s.route.matchers, QueryMatcher{key: key, value: value})
 		return nil
