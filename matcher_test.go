@@ -514,3 +514,249 @@ func TestClientIpMatcher_As(t *testing.T) {
 	var wrongTarget QueryMatcher
 	assert.False(t, m.As(&wrongTarget))
 }
+
+func TestMatchQuery(t *testing.T) {
+	cases := []struct {
+		name      string
+		key       string
+		value     string
+		wantErr   bool
+		wantKey   string
+		wantValue string
+	}{
+		{
+			name:      "valid query matcher",
+			key:       "foo",
+			value:     "bar",
+			wantErr:   false,
+			wantKey:   "foo",
+			wantValue: "bar",
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			value:   "bar",
+			wantErr: true,
+		},
+		{
+			name:      "empty value is valid",
+			key:       "foo",
+			value:     "",
+			wantErr:   false,
+			wantKey:   "foo",
+			wantValue: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := MatchQuery(tc.key, tc.value)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantKey, m.Key())
+			assert.Equal(t, tc.wantValue, m.Value())
+		})
+	}
+}
+
+func TestMatchQueryRegexp(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		expr    string
+		wantErr bool
+		wantKey string
+	}{
+		{
+			name:    "valid query regexp matcher",
+			key:     "id",
+			expr:    `\d+`,
+			wantErr: false,
+			wantKey: "id",
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			expr:    `\d+`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid regexp",
+			key:     "id",
+			expr:    `[`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := MatchQueryRegexp(tc.key, tc.expr)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantKey, m.Key())
+			assert.NotNil(t, m.Regex())
+		})
+	}
+}
+
+func TestMatchHeader(t *testing.T) {
+	cases := []struct {
+		name      string
+		key       string
+		value     string
+		wantErr   bool
+		wantKey   string
+		wantValue string
+	}{
+		{
+			name:      "valid header matcher",
+			key:       "Content-Type",
+			value:     "application/json",
+			wantErr:   false,
+			wantKey:   "Content-Type",
+			wantValue: "application/json",
+		},
+		{
+			name:      "lowercase key gets canonicalized",
+			key:       "content-type",
+			value:     "application/json",
+			wantErr:   false,
+			wantKey:   "Content-Type",
+			wantValue: "application/json",
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			value:   "application/json",
+			wantErr: true,
+		},
+		{
+			name:      "empty value is valid",
+			key:       "X-Custom",
+			value:     "",
+			wantErr:   false,
+			wantKey:   "X-Custom",
+			wantValue: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := MatchHeader(tc.key, tc.value)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantKey, m.Key())
+			assert.Equal(t, tc.wantValue, m.Value())
+		})
+	}
+}
+
+func TestMatchHeaderRegexp(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		expr    string
+		wantErr bool
+		wantKey string
+	}{
+		{
+			name:    "valid header regexp matcher",
+			key:     "Content-Type",
+			expr:    `application/.*`,
+			wantErr: false,
+			wantKey: "Content-Type",
+		},
+		{
+			name:    "lowercase key gets canonicalized",
+			key:     "content-type",
+			expr:    `application/.*`,
+			wantErr: false,
+			wantKey: "Content-Type",
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			expr:    `application/.*`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid regexp",
+			key:     "Content-Type",
+			expr:    `[`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := MatchHeaderRegexp(tc.key, tc.expr)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantKey, m.Key())
+			assert.NotNil(t, m.Regex())
+		})
+	}
+}
+
+func TestMatchClientIP(t *testing.T) {
+	cases := []struct {
+		name    string
+		ip      string
+		wantErr bool
+	}{
+		{
+			name:    "valid CIDR",
+			ip:      "192.168.1.0/24",
+			wantErr: false,
+		},
+		{
+			name:    "valid single IP",
+			ip:      "192.168.1.1",
+			wantErr: false,
+		},
+		{
+			name:    "valid IPv6 CIDR",
+			ip:      "2001:db8::/32",
+			wantErr: false,
+		},
+		{
+			name:    "valid IPv6 single IP",
+			ip:      "2001:db8::1",
+			wantErr: false,
+		},
+		{
+			name:    "invalid IP",
+			ip:      "invalid",
+			wantErr: true,
+		},
+		{
+			name:    "empty IP",
+			ip:      "",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := MatchClientIP(tc.ip)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.NotNil(t, m.IPNet())
+		})
+	}
+}

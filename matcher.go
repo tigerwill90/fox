@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"net"
+	"net/http"
 	"regexp"
+
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 // Matcher evaluates if an HTTP request satisfies specific conditions. Matchers are evaluated after hostname and path
@@ -67,6 +70,20 @@ func (m QueryMatcher) As(target any) bool {
 	return true
 }
 
+func MatchQueryRegexp(key, expr string) (QueryRegexpMatcher, error) {
+	if key == "" {
+		return QueryRegexpMatcher{}, errors.New("empty query key")
+	}
+	regex, err := regexp.Compile("^" + expr + "$")
+	if err != nil {
+		return QueryRegexpMatcher{}, err
+	}
+	return QueryRegexpMatcher{
+		key:   key,
+		regex: regex,
+	}, nil
+}
+
 type QueryRegexpMatcher struct {
 	regex *regexp.Regexp
 	key   string
@@ -100,6 +117,16 @@ func (m QueryRegexpMatcher) As(target any) bool {
 		return false
 	}
 	return true
+}
+
+func MatchHeader(key, value string) (HeaderMatcher, error) {
+	if key == "" {
+		return HeaderMatcher{}, errors.New("empty header key")
+	}
+	return HeaderMatcher{
+		canonicalKey: http.CanonicalHeaderKey(key),
+		value:        value,
+	}, nil
 }
 
 type HeaderMatcher struct {
@@ -141,6 +168,20 @@ func (m HeaderMatcher) As(target any) bool {
 	return true
 }
 
+func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
+	if key == "" {
+		return HeaderRegexpMatcher{}, errors.New("empty header key")
+	}
+	regex, err := regexp.Compile("^" + expr + "$")
+	if err != nil {
+		return HeaderRegexpMatcher{}, err
+	}
+	return HeaderRegexpMatcher{
+		canonicalKey: http.CanonicalHeaderKey(key),
+		regex:        regex,
+	}, nil
+}
+
 type HeaderRegexpMatcher struct {
 	regex        *regexp.Regexp
 	canonicalKey string
@@ -178,6 +219,16 @@ func (m HeaderRegexpMatcher) As(target any) bool {
 		return false
 	}
 	return true
+}
+
+func MatchClientIP(ip string) (ClientIpMatcher, error) {
+	ipNet, err := netutil.ParseCIDR(ip)
+	if err != nil {
+		return ClientIpMatcher{}, err
+	}
+	return ClientIpMatcher{
+		ipNet: ipNet,
+	}, nil
 }
 
 type ClientIpMatcher struct {

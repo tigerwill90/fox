@@ -7,11 +7,7 @@ package fox
 import (
 	"cmp"
 	"fmt"
-	"net/http"
 	"reflect"
-	"regexp"
-
-	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 type TrailingSlashOption uint8
@@ -362,9 +358,9 @@ func WithQueryMatcher(key, value string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
 		matcher, err := MatchQuery(key, value)
 		if err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidMatcher, matcher)
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
 		}
-		s.route.matchers = append(s.route.matchers, QueryMatcher{key: key, value: value})
+		s.route.matchers = append(s.route.matchers, matcher)
 		return nil
 	})
 }
@@ -376,14 +372,11 @@ func WithQueryMatcher(key, value string) MatcherOption {
 // must match for the route to be eligible.
 func WithQueryRegexpMatcher(key, expr string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
-		if key == "" {
-			return fmt.Errorf("%w: empty query key", ErrInvalidMatcher)
-		}
-		regex, err := regexp.Compile("^" + expr + "$")
+		matcher, err := MatchQueryRegexp(key, expr)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
 		}
-		s.route.matchers = append(s.route.matchers, QueryRegexpMatcher{key: key, regex: regex})
+		s.route.matchers = append(s.route.matchers, matcher)
 		return nil
 	})
 }
@@ -393,10 +386,11 @@ func WithQueryRegexpMatcher(key, expr string) MatcherOption {
 // can be attached to the same route. All matchers must match for the route to be eligible.
 func WithHeaderMatcher(key, value string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
-		if key == "" {
-			return fmt.Errorf("%w: empty header key", ErrInvalidMatcher)
+		matcher, err := MatchHeader(key, value)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
 		}
-		s.route.matchers = append(s.route.matchers, HeaderMatcher{canonicalKey: http.CanonicalHeaderKey(key), value: value})
+		s.route.matchers = append(s.route.matchers, matcher)
 		return nil
 	})
 }
@@ -408,14 +402,11 @@ func WithHeaderMatcher(key, value string) MatcherOption {
 // must match for the route to be eligible.
 func WithHeaderRegexpMatcher(key, expr string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
-		if key == "" {
-			return fmt.Errorf("%w: empty header key", ErrInvalidMatcher)
-		}
-		regex, err := regexp.Compile("^" + expr + "$")
+		matcher, err := MatchHeaderRegexp(key, expr)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
 		}
-		s.route.matchers = append(s.route.matchers, HeaderRegexpMatcher{canonicalKey: http.CanonicalHeaderKey(key), regex: regex})
+		s.route.matchers = append(s.route.matchers, matcher)
 		return nil
 	})
 }
@@ -427,11 +418,11 @@ func WithHeaderRegexpMatcher(key, expr string) MatcherOption {
 // See WithClientIPResolver to configure a resolver for obtaining the "real" client IP.
 func WithClientIPMatcher(ip string) MatcherOption {
 	return matcherOptionFunc(func(s sealedOption) error {
-		ipNet, err := netutil.ParseCIDR(ip)
+		matcher, err := MatchClientIP(ip)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
 		}
-		s.route.matchers = append(s.route.matchers, ClientIpMatcher{ipNet: ipNet})
+		s.route.matchers = append(s.route.matchers, matcher)
 		return nil
 	})
 }
