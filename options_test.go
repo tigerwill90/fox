@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -601,4 +602,17 @@ func TestInvalidAnnotation(t *testing.T) {
 	f, err := New()
 	require.NoError(t, err)
 	assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler, WithAnnotation(nonComparableKey, nil))), ErrInvalidConfig)
+}
+
+func TestAnnotationFuncWithError(t *testing.T) {
+	f, err := New()
+	require.NoError(t, err)
+	want := errors.New("some error")
+	fn := func() (any, error) {
+		return nil, want
+	}
+
+	err = onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler, WithAnnotationFunc("foo", fn)))
+	assert.ErrorIs(t, err, ErrInvalidConfig)
+	assert.ErrorIs(t, err, want)
 }
