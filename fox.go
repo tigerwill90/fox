@@ -282,13 +282,13 @@ func (fox *Router) DeleteRoute(method string, route *Route) (*Route, error) {
 	return route, nil
 }
 
-// Has allows to check if the given method and route pattern exactly match a registered route. This function is safe for
+// Has allows to check if the given method, pattern and matchers exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Route] as an alternative.
 func (fox *Router) Has(method, pattern string, matchers ...Matcher) bool {
 	return fox.Route(method, pattern, matchers...) != nil
 }
 
-// Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
+// Route performs a lookup for a registered route matching the given method, pattern and matchers. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
 // mutation on route are ongoing. See also [Router.Has] or [Iter.Routes] as an alternative.
 func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {

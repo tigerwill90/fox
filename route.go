@@ -121,21 +121,23 @@ func (r *Route) matchersEqual(matchers []Matcher) bool {
 		return false
 	}
 
-	// O(n²) in the worst case, but the matched slice is stack-allocated when using a reasonable number of matchers
-	// (<15 per route, which is already extreme), making this faster than O(n) map-based algorithms for typical use cases.
+	// O(n²) in the worst case, but the matched slice should be stack-allocated in most cases.
+	// A hash-based O(n) approach was considered, but for small arrays the cost of populating
+	// a map outweighs the quadratic comparison cost. Additionally, maps with more than 8 elements
+	// are heap-allocated, which adds to the cost. Also, for typical use cases such as a reverse proxy
+	// that read configuration from events, database or file, matchers are likely in the same order as when the
+	// route was registered, which gives performance closer to O(n) in practice.
 	matched := make([]bool, len(matchers))
+
+outer:
 	for _, a := range r.matchers {
-		found := false
 		for i, b := range matchers {
 			if !matched[i] && a.Equal(b) {
 				matched[i] = true
-				found = true
-				break
+				continue outer
 			}
 		}
-		if !found {
-			return false
-		}
+		return false
 	}
 	return true
 }

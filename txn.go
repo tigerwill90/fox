@@ -236,7 +236,7 @@ func (txn *Txn) Truncate(methods ...string) error {
 	return nil
 }
 
-// Has allows to check if the given method and route pattern exactly match a registered route. This function is NOT
+// Has allows to check if the given method, pattern and matchers exactly match a registered route. This function is NOT
 // thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Route] as an alternative.
 func (txn *Txn) Has(method, pattern string, matchers ...Matcher) bool {
 	if txn.rootTxn == nil {
@@ -246,7 +246,7 @@ func (txn *Txn) Has(method, pattern string, matchers ...Matcher) bool {
 	return txn.Route(method, pattern, matchers...) != nil
 }
 
-// Route performs a lookup for a registered route matching the given method and route pattern. It returns the [Route] if a
+// Route performs a lookup for a registered route matching the given method, pattern and matchers. It returns the [Route] if a
 // match is found or nil otherwise. This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Has] or [Iter.Routes] as an alternative.
 func (txn *Txn) Route(method, pattern string, matchers ...Matcher) *Route {
