@@ -105,13 +105,6 @@ func (r *Route) Matchers() iter.Seq[Matcher] {
 	}
 }
 
-// Equal reports whether two routes are structurally equivalent, meaning they have
-// identical routing behavior. This compares the pattern and matchers only, not other
-// configuration such as handlers, middleware, or annotations.
-func (r *Route) Equal(route *Route) bool {
-	return r.pattern == route.pattern && r.matchersEqual(route.matchers)
-}
-
 // match returns true if all matchers attached to this [Route] match the request.
 func (r *Route) match(c RequestContext) bool {
 	for _, m := range r.matchers {
