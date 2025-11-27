@@ -323,7 +323,7 @@ Walk:
 							if route.match(c) {
 								c.tsr = true
 								n = child
-								index = i
+								index = i //nolint:staticcheck
 								if !lazy {
 									copyWithResize(c.tsrParams, c.params)
 								}
@@ -409,7 +409,7 @@ Walk:
 									if route.match(c) {
 										c.tsr = true
 										n = child
-										index = j
+										index = j //nolint:staticcheck
 										if !lazy {
 											copyWithResize(c.tsrParams, c.params)
 											*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
@@ -518,7 +518,7 @@ Walk:
 				if route.match(c) {
 					c.tsr = true
 					n = child
-					index = i
+					index = i //nolint:staticcheck
 					if !lazy {
 						copyWithResize(c.tsrParams, c.params)
 					}
