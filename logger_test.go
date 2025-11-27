@@ -15,7 +15,7 @@ func TestLoggerWithHandler(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
 	f, _ := New(
 		WithHandleTrailingSlash(RedirectSlash),
-		WithMiddleware(LoggerWithHandler(slog.NewTextHandler(buf, &slog.HandlerOptions{
+		WithMiddleware(Logger(slog.NewTextHandler(buf, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 				if a.Key == "time" {

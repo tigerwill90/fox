@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -8819,16 +8820,15 @@ func TestRouterWithOptionsHandler(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
 
-func TestDefaultOptions(t *testing.T) {
+func TestDeveloppementOptions(t *testing.T) {
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
 			next(c)
 		}
 	})
-	r, err := New(WithMiddleware(m), DefaultOptions())
+	r, err := New(WithMiddleware(m), DevelopmentOptions())
 	require.NoError(t, err)
 	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[2].m).Pointer())
-	assert.True(t, r.handleOptions)
 }
 
 func TestInvalidAnnotation(t *testing.T) {
@@ -8868,7 +8868,7 @@ func TestUpdateWithMiddleware(t *testing.T) {
 			next(c)
 		}
 	})
-	f, _ := New(WithMiddleware(Recovery()))
+	f, _ := New(WithMiddleware(Recovery(slog.DiscardHandler)))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 	w := httptest.NewRecorder()
@@ -8970,9 +8970,9 @@ func TestRouteMiddleware(t *testing.T) {
 }
 
 func TestInvalidMiddleware(t *testing.T) {
-	_, err := New(WithMiddleware(Logger(), nil))
+	_, err := New(WithMiddleware(Logger(slog.DiscardHandler), nil))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
-	_, err = New(WithMiddlewareFor(NoRouteHandler, nil, Logger()))
+	_, err = New(WithMiddlewareFor(NoRouteHandler, nil, Logger(slog.DiscardHandler)))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 	f, err := New()
 	require.NoError(t, err)
@@ -8980,8 +8980,8 @@ func TestInvalidMiddleware(t *testing.T) {
 }
 
 func TestMiddlewareLength(t *testing.T) {
-	f, _ := New(DefaultOptions())
-	r := f.MustHandle(http.MethodGet, "/", emptyHandler, WithMiddleware(Recovery(), Logger()))
+	f, _ := New(DevelopmentOptions())
+	r := f.MustHandle(http.MethodGet, "/", emptyHandler, WithMiddleware(Recovery(slog.DiscardHandler), Logger(slog.DiscardHandler)))
 	assert.Len(t, f.mws, 2)
 	assert.Len(t, r.mws, 4)
 }

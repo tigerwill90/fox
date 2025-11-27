@@ -8,6 +8,8 @@ import (
 	"cmp"
 	"fmt"
 	"reflect"
+
+	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 type TrailingSlashOption uint8
@@ -442,17 +444,39 @@ func WithMatcher(matchers ...Matcher) MatcherOption {
 	})
 }
 
-// DefaultOptions configure the router to use the [Recovery] middleware for the [RouteHandler] scope, the [Logger] middleware
-// for [AllHandlers] scope, enable automatic OPTIONS response and path correction in redirect mode. Note that DefaultOptions
-// push the [Recovery] and [Logger] middleware respectively to the first and second position of the middleware chains.
+// DefaultOptions configures the router with sensible production defaults:
+//   - Enables automatic OPTIONS responses ([WithAutoOptions])
+//   - Enables 405 Method Not Allowed responses ([WithNoMethod])
+//   - Enables regular expression support in route parameters ([AllowRegexpParam])
+//   - Enables redirect-based path correction for trailing slashes ([WithHandleTrailingSlash] with [RedirectSlash])
+//   - Enables redirect-based path correction for non-canonical paths ([WithHandleFixedPath] with [RedirectPath])
+//
+// For development, consider combining this with [DevelopmentOptions] to add debugging middleware.
 func DefaultOptions() GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.mws = append([]middleware{
-			{Recovery(), RouteHandler, true},
-			{Logger(), AllHandlers, true},
-		}, s.router.mws...)
 		s.router.handleOptions = true
+		s.router.handleMethodNotAllowed = true
+		s.router.allowRegexp = true
 		s.router.handlePath = RedirectPath
+		s.router.handleSlash = RedirectSlash
+		return nil
+	})
+}
+
+// DevelopmentOptions configures the router with middleware useful for local development and debugging.
+// It registers the following middleware at the front of the chain:
+//   - [Recovery] middleware for the [RouteHandler] scope, which catches panics and logs stack traces
+//   - [Logger] middleware for [AllHandlers] scope, which logs request details
+//
+// Both middleware use a human-readable, colorized slog handler optimized for terminal output.
+// This option is intended for development only and should not be used in production, where structured
+// logging with a proper [slog.Handler] is typically preferred.
+func DevelopmentOptions() GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.mws = append([]middleware{
+			{Recovery(slogpretty.DefaultHandler), RouteHandler, true},
+			{Logger(slogpretty.DefaultHandler), AllHandlers, true},
+		}, s.router.mws...)
 		return nil
 	})
 }

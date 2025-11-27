@@ -9,8 +9,6 @@ import (
 	"errors"
 	"log/slog"
 	"time"
-
-	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 // Keys for "built-in" logger attribute for the logger middleware.
@@ -35,11 +33,11 @@ const (
 	LoggerLocationKey = "location"
 )
 
-// LoggerWithHandler returns a middleware that logs request information using the provided [slog.Handler].
+// Logger returns a middleware that logs request information using the provided [slog.Handler].
 // It logs details such as the remote or client IP, HTTP method, request path, status code and latency.
 // Status codes are logged at different levels: 2xx at INFO, 3xx at DEBUG (with Location header if present),
 // 4xx at WARN, and 5xx at ERROR.
-func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
+func Logger(handler slog.Handler) MiddlewareFunc {
 	log := slog.New(handler)
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
@@ -88,13 +86,6 @@ func LoggerWithHandler(handler slog.Handler) MiddlewareFunc {
 			)
 		}
 	}
-}
-
-// Logger returns a middleware that logs request information using the built-in fox's slog handler.
-// This is a convenience wrapper around [LoggerWithHandler] with a default handler that outputs
-// to [os.Stdout] for INFO, WARN, and DEBUG levels, and [os.Stderr] for ERROR level.
-func Logger() MiddlewareFunc {
-	return LoggerWithHandler(slogpretty.DefaultHandler)
 }
 
 func level(status int) slog.Level {
