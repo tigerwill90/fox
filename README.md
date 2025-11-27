@@ -780,12 +780,14 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 - [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32), [Builtin Logger Middleware](https://github.com/tigerwill90/fox/pull/33), [Client IP Derivation](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
 - [x] [Support infix wildcard](https://github.com/tigerwill90/fox/pull/46), [Support hostname routing](https://github.com/tigerwill90/fox/pull/48), [Support ACID transaction](https://github.com/tigerwill90/fox/pull/49) @v0.18.0
 - [x] [Support regexp params](https://github.com/tigerwill90/fox/pull/68) @v0.25.0
+- [x] [Support route matchers](https://github.com/tigerwill90/fox/pull/69) @v0.26.0
 - [ ] Improving performance and polishing
 - [ ] Stabilizing API
 
 ## Contributions
-This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
-The intention behind these choices is that it can serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
+This project aims to provide a lightweight, high-performance router that is easy to use and hard to misuse, designed for building API gateways and reverse proxies.
+Features are chosen carefully with an emphasis on composability, and each addition is evaluated against this core mission. The router exposes a relatively low-level API,
+allowing it to serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
 
 ## License
 
@@ -795,7 +797,7 @@ The [**Fox logo**](https://github.com/tigerwill90/fox/blob/static/fox_logo.png) 
 See [`LICENSE-fox-logo.txt`](https://github.com/tigerwill90/fox/blob/static/LICENSE-fox-logo.txt) for details.
 
 ## Acknowledgements
-- [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
+- [hashicorp/go-immutable-radix](https://github.com/hashicorp/go-immutable-radix): Fox Tree design is inspired by Hashicorp's Immutable Radix Tree.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
 this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
 - [realclientip/realclientip-go](https://github.com/realclientip/realclientip-go): Fox uses a derivative version of Adam Pritchard's `realclientip-go` library. 
