@@ -247,7 +247,7 @@ Walk:
 
 Backtrack:
 	if len(*c.skipStack) == 0 {
-		return index, n
+		return
 	}
 
 	skipped := c.skipStack.pop()
