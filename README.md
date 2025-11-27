@@ -243,7 +243,7 @@ f.MustHandle(http.MethodGet, "/api/users", DefaultHandler) // Fallback route
 ````
 
 Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, `fox.WithHeaderMatcher`, `fox.WithHeaderRegexpMatcher`,
-and `WithClientIPMatcher`. Multiple matchers on a route use AND logic. Routes without matchers serve as fallbacks.
+and `fox.WithClientIPMatcher`. Multiple matchers on a route use AND logic. Routes without matchers serve as fallbacks.
 For custom matching logic, implement the `fox.Matcher` interface and use `fox.WithMatcher`.
 
 #### Priority rules
