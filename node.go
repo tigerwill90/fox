@@ -530,7 +530,7 @@ Walk:
 				if route.match(c) {
 					c.tsr = true
 					n = parent
-					index = i
+					index = i //nolint:staticcheck
 					if !lazy {
 						copyWithResize(c.tsrParams, c.params)
 					}
@@ -546,7 +546,7 @@ Backtrack:
 			if route.match(c) {
 				c.tsr = true
 				n = matched
-				index = i
+				index = i //nolint:staticcheck
 				if !lazy {
 					copyWithResize(c.tsrParams, c.params)
 				}
