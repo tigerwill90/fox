@@ -235,6 +235,11 @@ in the following priority order:
 3. Named parameters without constraints
 4. Catch-all parameters with regex constraints
 5. Catch-all parameters without constraints
+6. Route Matchers
+
+Matchers are evaluated after a successful hostname and/or path match. When multiple routes share the same pattern but differ
+in matchers, Fox evaluates them in priority order, configurable via `fox.WithMatcherPriority`. Priority defaults to the number
+of matchers on the route. Routes with equal priority may be evaluated in any order.
 
 If a match candidate fails to complete the full route, Fox returns to the last decision point and tries the next 
 available alternative following the same priority order.
