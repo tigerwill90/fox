@@ -405,11 +405,11 @@ Walk:
 					if idx < 0 {
 						if !c.tsr && len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
-								for i, route := range child.routes {
+								for j, route := range child.routes {
 									if route.match(c) {
 										c.tsr = true
 										n = child
-										index = i
+										index = j
 										if !lazy {
 											copyWithResize(c.tsrParams, c.params)
 											*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
@@ -525,9 +525,7 @@ Walk:
 					break
 				}
 			}
-		}
-
-		if matched.key == "/" && parent != nil && parent.isLeaf() {
+		} else if matched.key == "/" && parent != nil && parent.isLeaf() {
 			for i, route := range parent.routes {
 				if route.match(c) {
 					c.tsr = true
@@ -558,7 +556,7 @@ Backtrack:
 	}
 
 	if len(*c.skipStack) == stackOffset {
-		return index, n
+		return
 	}
 
 	skipped := c.skipStack.pop()
