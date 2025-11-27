@@ -395,31 +395,32 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
 	}
 
-	// TODO This should be called later, after the recursive call.
-	nc := t.writeNode(n)
+	// All following case require creating a split node.
 	splitNode := &node{
 		label: search[0],
 		key:   search[:commonPrefix],
 		host:  tk.hsplit,
 	}
-	nc.replaceStaticEdge(splitNode)
-
-	modChild := t.writeNode(child)
-	modChild.label = modChild.key[commonPrefix]
-	modChild.key = modChild.key[commonPrefix:]
-	splitNode.addStaticEdge(modChild)
 
 	search = search[commonPrefix:]
 	if len(search) == 0 {
 		// e.g. we have /foo and want to insert /fo,
 		// we first split /foo into /fo, o and then fo <- get the new route
-		// splitNode.route = route // SHOULD not need this
 		if len(remaining) > 0 {
 			newSplitNode, err := t.insertTokens(splitNode, remaining, route)
 			if err != nil {
 				return nil, err
 			}
+
+			nc := t.writeNode(n)
 			nc.replaceStaticEdge(newSplitNode)
+
+			// Restore the existing child node
+			modChild := t.writeNode(child)
+			modChild.label = modChild.key[commonPrefix]
+			modChild.key = modChild.key[commonPrefix:]
+			newSplitNode.addStaticEdge(modChild)
+
 			return nc, nil
 		}
 
@@ -429,7 +430,14 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 			}
 		}
 
-		splitNode.addRoute(route)
+		nc := t.writeNode(n)
+		nc.replaceStaticEdge(splitNode)
+
+		modChild := t.writeNode(child)
+		modChild.label = modChild.key[commonPrefix]
+		modChild.key = modChild.key[commonPrefix:]
+		splitNode.addStaticEdge(modChild)
+		splitNode.routes = []*Route{route}
 		return nc, nil
 	}
 
@@ -447,6 +455,14 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 	if err != nil {
 		return nil, err
 	}
+
+	nc := t.writeNode(n)
+	nc.replaceStaticEdge(splitNode)
+
+	modChild := t.writeNode(child)
+	modChild.label = modChild.key[commonPrefix]
+	modChild.key = modChild.key[commonPrefix:]
+	splitNode.addStaticEdge(modChild)
 	splitNode.addStaticEdge(newChild)
 	return nc, nil
 }
