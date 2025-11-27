@@ -52,6 +52,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
   * [Named parameters](#named-parameters)
   * [Named wildcards](#named-wildcards-catch-all)
   * [Hostname validation & restrictions](#hostname-validation--restrictions)
+  * [Route matchers](#route-matchers)
   * [Priority rules](#priority-rules)
   * [Hostname routing](#hostname-routing)
   * [Warning about context](#warning-about-context)
