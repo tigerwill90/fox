@@ -224,6 +224,27 @@ trailing period. However, the router will automatically strip any trailing perio
 the route regardless of a trailing period. Note that FQDN (with trailing period) does not play well with golang 
 TLS stdlib (see traefik/traefik#9157 (comment)).
 
+#### Route matchers
+
+Route matchers enable routing decisions based on request properties beyond method, hostname and path. Multiple routes can share
+the same pattern and be differentiated by query parameters, headers, client IP, or custom criteria.
+
+````go
+f.MustHandle(http.MethodGet, "/api/users", PremiumHandler,
+	fox.WithQueryMatcher("tier", "premium"),
+)
+
+f.MustHandle(http.MethodGet, "/api/users", StandardHandler,
+	fox.WithHeaderMatcher("X-API-Version", "v2"),
+)
+
+f.MustHandle(http.MethodGet, "/api/users", DefaultHandler) // Fallback route
+````
+
+Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, `fox.WithHeaderMatcher`, `fox.WithHeaderRegexpMatcher`,
+and `WithClientIPMatcher`. Multiple matchers on a route use AND logic. Routes without matchers serve as fallbacks.
+For custom matching logic, implement the `fox.Matcher` interface and use `fox.WithMatcher`.
+
 #### Priority rules
 
 The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to 
