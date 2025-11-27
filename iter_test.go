@@ -292,6 +292,26 @@ func TestIter_PrefixWithMethod(t *testing.T) {
 	assert.ElementsMatch(t, want, results[http.MethodHead])
 }
 
+func TestIter_ReverseWithIgnoreTsEnable(t *testing.T) {
+	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
+	for _, method := range []string{"DELETE", "GET", "PUT"} {
+		require.NoError(t, onlyError(f.Handle(method, "/foo/bar", emptyHandler)))
+		require.NoError(t, onlyError(f.Handle(method, "/john/doe/", emptyHandler)))
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar/", nil)
+	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
+
+	req = httptest.NewRequest(http.MethodGet, "/john/doe", nil)
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
+
+	req = httptest.NewRequest(http.MethodGet, "/foo/bar/baz", nil)
+	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	assert.Empty(t, methods)
+}
+
 func BenchmarkIter_Methods(b *testing.B) {
 	f, _ := New()
 	for _, route := range staticRoutes {
