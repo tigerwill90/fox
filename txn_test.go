@@ -186,18 +186,22 @@ func TestTxn_Isolation(t *testing.T) {
 		f, _ := New()
 		_ = f.Updates(func(txn *Txn) error {
 			for _, rte := range staticRoutes {
-				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
+				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler, WithName(rte.path))))
 			}
 			snapshot := txn.Snapshot()
 
 			for _, rte := range githubAPI {
-				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
+				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler, WithName(rte.path))))
 			}
 
 			assert.False(t, snapshot.Has(http.MethodGet, "/repos/{owner}/{repo}/comments"))
 			assert.False(t, snapshot.Has(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
+			assert.Nil(t, snapshot.Name(http.MethodGet, "/repos/{owner}/{repo}/comments"))
+			assert.Nil(t, snapshot.Name(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
 			assert.True(t, txn.Has(http.MethodGet, "/repos/{owner}/{repo}/comments"))
 			assert.True(t, txn.Has(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
+			assert.NotNil(t, txn.Name(http.MethodGet, "/repos/{owner}/{repo}/comments"))
+			assert.NotNil(t, txn.Name(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
 
 			return nil
 		})
@@ -206,23 +210,30 @@ func TestTxn_Isolation(t *testing.T) {
 	t.Run("read only transaction are isolated from write", func(t *testing.T) {
 		f, _ := New()
 		for _, rte := range staticRoutes {
-			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler, WithName(rte.path))))
 		}
 
-		want := 0
+		wantPatterns := 0
+		wantNames := 0
 		_ = f.View(func(txn *Txn) error {
-			want = iterutil.Len2(txn.Iter().All())
+			wantPatterns = iterutil.Len2(txn.Iter().All())
+			wantNames = iterutil.Len2(txn.Iter().Names())
 			for _, rte := range githubAPI {
-				assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+				assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler, WithName(rte.path))))
 			}
-			assert.Equal(t, want, iterutil.Len2(txn.Iter().All()))
+			assert.Equal(t, wantPatterns, iterutil.Len2(txn.Iter().All()))
+			assert.Equal(t, wantNames, iterutil.Len2(txn.Iter().Names()))
 			assert.False(t, txn.Has(http.MethodGet, "/repos/{owner}/{repo}/comments"))
 			assert.False(t, txn.Has(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
+			assert.Nil(t, txn.Name(http.MethodGet, "/repos/{owner}/{repo}/comments"))
+			assert.Nil(t, txn.Name(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
 			assert.True(t, f.Has(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
+			assert.NotNil(t, f.Name(http.MethodGet, "/legacy/issues/search/{owner}/{repository}/{state}/{keyword}"))
 			return nil
 		})
 
-		assert.Equal(t, want+len(githubAPI), iterutil.Len2(f.Iter().All()))
+		assert.Equal(t, wantPatterns+len(githubAPI), iterutil.Len2(f.Iter().All()))
+		assert.Equal(t, wantNames+len(githubAPI), iterutil.Len2(f.Iter().Names()))
 	})
 
 	t.Run("read only transaction can run uncoordinated", func(t *testing.T) {
@@ -248,19 +259,21 @@ func TestTxn_Isolation(t *testing.T) {
 	t.Run("aborted transaction does not write anything", func(t *testing.T) {
 		f, _ := New()
 		for _, rte := range staticRoutes {
-			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+			assert.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler, WithName(rte.path))))
 		}
 
 		want := errors.New("aborted")
 		err := f.Updates(func(txn *Txn) error {
 			for _, rte := range githubAPI {
-				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler)))
+				assert.NoError(t, onlyError(txn.Handle(rte.method, rte.path, emptyHandler, WithName(rte.path))))
 			}
 			assert.Equal(t, len(githubAPI)+len(staticRoutes), iterutil.Len2(txn.Iter().All()))
+			assert.Equal(t, len(githubAPI)+len(staticRoutes), iterutil.Len2(txn.Iter().Names()))
 			return want
 		})
 		assert.Equal(t, err, want)
 		assert.Equal(t, len(staticRoutes), iterutil.Len2(f.Iter().All()))
+		assert.Equal(t, len(staticRoutes), iterutil.Len2(f.Iter().Names()))
 	})
 
 	t.Run("track registered route", func(t *testing.T) {

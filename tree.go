@@ -114,7 +114,7 @@ func (t *tXn) snapshot() (patterns, names root) {
 	return t.patterns, t.names
 }
 
-func (t *tXn) insertName(method string, route *Route) error {
+func (t *tXn) insertName(method string, route *Route, mode insertMode) error {
 	root := t.names[method]
 	if root == nil {
 		root = &node{
@@ -122,7 +122,7 @@ func (t *tXn) insertName(method string, route *Route) error {
 		}
 	}
 
-	newRoot, err := t.insertNameIn(root, route.name, route)
+	newRoot, err := t.insertNameIn(root, route.name, route, mode)
 	if err != nil {
 		return err
 	}
@@ -136,12 +136,13 @@ func (t *tXn) insertName(method string, route *Route) error {
 	return nil
 }
 
-func (t *tXn) insertNameIn(n *node, search string, route *Route) (*node, error) {
+func (t *tXn) insertNameIn(n *node, search string, route *Route, mode insertMode) (*node, error) {
 	if len(search) == 0 {
-		if n.isLeaf() {
-			// This handle both insert & update mode. For update mode, we always delete the previous route name (since we
-			// need to update the route anyway), so it can be registered with the same name or with a name that does not collide
-			// with others.
+		if n.isLeaf() && mode != modeUpdate {
+			// Unlike the regular insert path, where we don't know whether a route exists for the given name,
+			// update mode provides a stronger guarantee: the caller has already verified that old.name == new.name
+			// before invoking insert. This precondition eliminates the need to check for update errors in cases
+			// like node splitting, which the standard insert path must handle.
 			return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[0], isNameConflict: true}
 		}
 
@@ -166,7 +167,7 @@ func (t *tXn) insertNameIn(n *node, search string, route *Route) (*node, error) 
 	commonPrefix := longestPrefix(search, child.key)
 	if commonPrefix == len(child.key) {
 		search = search[commonPrefix:]
-		newChild, err := t.insertNameIn(child, search, route)
+		newChild, err := t.insertNameIn(child, search, route, mode)
 		if err != nil {
 			return nil, err
 		}
@@ -302,34 +303,76 @@ func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error) {
 	// Base case: no tokens left, attach route
 	if len(tokens) == 0 {
-		if t.mode == modeInsert && n.isLeaf() {
-			if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.matchersEqual(route.matchers) }); idx >= 0 {
-				return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[idx]}
+		switch t.mode {
+		case modeInsert:
+			if n.isLeaf() {
+				if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.matchersEqual(route.matchers) }); idx >= 0 {
+					return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[idx]}
+				}
 			}
-		}
-		if t.mode == modeUpdate {
+
+			if route.name != "" {
+				if err := t.insertName(t.method, route, modeInsert); err != nil {
+					return nil, err
+				}
+			}
+
+			nc := t.writeNode(n)
+			nc.addRoute(route)
+			return nc, nil
+		case modeUpdate:
 			idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.matchersEqual(route.matchers) })
 			if idx == -1 {
 				return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
 			}
-			if n.routes[idx].name != "" {
-				t.deleteName(t.method, n.routes[idx])
-			}
-		}
 
-		if route.name != "" {
-			if err := t.insertName(t.method, route); err != nil {
-				return nil, err
-			}
-		}
+			oldRoute := n.routes[idx]
+			// Updating a route supports mutating the handler, route options, and route name. Name changes require
+			// extra care. If the caller updates a route without providing a name, any previously registered name
+			// is deleted. If the same name is provided, the route for that name is updated. The most complex case
+			// is when the caller wants to change the name: we must delete the old name entry and register the new one.
+			// The order of operations is critical here — if any step fails (e.g., the new name collides with an
+			// existing one), we must not have cloned any nodes while traversing the names tree. Therefore, we always
+			// attempt the name insertion first, then update the patterns tree only on success.
+			if oldRoute.name != "" {
+				// If the new route has no name, we simply need to delete the old name (and the new route will not have
+				// any name registered)
+				if route.name == "" {
+					t.deleteName(t.method, n.routes[idx])
+				} else if oldRoute.name == route.name {
+					// If the new route name is equal to the old route name, we need to update the registered name with
+					// the new route. Since we have the guarantee that the route exist at oldRoute.name, this cannot fail.
+					if err := t.insertName(t.method, route, modeUpdate); err != nil {
+						panic(fmt.Errorf("internal error: update name: %w", err))
+					}
+				} else {
+					// If the new route name is different from the old route name, we first try to insert the new name and
+					// then only on success, we can safely deregister the old name.
+					if err := t.insertName(t.method, route, modeInsert); err != nil {
+						return nil, err
+					}
+					t.deleteName(t.method, n.routes[idx])
+				}
 
-		nc := t.writeNode(n)
-		if t.mode == modeInsert {
-			nc.addRoute(route)
-		} else {
+				nc := t.writeNode(n)
+				nc.replaceRoute(route)
+				return nc, nil
+			}
+
+			// Last but not least, the oldRoute may not have any name registered, and in this case this is a simple
+			// insert for this new name.
+			if route.name != "" {
+				if err := t.insertName(t.method, route, modeInsert); err != nil {
+					return nil, err
+				}
+			}
+
+			nc := t.writeNode(n)
 			nc.replaceRoute(route)
+			return nc, nil
+		default:
+			panic("internal error: unexpected insert mode")
 		}
-		return nc, nil
 	}
 
 	tk := tokens[0]
@@ -425,7 +468,7 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 		}
 
 		if route.name != "" {
-			if err := t.insertName(t.method, route); err != nil {
+			if err := t.insertName(t.method, route, modeInsert); err != nil {
 				return nil, err
 			}
 		}

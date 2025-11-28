@@ -45,7 +45,7 @@ func (e *RouteConflictError) Error() string {
 	if !e.isNameConflict {
 		return fmt.Sprintf("%s: new route %s %s conflict with %s", ErrRouteExist, e.Method, e.New.pattern, e.Existing.pattern)
 	}
-	return fmt.Sprintf("%s: new route name %s '%s' conflict with route at %s", ErrRouteNameExist, e.Method, e.New.name, e.Existing.pattern)
+	return fmt.Sprintf("%s: new route name '%s' conflict with route at %s %s", ErrRouteNameExist, e.New.name, e.Method, e.Existing.pattern)
 }
 
 // Unwrap returns the sentinel value [ErrRouteConflict].
