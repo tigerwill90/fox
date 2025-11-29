@@ -399,7 +399,7 @@ func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
 	cp.w = w
 	cp.route = c.route
 	cp.scope = c.scope
-	cp.cachedQueries = nil
+	cp.cachedQueries = nil // In case r is a different request than c.req
 	cp.tsr = c.tsr
 
 	if !c.tsr {
@@ -459,7 +459,7 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 	}
 }
 
-// WrapH is an adapter for wrapping http.Handler and returns a HandlerFunc function.
+// WrapH is an adapter for wrapping http.Handler and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
 	return func(c Context) {
@@ -471,5 +471,20 @@ func WrapH(h http.Handler) HandlerFunc {
 		}
 
 		h.ServeHTTP(c.Writer(), c.Request())
+	}
+}
+
+// WrapM is an adapter for wrapping http.Handler middleware and returns a [MiddlewareFunc] function.
+func WrapM(m func(http.Handler) http.Handler) MiddlewareFunc {
+	return func(next HandlerFunc) HandlerFunc {
+		return func(c Context) {
+			m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				rec := new(recorder)
+				rec.reset(w)
+				cc := c.CloneWith(rec, r)
+				defer cc.Close()
+				next(cc)
+			})).ServeHTTP(c.Writer(), c.Request())
+		}
 	}
 }

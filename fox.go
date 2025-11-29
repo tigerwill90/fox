@@ -667,6 +667,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.tsr = false
 
 	if r.Method == http.MethodOptions && fox.handleOptions {
+		// TODO _, isCors := r.Header[HeaderOrigin] because no Allow header for CORS preflight
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
 		sb.Grow(min((len(tree.patterns)+1)*5, 150))

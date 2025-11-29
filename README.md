@@ -574,24 +574,53 @@ An OPTIONS request is a type of HTTP request that is used to determine the commu
 or API endpoint. These requests are commonly used as "preflight" requests in CORS to check if the CORS protocol is understood 
 and to get permission to access data based on origin.
 
-When automatic OPTIONS responses is enabled, the router will automatically respond to preflight OPTIONS requests and set the `Allow`
-header with the appropriate value. To customize how OPTIONS requests are handled (e.g. adding CORS headers), you may register a middleware for the
-`fox.OptionsHandler` scope or override the default handler.
+When automatic OPTIONS responses is enabled, the router will automatically respond to [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/OPTIONS).
+To customize how OPTIONS requests are handled (e.g. adding CORS headers using a middleware), you may register a middleware 
+for the `fox.OptionsHandler` scope or override the default handler.
 
 ````go
-f, _ := fox.New(
-    fox.WithOptionsHandler(func(c fox.Context) {
-        if c.Header("Access-Control-Request-Method") != "" {
-            // Setting CORS headers.
-            c.SetHeader("Access-Control-Allow-Methods", c.Writer().Header().Get("Allow"))
-            c.SetHeader("Access-Control-Allow-Origin", "*")
-        }
+package main
 
-        // Respond with a 204 status code.
-        c.Writer().WriteHeader(http.StatusNoContent)
-    }),
+import (
+	"errors"
+	"log"
+	"net/http"
+
+	"github.com/jub0bs/cors"
+	"github.com/tigerwill90/fox"
 )
+
+func main() {
+	corsMw, err := cors.NewMiddleware(cors.Config{
+		Origins:        []string{"https://example.com"},
+		Methods:        []string{http.MethodGet, http.MethodPost},
+		RequestHeaders: []string{"Authorization"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	corsMw.SetDebug(true) // turn debug mode on (optional)
+
+	f, err := fox.New(
+		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
+		fox.WithMiddlewareFor(fox.OptionsHandler|fox.RouteHandler, fox.WrapM(corsMw.Wrap)),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	f.MustHandle(http.MethodGet, "/api/users", getHandler)
+	f.MustHandle(http.MethodPost, "/api/users", postHandler)
+
+	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
 ````
+
+The CORS protocol is complex and security-sensitive. We do **NOT** recommend implementing CORS handling manually. Instead,
+consider using [jub0bs/cors](https://github.com/jub0bs/cors), which performs extensive validation before allowing middleware
+creation, helping you avoid common pitfalls.
 
 ## Resolving Client IP
 The `WithClientIPResolver` option allows you to set up strategies to resolve the client IP address based on your 
@@ -665,6 +694,7 @@ Note that there is no "sane" default strategy, so calling `Context.ClientIP` wit
 an `ErrNoClientIPResolver`.
 
 See this [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) for general guidance on choosing a strategy that fit your needs.
+
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.
 The following benchmarks attempt to compare Fox to various popular alternatives, including both fully-featured web frameworks

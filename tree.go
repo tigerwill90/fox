@@ -331,7 +331,7 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 			// extra care. If the caller updates a route without providing a name, any previously registered name
 			// is deleted. If the same name is provided, the route for that name is updated. The most complex case
 			// is when the caller wants to change the name: we must delete the old name entry and register the new one.
-			// The order of operations is critical here — if any step fails (e.g., the new name collides with an
+			// The order of operations is critical here; if any step fails (e.g., the new name collides with an
 			// existing one), we must not have cloned any nodes while traversing the names tree. Therefore, we always
 			// attempt the name insertion first, then update the patterns tree only on success.
 			if oldRoute.name != "" {
