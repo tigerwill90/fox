@@ -28,6 +28,9 @@ const (
 	// LoggerLatencyKey is the key used by the built-in logger middleware for the request processing duration.
 	// The associated [slog.Value] is a time.Duration.
 	LoggerLatencyKey = "latency"
+	// LoggerSizeKey is the key used by the built-in logger middleware for the response body size.
+	// The associated [slog.Value] is an int.
+	LoggerSizeKey = "size"
 	// LoggerLocationKey is the key used by the built-in logger middleware for redirect location header.
 	// The associated [slog.Value] is a string.
 	LoggerLocationKey = "location"
@@ -67,6 +70,7 @@ func Logger(handler slog.Handler) MiddlewareFunc {
 				slog.String(LoggerMethodKey, c.Method()),
 				slog.String(LoggerHostKey, c.Host()),
 				slog.String(LoggerPathKey, cmp.Or(req.URL.RawPath, req.URL.Path)),
+				slog.Int(LoggerSizeKey, c.Writer().Size()),
 				slog.Duration(LoggerLatencyKey, latency),
 			)
 			if location == "" {
