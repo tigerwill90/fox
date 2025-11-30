@@ -67,7 +67,7 @@ func TestContext_QueryParams(t *testing.T) {
 	c.req = req
 	values := c.QueryParams()
 	assert.Equal(t, wantValues, values)
-	assert.Equal(t, wantValues, c.cachedQuery)
+	assert.Equal(t, wantValues, c.cachedQueries)
 }
 
 func TestContext_QueryParam(t *testing.T) {
@@ -84,7 +84,7 @@ func TestContext_QueryParam(t *testing.T) {
 	c.req = req
 	assert.Equal(t, "b", c.QueryParam("a"))
 	assert.Equal(t, "d", c.QueryParam("c"))
-	assert.Equal(t, wantValues, c.cachedQuery)
+	assert.Equal(t, wantValues, c.cachedQueries)
 }
 
 func TestContext_Route(t *testing.T) {
@@ -192,7 +192,7 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Pattern(), cp.Pattern())
 	assert.Equal(t, c.Fox(), cp.Fox())
-	assert.Nil(t, cc.cachedQuery)
+	assert.Nil(t, cc.cachedQueries)
 
 	c.tsr = true
 	*c.tsrParams = []string{"b"}
@@ -537,6 +537,34 @@ func TestWrapH(t *testing.T) {
 			assert.Equal(t, "fox", w.Body.String())
 		})
 	}
+}
+
+func TestWrapM(t *testing.T) {
+	type writer struct {
+		http.ResponseWriter
+	}
+
+	mw := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(&writer{w}, r)
+		})
+	}
+
+	f, _ := New(WithMiddleware(WrapM(mw)))
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		w := c.Writer()
+		inner := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
+		assert.IsType(t, &recorder{}, w)
+		assert.IsType(t, &writer{}, inner)
+
+		require.NoError(t, c.String(http.StatusOK, "OK"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+
+	assert.Equal(t, "OK", w.Body.String())
 }
 
 func BenchmarkWrapF(b *testing.B) {

@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 // Keys for "built-in" logger attribute for the recovery middleware.
@@ -43,9 +42,9 @@ var reqHeaderSep = []byte("\r\n")
 // handling of an HTTP request.
 type RecoveryFunc func(c Context, err any)
 
-// CustomRecoveryWithLogHandler returns a middleware for a given [slog.Handler] that recovers from any panics,
-// logs the error, request details, and stack trace, and then calls the provided handle function to handle the recovery.
-func CustomRecoveryWithLogHandler(handler slog.Handler, handle RecoveryFunc) MiddlewareFunc {
+// RecoveryWithFunc returns a middleware that recovers from any panics, logs the error, request details, and stack trace
+// using the provided [slog.Handler] and then calls the handle function to handle the recovery.
+func RecoveryWithFunc(handler slog.Handler, handle RecoveryFunc) MiddlewareFunc {
 	slogger := slog.New(handler)
 	return func(next HandlerFunc) HandlerFunc {
 		return func(c Context) {
@@ -55,16 +54,10 @@ func CustomRecoveryWithLogHandler(handler slog.Handler, handle RecoveryFunc) Mid
 	}
 }
 
-// CustomRecovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace
-// using the built-in fox's slog handler and then calls the provided handle function to handle the recovery.
-func CustomRecovery(handle RecoveryFunc) MiddlewareFunc {
-	return CustomRecoveryWithLogHandler(slogpretty.DefaultHandler, handle)
-}
-
 // Recovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace
-// using the built-in fox's slog handler and writes a 500 status code response if a panic occurs.
-func Recovery() MiddlewareFunc {
-	return CustomRecovery(DefaultHandleRecovery)
+// using the provided [slog.Handler] and writes a 500 status code response if a panic occurs.
+func Recovery(handler slog.Handler) MiddlewareFunc {
+	return RecoveryWithFunc(handler, DefaultHandleRecovery)
 }
 
 // DefaultHandleRecovery is a default implementation of the [RecoveryFunc].

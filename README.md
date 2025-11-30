@@ -52,6 +52,7 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
   * [Named parameters](#named-parameters)
   * [Named wildcards](#named-wildcards-catch-all)
   * [Hostname validation & restrictions](#hostname-validation--restrictions)
+  * [Route matchers](#route-matchers)
   * [Priority rules](#priority-rules)
   * [Hostname routing](#hostname-routing)
   * [Warning about context](#warning-about-context)
@@ -224,6 +225,27 @@ trailing period. However, the router will automatically strip any trailing perio
 the route regardless of a trailing period. Note that FQDN (with trailing period) does not play well with golang 
 TLS stdlib (see traefik/traefik#9157 (comment)).
 
+#### Route matchers
+
+Route matchers enable routing decisions based on request properties beyond method, hostname and path. Multiple routes can share
+the same pattern and be differentiated by query parameters, headers, client IP, or custom criteria.
+
+````go
+f.MustHandle(http.MethodGet, "/api/users", PremiumHandler,
+	fox.WithQueryMatcher("tier", "premium"),
+)
+
+f.MustHandle(http.MethodGet, "/api/users", StandardHandler,
+	fox.WithHeaderMatcher("X-API-Version", "v2"),
+)
+
+f.MustHandle(http.MethodGet, "/api/users", DefaultHandler) // Fallback route
+````
+
+Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, `fox.WithHeaderMatcher`, `fox.WithHeaderRegexpMatcher`,
+and `fox.WithClientIPMatcher`. Multiple matchers on a route use AND logic. Routes without matchers serve as fallbacks.
+For custom matching logic, implement the `fox.Matcher` interface and use `fox.WithMatcher`.
+
 #### Priority rules
 
 The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to 
@@ -235,6 +257,11 @@ in the following priority order:
 3. Named parameters without constraints
 4. Catch-all parameters with regex constraints
 5. Catch-all parameters without constraints
+6. Route Matchers
+
+Matchers are evaluated after a successful hostname and/or path match. When multiple routes share the same pattern but differ
+in matchers, Fox evaluates them in priority order, configurable via `fox.WithMatcherPriority`. Priority defaults to the number
+of matchers on the route. Routes with equal priority may be evaluated in any order.
 
 If a match candidate fails to complete the full route, Fox returns to the last decision point and tries the next 
 available alternative following the same priority order.
@@ -547,24 +574,53 @@ An OPTIONS request is a type of HTTP request that is used to determine the commu
 or API endpoint. These requests are commonly used as "preflight" requests in CORS to check if the CORS protocol is understood 
 and to get permission to access data based on origin.
 
-When automatic OPTIONS responses is enabled, the router will automatically respond to preflight OPTIONS requests and set the `Allow`
-header with the appropriate value. To customize how OPTIONS requests are handled (e.g. adding CORS headers), you may register a middleware for the
-`fox.OptionsHandler` scope or override the default handler.
+When automatic OPTIONS responses is enabled, the router will automatically respond to [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/OPTIONS).
+To customize how OPTIONS requests are handled (e.g. adding CORS headers using a middleware), you may register a middleware 
+for the `fox.OptionsHandler` scope or override the default handler.
 
 ````go
-f, _ := fox.New(
-    fox.WithOptionsHandler(func(c fox.Context) {
-        if c.Header("Access-Control-Request-Method") != "" {
-            // Setting CORS headers.
-            c.SetHeader("Access-Control-Allow-Methods", c.Writer().Header().Get("Allow"))
-            c.SetHeader("Access-Control-Allow-Origin", "*")
-        }
+package main
 
-        // Respond with a 204 status code.
-        c.Writer().WriteHeader(http.StatusNoContent)
-    }),
+import (
+	"errors"
+	"log"
+	"net/http"
+
+	"github.com/jub0bs/cors"
+	"github.com/tigerwill90/fox"
 )
+
+func main() {
+	corsMw, err := cors.NewMiddleware(cors.Config{
+		Origins:        []string{"https://example.com"},
+		Methods:        []string{http.MethodGet, http.MethodPost},
+		RequestHeaders: []string{"Authorization"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	corsMw.SetDebug(true) // turn debug mode on (optional)
+
+	f, err := fox.New(
+		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
+		fox.WithMiddlewareFor(fox.OptionsHandler|fox.RouteHandler, fox.WrapM(corsMw.Wrap)),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	f.MustHandle(http.MethodGet, "/api/users", getHandler)
+	f.MustHandle(http.MethodPost, "/api/users", postHandler)
+
+	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
 ````
+
+The CORS protocol is complex and security-sensitive. We do **NOT** recommend implementing CORS handling manually. Instead,
+consider using [jub0bs/cors](https://github.com/jub0bs/cors), which performs extensive validation before allowing middleware
+creation, helping you avoid common pitfalls.
 
 ## Resolving Client IP
 The `WithClientIPResolver` option allows you to set up strategies to resolve the client IP address based on your 
@@ -638,6 +694,7 @@ Note that there is no "sane" default strategy, so calling `Context.ClientIP` wit
 an `ErrNoClientIPResolver`.
 
 See this [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) for general guidance on choosing a strategy that fit your needs.
+
 ## Benchmark
 The primary goal of Fox is to be a lightweight, high performance router which allow routes modification at runtime.
 The following benchmarks attempt to compare Fox to various popular alternatives, including both fully-featured web frameworks
@@ -780,12 +837,15 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 - [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32), [Builtin Logger Middleware](https://github.com/tigerwill90/fox/pull/33), [Client IP Derivation](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
 - [x] [Support infix wildcard](https://github.com/tigerwill90/fox/pull/46), [Support hostname routing](https://github.com/tigerwill90/fox/pull/48), [Support ACID transaction](https://github.com/tigerwill90/fox/pull/49) @v0.18.0
 - [x] [Support regexp params](https://github.com/tigerwill90/fox/pull/68) @v0.25.0
+- [x] [Support route matchers](https://github.com/tigerwill90/fox/pull/69) @v0.26.0
+- [ ] Programmatic error handling
 - [ ] Improving performance and polishing
 - [ ] Stabilizing API
 
 ## Contributions
-This project aims to provide a lightweight, high performance and easy to use http router. It purposely has a limited set of features and exposes a relatively low-level api.
-The intention behind these choices is that it can serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
+This project aims to provide a lightweight, high-performance router that is easy to use and hard to misuse, designed for building API gateways and reverse proxies.
+Features are chosen carefully with an emphasis on composability, and each addition is evaluated against this core mission. The router exposes a relatively low-level API,
+allowing it to serve as a building block for implementing your own "batteries included" frameworks. Feature requests and PRs along these lines are welcome. 
 
 ## License
 
@@ -795,7 +855,7 @@ The [**Fox logo**](https://github.com/tigerwill90/fox/blob/static/fox_logo.png) 
 See [`LICENSE-fox-logo.txt`](https://github.com/tigerwill90/fox/blob/static/LICENSE-fox-logo.txt) for details.
 
 ## Acknowledgements
-- [npgall/concurrent-trees](https://github.com/npgall/concurrent-trees): Fox design is largely inspired from Niall Gallagher's Concurrent Trees design.
+- [hashicorp/go-immutable-radix](https://github.com/hashicorp/go-immutable-radix): Fox Tree design is inspired by Hashicorp's Immutable Radix Tree.
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
 this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
 - [realclientip/realclientip-go](https://github.com/realclientip/realclientip-go): Fox uses a derivative version of Adam Pritchard's `realclientip-go` library. 

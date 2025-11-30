@@ -12,13 +12,13 @@ jobs:
         go: [ '>=1.24' ]
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
           cache: false
 
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run tests
         run: go test -v -coverprofile=coverage.txt -covermode=atomic ./...
@@ -40,13 +40,13 @@ jobs:
         go: [ '>=1.24' ]
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
           cache: false
 
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9

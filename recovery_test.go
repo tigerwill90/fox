@@ -16,7 +16,7 @@ import (
 )
 
 func TestAbortHandler(t *testing.T) {
-	m := CustomRecovery(func(c Context, err any) {
+	m := RecoveryWithFunc(slog.DiscardHandler, func(c Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
@@ -47,7 +47,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 	woBuf := bytes.NewBuffer(nil)
 	weBuf := bytes.NewBuffer(nil)
 
-	m := CustomRecoveryWithLogHandler(&slogpretty.Handler{
+	m := RecoveryWithFunc(&slogpretty.Handler{
 		We:  weBuf,
 		Wo:  woBuf,
 		Lvl: slog.LevelDebug,
@@ -84,7 +84,7 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 		weBuf.Reset()
 	}
 
-	m := CustomRecoveryWithLogHandler(&slogpretty.Handler{
+	m := RecoveryWithFunc(&slogpretty.Handler{
 		We:  weBuf,
 		Wo:  woBuf,
 		Lvl: slog.LevelDebug,
@@ -182,7 +182,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 	for errno, expectMsg := range expectMsgs {
 		t.Run(expectMsg, func(t *testing.T) {
-			f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(&slogpretty.Handler{
+			f, _ := New(WithMiddleware(RecoveryWithFunc(&slogpretty.Handler{
 				We:  weBuf,
 				Wo:  woBuf,
 				Lvl: slog.LevelDebug,
@@ -210,7 +210,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 func BenchmarkRecoveryMiddleware(b *testing.B) {
 
-	f, _ := New(WithMiddleware(CustomRecoveryWithLogHandler(slog.DiscardHandler, DefaultHandleRecovery)))
+	f, _ := New(WithMiddleware(RecoveryWithFunc(slog.DiscardHandler, DefaultHandleRecovery)))
 	f.MustHandle(http.MethodGet, "/{1}/{2}/{3}", func(c Context) {
 		panic("yolo")
 	})
