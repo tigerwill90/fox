@@ -336,11 +336,7 @@ func (fox *Router) Reverse(r *http.Request) (route *Route, tsr bool) {
 	defer tree.pool.Put(c)
 	c.resetWithRequest(r)
 
-	path := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		path = r.URL.RawPath
-	}
+	path := c.Path()
 
 	idx, n := tree.lookup(r.Method, r.Host, path, c, true)
 	if n != nil {
@@ -359,11 +355,7 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc C
 	c := tree.pool.Get().(*cTx)
 	c.resetWithWriter(w, r)
 
-	path := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		path = r.URL.RawPath
-	}
+	path := c.Path()
 
 	idx, n := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
@@ -591,15 +583,12 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var n *node
 	var idx int
-	path := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		path = r.URL.RawPath
-	}
 
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	c.reset(w, r)
+
+	path := c.Path()
 
 	idx, n = tree.lookup(r.Method, r.Host, path, c, false)
 	if !c.tsr && n != nil {

@@ -302,11 +302,7 @@ func (txn *Txn) Reverse(r *http.Request) (route *Route, tsr bool) {
 	defer tree.pool.Put(c)
 	c.resetWithRequest(r)
 
-	path := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		path = r.URL.RawPath
-	}
+	path := c.Path()
 
 	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, true)
 	if n != nil {
@@ -329,11 +325,7 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 	c := tree.pool.Get().(*cTx)
 	c.resetWithWriter(w, r)
 
-	path := r.URL.Path
-	if len(r.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		path = r.URL.RawPath
-	}
+	path := c.Path()
 
 	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {

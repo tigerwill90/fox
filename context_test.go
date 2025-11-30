@@ -539,6 +539,34 @@ func TestWrapH(t *testing.T) {
 	}
 }
 
+func TestWrapM(t *testing.T) {
+	type writer struct {
+		http.ResponseWriter
+	}
+
+	mw := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(&writer{w}, r)
+		})
+	}
+
+	f, _ := New(WithMiddleware(WrapM(mw)))
+	f.MustHandle(http.MethodGet, "/foo", func(c Context) {
+		w := c.Writer()
+		inner := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
+		assert.IsType(t, &recorder{}, w)
+		assert.IsType(t, &writer{}, inner)
+
+		require.NoError(t, c.String(http.StatusOK, "OK"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+
+	assert.Equal(t, "OK", w.Body.String())
+}
+
 func BenchmarkWrapF(b *testing.B) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
 	w := httptest.NewRecorder()

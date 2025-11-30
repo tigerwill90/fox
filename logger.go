@@ -5,7 +5,6 @@
 package fox
 
 import (
-	"cmp"
 	"errors"
 	"log/slog"
 	"time"
@@ -69,7 +68,7 @@ func Logger(handler slog.Handler) MiddlewareFunc {
 				slog.Int(LoggerStatusKey, c.Writer().Status()),
 				slog.String(LoggerMethodKey, c.Method()),
 				slog.String(LoggerHostKey, c.Host()),
-				slog.String(LoggerPathKey, cmp.Or(req.URL.RawPath, req.URL.Path)),
+				slog.String(LoggerPathKey, c.Path()),
 				slog.Int(LoggerSizeKey, c.Writer().Size()),
 				slog.Duration(LoggerLatencyKey, latency),
 			)

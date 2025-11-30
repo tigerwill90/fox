@@ -838,6 +838,7 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 - [x] [Support infix wildcard](https://github.com/tigerwill90/fox/pull/46), [Support hostname routing](https://github.com/tigerwill90/fox/pull/48), [Support ACID transaction](https://github.com/tigerwill90/fox/pull/49) @v0.18.0
 - [x] [Support regexp params](https://github.com/tigerwill90/fox/pull/68) @v0.25.0
 - [x] [Support route matchers](https://github.com/tigerwill90/fox/pull/69) @v0.26.0
+- [ ] Programmatic error handling
 - [ ] Improving performance and polishing
 - [ ] Stabilizing API
 

@@ -39,7 +39,7 @@ type RequestContext interface {
 	ClientIP() (*net.IPAddr, error)
 	// Method returns the request method.
 	Method() string
-	// Path returns the request URL path.
+	// Path returns the request [url.URL.RawPath] if not empty, or fallback to the [url.URL.Path].
 	Path() string
 	// Host returns the request host.
 	Host() string
@@ -176,6 +176,7 @@ func (c *cTx) Request() *http.Request {
 
 // SetRequest sets the [http.Request].
 func (c *cTx) SetRequest(r *http.Request) {
+	c.cachedQueries = nil // In case r is a different request than c.req
 	c.req = r
 }
 
@@ -269,9 +270,14 @@ func (c *cTx) Method() string {
 	return c.req.Method
 }
 
-// Path returns the request URL path.
+// Path returns the request [url.URL.RawPath] if not empty, or fallback to the [url.URL.Path].
 func (c *cTx) Path() string {
-	return c.req.URL.Path
+	path := c.req.URL.Path
+	if len(c.req.URL.RawPath) > 0 {
+		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
+		path = c.req.URL.RawPath
+	}
+	return path
 }
 
 // Host returns the request host.
@@ -385,7 +391,6 @@ func (c *cTx) Clone() Context {
 		cp.tsrParams = &tsrParams
 	}
 
-	cp.cachedQueries = nil
 	return &cp
 }
 
