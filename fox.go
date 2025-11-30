@@ -95,7 +95,7 @@ type Router struct {
 	noMethod               HandlerFunc
 	tsrRedirect            HandlerFunc
 	pathRedirect           HandlerFunc
-	autoOptions            HandlerFunc
+	autoOPTIONS            HandlerFunc
 	tree                   atomic.Pointer[iTree]
 	clientip               ClientIPResolver
 	mws                    []middleware
@@ -106,7 +106,8 @@ type Router struct {
 	handleSlash            TrailingSlashOption
 	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
-	handleOptions          bool
+	handleOPTIONS          bool
+	systemWideOPTIONS      bool
 	allowRegexp            bool
 }
 
@@ -114,11 +115,14 @@ type Router struct {
 type RouterInfo struct {
 	MaxRouteParams        int
 	MaxRouteParamKeyBytes int
+	MaxRouteMatchers      int
 	TrailingSlashOption   TrailingSlashOption
 	FixedPathOption       FixedPathOption
 	MethodNotAllowed      bool
 	AutoOptions           bool
+	SystemWideOptions     bool
 	ClientIP              bool
+	AllowRegexp           bool
 }
 
 type middleware struct {
@@ -135,7 +139,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 
 	r.noRouteBase = DefaultNotFoundHandler
 	r.noMethod = DefaultMethodNotAllowedHandler
-	r.autoOptions = DefaultOptionsHandler
+	r.autoOPTIONS = DefaultOptionsHandler
 	r.tsrRedirect = internalTrailingSlashHandler
 	r.pathRedirect = internalFixedPathHandler
 	r.clientip = noClientIPResolver{}
@@ -144,6 +148,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.maxMatchers = math.MaxUint8
 	r.handleSlash = StrictSlash
 	r.handlePath = StrictPath
+	r.systemWideOPTIONS = true
 
 	for _, opt := range opts {
 		if err := opt.applyGlob(sealedOption{router: r}); err != nil {
@@ -155,7 +160,7 @@ func New(opts ...GlobalOption) (*Router, error) {
 	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
 	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, r.tsrRedirect)
 	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, r.pathRedirect)
-	r.autoOptions = applyMiddleware(OptionsHandler, r.mws, r.autoOptions)
+	r.autoOPTIONS = applyMiddleware(OptionsHandler, r.mws, r.autoOPTIONS)
 
 	r.tree.Store(r.newTree())
 	return r, nil
@@ -476,17 +481,20 @@ func (fox *Router) View(fn func(txn *Txn) error) error {
 	return fn(txn)
 }
 
-// Stats returns information on the configured global option.
-func (fox *Router) Stats() RouterInfo {
+// RouterInfo returns information on the configured global option.
+func (fox *Router) RouterInfo() RouterInfo {
 	_, ok := fox.clientip.(noClientIPResolver)
 	return RouterInfo{
 		MaxRouteParams:        fox.maxParams,
 		MaxRouteParamKeyBytes: fox.maxParamKeyBytes,
+		MaxRouteMatchers:      fox.maxMatchers,
 		MethodNotAllowed:      fox.handleMethodNotAllowed,
-		AutoOptions:           fox.handleOptions,
+		AutoOptions:           fox.handleOPTIONS,
 		TrailingSlashOption:   fox.handleSlash,
 		FixedPathOption:       fox.handlePath,
 		ClientIP:              !ok,
+		AllowRegexp:           fox.allowRegexp,
+		SystemWideOptions:     fox.systemWideOPTIONS,
 	}
 }
 
@@ -540,7 +548,7 @@ func DefaultMethodNotAllowedHandler(c Context) {
 
 // DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
 func DefaultOptionsHandler(c Context) {
-	c.Writer().WriteHeader(http.StatusOK)
+	c.Writer().WriteHeader(http.StatusNoContent)
 }
 
 func internalTrailingSlashHandler(c Context) {
@@ -615,7 +623,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
 				c.tsr = false
-				c.route = nil
+				c.route = nil // TODO do we need to reset the route ?
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				tree.pool.Put(c)
@@ -639,7 +647,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*c.params = (*c.params)[:0]
 			c.tsr = false
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				c.route = nil
+				c.route = nil // TODO do we need to reset the route ?
 				c.tsr = false
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
@@ -652,50 +660,102 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
 	// automatic option handler or middleware)
 	*c.params = (*c.params)[:0]
-	c.route = nil
+	c.route = nil // TODO do we need to reset the route ?
 	c.tsr = false
 
-	if r.Method == http.MethodOptions && fox.handleOptions {
-		// TODO _, isCors := r.Header[HeaderOrigin] because no Allow header for CORS preflight
+	if r.Method == http.MethodOptions {
 		var sb strings.Builder
-		// Grow sb to a reasonable size that should prevent new allocation in most case.
-		sb.Grow(min((len(tree.patterns)+1)*5, 150))
 		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
-		if path == "*" {
+		if fox.systemWideOPTIONS && path == "*" {
+			// Grow sb to a reasonable size that should prevent new allocation in most case.
+			sb.Grow(150)
+
+			_, hasOPTIONS := tree.patterns[http.MethodOptions]
+			mayHandleOPTIONS := len(tree.patterns) > 0 && fox.handleOPTIONS
+
 			for method := range tree.patterns {
 				if method != http.MethodOptions {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
 					sb.WriteString(method)
+					continue
 				}
 			}
-		} else {
-			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-			for method := range tree.patterns {
-				c.tsr = false
-				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(method)
-				}
+
+			// Include OPTIONS in Allow only if explicitly registered or if auto-OPTIONS is enabled
+			// with at least one route. A server responding solely to OPTIONS * doesn't meaningfully
+			// "support" OPTIONS for resource access.
+			if hasOPTIONS || mayHandleOPTIONS {
+				sb.WriteString(", ")
+				sb.WriteString(http.MethodOptions)
 			}
-		}
-		if sb.Len() > 0 {
-			sb.WriteString(", ")
-			sb.WriteString(http.MethodOptions)
-			w.Header().Set(HeaderAllow, sb.String())
-			c.scope = OptionsHandler
-			fox.autoOptions(c)
+
+			if sb.Len() > 0 {
+				w.Header().Set(HeaderAllow, sb.String())
+			}
+			w.WriteHeader(http.StatusOK)
 			tree.pool.Put(c)
 			return
 		}
-	} else if fox.handleMethodNotAllowed {
+
+		if fox.handleOPTIONS {
+			// A CORS request is an HTTP request that includes an `Origin` header: https://fetch.spec.whatwg.org/#cors-request
+			// A CORS preflight request contains at most one ACRM header: https://fetch.spec.whatwg.org/#cors-preflight-fetch
+			_, foundOrigin := firstHeader(r.Header, HeaderOrigin)
+			acrm, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
+			if !foundOrigin || !foundAcrm {
+				// Grow sb to a reasonable size that should prevent new allocation in most case.
+				sb.Grow(150)
+				// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
+				for method := range tree.patterns {
+					c.tsr = false
+					if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+						if sb.Len() > 0 {
+							sb.WriteString(", ")
+						}
+						sb.WriteString(method)
+					}
+				}
+
+				c.tsr = false
+
+				if sb.Len() > 0 {
+					sb.WriteString(", ")
+					sb.WriteString(http.MethodOptions)
+					w.Header().Set(HeaderAllow, sb.String())
+					c.scope = OptionsHandler
+					fox.autoOPTIONS(c)
+					tree.pool.Put(c)
+					return
+				}
+
+				// We did not find any routes that match the request and therefore, we already now that this will also
+				// fail for the 405 handler.
+				c.scope = NoRouteHandler
+				fox.noRoute(c)
+				tree.pool.Put(c)
+				return
+			}
+
+			// For CORS preflight, we only need to verify that a route match for the request and ACRM. Unlike regular OPTIONS,
+			// we don't include an Allow header since it provides no functional benefit for the preflight's purpose,
+			// and building it would require a full lookup across all registered methods.
+			if idx, n := tree.lookup(acrm, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				c.scope = OptionsHandler
+				c.tsr = false
+				fox.autoOPTIONS(c)
+				tree.pool.Put(c)
+				return
+			}
+		}
+	}
+
+	if fox.handleMethodNotAllowed {
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
-		sb.Grow(min((len(tree.patterns)+1)*5, 150))
+		sb.Grow(150)
 		hasOptions := false
 		for method := range tree.patterns {
 			if method != r.Method {
@@ -712,18 +772,20 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if sb.Len() > 0 {
-			if fox.handleOptions && !hasOptions {
+			if fox.handleOPTIONS && !hasOptions {
 				sb.WriteString(", ")
 				sb.WriteString(http.MethodOptions)
 			}
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
+			c.tsr = false
 			fox.noMethod(c)
 			tree.pool.Put(c)
 			return
 		}
 	}
 
+	c.tsr = false
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 	tree.pool.Put(c)
@@ -1125,4 +1187,14 @@ type noClientIPResolver struct{}
 
 func (s noClientIPResolver) ClientIP(_ Context) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPResolver
+}
+
+// firstHeader returns the first value and true if k is present in headers. It assumes that k is in canonical
+// format (see [http.CanonicalHeaderKey]).
+func firstHeader(headers http.Header, k string) (string, bool) {
+	v, found := headers[k]
+	if !found || len(v) == 0 {
+		return "", false
+	}
+	return v[0], true
 }

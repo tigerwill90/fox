@@ -3275,7 +3275,7 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
-			rf := f.Stats()
+			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedSlash, rf.TrailingSlashOption)
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c Context) {
@@ -3425,7 +3425,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(WithHandleTrailingSlash(RedirectSlash))
-			rf := f.Stats()
+			rf := f.RouterInfo()
 			assert.Equal(t, RedirectSlash, rf.TrailingSlashOption)
 
 			for _, path := range tc.paths {
@@ -3544,7 +3544,7 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
-			rf := f.Stats()
+			rf := f.RouterInfo()
 			assert.Equal(t, RedirectPath, rf.FixedPathOption)
 
 			require.NoError(t, onlyError(f.Handle(tc.method, tc.path, emptyHandler)))
@@ -3622,7 +3622,7 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
-			rf := f.Stats()
+			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedPath, rf.FixedPathOption)
 
 			require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.path, func(c Context) {

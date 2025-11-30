@@ -115,16 +115,16 @@ func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 }
 
 // WithOptionsHandler register an [HandlerFunc] which is called on automatic OPTIONS requests. By default, the router
-// respond with a 200 OK status code. The "Allow" header it automatically set before calling the handler. Note that custom OPTIONS
-// handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
+// respond with a 200 OK status code. The "Allow" header it automatically set before calling the handler (except for CORS preflight request).
+// Note that custom OPTIONS handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
 // automatically enable [WithAutoOptions].
 func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidConfig)
 		}
-		s.router.autoOptions = handler
-		s.router.handleOptions = true
+		s.router.autoOPTIONS = handler
+		s.router.handleOPTIONS = true
 		return nil
 	})
 }
@@ -279,12 +279,22 @@ func WithNoMethod(enable bool) GlobalOption {
 
 // WithAutoOptions enables automatic response to OPTIONS requests with, by default, a 200 OK status code.
 // Use the [WithOptionsHandler] option to customize the response. When this option is enabled, the router automatically
-// determines the "Allow" header value based on the methods registered for the given route. Note that custom OPTIONS
-// handler take priority over automatic replies. This option is automatically enabled when providing a custom handler with
-// the option [WithOptionsHandler].
+// determines the "Allow" header value based on the methods registered for the given route (except for CORS preflight request).
+// Note that custom OPTIONS handler take priority over automatic replies. This option is automatically enabled when providing
+// a custom handler with the option [WithOptionsHandler].
 func WithAutoOptions(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.handleOptions = enable
+		s.router.handleOPTIONS = enable
+		return nil
+	})
+}
+
+// WithSystemWideOptions enable automatic response for system-wide OPTIONS request (OPTIONS *). When this option is enabled,
+// the router return a 200 OK status code with the "Allow" header containing all registered HTTP methods. This option is enabled
+// by default.
+func WithSystemWideOptions(enable bool) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.systemWideOPTIONS = enable
 		return nil
 	})
 }
@@ -474,7 +484,7 @@ func WithMatcher(matchers ...Matcher) MatcherOption {
 // For development, consider combining this with [DevelopmentOptions] to add debugging middleware.
 func DefaultOptions() GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.handleOptions = true
+		s.router.handleOPTIONS = true
 		s.router.handleMethodNotAllowed = true
 		s.router.allowRegexp = true
 		s.router.handlePath = RedirectPath

@@ -18,7 +18,7 @@ import (
 
 func TestDefaultOptions(t *testing.T) {
 	f, _ := New(DefaultOptions())
-	assert.True(t, f.handleOptions)
+	assert.True(t, f.handleOPTIONS)
 	assert.True(t, f.handleMethodNotAllowed)
 	assert.True(t, f.allowRegexp)
 	assert.Equal(t, f.handlePath, RedirectPath)
@@ -37,7 +37,7 @@ func TestRouterWithClientIP(t *testing.T) {
 		DefaultNotFoundHandler(c)
 	}))
 	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
-	rf := f.Stats()
+	rf := f.RouterInfo()
 	assert.True(t, rf.ClientIP)
 
 	rte := f.Route(http.MethodGet, "/foo")
@@ -207,7 +207,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 		{
 			name:     "system-wide requests with empty router",
 			target:   "*",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "regular option request and ignore ts",
@@ -215,7 +215,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
 			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 		{
 			name:     "regular option request with handler priority and ignore ts",
@@ -346,6 +346,13 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			target:  http.MethodPatch,
 			want:    []string{"GET", "POST", "PUT", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
 		},
+		{
+			name:    "no auto OPTIONS request with other matching methods",
+			methods: []string{http.MethodGet, http.MethodPost, http.MethodPut},
+			path:    "/buzz",
+			target:  http.MethodOptions,
+			want:    []string{"GET", "POST", "PUT"},
+		},
 	}
 
 	parseAllowHeader := func(allow string) []string {
@@ -356,7 +363,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		return parts
 	}
 
-	rf := f.Stats()
+	rf := f.RouterInfo()
 	require.True(t, rf.MethodNotAllowed)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -494,18 +501,18 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 		{
 			name:     "system-wide requests with empty router",
 			target:   "*",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 		{
-			name:     "regular option request",
+			name:     "regular OPTIONS request",
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
 			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 		{
-			name:     "regular option request with handler priority",
+			name:     "regular OPTIONS request with handler priority",
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
@@ -513,7 +520,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			wantCode: http.StatusNoContent,
 		},
 		{
-			name:     "regular option request with no matching route",
+			name:     "regular OPTIONS request with no matching route",
 			target:   "/bar",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
@@ -534,9 +541,10 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithAutoOptions(true))
-			rf := f.Stats()
+			f, _ := New(WithAutoOptions(true), WithSystemWideOptions(true))
+			rf := f.RouterInfo()
 			require.True(t, rf.AutoOptions)
+			require.True(t, rf.SystemWideOptions)
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
@@ -550,6 +558,73 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+		})
+	}
+}
+
+func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
+
+	cases := []struct {
+		name        string
+		target      string
+		path        string
+		headers     http.Header
+		methods     []string
+		wantCode    int
+		wantMethods []string
+	}{
+		{
+			name:     "CORS preflight OPTIONS request",
+			target:   "/foo",
+			path:     "/foo",
+			methods:  []string{"GET", "TRACE", "PUT"},
+			headers:  http.Header{HeaderOrigin: []string{"https://example.com"}, HeaderAccessControlRequestMethod: []string{http.MethodGet}},
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name:     "CORS preflight OPTIONS request with no matching route",
+			target:   "/bar",
+			headers:  http.Header{HeaderOrigin: []string{"https://example.com"}, HeaderAccessControlRequestMethod: []string{http.MethodGet}},
+			path:     "/foo",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:        "CORS preflight OPTIONS request with no matching method but 405",
+			target:      "/foo",
+			methods:     []string{"POST", "PUT"},
+			headers:     http.Header{HeaderOrigin: []string{"https://example.com"}, HeaderAccessControlRequestMethod: []string{http.MethodGet}},
+			path:        "/foo",
+			wantCode:    http.StatusMethodNotAllowed,
+			wantMethods: []string{"POST", "PUT", "OPTIONS"},
+		},
+	}
+
+	parseAllowHeader := func(allow string) []string {
+		if allow == "" {
+			return nil
+		}
+		parts := strings.Split(allow, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := New(WithAutoOptions(true), WithSystemWideOptions(true), WithNoMethod(true))
+			rf := f.RouterInfo()
+			require.True(t, rf.AutoOptions)
+			require.True(t, rf.SystemWideOptions)
+			for _, method := range tc.methods {
+				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+			}
+			req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
+			req.Header = tc.headers
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			assert.ElementsMatch(t, tc.wantMethods, parseAllowHeader(w.Header().Get("Allow")))
 		})
 	}
 }
