@@ -4016,7 +4016,10 @@ func TestTree_Methods(t *testing.T) {
 
 	// Ignore trailing slash disable
 	req = httptest.NewRequest(http.MethodGet, "/gists/123/star/", nil)
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	strictMatch := iterutil.Filter2(f.Iter().Reverse(f.Iter().Methods(), req), func(s string, match RouteMatch) bool {
+		return !match.Tsr || match.TrailingSlashOption() != StrictSlash
+	})
+	methods = slices.Sorted(iterutil.Left(strictMatch))
 	assert.Empty(t, methods)
 }
 

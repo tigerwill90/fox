@@ -91,6 +91,16 @@ func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
 	return
 }
 
+func Filter2[K, V any](seq iter.Seq2[K, V], p func(K, V) bool) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for k, v := range seq {
+			if p(k, v) && !yield(k, v) {
+				return
+			}
+		}
+	}
+}
+
 func SplitBytesSeq(s, sep []byte) iter.Seq[[]byte] {
 	return splitBytesSeq(s, sep)
 }

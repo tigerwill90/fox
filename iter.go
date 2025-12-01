@@ -17,6 +17,13 @@ type stack struct {
 	edges []*node
 }
 
+// RouteMatch represents a route matched by a reverse lookup operation.
+type RouteMatch struct {
+	*Route
+	// Tsr is true when the match required trailing slash adjustment.
+	Tsr bool
+}
+
 // Iter provide a set of range iterators for traversing registered methods and routes. Iter capture a point-in-time
 // snapshot of the routing tree. Therefore, all iterators returned by Iter will not observe subsequent write on the
 // router or on the transaction from which the Iter is created.
@@ -72,23 +79,18 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // for the provided HTTP methods. Unlike [Iter.Routes], which matches an exact route, Reverse is used to match an url
 // (e.g., a path from an incoming request) to a registered routes in the tree. The iterator reflect a snapshot of the
 // routing tree at the time [Iter] is created.
-//
-// If [WithHandleTrailingSlash] option is enabled on a route with the [RelaxedSlash] or [RedirectSlash] flag, Reverse will
-// match it regardless of whether a trailing slash is present.
-//
 // This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
-func (it Iter) Reverse(methods iter.Seq[string], r *http.Request) iter.Seq2[string, *Route] {
-	return func(yield func(string, *Route) bool) {
+func (it Iter) Reverse(methods iter.Seq[string], r *http.Request) iter.Seq2[string, RouteMatch] {
+	return func(yield func(string, RouteMatch) bool) {
 		c := it.tree.pool.Get().(*cTx)
 		defer c.Close()
+
+		c.resetWithRequest(r)
 		for method := range methods {
-			c.resetWithRequest(r)
-
 			path := c.Path()
-
 			idx, n := it.tree.lookup(method, r.Host, path, c, true)
-			if n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				if !yield(method, n.routes[idx]) {
+			if n != nil {
+				if !yield(method, RouteMatch{n.routes[idx], c.tsr}) {
 					return
 				}
 			}
