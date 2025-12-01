@@ -589,13 +589,12 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 			wantCode: http.StatusNotFound,
 		},
 		{
-			name:        "CORS preflight OPTIONS request with no matching method but 405",
-			target:      "/foo",
-			methods:     []string{"POST", "PUT"},
-			headers:     http.Header{HeaderOrigin: []string{"https://example.com"}, HeaderAccessControlRequestMethod: []string{http.MethodGet}},
-			path:        "/foo",
-			wantCode:    http.StatusMethodNotAllowed,
-			wantMethods: []string{"POST", "PUT", "OPTIONS"},
+			name:     "CORS preflight OPTIONS request with no matching ACRM but matched route",
+			target:   "/foo",
+			methods:  []string{"POST", "PUT"},
+			headers:  http.Header{HeaderOrigin: []string{"https://example.com"}, HeaderAccessControlRequestMethod: []string{http.MethodGet}},
+			path:     "/foo",
+			wantCode: http.StatusNoContent,
 		},
 	}
 

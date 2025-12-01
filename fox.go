@@ -623,7 +623,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
 				c.tsr = false
-				c.route = nil // TODO do we need to reset the route ?
+				c.route = nil
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				tree.pool.Put(c)
@@ -647,8 +647,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*c.params = (*c.params)[:0]
 			c.tsr = false
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				c.route = nil // TODO do we need to reset the route ?
 				c.tsr = false
+				c.route = nil
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
 				tree.pool.Put(c)
@@ -660,88 +660,81 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
 	// automatic option handler or middleware)
 	*c.params = (*c.params)[:0]
-	c.route = nil // TODO do we need to reset the route ?
+	c.route = nil
 	c.tsr = false
 
-	if r.Method == http.MethodOptions {
+	isOPTIONS := r.Method == http.MethodOptions
+
+	// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
+	// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
+	if fox.systemWideOPTIONS && isOPTIONS && path == "*" {
 		var sb strings.Builder
-		// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
-		// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
-		if fox.systemWideOPTIONS && path == "*" {
-			// Grow sb to a reasonable size that should prevent new allocation in most case.
+		sb.Grow(150)
+
+		_, hasOPTIONS := tree.patterns[http.MethodOptions]
+		mayHandleOPTIONS := fox.handleOPTIONS && len(tree.patterns) > 0
+
+		for method := range tree.patterns {
+			if method == http.MethodOptions {
+				continue
+			}
+			if sb.Len() > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(method)
+		}
+
+		// Include OPTIONS in Allow only if explicitly registered or if auto-OPTIONS is enabled
+		// with at least one route. A server responding solely to OPTIONS * doesn't meaningfully
+		// "support" OPTIONS for resource access.
+		if hasOPTIONS || mayHandleOPTIONS {
+			sb.WriteString(", ")
+			sb.WriteString(http.MethodOptions)
+		}
+
+		if sb.Len() > 0 {
+			w.Header().Set(HeaderAllow, sb.String())
+		}
+		w.WriteHeader(http.StatusOK)
+		tree.pool.Put(c)
+		return
+	}
+
+	if fox.handleOPTIONS && isOPTIONS {
+		// A CORS request is an HTTP request that includes an `Origin` header: https://fetch.spec.whatwg.org/#cors-request
+		// A CORS preflight request contains at most one ACRM header: https://fetch.spec.whatwg.org/#cors-preflight-fetch
+		_, foundOrigin := firstHeader(r.Header, HeaderOrigin)
+		acrm, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
+		if !foundOrigin || !foundAcrm {
+			var sb strings.Builder
 			sb.Grow(150)
-
-			_, hasOPTIONS := tree.patterns[http.MethodOptions]
-			mayHandleOPTIONS := len(tree.patterns) > 0 && fox.handleOPTIONS
-
+			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.patterns {
-				if method != http.MethodOptions {
+				c.tsr = false
+				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
 					sb.WriteString(method)
-					continue
 				}
-			}
-
-			// Include OPTIONS in Allow only if explicitly registered or if auto-OPTIONS is enabled
-			// with at least one route. A server responding solely to OPTIONS * doesn't meaningfully
-			// "support" OPTIONS for resource access.
-			if hasOPTIONS || mayHandleOPTIONS {
-				sb.WriteString(", ")
-				sb.WriteString(http.MethodOptions)
 			}
 
 			if sb.Len() > 0 {
+				sb.WriteString(", ")
+				sb.WriteString(http.MethodOptions)
 				w.Header().Set(HeaderAllow, sb.String())
-			}
-			w.WriteHeader(http.StatusOK)
-			tree.pool.Put(c)
-			return
-		}
-
-		if fox.handleOPTIONS {
-			// A CORS request is an HTTP request that includes an `Origin` header: https://fetch.spec.whatwg.org/#cors-request
-			// A CORS preflight request contains at most one ACRM header: https://fetch.spec.whatwg.org/#cors-preflight-fetch
-			_, foundOrigin := firstHeader(r.Header, HeaderOrigin)
-			acrm, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
-			if !foundOrigin || !foundAcrm {
-				// Grow sb to a reasonable size that should prevent new allocation in most case.
-				sb.Grow(150)
-				// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-				for method := range tree.patterns {
-					c.tsr = false
-					if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-						if sb.Len() > 0 {
-							sb.WriteString(", ")
-						}
-						sb.WriteString(method)
-					}
-				}
-
+				c.scope = OptionsHandler
 				c.tsr = false
-
-				if sb.Len() > 0 {
-					sb.WriteString(", ")
-					sb.WriteString(http.MethodOptions)
-					w.Header().Set(HeaderAllow, sb.String())
-					c.scope = OptionsHandler
-					fox.autoOPTIONS(c)
-					tree.pool.Put(c)
-					return
-				}
-
-				// We did not find any routes that match the request and therefore, we already now that this will also
-				// fail for the 405 handler.
-				c.scope = NoRouteHandler
-				fox.noRoute(c)
+				fox.autoOPTIONS(c)
 				tree.pool.Put(c)
 				return
 			}
-
-			// For CORS preflight, we only need to verify that a route match for the request and ACRM. Unlike regular OPTIONS,
-			// we don't include an Allow header since it provides no functional benefit for the preflight's purpose,
-			// and building it would require a full lookup across all registered methods.
+		} else {
+			// For CORS preflight, we only need to verify that the request match at least one route registered for any methods.
+			// Unlike regular OPTIONS, we don't include an Allow header since it provides no functional benefit for the
+			// preflight's purpose, and building it would require a full lookup across all registered methods.
+			// The fast-path is to lookup directly for the ACRM, since in most case a preflight request should target an existing resource,
+			// which avoid unnecessary lookup on method which does have a matching route registered.
 			if idx, n := tree.lookup(acrm, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.scope = OptionsHandler
 				c.tsr = false
@@ -749,10 +742,23 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
-		}
-	}
 
-	if fox.handleMethodNotAllowed {
+			// Else we search for a matching route for any method, but unlike regular OPTIONS, we stop at the first match.
+			for method := range tree.patterns {
+				if method == acrm {
+					continue
+				}
+				c.tsr = false
+				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+					c.scope = OptionsHandler
+					c.tsr = false
+					fox.autoOPTIONS(c)
+					tree.pool.Put(c)
+					return
+				}
+			}
+		}
+	} else if fox.handleMethodNotAllowed {
 		var sb strings.Builder
 		// Grow sb to a reasonable size that should prevent new allocation in most case.
 		sb.Grow(150)
