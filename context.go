@@ -136,7 +136,6 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
-	c.tsr = false
 }
 
 func (c *cTx) resetNil() {
@@ -148,25 +147,24 @@ func (c *cTx) resetNil() {
 	c.tsr = false
 }
 
-// resetWithRequest resets the [Context] to its initial state, with the provided [http.Request].
+// resetWithRequest resets the [Context] to its initial state, with the provided [http.Request]. This is used
+// only by caller that don't return the [Context] (e.g. Reverse). Use wisely! Note that caller is managing the reset of c.tsr.
 func (c *cTx) resetWithRequest(r *http.Request) {
 	c.req = r
 	c.w = nil
 	c.cachedQueries = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
-	c.tsr = false
 }
 
 // resetWithWriter resets the [Context] to its initial state, with the provided [ResponseWriter] and [http.Request].
+// Use wisely! Note that caller is managing the reset of c.route and c.tsr.
 func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
 	c.cachedQueries = nil
-	c.route = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
-	c.tsr = false
 }
 
 // Request returns the [http.Request].

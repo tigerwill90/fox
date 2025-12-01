@@ -17,6 +17,9 @@ const offsetZero = 0
 type root map[string]*node
 
 func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
+	// tsr come from the sync.Pool and has not been reset yet.
+	c.tsr = false
+
 	root := rt[method]
 	if root == nil {
 		return 0, nil

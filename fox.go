@@ -619,8 +619,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if route.handleSlash == RedirectSlash {
-				// Since is redirect, we should not share the route even if internally its available, so we reset params as
-				// it may have recorded wildcard segment (the context may still be used in a middleware or handler)
 				*c.params = (*c.params)[:0]
 				c.tsr = false
 				c.route = nil
@@ -633,7 +631,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if fox.handlePath == RelaxedPath {
 			*c.params = (*c.params)[:0]
-			c.tsr = false
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
 				r.Pattern = c.route.pattern
@@ -641,11 +638,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
-		}
-
-		if fox.handlePath == RedirectPath {
+		} else if fox.handlePath == RedirectPath {
 			*c.params = (*c.params)[:0]
-			c.tsr = false
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				c.tsr = false
 				c.route = nil
@@ -657,11 +651,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Reset params as it may have recorded wildcard segment (the context may still be used in no route, no method and
-	// automatic option handler or middleware)
 	*c.params = (*c.params)[:0]
 	c.route = nil
-	c.tsr = false
 
 	isOPTIONS := r.Method == http.MethodOptions
 
@@ -710,7 +701,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sb.Grow(150)
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.patterns {
-				c.tsr = false
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
@@ -748,7 +738,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if method == acrm {
 					continue
 				}
-				c.tsr = false
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					c.scope = OptionsHandler
 					c.tsr = false
@@ -765,7 +754,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		hasOptions := false
 		for method := range tree.patterns {
 			if method != r.Method {
-				c.tsr = false
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
