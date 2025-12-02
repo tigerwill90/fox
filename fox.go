@@ -420,6 +420,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 }
 
 // HandleNoRoute calls the no route handler with the provided [Context].
+// Note that this bypasses any middleware attached to the no route handler.
 func (fox *Router) HandleNoRoute(c Context) {
 	fox.noRouteBase(c)
 }
