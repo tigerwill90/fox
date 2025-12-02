@@ -331,11 +331,11 @@ func (fox *Router) Name(method, name string) *Route {
 	return matched.routes[0]
 }
 
-// Reverse perform a reverse lookup for the given [http.Request] and return the matching registered [Route]
+// Reverse perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
 // mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
-func (fox *Router) Reverse(r *http.Request) (route *Route, tsr bool) {
+func (fox *Router) Reverse(method string, r *http.Request) (route *Route, tsr bool) {
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	defer tree.pool.Put(c)
@@ -343,7 +343,7 @@ func (fox *Router) Reverse(r *http.Request) (route *Route, tsr bool) {
 
 	path := c.Path()
 
-	idx, n := tree.lookup(r.Method, r.Host, path, c, true)
+	idx, n := tree.lookup(method, r.Host, path, c, true)
 	if n != nil {
 		return n.routes[idx], c.tsr
 	}

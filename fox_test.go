@@ -4205,7 +4205,7 @@ func TestRouter_Reverse(t *testing.T) {
 		}
 		for _, rte := range staticRoutes {
 			req := httptest.NewRequest(rte.method, rte.path, nil)
-			route, tsr := f.Reverse(req)
+			route, tsr := f.Reverse(rte.method, req)
 			assert.False(t, tsr)
 			require.NotNil(t, route)
 			assert.Equal(t, rte.path, route.Pattern())
@@ -4225,7 +4225,7 @@ func TestRouter_Reverse(t *testing.T) {
 				continue
 			}
 			req := httptest.NewRequest(rte.method, rte.path, nil)
-			route, tsr := f.Reverse(req)
+			route, tsr := f.Reverse(rte.method, req)
 			require.True(t, tsr)
 			assert.Equal(t, rte.path+"/", route.Pattern())
 		}
@@ -4238,7 +4238,7 @@ func TestRouter_Reverse(t *testing.T) {
 		}
 		for _, rte := range staticRoutes {
 			req := httptest.NewRequest(rte.method, rte.path, nil)
-			route, tsr := f.Reverse(req)
+			route, tsr := f.Reverse(rte.method, req)
 			assert.False(t, tsr)
 			require.NotNil(t, route)
 			assert.Equal(t, rte.path, route.Pattern())
@@ -4251,7 +4251,7 @@ func TestRouter_Reverse(t *testing.T) {
 		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 		req.Host = "foo.exemple.com"
-		got, tsr := f.Reverse(req)
+		got, tsr := f.Reverse(req.Method, req)
 		assert.False(t, tsr)
 		require.NotNil(t, route)
 		assert.Equal(t, route, got)
@@ -4263,7 +4263,7 @@ func TestRouter_Reverse(t *testing.T) {
 		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 		req.Host = "FOO.EXEMPLE.COM"
-		got, tsr := f.Reverse(req)
+		got, tsr := f.Reverse(req.Method, req)
 		assert.False(t, tsr)
 		require.NotNil(t, route)
 		assert.Equal(t, route, got)
@@ -4441,7 +4441,7 @@ func TestFoxReverse(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
-			route, tsr := f.Reverse(req)
+			route, tsr := f.Reverse(req.Method, req)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Pattern())
@@ -4513,7 +4513,7 @@ func TestRouter_ReverseWithIgnoreTrailingSlashEnable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
-			route, tsr := f.Reverse(req)
+			route, tsr := f.Reverse(req.Method, req)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Pattern())
@@ -5014,7 +5014,7 @@ func ExampleRouter_Reverse() {
 
 	req := httptest.NewRequest(http.MethodGet, "/hello/fox", nil)
 
-	route, tsr := f.Reverse(req)
+	route, tsr := f.Reverse(req.Method, req)
 	fmt.Println(route.Pattern(), tsr) // exemple.com/hello/{name} false
 }
 

@@ -288,11 +288,11 @@ func (txn *Txn) Name(method, name string) *Route {
 	return matched.routes[0]
 }
 
-// Reverse perform a reverse lookup for the given [http.Request] and return the matching registered [Route]
+// Reverse perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Lookup] as an alternative.
-func (txn *Txn) Reverse(r *http.Request) (route *Route, tsr bool) {
+func (txn *Txn) Reverse(method string, r *http.Request) (route *Route, tsr bool) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
@@ -304,7 +304,7 @@ func (txn *Txn) Reverse(r *http.Request) (route *Route, tsr bool) {
 
 	path := c.Path()
 
-	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, true)
+	idx, n := txn.rootTxn.patterns.lookup(method, r.Host, path, c, true)
 	if n != nil {
 		return n.routes[idx], c.tsr
 	}
