@@ -331,11 +331,11 @@ func (fox *Router) Name(method, name string) *Route {
 	return matched.routes[0]
 }
 
-// Reverse perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
+// Match perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
 // mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
-func (fox *Router) Reverse(method string, r *http.Request) (route *Route, tsr bool) {
+func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool) {
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
 	defer tree.pool.Put(c)
@@ -354,7 +354,7 @@ func (fox *Router) Reverse(method string, r *http.Request) (route *Route, tsr bo
 // [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
 // [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
-// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Reverse] as an alternative.
+// concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Match] as an alternative.
 func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	tree := fox.getTree()
 	c := tree.pool.Get().(*cTx)
@@ -561,7 +561,7 @@ func internalTrailingSlashHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	path := escapeLeadingSlashes(fixTrailingSlash(cmp.Or(req.URL.RawPath, req.URL.Path)))
+	path := escapeLeadingSlashes(fixTrailingSlash(c.Path()))
 	if q := req.URL.RawQuery; q != "" {
 		path += "?" + q
 	}
@@ -578,7 +578,7 @@ func internalFixedPathHandler(c Context) {
 		code = http.StatusPermanentRedirect
 	}
 
-	cleanedPath := escapeLeadingSlashes(CleanPath(cmp.Or(req.URL.RawPath, req.URL.Path)))
+	cleanedPath := escapeLeadingSlashes(CleanPath(c.Path()))
 	if q := req.URL.RawQuery; q != "" {
 		cleanedPath += "?" + q
 	}

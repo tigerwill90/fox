@@ -34,10 +34,15 @@ var (
 	patternHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Pattern()) })
 )
 
-type mockResponseWriter struct{}
+type mockResponseWriter struct {
+	h http.Header
+}
 
 func (m mockResponseWriter) Header() (h http.Header) {
-	return http.Header{}
+	if m.h == nil {
+		return http.Header{}
+	}
+	return m.h
 }
 
 func (m mockResponseWriter) Write(p []byte) (n int, err error) {
@@ -4008,7 +4013,7 @@ func TestTree_Methods(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/gists/123/star", nil)
-	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	methods := slices.Sorted(iterutil.Left(f.Iter().Matches(f.Iter().Methods(), req)))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
 	methods = slices.Sorted(f.Iter().Methods())
@@ -4016,7 +4021,7 @@ func TestTree_Methods(t *testing.T) {
 
 	// Ignore trailing slash disable
 	req = httptest.NewRequest(http.MethodGet, "/gists/123/star/", nil)
-	strictMatch := iterutil.Filter2(f.Iter().Reverse(f.Iter().Methods(), req), func(s string, match RouteMatch) bool {
+	strictMatch := iterutil.Filter2(f.Iter().Matches(f.Iter().Methods(), req), func(s string, match RouteMatch) bool {
 		return !match.Tsr || match.TrailingSlashOption() != StrictSlash
 	})
 	methods = slices.Sorted(iterutil.Left(strictMatch))
@@ -4205,7 +4210,7 @@ func TestRouter_Reverse(t *testing.T) {
 		}
 		for _, rte := range staticRoutes {
 			req := httptest.NewRequest(rte.method, rte.path, nil)
-			route, tsr := f.Reverse(rte.method, req)
+			route, tsr := f.Match(rte.method, req)
 			assert.False(t, tsr)
 			require.NotNil(t, route)
 			assert.Equal(t, rte.path, route.Pattern())
@@ -4225,7 +4230,7 @@ func TestRouter_Reverse(t *testing.T) {
 				continue
 			}
 			req := httptest.NewRequest(rte.method, rte.path, nil)
-			route, tsr := f.Reverse(rte.method, req)
+			route, tsr := f.Match(rte.method, req)
 			require.True(t, tsr)
 			assert.Equal(t, rte.path+"/", route.Pattern())
 		}
@@ -4238,7 +4243,7 @@ func TestRouter_Reverse(t *testing.T) {
 		}
 		for _, rte := range staticRoutes {
 			req := httptest.NewRequest(rte.method, rte.path, nil)
-			route, tsr := f.Reverse(rte.method, req)
+			route, tsr := f.Match(rte.method, req)
 			assert.False(t, tsr)
 			require.NotNil(t, route)
 			assert.Equal(t, rte.path, route.Pattern())
@@ -4251,7 +4256,7 @@ func TestRouter_Reverse(t *testing.T) {
 		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 		req.Host = "foo.exemple.com"
-		got, tsr := f.Reverse(req.Method, req)
+		got, tsr := f.Match(req.Method, req)
 		assert.False(t, tsr)
 		require.NotNil(t, route)
 		assert.Equal(t, route, got)
@@ -4263,7 +4268,7 @@ func TestRouter_Reverse(t *testing.T) {
 		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 		req.Host = "FOO.EXEMPLE.COM"
-		got, tsr := f.Reverse(req.Method, req)
+		got, tsr := f.Match(req.Method, req)
 		assert.False(t, tsr)
 		require.NotNil(t, route)
 		assert.Equal(t, route, got)
@@ -4441,7 +4446,7 @@ func TestFoxReverse(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
-			route, tsr := f.Reverse(req.Method, req)
+			route, tsr := f.Match(req.Method, req)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Pattern())
@@ -4513,7 +4518,7 @@ func TestRouter_ReverseWithIgnoreTrailingSlashEnable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
-			route, tsr := f.Reverse(req.Method, req)
+			route, tsr := f.Match(req.Method, req)
 			if tc.want != "" {
 				require.NotNil(t, route)
 				assert.Equal(t, tc.want, route.Pattern())
@@ -5007,18 +5012,16 @@ func ExampleRouter_Lookup() {
 	})
 }
 
-// This example demonstrates how to do a reverse lookup on the tree.
-func ExampleRouter_Reverse() {
+func ExampleRouter_Match() {
 	f, _ := New()
 	f.MustHandle(http.MethodGet, "exemple.com/hello/{name}", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/hello/fox", nil)
 
-	route, tsr := f.Reverse(req.Method, req)
+	route, tsr := f.Match(req.Method, req)
 	fmt.Println(route.Pattern(), tsr) // exemple.com/hello/{name} false
 }
 
-// This example demonstrates how to check if a given route is registered in the tree.
 func ExampleRouter_Has() {
 	f, _ := New()
 	f.MustHandle(http.MethodGet, "/hello/{name}", emptyHandler)

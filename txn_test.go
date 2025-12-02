@@ -329,7 +329,7 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 	})
 	assert.Panics(t, func() {
 		req := httptest.NewRequest(http.MethodGet, "example.com/foo", nil)
-		txn.Reverse(req.Method, req)
+		txn.Match(req.Method, req)
 	})
 	assert.Panics(t, func() {
 		txn.Lookup(nil, nil)

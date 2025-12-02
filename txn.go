@@ -288,11 +288,11 @@ func (txn *Txn) Name(method, name string) *Route {
 	return matched.routes[0]
 }
 
-// Reverse perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
+// Match perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Lookup] as an alternative.
-func (txn *Txn) Reverse(method string, r *http.Request) (route *Route, tsr bool) {
+func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
@@ -315,7 +315,7 @@ func (txn *Txn) Reverse(method string, r *http.Request) (route *Route, tsr bool)
 // [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
 // [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is NOT
-// thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Reverse] as an alternative.
+// thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Match] as an alternative.
 func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)

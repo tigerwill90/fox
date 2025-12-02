@@ -148,7 +148,7 @@ func (c *cTx) resetNil() {
 }
 
 // resetWithRequest resets the [Context] to its initial state, with the provided [http.Request]. This is used
-// only by caller that don't return the [Context] (e.g. Reverse). Use wisely! Note that caller is managing the reset of c.tsr.
+// only by caller that don't return the [Context] (e.g. Match). Use wisely! Note that caller is managing the reset of c.tsr.
 func (c *cTx) resetWithRequest(r *http.Request) {
 	c.req = r
 	c.w = nil

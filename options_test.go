@@ -252,7 +252,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), req))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -549,7 +549,7 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), req))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -659,7 +659,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Reverse(c.Fox().Iter().Methods(), req))), ", "))
+					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}

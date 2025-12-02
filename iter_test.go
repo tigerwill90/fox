@@ -152,7 +152,7 @@ func TestIter_ReverseBreak(t *testing.T) {
 	it := f.Iter()
 	iteration := 0
 	req := httptest.NewRequest(http.MethodGet, "/john/doe/1/2/3", nil)
-	for range it.Reverse(it.Methods(), req) {
+	for range it.Matches(it.Methods(), req) {
 		iteration++
 		break
 	}
@@ -263,8 +263,8 @@ func TestIter_NoData(t *testing.T) {
 
 	assert.Empty(t, slices.Collect(iterutil.Left(it.PatternPrefix(iterutil.SeqOf("GET"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.PatternPrefix(iterutil.SeqOf("CONNECT"), "/"))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("GET"), req))))
-	assert.Empty(t, slices.Collect(iterutil.Left(it.Reverse(iterutil.SeqOf("CONNECT"), req))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Matches(iterutil.SeqOf("GET"), req))))
+	assert.Empty(t, slices.Collect(iterutil.Left(it.Matches(iterutil.SeqOf("CONNECT"), req))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("GET"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.Routes(iterutil.SeqOf("CONNECT"), "/"))))
 	assert.Empty(t, slices.Collect(iterutil.Left(it.NamePrefix(iterutil.SeqOf("GET"), ""))))
@@ -300,15 +300,15 @@ func TestIter_ReverseWithIgnoreTsEnable(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar/", nil)
-	methods := slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	methods := slices.Sorted(iterutil.Left(f.Iter().Matches(f.Iter().Methods(), req)))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
 	req = httptest.NewRequest(http.MethodGet, "/john/doe", nil)
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Matches(f.Iter().Methods(), req)))
 	assert.Equal(t, []string{"DELETE", "GET", "PUT"}, methods)
 
 	req = httptest.NewRequest(http.MethodGet, "/foo/bar/baz", nil)
-	methods = slices.Sorted(iterutil.Left(f.Iter().Reverse(f.Iter().Methods(), req)))
+	methods = slices.Sorted(iterutil.Left(f.Iter().Matches(f.Iter().Methods(), req)))
 	assert.Empty(t, methods)
 }
 
@@ -341,7 +341,7 @@ func BenchmarkIter_Reverse(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		for range it.Reverse(it.Methods(), req) {
+		for range it.Matches(it.Methods(), req) {
 
 		}
 	}
@@ -440,13 +440,13 @@ func ExampleIter_Methods() {
 	}
 }
 
-func ExampleIter_Reverse() {
+func ExampleIter_Matches() {
 	f, _ := New()
 	it := f.Iter()
 
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
-	for method, route := range it.Reverse(slices.Values([]string{"GET", "POST"}), req) {
+	for method, route := range it.Matches(slices.Values([]string{"GET", "POST"}), req) {
 		fmt.Println(method, route.Pattern())
 	}
 }
