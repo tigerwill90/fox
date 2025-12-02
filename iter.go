@@ -75,11 +75,12 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 	}
 }
 
-// Reverse returns a range iterator over all routes registered in the routing tree that match the given [http.Request]
-// for the provided HTTP methods. Unlike [Iter.Routes], which matches an exact route, Reverse is used to match an url
-// (e.g., a path from an incoming request) to a registered routes in the tree. The iterator reflect a snapshot of the
-// routing tree at the time [Iter] is created.
-// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
+// Reverse returns a range iterator over all registered [Route] that match the given [http.Request] for the
+// provided HTTP methods. Unlike [Iter.Routes], which matches an exact route, Reverse is used to match a URL
+// (e.g., a path from an incoming request) to registered routes in the tree. Each match is returned as a [RouteMatch],
+// which includes a Tsr flag indicating whether the route was matched by adding or removing a trailing slash. The iterator
+// reflects a snapshot of the routing tree at the time [Iter] is created.
+// This function is safe for concurrent use by multiple goroutines and while mutations on routes are ongoing.
 func (it Iter) Reverse(methods iter.Seq[string], r *http.Request) iter.Seq2[string, RouteMatch] {
 	return func(yield func(string, RouteMatch) bool) {
 		c := it.tree.pool.Get().(*cTx)
