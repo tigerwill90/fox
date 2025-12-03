@@ -690,3 +690,250 @@ func TestAnnotationFuncWithError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 	assert.ErrorIs(t, err, want)
 }
+
+func TestWithQueryMatcher(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		value   string
+		wantErr bool
+	}{
+		{
+			name:    "valid query matcher",
+			key:     "foo",
+			value:   "bar",
+			wantErr: false,
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			value:   "bar",
+			wantErr: true,
+		},
+		{
+			name:    "empty value is valid",
+			key:     "foo",
+			value:   "",
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := New()
+			require.NoError(t, err)
+			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithQueryMatcher(tc.key, tc.value)))
+			if tc.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidMatcher)
+				return
+			}
+			require.NoError(t, err)
+			m, _ := MatchQuery(tc.key, tc.value)
+			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+		})
+	}
+}
+
+func TestWithQueryRegexpMatcher(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		expr    string
+		wantErr bool
+	}{
+		{
+			name:    "valid query regexp matcher",
+			key:     "id",
+			expr:    `\d+`,
+			wantErr: false,
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			expr:    `\d+`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid regexp",
+			key:     "id",
+			expr:    `[`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := New()
+			require.NoError(t, err)
+			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithQueryRegexpMatcher(tc.key, tc.expr)))
+			if tc.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidMatcher)
+				return
+			}
+			require.NoError(t, err)
+			m, _ := MatchQueryRegexp(tc.key, tc.expr)
+			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+		})
+	}
+}
+
+func TestWithHeaderMatcher(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		value   string
+		wantErr bool
+	}{
+		{
+			name:    "valid header matcher",
+			key:     "Content-Type",
+			value:   "application/json",
+			wantErr: false,
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			value:   "application/json",
+			wantErr: true,
+		},
+		{
+			name:    "empty value is valid",
+			key:     "X-Custom",
+			value:   "",
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := New()
+			require.NoError(t, err)
+			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithHeaderMatcher(tc.key, tc.value)))
+			if tc.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidMatcher)
+				return
+			}
+			require.NoError(t, err)
+			m, _ := MatchHeader(tc.key, tc.value)
+			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+		})
+	}
+}
+
+func TestWithHeaderRegexpMatcher(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		expr    string
+		wantErr bool
+	}{
+		{
+			name:    "valid header regexp matcher",
+			key:     "Content-Type",
+			expr:    `application/.*`,
+			wantErr: false,
+		},
+		{
+			name:    "empty key",
+			key:     "",
+			expr:    `application/.*`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid regexp",
+			key:     "Content-Type",
+			expr:    `[`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := New()
+			require.NoError(t, err)
+			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithHeaderRegexpMatcher(tc.key, tc.expr)))
+			if tc.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidMatcher)
+				return
+			}
+			require.NoError(t, err)
+			m, _ := MatchHeaderRegexp(tc.key, tc.expr)
+			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+		})
+	}
+}
+
+func TestWithClientIPMatcher(t *testing.T) {
+	cases := []struct {
+		name    string
+		ip      string
+		wantErr bool
+	}{
+		{
+			name:    "valid CIDR",
+			ip:      "192.168.1.0/24",
+			wantErr: false,
+		},
+		{
+			name:    "valid single IP",
+			ip:      "192.168.1.1",
+			wantErr: false,
+		},
+		{
+			name:    "valid IPv6 CIDR",
+			ip:      "2001:db8::/32",
+			wantErr: false,
+		},
+		{
+			name:    "invalid IP",
+			ip:      "invalid",
+			wantErr: true,
+		},
+		{
+			name:    "empty IP",
+			ip:      "",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := New()
+			require.NoError(t, err)
+			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithClientIPMatcher(tc.ip)))
+			if tc.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidMatcher)
+				return
+			}
+			require.NoError(t, err)
+			m, _ := MatchClientIP(tc.ip)
+			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+		})
+	}
+}
+
+func TestWithMatcher(t *testing.T) {
+	t.Run("valid custom matcher", func(t *testing.T) {
+		f, err := New()
+		require.NoError(t, err)
+		m, _ := MatchQuery("foo", "bar")
+		err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcher(m)))
+		require.NoError(t, err)
+		assert.True(t, f.Has(http.MethodGet, "/foo", m))
+	})
+
+	t.Run("nil matcher", func(t *testing.T) {
+		f, err := New()
+		require.NoError(t, err)
+		err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcher(nil)))
+		assert.ErrorIs(t, err, ErrInvalidMatcher)
+	})
+
+	t.Run("multiple matchers with one nil", func(t *testing.T) {
+		f, err := New()
+		require.NoError(t, err)
+		m, _ := MatchQuery("foo", "bar")
+		err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcher(m, nil)))
+		assert.ErrorIs(t, err, ErrInvalidMatcher)
+	})
+}
