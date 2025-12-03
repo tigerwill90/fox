@@ -21,8 +21,6 @@ type Matcher interface {
 	// - Be reflexive: m.Equal(m) == true
 	// - Be symmetric: m.Equal(n) == n.Equal(m)
 	Equal(m Matcher) bool
-	// As attempts to convert the matcher to the type pointed to by target.
-	As(target any) bool
 }
 
 func MatchQuery(key, value string) (QueryMatcher, error) {
@@ -58,16 +56,6 @@ func (m QueryMatcher) Equal(matcher Matcher) bool {
 		return false
 	}
 	return m.key == om.key && m.value == om.value
-}
-
-func (m QueryMatcher) As(target any) bool {
-	switch x := target.(type) {
-	case *QueryMatcher:
-		*x = m
-	default:
-		return false
-	}
-	return true
 }
 
 func MatchQueryRegexp(key, expr string) (QueryRegexpMatcher, error) {
@@ -109,16 +97,6 @@ func (m QueryRegexpMatcher) Equal(matcher Matcher) bool {
 	return m.key == om.key && m.regex.String() == om.regex.String()
 }
 
-func (m QueryRegexpMatcher) As(target any) bool {
-	switch x := target.(type) {
-	case *QueryRegexpMatcher:
-		*x = m
-	default:
-		return false
-	}
-	return true
-}
-
 func MatchHeader(key, value string) (HeaderMatcher, error) {
 	if key == "" {
 		return HeaderMatcher{}, errors.New("empty header key")
@@ -156,16 +134,6 @@ func (m HeaderMatcher) Equal(matcher Matcher) bool {
 		return false
 	}
 	return m.canonicalKey == om.canonicalKey && m.value == om.value
-}
-
-func (m HeaderMatcher) As(target any) bool {
-	switch x := target.(type) {
-	case *HeaderMatcher:
-		*x = m
-	default:
-		return false
-	}
-	return true
 }
 
 func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
@@ -211,16 +179,6 @@ func (m HeaderRegexpMatcher) Equal(matcher Matcher) bool {
 	return m.canonicalKey == om.canonicalKey && m.regex.String() == om.regex.String()
 }
 
-func (m HeaderRegexpMatcher) As(target any) bool {
-	switch x := target.(type) {
-	case *HeaderRegexpMatcher:
-		*x = m
-	default:
-		return false
-	}
-	return true
-}
-
 func MatchClientIP(ip string) (ClientIpMatcher, error) {
 	ipNet, err := netutil.ParseCIDR(ip)
 	if err != nil {
@@ -253,14 +211,4 @@ func (m ClientIpMatcher) Equal(matcher Matcher) bool {
 		return false
 	}
 	return m.ipNet.IP.Equal(om.ipNet.IP) && bytes.Equal(m.ipNet.Mask, om.ipNet.Mask)
-}
-
-func (m ClientIpMatcher) As(target any) bool {
-	switch x := target.(type) {
-	case *ClientIpMatcher:
-		*x = m
-	default:
-		return false
-	}
-	return true
 }

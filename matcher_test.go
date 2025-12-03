@@ -99,18 +99,6 @@ func TestQueryMatcher_Equal(t *testing.T) {
 	}
 }
 
-func TestQueryMatcher_As(t *testing.T) {
-	m := QueryMatcher{key: "foo", value: "bar"}
-
-	var target QueryMatcher
-	assert.True(t, m.As(&target))
-	assert.Equal(t, m.key, target.Key())
-	assert.Equal(t, m.value, target.Value())
-
-	var wrongTarget HeaderMatcher
-	assert.False(t, m.As(&wrongTarget))
-}
-
 func TestQueryRegexpMatcher_Match(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -191,18 +179,6 @@ func TestQueryRegexpMatcher_Equal(t *testing.T) {
 			assert.Equal(t, tc.want, tc.m1.Equal(tc.m2))
 		})
 	}
-}
-
-func TestQueryRegexpMatcher_As(t *testing.T) {
-	m := QueryRegexpMatcher{key: "id", regex: regexp.MustCompile(`^\d+$`)}
-
-	var target QueryRegexpMatcher
-	assert.True(t, m.As(&target))
-	assert.Equal(t, m.key, target.Key())
-	assert.Equal(t, m.regex.String(), target.Regex().String())
-
-	var wrongTarget QueryMatcher
-	assert.False(t, m.As(&wrongTarget))
 }
 
 func TestHeaderMatcher_Match(t *testing.T) {
@@ -297,18 +273,6 @@ func TestHeaderMatcher_Equal(t *testing.T) {
 	}
 }
 
-func TestHeaderMatcher_As(t *testing.T) {
-	m := HeaderMatcher{canonicalKey: "Content-Type", value: "application/json"}
-
-	var target HeaderMatcher
-	assert.True(t, m.As(&target))
-	assert.Equal(t, m.canonicalKey, target.Key())
-	assert.Equal(t, m.value, target.Value())
-
-	var wrongTarget QueryMatcher
-	assert.False(t, m.As(&wrongTarget))
-}
-
 func TestHeaderRegexpMatcher_Match(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -392,18 +356,6 @@ func TestHeaderRegexpMatcher_Equal(t *testing.T) {
 			assert.Equal(t, tc.want, tc.m1.Equal(tc.m2))
 		})
 	}
-}
-
-func TestHeaderRegexpMatcher_As(t *testing.T) {
-	m := HeaderRegexpMatcher{canonicalKey: "Content-Type", regex: regexp.MustCompile(`^application/.*`)}
-
-	var target HeaderRegexpMatcher
-	assert.True(t, m.As(&target))
-	assert.Equal(t, m.canonicalKey, target.Key())
-	assert.Equal(t, m.regex.String(), target.Regex().String())
-
-	var wrongTarget HeaderMatcher
-	assert.False(t, m.As(&wrongTarget))
 }
 
 func TestClientIpMatcher_Match(t *testing.T) {
@@ -501,18 +453,6 @@ func TestClientIpMatcher_Equal(t *testing.T) {
 			assert.Equal(t, tc.want, tc.m1.Equal(tc.m2))
 		})
 	}
-}
-
-func TestClientIpMatcher_As(t *testing.T) {
-	_, ipNet, _ := net.ParseCIDR("192.168.1.0/24")
-	m := ClientIpMatcher{ipNet: ipNet}
-
-	var target ClientIpMatcher
-	assert.True(t, m.As(&target))
-	assert.Equal(t, m.ipNet.String(), target.IPNet().String())
-
-	var wrongTarget QueryMatcher
-	assert.False(t, m.As(&wrongTarget))
 }
 
 func TestMatchQuery(t *testing.T) {
