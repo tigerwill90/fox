@@ -340,6 +340,235 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 	})
 }
 
+func TestInsertConflictWithName(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+	f.MustHandle(http.MethodGet, "/users", emptyHandler,
+		WithQueryMatcher("version", "v1"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("users"),
+	)
+	f.MustHandle(http.MethodGet, "/users/{name}", emptyHandler,
+		WithQueryMatcher("version", "v2"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("users_name"),
+	)
+	f.MustHandle(http.MethodGet, "exemple.com/users/{name}", emptyHandler,
+		WithQueryMatcher("version", "v2"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("hostname_users_name"),
+	)
+
+	t.Run("conflict with matchers", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/users/{id}", emptyHandler,
+			WithQueryMatcher("version", "v2"),
+			WithHeaderMatcher("Authorization", "secret"),
+		)), ErrRouteExist)
+		assert.Nil(t, txn.rootTxn.writable)
+	})
+	t.Run("conflict with name", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/users/{id}", emptyHandler,
+			WithQueryMatcher("version", "v1"),
+			WithHeaderMatcher("Authorization", "secret"),
+			WithName("users"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/users/{id}", emptyHandler,
+			WithQueryMatcher("version", "v1"),
+			WithHeaderMatcher("Authorization", "secret"),
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		txn.Commit()
+
+		assert.False(t, f.Has(http.MethodGet, "/users/{id}",
+			QueryMatcher{"version", "v1"},
+			QueryMatcher{"Authorization", "secret"},
+		))
+	})
+
+	t.Run("conflict with name on split node", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/use", emptyHandler,
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/usa", emptyHandler,
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/usa/foo", emptyHandler,
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/users/{name}/email", emptyHandler,
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "/users/{name:aaa}", emptyHandler,
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		assert.ErrorIs(t, onlyError(txn.Handle(http.MethodGet, "exemple/use", emptyHandler,
+			WithName("users"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+
+		txn.Commit()
+		assert.False(t, f.Has(http.MethodGet, "/use"))
+		assert.False(t, f.Has(http.MethodGet, "exemple/use"))
+		assert.False(t, f.Has(http.MethodGet, "/users/{name:aaa}"))
+		assert.False(t, f.Has(http.MethodGet, "/users/{name}/email"))
+		assert.False(t, f.Has(http.MethodGet, "/usa/foo"))
+		assert.False(t, f.Has(http.MethodGet, "/usa"))
+	})
+}
+
+func TestUpdateConflictWithName(t *testing.T) {
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/users", emptyHandler)
+	f.MustHandle(http.MethodGet, "/users", emptyHandler,
+		WithQueryMatcher("version", "v1"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("users"),
+	)
+	f.MustHandle(http.MethodGet, "/users/{name}", emptyHandler,
+		WithQueryMatcher("version", "v2"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("users_name"),
+	)
+
+	t.Run("conflict with matchers", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		assert.ErrorIs(t, onlyError(txn.Update(http.MethodGet, "/users/{name}", emptyHandler,
+			WithQueryMatcher("version", "v3"),
+			WithHeaderMatcher("Authorization", "secret"),
+		)), ErrRouteNotFound)
+		assert.Nil(t, txn.rootTxn.writable)
+	})
+
+	t.Run("conflict with different param name", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		assert.ErrorIs(t, onlyError(txn.Update(http.MethodGet, "/users/{id}", emptyHandler,
+			WithQueryMatcher("version", "v2"),
+			WithHeaderMatcher("Authorization", "secret"),
+		)), ErrRouteNotFound)
+		assert.Nil(t, txn.rootTxn.writable)
+	})
+
+	t.Run("conflict on insert name", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		require.ErrorIs(t, onlyError(txn.Update(http.MethodGet, "/users", emptyHandler,
+			WithName("users"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+	})
+
+	t.Run("conflict on update name", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		require.ErrorIs(t, onlyError(txn.Update(http.MethodGet, "/users", emptyHandler,
+			WithQueryMatcher("version", "v1"),
+			WithHeaderMatcher("Authorization", "secret"),
+			WithName("users_name"),
+		)), ErrRouteNameExist)
+		assert.Nil(t, txn.rootTxn.writable)
+	})
+}
+
+func TestUpdateWithName(t *testing.T) {
+	f, _ := New()
+	f.MustHandle(http.MethodGet, "/users", emptyHandler)
+	f.MustHandle(http.MethodGet, "/users", emptyHandler,
+		WithQueryMatcher("version", "v1"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("users"),
+	)
+	f.MustHandle(http.MethodGet, "/users/{name}", emptyHandler,
+		WithQueryMatcher("version", "v2"),
+		WithHeaderMatcher("Authorization", "secret"),
+		WithName("users_name"),
+	)
+
+	t.Run("delete name on update", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		assert.NotNil(t, txn.Name(http.MethodGet, "users_name"))
+		route, err := txn.Update(http.MethodGet, "/users/{name}", emptyHandler,
+			WithQueryMatcher("version", "v2"),
+			WithHeaderMatcher("Authorization", "secret"),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "/users/{name}", route.pattern)
+		assert.Empty(t, route.name)
+		assert.Nil(t, txn.Name(http.MethodGet, "users_name"))
+		txn.Commit()
+		assert.Nil(t, f.Name(http.MethodGet, "users_name"))
+	})
+
+	t.Run("insert name on update", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		route, err := txn.Update(http.MethodGet, "/users", emptyHandler,
+			WithName("foo"),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "/users", route.pattern)
+		assert.Equal(t, "foo", route.name)
+		assert.NotNil(t, txn.Name(http.MethodGet, "foo"))
+		txn.Commit()
+		assert.NotNil(t, f.Name(http.MethodGet, "foo"))
+	})
+
+	t.Run("update route with same name", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		route, err := txn.Update(http.MethodGet, "/users", emptyHandler,
+			WithQueryMatcher("version", "v1"),
+			WithHeaderMatcher("Authorization", "secret"),
+			WithName("users"),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "/users", route.pattern)
+		assert.Equal(t, "users", route.name)
+		assert.NotNil(t, txn.Name(http.MethodGet, "users"))
+		txn.Commit()
+		assert.NotNil(t, f.Name(http.MethodGet, "users"))
+	})
+
+	t.Run("update route with replacing name", func(t *testing.T) {
+		txn := f.Txn(true)
+		defer txn.Abort()
+		route, err := txn.Update(http.MethodGet, "/users", emptyHandler,
+			WithQueryMatcher("version", "v1"),
+			WithHeaderMatcher("Authorization", "secret"),
+			WithName("new_users"),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "/users", route.pattern)
+		assert.Equal(t, "new_users", route.name)
+		assert.Nil(t, txn.Name(http.MethodGet, "users"))
+		assert.NotNil(t, txn.Name(http.MethodGet, "new_users"))
+		txn.Commit()
+		assert.Nil(t, f.Name(http.MethodGet, "users"))
+		assert.NotNil(t, f.Name(http.MethodGet, "new_users"))
+	})
+}
+
 func TestTxn_HasWithMatchers(t *testing.T) {
 	f, _ := New(AllowRegexpParam(true))
 
