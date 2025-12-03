@@ -270,6 +270,9 @@ func (txn *Txn) Route(method, pattern string, matchers ...Matcher) *Route {
 	return matched.routes[idx]
 }
 
+// Name performs a lookup for a registered route matching the given method and route name. It returns
+// the [Route] if a match is found or nil otherwise. This function is NOT thread-safe and should be run serially,
+// along with all other [Txn] APIs. See also [Txn.Route] as an alternative.
 func (txn *Txn) Name(method, name string) *Route {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)

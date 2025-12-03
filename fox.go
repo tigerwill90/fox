@@ -315,6 +315,9 @@ func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
 	return matched.routes[idx]
 }
 
+// Name performs a lookup for a registered route matching the given method and route name. It returns
+// the [Route] if a match is found or nil otherwise. This function is safe for concurrent use by multiple
+// goroutines and while mutations on routes are ongoing. See also [Router.Route] as an alternative.
 func (fox *Router) Name(method, name string) *Route {
 	tree := fox.getTree()
 
