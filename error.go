@@ -12,6 +12,7 @@ import (
 var (
 	ErrRouteNotFound           = errors.New("route not found")
 	ErrRouteExist              = errors.New("route already registered")
+	ErrRouteNameExist          = errors.New("route name already registered")
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
 	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
@@ -20,8 +21,10 @@ var (
 	ErrSettledTxn              = errors.New("transaction settled")
 	ErrParamKeyTooLarge        = errors.New("parameter key too large")
 	ErrTooManyParams           = errors.New("too many params")
+	ErrTooManyMatchers         = errors.New("too many matchers")
 	ErrRegexpNotAllowed        = errors.New("regexp not allowed")
 	ErrInvalidConfig           = errors.New("invalid config")
+	ErrInvalidMatcher          = errors.New("invalid matcher")
 )
 
 // RouteConflictError represents a conflict that occurred during route registration.
@@ -34,13 +37,21 @@ type RouteConflictError struct {
 	Existing *Route
 	// Method is the HTTP method for which the conflict occurred.
 	Method string
+	// this is a name conflict
+	isNameConflict bool
 }
 
 func (e *RouteConflictError) Error() string {
-	return fmt.Sprintf("%s: new route %s %s conflict with %s", ErrRouteExist, e.Method, e.New.pattern, e.Existing.pattern)
+	if !e.isNameConflict {
+		return fmt.Sprintf("%s: new route %s %s conflict with %s", ErrRouteExist, e.Method, e.New.pattern, e.Existing.pattern)
+	}
+	return fmt.Sprintf("%s: new route name '%s' conflict with route at %s %s", ErrRouteNameExist, e.New.name, e.Method, e.Existing.pattern)
 }
 
 // Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
-	return ErrRouteExist
+	if !e.isNameConflict {
+		return ErrRouteExist
+	}
+	return ErrRouteNameExist
 }

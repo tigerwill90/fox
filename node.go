@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -15,10 +16,13 @@ const offsetZero = 0
 
 type root map[string]*node
 
-func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
+func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
+	// tsr come from the sync.Pool and has not been reset yet.
+	c.tsr = false
+
 	root := rt[method]
 	if root == nil {
-		return nil
+		return 0, nil
 	}
 
 	*c.skipStack = (*c.skipStack)[:0]
@@ -32,21 +36,21 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) *node {
 		return lookupByPath(root, path, c, lazy, offsetZero)
 	}
 
-	n := lookupByHostname(root, host, path, c, lazy)
+	idx, n := lookupByHostname(root, host, path, c, lazy)
 	if n == nil || c.tsr {
 		// Either no match or match with tsr, try lookup by path with tsr enable
 		// so we won't check for tsr again.
 		*c.skipStack = (*c.skipStack)[:0]
 		*c.params = (*c.params)[:0]
-		if pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
-			return pathNode
+		if i, pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
+			return i, pathNode
 		}
 	}
 	// Hostname direct match
-	return n
+	return idx, n
 }
 
-func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (n *node) {
+func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (index int, n *node) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -229,13 +233,14 @@ Walk:
 
 	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil {
 		stackOffset := len(*c.skipStack)
-		subNode := lookupByPath(matched, path, c, lazy, stackOffset)
+		idx, subNode := lookupByPath(matched, path, c, lazy, stackOffset)
 		if subNode != nil {
 			if c.tsr {
 				n = subNode
+				index = idx
 			} else {
 				c.tsr = false
-				return subNode
+				return idx, subNode
 			}
 		}
 
@@ -245,7 +250,7 @@ Walk:
 
 Backtrack:
 	if len(*c.skipStack) == 0 {
-		return n
+		return
 	}
 
 	skipped := c.skipStack.pop()
@@ -274,7 +279,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (n *node) {
+func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (index int, n *node) {
 
 	var (
 		charsMatched     int
@@ -314,13 +319,19 @@ Walk:
 					continue
 				}
 
-				if !c.tsr && child.route != nil && strings.HasPrefix(child.key, search) {
+				if !c.tsr && child.isLeaf() && strings.HasPrefix(child.key, search) {
 					remaining := child.key[len(search):]
 					if remaining == "/" {
-						c.tsr = true
-						n = child
-						if !lazy {
-							copyWithResize(c.tsrParams, c.params)
+						for i, route := range child.routes {
+							if route.match(c) {
+								c.tsr = true
+								n = child
+								index = i //nolint:staticcheck
+								if !lazy {
+									copyWithResize(c.tsrParams, c.params)
+								}
+								break
+							}
 						}
 					}
 				}
@@ -396,12 +407,18 @@ Walk:
 					idx := strings.IndexByte(path[searchStart:], slashDelim)
 					if idx < 0 {
 						if !c.tsr && len(path[searchStart:]) > 0 {
-							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-								c.tsr = true
-								n = child
-								if !lazy {
-									copyWithResize(c.tsrParams, c.params)
-									*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
+							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
+								for j, route := range child.routes {
+									if route.match(c) {
+										c.tsr = true
+										n = child
+										index = j //nolint:staticcheck
+										if !lazy {
+											copyWithResize(c.tsrParams, c.params)
+											*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
+										}
+										break
+									}
 								}
 							}
 						}
@@ -474,51 +491,75 @@ Walk:
 					continue
 				}
 
-				if !lazy {
-					*c.params = append(*c.params, search)
+				for i, route := range wildcardNode.routes {
+					if route.match(c) {
+						if !lazy {
+							*c.params = append(*c.params, search)
+						}
+						c.tsr = false
+						return i, wildcardNode
+					}
 				}
-				c.tsr = false
-				return wildcardNode
 			}
 		}
 
 		goto Backtrack
 	}
 
-	if matched.route != nil {
-		c.tsr = false
-		return matched
+	if matched.isLeaf() {
+		for i, route := range matched.routes {
+			if route.match(c) {
+				c.tsr = false
+				return i, matched
+			}
+		}
 	}
 
 	if !c.tsr {
-		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.route != nil && child.key == "/" {
-			c.tsr = true
-			n = child
-			if !lazy {
-				copyWithResize(c.tsrParams, c.params)
+		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
+			for i, route := range child.routes {
+				if route.match(c) {
+					c.tsr = true
+					n = child
+					index = i //nolint:staticcheck
+					if !lazy {
+						copyWithResize(c.tsrParams, c.params)
+					}
+					break
+				}
 			}
-		}
-
-		if matched.key == "/" && parent != nil && parent.route != nil {
-			c.tsr = true
-			n = parent
-			if !lazy {
-				copyWithResize(c.tsrParams, c.params)
+		} else if matched.key == "/" && parent != nil && parent.isLeaf() {
+			for i, route := range parent.routes {
+				if route.match(c) {
+					c.tsr = true
+					n = parent
+					index = i //nolint:staticcheck
+					if !lazy {
+						copyWithResize(c.tsrParams, c.params)
+					}
+					break
+				}
 			}
 		}
 	}
 
 Backtrack:
 	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
-		c.tsr = true
-		n = matched
-		if !lazy {
-			copyWithResize(c.tsrParams, c.params)
+		for i, route := range matched.routes {
+			if route.match(c) {
+				c.tsr = true
+				n = matched
+				index = i //nolint:staticcheck
+				if !lazy {
+					copyWithResize(c.tsrParams, c.params)
+				}
+				break
+			}
 		}
 	}
 
 	if len(*c.skipStack) == stackOffset {
-		return n
+		return
 	}
 
 	skipped := c.skipStack.pop()
@@ -550,8 +591,8 @@ Backtrack:
 }
 
 type node struct {
-	// route holds the registered handler if this node is a leaf.
-	route *Route
+	// routes holds the registered handlers if this node is a leaf.
+	routes []*Route
 
 	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.
 	// When present, captured segments must match this pattern during lookup.
@@ -569,7 +610,7 @@ type node struct {
 	// Wildcard nodes without regex: Contains "*" as a canonical placeholder,
 	// following the same sharing semantics as params.
 	//
-	// Param/wildcard nodes with regex: Contains the regex pattern string.
+	// Param/wildcard nodes with regex contains the regex pattern literal.
 	// Multiple regex nodes can exist at the same level, each with a distinct pattern.
 	// During lookup, patterns are evaluated in insertion order until one matches.
 	key string
@@ -592,6 +633,75 @@ type node struct {
 	// host indicates this node's key belongs to the hostname portion of the route.
 	// A node that belong to a host cannot be merged with a child key that start with a '/'.
 	host bool
+}
+
+func (n *node) addRoute(route *Route) {
+	// route with no matcher always goes at the end
+	if len(route.matchers) == 0 {
+		n.routes = append(n.routes, route)
+		return
+	}
+
+	insertPos := len(n.routes)
+	for i, existing := range n.routes {
+		if len(existing.matchers) == 0 {
+			insertPos = i
+			break
+		}
+
+		if route.priority > existing.priority {
+			insertPos = i
+			break
+		}
+	}
+
+	n.routes = slices.Insert(n.routes, insertPos, route)
+}
+
+func (n *node) replaceRoute(route *Route) {
+	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+		return r.matchersEqual(route.matchers)
+	})
+	if idx < 0 {
+		panic("internal error: replacing missing route")
+	}
+
+	oldRoute := n.routes[idx]
+
+	// priority unchanged or there is no matchers, replace in place.
+	if oldRoute.priority == route.priority || len(route.matchers) == 0 {
+		n.routes[idx] = route
+		return
+	}
+
+	n.routes = slices.Delete(n.routes, idx, idx+1)
+	insertPos := len(n.routes)
+
+	for i, existing := range n.routes {
+		if len(existing.matchers) == 0 {
+			insertPos = i
+			break
+		}
+
+		if route.priority > existing.priority {
+			insertPos = i
+			break
+		}
+	}
+
+	n.routes = slices.Insert(n.routes, insertPos, route)
+}
+
+func (n *node) delRoute(route *Route) {
+	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+		return r.matchersEqual(route.matchers)
+	})
+	if idx >= 0 {
+		copy(n.routes[idx:], n.routes[idx+1:])
+		last := len(n.routes) - 1
+		n.routes[last] = nil
+		n.routes = n.routes[:last:last]
+	}
 }
 
 // addStaticEdge inserts a static child node while maintaining sorted order by label byte.
@@ -737,17 +847,16 @@ func (n *node) delWildcardEdge(key string) {
 	}
 }
 
-func (n *node) search(key string) (matched *node) {
+func (n *node) searchPattern(key string) (matched *node) {
 	current := n
 	search := key
 
 	for len(search) > 0 {
 		if search[0] == bracketDelim {
-			end := strings.IndexByte(search, '}')
-			if end == -1 {
+			end, paramName := parseBraceSegment(search)
+			if paramName == "" {
 				goto STATIC
 			}
-			paramName := search[:end+1]
 			_, child := current.getParamEdge(paramName)
 			if child == nil {
 				return nil
@@ -758,11 +867,10 @@ func (n *node) search(key string) (matched *node) {
 		}
 
 		if search[0] == starDelim {
-			end := strings.IndexByte(search, '}')
-			if end == -1 {
+			end, paramName := parseBraceSegment(search)
+			if paramName == "" {
 				goto STATIC
 			}
-			paramName := search[:end+1]
 			_, child := current.getWildcardEdge(paramName)
 			if child == nil {
 				return nil
@@ -790,8 +898,68 @@ func (n *node) search(key string) (matched *node) {
 	return current
 }
 
+func (n *node) searchName(key string) (matched *node) {
+	current := n
+	search := key
+
+	for len(search) > 0 {
+		label := search[0]
+		_, child := current.getStaticEdge(label)
+		if child == nil {
+			return nil
+		}
+
+		keyLen := min(len(child.key), len(search))
+		if search[:keyLen] != child.key[:keyLen] {
+			return nil
+		}
+		search = search[keyLen:]
+		current = child
+	}
+
+	return current
+}
+
+// parseBraceSegment extracts the node key from a param or wildcard segment in a route pattern.
+// It returns the index of the closing brace and the corresponding node key used for tree lookups:
+//   - For params {name}: returns (end, "?")
+//   - For wildcards *{name}: returns (end, "*")
+//   - For params with regex {name:pattern}: returns (end, "pattern")
+//   - For wildcards with regex *{name:pattern}: returns (end, "pattern")
+//   - For invalid/malformed segments: returns (0, "") to signal early exit
+//
+// This is a lightweight parser that does not fully validate the segment. It assumes the caller
+// will verify that the retrieved route's pattern matches the search pattern after tree lookup.
+func parseBraceSegment(pattern string) (int, string) {
+	length := len(pattern)
+	if length == 0 {
+		return 0, pattern
+	}
+
+	key := "?"
+	if strings.HasPrefix(pattern, "*{") {
+		key = "*"
+	}
+
+	end := braceIndice(pattern, 0)
+	if end <= 0 {
+		return 0, ""
+	}
+
+	idx := strings.IndexByte(pattern[:end], ':')
+	if idx == -1 {
+		return end, key
+	}
+	// Handle missing param name such as {:[A-z]} here since it would be an invalid route anyway.
+	if idx == 0 {
+		return 0, ""
+	}
+
+	return end, pattern[idx+1 : end]
+}
+
 func (n *node) isLeaf() bool {
-	return n.route != nil
+	return len(n.routes) > 0
 }
 
 func (n *node) String() string {
@@ -819,10 +987,24 @@ func (n *node) string(space int) string {
 		sb.WriteByte(']')
 	}
 
-	if n.isLeaf() {
-		sb.WriteString(" [leaf=")
-		sb.WriteString(n.route.pattern)
-		sb.WriteString("]")
+	for _, route := range n.routes {
+		sb.WriteByte('\n')
+		sb.WriteString(strings.Repeat(" ", space+8))
+		sb.WriteString("=> ")
+		sb.WriteString(route.pattern)
+		if len(route.matchers) > 0 {
+			sb.WriteString(" [matchers: ")
+			for i, matcher := range route.matchers {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(reflect.TypeOf(matcher).String())
+			}
+			sb.WriteByte(']')
+		}
+		sb.WriteString(" [priority: ")
+		sb.WriteString(strconv.FormatUint(uint64(route.priority), 10))
+		sb.WriteByte(']')
 	}
 
 	sb.WriteByte('\n')

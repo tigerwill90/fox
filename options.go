@@ -8,6 +8,8 @@ import (
 	"cmp"
 	"fmt"
 	"reflect"
+
+	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 type TrailingSlashOption uint8
@@ -43,6 +45,11 @@ type RouteOption interface {
 	applyRoute(sealedOption) error
 }
 
+type MatcherOption interface {
+	RouteOption
+	applyMatcher(sealedOption) error
+}
+
 type sealedOption struct {
 	router *Router
 	route  *Route
@@ -67,6 +74,16 @@ func (o optionFunc) applyGlob(s sealedOption) error {
 }
 
 func (o optionFunc) applyRoute(s sealedOption) error {
+	return o(s)
+}
+
+type matcherOptionFunc func(sealedOption) error
+
+func (o matcherOptionFunc) applyMatcher(s sealedOption) error {
+	return o(s)
+}
+
+func (o matcherOptionFunc) applyRoute(s sealedOption) error {
 	return o(s)
 }
 
@@ -98,16 +115,16 @@ func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 }
 
 // WithOptionsHandler register an [HandlerFunc] which is called on automatic OPTIONS requests. By default, the router
-// respond with a 200 OK status code. The "Allow" header it automatically set before calling the handler. Note that custom OPTIONS
-// handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
+// respond with a 204 status code. The "Allow" header it automatically set before calling the handler (except for CORS preflight request).
+// Note that custom OPTIONS handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
 // automatically enable [WithAutoOptions].
 func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidConfig)
 		}
-		s.router.autoOptions = handler
-		s.router.handleOptions = true
+		s.router.autoOPTIONS = handler
+		s.router.handleOPTIONS = true
 		return nil
 	})
 }
@@ -184,6 +201,15 @@ func WithMaxRouteParamKeyBytes(max int) GlobalOption {
 	})
 }
 
+// WithMaxRouteMatchers set the maximum number of matchers allowed in a route. The default max is math.MaxUint8.
+// Routes exceeding this limit will fail with an error that Is ErrInvalidRoute and ErrTooManyMatchers.
+func WithMaxRouteMatchers(max int) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.maxMatchers = max
+		return nil
+	})
+}
+
 // AllowRegexpParam enables support for regular expressions in route parameters. When enabled, parameters can include
 // regex patterns (e.g., {id:[0-9]+}). When disabled, routes containing regex patterns will fail with and error that
 // Is ErrInvalidRoute and ErrRegexpNotAllowed.
@@ -251,14 +277,24 @@ func WithNoMethod(enable bool) GlobalOption {
 	})
 }
 
-// WithAutoOptions enables automatic response to OPTIONS requests with, by default, a 200 OK status code.
+// WithAutoOptions enables automatic response to OPTIONS requests with, by default, a 204 status code.
 // Use the [WithOptionsHandler] option to customize the response. When this option is enabled, the router automatically
-// determines the "Allow" header value based on the methods registered for the given route. Note that custom OPTIONS
-// handler take priority over automatic replies. This option is automatically enabled when providing a custom handler with
-// the option [WithOptionsHandler].
+// determines the "Allow" header value based on the methods registered for the given route (except for CORS preflight request).
+// Note that custom OPTIONS handler take priority over automatic replies. This option is automatically enabled when providing
+// a custom handler with the option [WithOptionsHandler].
 func WithAutoOptions(enable bool) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.handleOptions = enable
+		s.router.handleOPTIONS = enable
+		return nil
+	})
+}
+
+// WithSystemWideOptions enable automatic response for system-wide OPTIONS request (OPTIONS *). When this option is enabled,
+// the router return a 200 OK status code with the "Allow" header containing all registered HTTP methods. This option is enabled
+// by default.
+func WithSystemWideOptions(enable bool) GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.systemWideOPTIONS = enable
 		return nil
 	})
 }
@@ -291,7 +327,7 @@ func WithClientIPResolver(resolver ClientIPResolver) Option {
 // any other components to modify behavior based on the attached metadata. Unlike context-based metadata, which is tied to
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
 // The provided key must be comparable and should not be of type string or any other built-in type to avoid collisions between
-// packages that use route annotation.
+// packages that use route annotation. See also [WithAnnotationFunc]
 func WithAnnotation(key, value any) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
 		if !reflect.TypeOf(key).Comparable() {
@@ -305,17 +341,172 @@ func WithAnnotation(key, value any) RouteOption {
 	})
 }
 
-// DefaultOptions configure the router to use the [Recovery] middleware for the [RouteHandler] scope, the [Logger] middleware
-// for [AllHandlers] scope, enable automatic OPTIONS response and path correction in redirect mode. Note that DefaultOptions
-// push the [Recovery] and [Logger] middleware respectively to the first and second position of the middleware chains.
+// WithAnnotationFunc attaches arbitrary metadata to routes like [WithAnnotation], but the annotation value
+// is produced by a function that can also return an error. If the function returns an error, route
+// registration fails with that error wrapped in [ErrInvalidConfig].
+func WithAnnotationFunc(key any, fn func() (value any, err error)) RouteOption {
+	return routeOptionFunc(func(s sealedOption) error {
+		if !reflect.TypeOf(key).Comparable() {
+			return fmt.Errorf("%w: annotation key is not comparable", ErrInvalidConfig)
+		}
+		value, err := fn()
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		}
+		if s.route.annots == nil {
+			s.route.annots = make(map[any]any, 1)
+		}
+		s.route.annots[key] = value
+		return nil
+	})
+}
+
+// WithName assigns a name to a route for identification and lookup purposes.
+// The name must be unique among routes registered with the same HTTP method.
+func WithName(name string) RouteOption {
+	return routeOptionFunc(func(s sealedOption) error {
+		if name == "" {
+			return fmt.Errorf("%w: empty route name", ErrInvalidConfig)
+		}
+		s.route.name = name
+		return nil
+	})
+}
+
+// WithMatcherPriority sets the priority for a route with matchers. When multiple routes share the same pattern,
+// route matchers are evaluated by priority order (highest first). Routes with equal priority may be evaluated in any order.
+// Routes without matchers are always evaluated last. If unset or 0, the priority defaults to the number of matchers.
+func WithMatcherPriority(priority uint) RouteOption {
+	return routeOptionFunc(func(s sealedOption) error {
+		s.route.priority = priority
+		return nil
+	})
+}
+
+// WithQueryMatcher attaches a query parameter matcher to a route. The matcher ensures that requests
+// are only routed to the handler if the specified query parameter matches the given value. Multiple
+// matchers can be attached to the same route. All matchers must match for the route to be eligible.
+func WithQueryMatcher(key, value string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		matcher, err := MatchQuery(key, value)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, matcher)
+		return nil
+	})
+}
+
+// WithQueryRegexpMatcher attaches a query parameter matcher with regular expression support to a route.
+// The matcher ensures that requests are only routed to the handler if the specified query parameter value
+// matches the given regular expression. The expression is automatically anchored at both ends, requiring a
+// full match of the parameter value. Multiple matchers can be attached to the same route. All matchers
+// must match for the route to be eligible.
+func WithQueryRegexpMatcher(key, expr string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		matcher, err := MatchQueryRegexp(key, expr)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, matcher)
+		return nil
+	})
+}
+
+// WithHeaderMatcher attaches an HTTP header matcher to a route. The matcher ensures that requests
+// are only routed to the handler if the specified header matches the given value. Multiple matchers
+// can be attached to the same route. All matchers must match for the route to be eligible.
+func WithHeaderMatcher(key, value string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		matcher, err := MatchHeader(key, value)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, matcher)
+		return nil
+	})
+}
+
+// WithHeaderRegexpMatcher attaches an HTTP header matcher with regular expression support to a route.
+// The matcher ensures that requests are only routed to the handler if the specified header value
+// matches the given regular expression. The expression is automatically anchored at both ends, requiring
+// a full match of the header value. Multiple matchers can be attached to the same route. All matchers
+// must match for the route to be eligible.
+func WithHeaderRegexpMatcher(key, expr string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		matcher, err := MatchHeaderRegexp(key, expr)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, matcher)
+		return nil
+	})
+}
+
+// WithClientIPMatcher attaches a client IP address matcher to a route. The matcher ensures that requests
+// are only routed to the handler if the client IP address matches the specified CIDR notation or IP address.
+// The ip parameter accepts both single IP addresses (e.g., "192.168.1.1") and CIDR ranges (e.g., "192.168.1.0/24").
+// Multiple matchers can be attached to the same route. All matchers must match for the route to be eligible.
+// See WithClientIPResolver to configure a resolver for obtaining the "real" client IP.
+func WithClientIPMatcher(ip string) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		matcher, err := MatchClientIP(ip)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+		}
+		s.route.matchers = append(s.route.matchers, matcher)
+		return nil
+	})
+}
+
+// WithMatcher attaches a custom matcher to a route. Matchers allow for advanced request routing based
+// on conditions beyond the request host, path and method. Multiple matchers can be attached to the same route.
+// All matchers must match for the route to be eligible.
+func WithMatcher(matchers ...Matcher) MatcherOption {
+	return matcherOptionFunc(func(s sealedOption) error {
+		for i := range matchers {
+			if matchers[i] == nil {
+				return fmt.Errorf("%w: matcher cannot be nil", ErrInvalidMatcher)
+			}
+			s.route.matchers = append(s.route.matchers, matchers[i])
+		}
+		return nil
+	})
+}
+
+// DefaultOptions configures the router with sensible production defaults:
+//   - Enables automatic OPTIONS responses ([WithAutoOptions])
+//   - Enables 405 Method Not Allowed responses ([WithNoMethod])
+//   - Enables regular expression support in route parameters ([AllowRegexpParam])
+//   - Enables redirect-based path correction for trailing slashes ([WithHandleTrailingSlash] with [RedirectSlash])
+//   - Enables redirect-based path correction for non-canonical paths ([WithHandleFixedPath] with [RedirectPath])
+//
+// For development, consider combining this with [DevelopmentOptions] to add debugging middleware.
 func DefaultOptions() GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
-		s.router.mws = append([]middleware{
-			{Recovery(), RouteHandler, true},
-			{Logger(), AllHandlers, true},
-		}, s.router.mws...)
-		s.router.handleOptions = true
+		s.router.handleOPTIONS = true
+		s.router.handleMethodNotAllowed = true
+		s.router.allowRegexp = true
 		s.router.handlePath = RedirectPath
+		s.router.handleSlash = RedirectSlash
+		return nil
+	})
+}
+
+// DevelopmentOptions configures the router with middleware useful for local development and debugging.
+// It registers the following middleware at the front of the chain:
+//   - [Recovery] middleware for the [RouteHandler] scope, which catches panics and logs stack traces
+//   - [Logger] middleware for [AllHandlers] scope, which logs request details
+//
+// Both middleware use a human-readable, colorized slog handler optimized for terminal output.
+// This option is intended for development only and should not be used in production, where structured
+// logging with a proper [slog.Handler] is typically preferred.
+func DevelopmentOptions() GlobalOption {
+	return globOptionFunc(func(s sealedOption) error {
+		s.router.mws = append([]middleware{
+			{Recovery(slogpretty.DefaultHandler), RouteHandler, true},
+			{Logger(slogpretty.DefaultHandler), AllHandlers, true},
+		}, s.router.mws...)
 		return nil
 	})
 }

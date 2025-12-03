@@ -18,24 +18,6 @@ func SplitHostZone(s string) (host, zone string) {
 	return
 }
 
-// SplitHostPort separates host and port. If the port is not valid, it returns
-// the entire input as host, and it doesn't check the validity of the host.
-// Unlike [net.SplitHostPort], but per RFC 3986, it requires ports to be numeric.
-func SplitHostPort(hostPort string) (host, port string) {
-	host = hostPort
-
-	colon := strings.LastIndexByte(host, ':')
-	if colon != -1 && validOptionalPort(host[colon:]) {
-		host, port = host[:colon], host[colon+1:]
-	}
-
-	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
-		host = host[1 : len(host)-1]
-	}
-
-	return
-}
-
 // StripHostPort returns h without any trailing ":<port>". It also removes trailing period in the hostname.
 // Per RFC 3696, The DNS specification permits a trailing period to be used to denote the root, e.g., "a.b.c" and "a.b.c."
 // are equivalent, but the latter is more explicit and is required to be accepted by applications. Note that FQDN does
@@ -56,19 +38,29 @@ func StripHostPort(h string) string {
 	return strings.TrimSuffix(host, ".")
 }
 
-// validOptionalPort reports whether port is either an empty string
-// or matches /^:\d*$/
-func validOptionalPort(port string) bool {
-	if port == "" {
-		return true
+func ParseCIDR(cidr string) (*net.IPNet, error) {
+	// Try parsing as CIDR first
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err == nil {
+		return ipNet, nil
 	}
-	if port[0] != ':' {
-		return false
+
+	// If not a CIDR, try parsing as a plain IP address
+	ip := net.ParseIP(cidr)
+	if ip == nil {
+		return nil, err // return original CIDR parsing error
 	}
-	for _, b := range port[1:] {
-		if b < '0' || b > '9' {
-			return false
-		}
+
+	// Create a /32 or /128 network for the single IP
+	var mask net.IPMask
+	if ip.To4() != nil {
+		mask = net.CIDRMask(32, 32) // IPv4
+	} else {
+		mask = net.CIDRMask(128, 128) // IPv6
 	}
-	return true
+
+	return &net.IPNet{
+		IP:   ip,
+		Mask: mask,
+	}, nil
 }
