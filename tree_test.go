@@ -2,6 +2,7 @@ package fox
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -1180,6 +1181,431 @@ func TestDomainLookup(t *testing.T) {
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
+			c.route = n.routes[idx]
+			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
+		})
+	}
+}
+
+func TestMatchersLookup(t *testing.T) {
+
+	type route struct {
+		pattern  string
+		matchers []Matcher
+	}
+
+	cases := []struct {
+		name        string
+		routes      []route
+		host        string
+		path        string
+		wantPattern string
+		wantTsr     bool
+		wantParams  []Param
+	}{
+		{
+			name: "tsr on hostname route after failing all query match",
+			routes: []route{
+				{pattern: "exemple.com/foo/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar",
+			wantPattern: "exemple.com/foo/bar/",
+			wantTsr:     true,
+		},
+		{
+			name: "tsr on hostname+matcher route after failing all query match",
+			routes: []route{
+				{pattern: "exemple.com/foo/bar/", matchers: []Matcher{QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?c=d",
+			wantPattern: "exemple.com/foo/bar/",
+			wantTsr:     true,
+		},
+		{
+			name: "tsr on catch-all+matcher route after failing all query match",
+			routes: []route{
+				{pattern: "/foo/*{any}/", matchers: []Matcher{QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			path:        "/foo/bar?c=d",
+			wantPattern: "/foo/*{any}/",
+			wantTsr:     true,
+			wantParams: []Param{
+				{
+					Key:   "any",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name: "fallback on catch-all+matcher route after failing all query match",
+			routes: []route{
+				{pattern: "/foo/*{any}", matchers: []Matcher{QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			path:        "/foo/bar?c=d",
+			wantPattern: "/foo/*{any}",
+			wantParams: []Param{
+				{
+					Key:   "any",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name: "fallback on catch-all+matcher route after failing all query match",
+			routes: []route{
+				{pattern: "/foo/{name}", matchers: []Matcher{QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			path:        "/foo/bar?c=d",
+			wantPattern: "/foo/{name}",
+			wantParams: []Param{
+				{
+					Key:   "name",
+					Value: "bar",
+				},
+			},
+		},
+		{
+			name: "fallback on catch-all+matchers route after failing all query match",
+			routes: []route{
+				{pattern: "/foo/{name}/baz", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"e", "f"}}},
+				{pattern: "/foo/*{any}", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+			},
+			path:        "/foo/bar/baz?a=b",
+			wantPattern: "/foo/*{any}",
+			wantParams: []Param{
+				{
+					Key:   "any",
+					Value: "bar/baz",
+				},
+			},
+		},
+		{
+			name: "tsr on hostname route after failing one query match",
+			routes: []route{
+				{pattern: "exemple.com/foo/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?a=b",
+			wantPattern: "exemple.com/foo/bar/",
+			wantTsr:     true,
+		},
+		{
+			name: "match with tsr on hostname but more specific matchers",
+			routes: []route{
+				{pattern: "exemple.com/foo/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?a=b&c=d",
+			wantPattern: "/foo/bar",
+		},
+		{
+			name: "match with tsr on hostname but more specific matchers with param backtrack",
+			routes: []route{
+				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?a=b&c=d",
+			wantPattern: "/foo/bar",
+		},
+		{
+			name: "match with multiple same query matchers",
+			routes: []route{
+				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"a", "b"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?a=b",
+			wantPattern: "/foo/bar",
+		},
+		{
+			name: "match with multiple same query matchers",
+			routes: []route{
+				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"a", "b"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?a=b",
+			wantPattern: "/foo/bar",
+		},
+		{
+			name: "match many query matchers",
+			routes: []route{
+				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "/foo/bar", matchers: []Matcher{
+					QueryMatcher{"a", "b"},
+					QueryMatcher{"c", "d"},
+					QueryMatcher{"e", "f"},
+					QueryMatcher{"g", "h"},
+					QueryMatcher{"i", "j"},
+					QueryMatcher{"k", "l"},
+				}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?e=f&k=l&a=b&c=d&g=h&i=j",
+			wantPattern: "/foo/bar",
+		},
+		{
+			name: "fallback to tsr after failing matching multiple same level routes",
+			routes: []route{
+				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}},
+			},
+			host:        "exemple.com",
+			path:        "/foo/bar?a=a&c=d&e=f",
+			wantPattern: "exemple.com/{name}/bar/",
+			wantTsr:     true,
+			wantParams: []Param{
+				{
+					Key:   "name",
+					Value: "foo",
+				},
+			},
+		},
+		{
+			name: "fallback to must specific hostname with wildcard, regexp priority and matchers",
+			routes: []route{
+				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "*{a:[A-z]+}.b.c/{path}/bar/", matchers: []Matcher{QueryMatcher{"b", "c"}}},
+				{pattern: "*{a:foo}.{b}.c/{d}/bar"},
+				{pattern: "/{a:^$}/bar"},
+			},
+			host:        "foo.b.c",
+			path:        "/john/bar?b=c",
+			wantPattern: "*{a:foo}.{b}.c/{d}/bar",
+			wantTsr:     false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "b",
+					Value: "b",
+				},
+				{
+					Key:   "d",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "match must specific hostname with wildcard, regexp priority and matchers",
+			routes: []route{
+				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "*{a:foo}.{b}.c/{d}/bar/"},
+				{pattern: "*{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"b", "c"}}},
+				{pattern: "/{a:^$}/bar"},
+			},
+			host:        "foo.b.c",
+			path:        "/john/bar?b=c",
+			wantPattern: "*{a:[A-z]+}.b.c/{path}/bar",
+			wantTsr:     false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "foo",
+				},
+				{
+					Key:   "path",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "fallback must specific path with wildcard, regexp priority and matchers",
+			routes: []route{
+				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "*{a:foo}.{b}.c/{d}/bar/", matchers: []Matcher{QueryMatcher{"b", "c"}}},
+				{pattern: "*{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"e", "f"}}},
+				{pattern: "/{a:.*}/bar"},
+			},
+			host:        "foo.b.c",
+			path:        "/john/bar?b=c",
+			wantPattern: "/{a:.*}/bar",
+			wantTsr:     false,
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "john",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := New(AllowRegexpParam(true))
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
+			}
+			tree := f.getTree()
+			c := newTestContext(f)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Host = tc.host
+			c.req = req
+			idx, n := tree.lookup(http.MethodGet, tc.host, c.Path(), c, false)
+			require.NotNil(t, n)
+			assert.Equal(t, tc.wantPattern, n.routes[idx].pattern)
+			assert.Equal(t, tc.wantTsr, c.tsr)
+			c.route = n.routes[idx]
+			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
+		})
+	}
+
+}
+
+func TestMatchersLookupWithPriority(t *testing.T) {
+	type route struct {
+		pattern  string
+		matchers []Matcher
+		priority uint
+	}
+
+	cases := []struct {
+		name        string
+		routes      []route
+		path        string
+		wantPattern string
+		wantMatcher []Matcher
+		wantParams  []Param
+	}{
+		{
+			name: "match must specific matchers",
+			routes: []route{
+				{pattern: "/{name}/bar"},
+				{pattern: "/{name}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/{foo}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}},
+			},
+			path:        "/john/bar?a=b&c=d&e=f",
+			wantPattern: "/{foo}/bar",
+			wantMatcher: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}},
+			wantParams: Params{
+				{
+					Key:   "foo",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "match second must specific matchers",
+			routes: []route{
+				{pattern: "/{name}/bar"},
+				{pattern: "/{name}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/{foo}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}},
+			},
+			path:        "/john/bar?a=b&c=d&e=g",
+			wantPattern: "/{id}/bar",
+			wantMatcher: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}},
+			wantParams: Params{
+				{
+					Key:   "id",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "match less specific route",
+			routes: []route{
+				{pattern: "/{four}/bar"},
+				{pattern: "/{third}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "/{second}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/{first}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}},
+			},
+			path:        "/john/bar?a=g&c=d&e=g",
+			wantPattern: "/{four}/bar",
+			wantParams: Params{
+				{
+					Key:   "four",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "match most specific route with priority",
+			routes: []route{
+				{pattern: "/{four}/bar"},
+				{pattern: "/{third}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}, priority: 1000},
+				{pattern: "/{second}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
+				{pattern: "/{first}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}},
+			},
+			path:        "/john/bar?a=b&c=d&e=f",
+			wantPattern: "/{third}/bar",
+			wantMatcher: []Matcher{QueryMatcher{"a", "b"}},
+			wantParams: Params{
+				{
+					Key:   "third",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "match second most specific after failing priority route",
+			routes: []route{
+				{pattern: "/{four}/bar"},
+				{pattern: "/{third}/bar", matchers: []Matcher{QueryMatcher{"a", "f"}}, priority: 1000},
+				{pattern: "/{second}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}, priority: 500},
+				{pattern: "/{first}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}},
+			},
+			path:        "/john/bar?a=b&c=d&e=f",
+			wantPattern: "/{second}/bar",
+			wantMatcher: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}},
+			wantParams: Params{
+				{
+					Key:   "second",
+					Value: "john",
+				},
+			},
+		},
+		{
+			name: "invert priority fail to less priority",
+			routes: []route{
+				{pattern: "/{four}/bar"},
+				{pattern: "/{third}/bar", matchers: []Matcher{QueryMatcher{"a", "f"}}, priority: 1000},
+				{pattern: "/{second}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "f"}}, priority: 500},
+				{pattern: "/{first}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}}, priority: 250},
+			},
+			path:        "/john/bar?a=b&c=d&e=f",
+			wantPattern: "/{first}/bar",
+			wantMatcher: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}, QueryMatcher{"e", "f"}},
+			wantParams: Params{
+				{
+					Key:   "first",
+					Value: "john",
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := New(AllowRegexpParam(true))
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...), WithMatcherPriority(rte.priority))))
+			}
+			tree := f.getTree()
+			c := newTestContext(f)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			c.req = req
+			idx, n := tree.lookup(http.MethodGet, "", c.Path(), c, false)
+			require.NotNil(t, n)
+			assert.Equal(t, tc.wantPattern, n.routes[idx].pattern)
+			assert.Equal(t, tc.wantMatcher, n.routes[idx].matchers)
 			c.route = n.routes[idx]
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})

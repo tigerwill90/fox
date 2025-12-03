@@ -113,7 +113,7 @@ func TestTxn_Truncate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New()
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 			}
 			txn := f.Txn(true)
 			defer txn.Abort()
@@ -124,6 +124,7 @@ func TestTxn_Truncate(t *testing.T) {
 
 			tree := f.getTree()
 			assert.ElementsMatch(t, tc.wantMethods, slices.Collect(maps.Keys(tree.patterns)))
+			assert.ElementsMatch(t, tc.wantMethods, slices.Collect(maps.Keys(tree.names)))
 			assert.Equal(t, tc.wantDepth, tree.maxDepth)
 			assert.Equal(t, tc.wantSize, tree.size)
 			assert.Equal(t, tc.wantMaxParams, tree.maxParams)
