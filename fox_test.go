@@ -4827,13 +4827,14 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	require.NoError(t, f.Updates(func(txn *Txn) error {
 		for _, rte := range githubAPI {
-			if err := onlyError(txn.Handle(rte.method, rte.path, h)); err != nil {
+			name := rte.method + ":" + rte.path
+			if err := onlyError(txn.Handle(rte.method, rte.path, h, WithName(name))); err != nil {
 				return err
 			}
-			if err := onlyError(txn.Handle(rte.method, rte.path, h, WithQueryMatcher("a", "b"))); err != nil {
+			if err := onlyError(txn.Handle(rte.method, rte.path, h, WithQueryMatcher("a", "b"), WithName(name+":1"))); err != nil {
 				return err
 			}
-			if err := onlyError(txn.Handle(rte.method, rte.path, h, WithQueryMatcher("c", "d"))); err != nil {
+			if err := onlyError(txn.Handle(rte.method, rte.path, h, WithQueryMatcher("c", "d"), WithName(name+":2"))); err != nil {
 				return err
 			}
 		}
@@ -4863,13 +4864,14 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 				}
 
 				for _, rte := range githubAPI {
-					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h)); err != nil {
+					name := rte.method + ":" + "{sub}.bar.{tld}" + rte.path
+					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h, WithName(name))); err != nil {
 						return err
 					}
-					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h, WithQueryMatcher("a", "b"))); err != nil {
+					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h, WithQueryMatcher("a", "b"), WithName(name+":1"))); err != nil {
 						return err
 					}
-					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h, WithQueryMatcher("c", "d"))); err != nil {
+					if err := onlyError(txn.Handle(rte.method, "{sub}.bar.{tld}"+rte.path, h, WithQueryMatcher("c", "d"), WithName(name+":2"))); err != nil {
 						return err
 					}
 				}
@@ -4898,13 +4900,14 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 				}
 
 				for _, rte := range githubAPI {
-					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h, WithQueryMatcher("a", "b"))); err != nil {
+					name := rte.method + ":" + "foo.bar.baz" + rte.path
+					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h, WithQueryMatcher("a", "b"), WithName(name+":1"))); err != nil {
 						return err
 					}
-					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h)); err != nil {
+					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h, WithName(name))); err != nil {
 						return err
 					}
-					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h, WithQueryMatcher("c", "d"))); err != nil {
+					if err := onlyError(txn.Handle(rte.method, "foo.bar.baz"+rte.path, h, WithQueryMatcher("c", "d"), WithName(name+":2"))); err != nil {
 						return err
 					}
 				}
@@ -4940,6 +4943,8 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 	}
 	for _, n := range tree.names {
 		assert.Len(t, n.statics, 1)
+		assert.Len(t, n.params, 0)
+		assert.Len(t, n.wildcards, 0)
 	}
 
 }
