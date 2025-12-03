@@ -34,16 +34,9 @@ var (
 	patternHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Pattern()) })
 )
 
-type mockResponseWriter struct {
-	h http.Header
-}
+type mockResponseWriter struct{}
 
-func (m mockResponseWriter) Header() (h http.Header) {
-	if m.h == nil {
-		return http.Header{}
-	}
-	return m.h
-}
+func (m mockResponseWriter) Header() (h http.Header) { return http.Header{} }
 
 func (m mockResponseWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
