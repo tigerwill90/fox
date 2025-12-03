@@ -4440,6 +4440,153 @@ func TestTree_Has(t *testing.T) {
 	}
 }
 
+func TestRouter_HasWithMatchers(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+
+	m1, _ := MatchQuery("version", "v1")
+	m2, _ := MatchQuery("version", "v2")
+	m3, _ := MatchHeader("X-Api-Key", "secret")
+
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/api/users", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/api/users", emptyHandler, WithMatcher(m1))))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/api/users", emptyHandler, WithMatcher(m2))))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/api/users", emptyHandler, WithMatcher(m1, m3))))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/api/users/{id}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/api/users/{id}", emptyHandler, WithMatcher(m1))))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/files/*{path}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/files/*{path}", emptyHandler, WithMatcher(m1))))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/items/{id:[0-9]+}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/items/{id:[0-9]+}", emptyHandler, WithMatcher(m1))))
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/org/{org}/repo/{repo:[a-z]+}", emptyHandler, WithMatcher(m1))))
+
+	cases := []struct {
+		name     string
+		path     string
+		matchers []Matcher
+		want     bool
+	}{
+		{
+			name: "static route without matcher",
+			path: "/api/users",
+			want: true,
+		},
+		{
+			name:     "static route with matching matcher",
+			path:     "/api/users",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name:     "static route with different matcher value",
+			path:     "/api/users",
+			matchers: []Matcher{m2},
+			want:     true,
+		},
+		{
+			name:     "static route with multiple matchers",
+			path:     "/api/users",
+			matchers: []Matcher{m1, m3},
+			want:     true,
+		},
+		{
+			name:     "static route with multiple matchers in different order",
+			path:     "/api/users",
+			matchers: []Matcher{m3, m1},
+			want:     true,
+		},
+		{
+			name:     "static route with non-registered matcher",
+			path:     "/api/users",
+			matchers: []Matcher{m3},
+			want:     false,
+		},
+		{
+			name:     "static route with partial matchers",
+			path:     "/api/users",
+			matchers: []Matcher{m1, m2},
+			want:     false,
+		},
+		{
+			name: "param route without matcher",
+			path: "/api/users/{id}",
+			want: true,
+		},
+		{
+			name:     "param route with matcher",
+			path:     "/api/users/{id}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name:     "param route with wrong matcher",
+			path:     "/api/users/{id}",
+			matchers: []Matcher{m2},
+			want:     false,
+		},
+		{
+			name: "wildcard route without matcher",
+			path: "/files/*{path}",
+			want: true,
+		},
+		{
+			name:     "wildcard route with matcher",
+			path:     "/files/*{path}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name: "regexp route without matcher",
+			path: "/items/{id:[0-9]+}",
+			want: true,
+		},
+		{
+			name:     "regexp route with matcher",
+			path:     "/items/{id:[0-9]+}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name:     "mixed route with param and regexp",
+			path:     "/org/{org}/repo/{repo:[a-z]+}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name: "mixed route without matcher does not exist",
+			path: "/org/{org}/repo/{repo:[a-z]+}",
+			want: false,
+		},
+		{
+			name: "structurally identical param pattern with different name",
+			path: "/api/users/{name}",
+			want: false,
+		},
+		{
+			name:     "structurally identical param pattern with different name and matcher",
+			path:     "/api/users/{name}",
+			matchers: []Matcher{m1},
+			want:     false,
+		},
+		{
+			name: "structurally identical regexp pattern with different name",
+			path: "/items/{num:[0-9]+}",
+			want: false,
+		},
+		{
+			name:     "structurally identical regexp pattern with different name and matcher",
+			path:     "/items/{num:[0-9]+}",
+			matchers: []Matcher{m1},
+			want:     false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, f.Has(http.MethodGet, tc.path, tc.matchers...))
+		})
+	}
+}
+
 func TestFoxReverse(t *testing.T) {
 	routes := []string{
 		"/foo/bar",
@@ -5146,13 +5293,4 @@ func ExampleRouter_View() {
 
 func onlyError[T any](_ T, err error) error {
 	return err
-}
-
-func valueOrFail[T any](t *testing.T) func(v T, err error) T {
-	return func(v T, err error) T {
-		if err != nil {
-			t.Fatal(err)
-		}
-		return v
-	}
 }

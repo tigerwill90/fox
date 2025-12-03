@@ -339,3 +339,178 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 		txn.Abort()
 	})
 }
+
+func TestTxn_HasWithMatchers(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+
+	m1, _ := MatchQuery("version", "v1")
+	m2, _ := MatchQuery("version", "v2")
+	m3, _ := MatchHeader("X-Api-Key", "secret")
+
+	require.NoError(t, f.Updates(func(txn *Txn) error {
+		if err := onlyError(txn.Handle(http.MethodGet, "/api/users", emptyHandler)); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/api/users", emptyHandler, WithMatcher(m1))); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/api/users", emptyHandler, WithMatcher(m2))); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/api/users", emptyHandler, WithMatcher(m1, m3))); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/api/users/{id}", emptyHandler)); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/api/users/{id}", emptyHandler, WithMatcher(m1))); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/files/*{path}", emptyHandler)); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/files/*{path}", emptyHandler, WithMatcher(m1))); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/items/{id:[0-9]+}", emptyHandler)); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/items/{id:[0-9]+}", emptyHandler, WithMatcher(m1))); err != nil {
+			return err
+		}
+		if err := onlyError(txn.Handle(http.MethodGet, "/org/{org}/repo/{repo:[a-z]+}", emptyHandler, WithMatcher(m1))); err != nil {
+			return err
+		}
+		return nil
+	}))
+
+	cases := []struct {
+		name     string
+		path     string
+		matchers []Matcher
+		want     bool
+	}{
+		{
+			name: "static route without matcher",
+			path: "/api/users",
+			want: true,
+		},
+		{
+			name:     "static route with matching matcher",
+			path:     "/api/users",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name:     "static route with different matcher value",
+			path:     "/api/users",
+			matchers: []Matcher{m2},
+			want:     true,
+		},
+		{
+			name:     "static route with multiple matchers",
+			path:     "/api/users",
+			matchers: []Matcher{m1, m3},
+			want:     true,
+		},
+		{
+			name:     "static route with multiple matchers in different order",
+			path:     "/api/users",
+			matchers: []Matcher{m3, m1},
+			want:     true,
+		},
+		{
+			name:     "static route with non-registered matcher",
+			path:     "/api/users",
+			matchers: []Matcher{m3},
+			want:     false,
+		},
+		{
+			name:     "static route with partial matchers",
+			path:     "/api/users",
+			matchers: []Matcher{m1, m2},
+			want:     false,
+		},
+		{
+			name: "param route without matcher",
+			path: "/api/users/{id}",
+			want: true,
+		},
+		{
+			name:     "param route with matcher",
+			path:     "/api/users/{id}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name:     "param route with wrong matcher",
+			path:     "/api/users/{id}",
+			matchers: []Matcher{m2},
+			want:     false,
+		},
+		{
+			name: "wildcard route without matcher",
+			path: "/files/*{path}",
+			want: true,
+		},
+		{
+			name:     "wildcard route with matcher",
+			path:     "/files/*{path}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name: "regexp route without matcher",
+			path: "/items/{id:[0-9]+}",
+			want: true,
+		},
+		{
+			name:     "regexp route with matcher",
+			path:     "/items/{id:[0-9]+}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name:     "mixed route with param and regexp",
+			path:     "/org/{org}/repo/{repo:[a-z]+}",
+			matchers: []Matcher{m1},
+			want:     true,
+		},
+		{
+			name: "mixed route without matcher does not exist",
+			path: "/org/{org}/repo/{repo:[a-z]+}",
+			want: false,
+		},
+		{
+			name: "structurally identical param pattern with different name",
+			path: "/api/users/{name}",
+			want: false,
+		},
+		{
+			name:     "structurally identical param pattern with different name and matcher",
+			path:     "/api/users/{name}",
+			matchers: []Matcher{m1},
+			want:     false,
+		},
+		{
+			name: "structurally identical regexp pattern with different name",
+			path: "/items/{num:[0-9]+}",
+			want: false,
+		},
+		{
+			name:     "structurally identical regexp pattern with different name and matcher",
+			path:     "/items/{num:[0-9]+}",
+			matchers: []Matcher{m1},
+			want:     false,
+		},
+	}
+
+	require.NoError(t, f.View(func(txn *Txn) error {
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.want, txn.Has(http.MethodGet, tc.path, tc.matchers...))
+			})
+		}
+		return nil
+	}))
+}
