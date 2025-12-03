@@ -639,7 +639,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
-		} else if fox.handlePath == RedirectPath {
+		}
+
+		if fox.handlePath == RedirectPath {
 			*c.params = (*c.params)[:0]
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				c.tsr = false
