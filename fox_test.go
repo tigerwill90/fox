@@ -3119,6 +3119,55 @@ func TestParseRouteParamsConstraint(t *testing.T) {
 	})
 }
 
+func TestRouteMatchersConstraint(t *testing.T) {
+	t.Run("insert: enforce max route matchers", func(t *testing.T) {
+		f, _ := New(WithMaxRouteMatchers(3))
+		assert.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("b", "c"),
+		)))
+
+		assert.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("b", "c"),
+			WithQueryMatcher("d", "e"),
+		)))
+
+		assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("b", "c"),
+			WithQueryMatcher("d", "e"),
+			WithQueryMatcher("f", "g"),
+		)), ErrInvalidRoute)
+	})
+	t.Run("update: enforce max route matchers", func(t *testing.T) {
+		f, _ := New(WithMaxRouteMatchers(3))
+		f.MustHandle(http.MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("b", "c"),
+			WithQueryMatcher("d", "e"),
+		)
+
+		assert.ErrorIs(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("b", "c"),
+			WithQueryMatcher("d", "e"),
+			WithQueryMatcher("f", "g"),
+		)), ErrInvalidRoute)
+	})
+	t.Run("insert: no priority or zero priority without matcher", func(t *testing.T) {
+		f, _ := New()
+		assert.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcherPriority(0))))
+		assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcherPriority(1))), ErrInvalidRoute)
+	})
+	t.Run("update: no priority or zero priority without matcher", func(t *testing.T) {
+		f, _ := New()
+		assert.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler)))
+		assert.NoError(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler, WithMatcherPriority(0))))
+		assert.ErrorIs(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler, WithMatcherPriority(1))), ErrInvalidRoute)
+	})
+}
+
 func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 	cases := []struct {
 		name     string
