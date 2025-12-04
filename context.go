@@ -6,7 +6,6 @@ package fox
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"iter"
 	"net"
@@ -53,64 +52,8 @@ type RequestContext interface {
 	Header(key string) string
 }
 
-// Context represents the context of the current HTTP request. It provides methods to access request data and
-// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
-// duration of the [HandlerFunc] execution, as the underlying implementation may be reused a soon as the handler return.
-// (see [Context.Clone] method).
-type Context interface {
-	RequestContext
-	// SetRequest sets the [*http.Request].
-	SetRequest(r *http.Request)
-	// Writer method returns a custom [ResponseWriter] implementation.
-	Writer() ResponseWriter
-	// SetWriter sets the [ResponseWriter].
-	SetWriter(w ResponseWriter)
-	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope
-	// other than [RouteHandler].
-	Pattern() string
-	// Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
-	Route() *Route
-	// Params returns a range iterator over the matched wildcard parameters for the current route.
-	Params() iter.Seq[Param]
-	// Param retrieve a matching wildcard parameter by name.
-	Param(name string) string
-	// SetHeader sets the response header for the given key to the specified value.
-	SetHeader(key, value string)
-	// AddHeader add the response header for the given key to the specified value.
-	AddHeader(key, value string)
-	// String sends a formatted string with the specified status code.
-	String(code int, format string, values ...any) error
-	// Blob sends a byte slice with the specified status code and content type.
-	Blob(code int, contentType string, buf []byte) error
-	// Stream sends data from an [io.Reader] with the specified status code and content type.
-	Stream(code int, contentType string, r io.Reader) error
-	// Redirect sends an HTTP redirect response with the given status code and URL.
-	Redirect(code int, url string) error
-	// Clone returns a deep copy of the [Context] that is safe to use after the [HandlerFunc] returns.
-	// Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
-	Clone() Context
-	// CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request]
-	// with the provided ones. The method is designed for zero allocation during the copy process. The returned
-	// [ContextCloser] must be closed once no longer needed. This functionality is particularly beneficial for
-	// middlewares that need to wrap their custom [ResponseWriter] while preserving the state of the original [Context].
-	CloneWith(w ResponseWriter, r *http.Request) ContextCloser
-	// Scope returns the [HandlerScope] associated with the current [Context].
-	// This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
-	Scope() HandlerScope
-	// Fox returns the [Router] instance.
-	Fox() *Router
-}
-
-// ContextCloser extends [Context] for manually created instances, adding a Close method
-// to release resources after use.
-type ContextCloser interface {
-	Context
-	// Close releases the context to be reused later.
-	Close()
-}
-
-// cTx holds request-related information and allows interaction with the [ResponseWriter].
-type cTx struct {
+// Context holds request-related information and allows interaction with the [ResponseWriter].
+type Context struct {
 	w             ResponseWriter
 	req           *http.Request
 	params        *[]string
@@ -129,7 +72,7 @@ type cTx struct {
 // Caution: always pass the original [http.ResponseWriter] to this method, not the [ResponseWriter] itself, to
 // avoid wrapping the [ResponseWriter] within itself. Use wisely! Note that ServeHTTP is managing the reset of
 // c.route and c.tsr.
-func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
+func (c *Context) reset(w http.ResponseWriter, r *http.Request) {
 	c.rec.reset(w)
 	c.req = r
 	c.w = &c.rec
@@ -138,7 +81,7 @@ func (c *cTx) reset(w http.ResponseWriter, r *http.Request) {
 	*c.params = (*c.params)[:0]
 }
 
-func (c *cTx) resetNil() {
+func (c *Context) resetNil() {
 	c.req = nil
 	c.w = nil
 	c.cachedQueries = nil
@@ -149,7 +92,7 @@ func (c *cTx) resetNil() {
 
 // resetWithRequest resets the [Context] to its initial state, with the provided [http.Request]. This is used
 // only by caller that don't return the [Context] (e.g. Match). Use wisely! Note that caller is managing the reset of c.tsr.
-func (c *cTx) resetWithRequest(r *http.Request) {
+func (c *Context) resetWithRequest(r *http.Request) {
 	c.req = r
 	c.w = nil
 	c.cachedQueries = nil
@@ -159,7 +102,7 @@ func (c *cTx) resetWithRequest(r *http.Request) {
 
 // resetWithWriter resets the [Context] to its initial state, with the provided [ResponseWriter] and [http.Request].
 // Use wisely! Note that caller is managing the reset of c.route and c.tsr.
-func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
+func (c *Context) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.req = r
 	c.w = w
 	c.cachedQueries = nil
@@ -168,29 +111,29 @@ func (c *cTx) resetWithWriter(w ResponseWriter, r *http.Request) {
 }
 
 // Request returns the [http.Request].
-func (c *cTx) Request() *http.Request {
+func (c *Context) Request() *http.Request {
 	return c.req
 }
 
 // SetRequest sets the [http.Request].
-func (c *cTx) SetRequest(r *http.Request) {
+func (c *Context) SetRequest(r *http.Request) {
 	c.cachedQueries = nil // In case r is a different request than c.req
 	c.req = r
 }
 
 // Writer returns the [ResponseWriter].
-func (c *cTx) Writer() ResponseWriter {
+func (c *Context) Writer() ResponseWriter {
 	return c.w
 }
 
 // SetWriter sets the [ResponseWriter].
-func (c *cTx) SetWriter(w ResponseWriter) {
+func (c *Context) SetWriter(w ResponseWriter) {
 	c.w = w
 }
 
 // RemoteIP parses the IP from [http.Request.RemoteAddr], normalizes it, and returns a [net.IPAddr].
 // It never returns nil, even if parsing the IP fails.
-func (c *cTx) RemoteIP() *net.IPAddr {
+func (c *Context) RemoteIP() *net.IPAddr {
 	ipStr, _, _ := net.SplitHostPort(c.req.RemoteAddr)
 
 	ip, zone := netutil.SplitHostZone(ipStr)
@@ -214,7 +157,7 @@ func (c *cTx) RemoteIP() *net.IPAddr {
 // in a resolver never returning an error -- i.e., never failing to find a candidate for the "real" IP.
 // Consequently, getting an error result should be treated as an application error, perhaps even
 // worthy of panicking.
-func (c *cTx) ClientIP() (*net.IPAddr, error) {
+func (c *Context) ClientIP() (*net.IPAddr, error) {
 	// We may be in a handler which does not match a route like NotFound handler.
 	if c.route == nil {
 		resolver := c.fox.clientip
@@ -224,7 +167,7 @@ func (c *cTx) ClientIP() (*net.IPAddr, error) {
 }
 
 // Params returns an iterator over the matched wildcard parameters for the current route.
-func (c *cTx) Params() iter.Seq[Param] {
+func (c *Context) Params() iter.Seq[Param] {
 	return func(yield func(Param) bool) {
 		if c.tsr {
 			for i, p := range *c.tsrParams {
@@ -243,7 +186,7 @@ func (c *cTx) Params() iter.Seq[Param] {
 }
 
 // Param retrieve a matching wildcard segment by name.
-func (c *cTx) Param(name string) string {
+func (c *Context) Param(name string) string {
 	if c.tsr {
 		for i := range *c.tsrParams {
 			key := c.route.params[i]
@@ -264,12 +207,12 @@ func (c *cTx) Param(name string) string {
 }
 
 // Method returns the request method.
-func (c *cTx) Method() string {
+func (c *Context) Method() string {
 	return c.req.Method
 }
 
 // Path returns the request [url.URL.RawPath] if not empty, or fallback to the [url.URL.Path].
-func (c *cTx) Path() string {
+func (c *Context) Path() string {
 	path := c.req.URL.Path
 	if len(c.req.URL.RawPath) > 0 {
 		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
@@ -279,37 +222,37 @@ func (c *cTx) Path() string {
 }
 
 // Host returns the request host.
-func (c *cTx) Host() string {
+func (c *Context) Host() string {
 	return c.req.Host
 }
 
 // QueryParams parses the [http.Request] raw query and returns the corresponding values.
-func (c *cTx) QueryParams() url.Values {
+func (c *Context) QueryParams() url.Values {
 	return c.getQueries()
 }
 
 // QueryParam returns the first value associated with the given key.
-func (c *cTx) QueryParam(name string) string {
+func (c *Context) QueryParam(name string) string {
 	return c.getQueries().Get(name)
 }
 
 // SetHeader sets the response header for the given key to the specified value.
-func (c *cTx) SetHeader(key, value string) {
+func (c *Context) SetHeader(key, value string) {
 	c.w.Header().Set(key, value)
 }
 
 // AddHeader add the response header for the given key to the specified value.
-func (c *cTx) AddHeader(key, value string) {
+func (c *Context) AddHeader(key, value string) {
 	c.w.Header().Add(key, value)
 }
 
 // Header retrieves the value of the request header for the given key.
-func (c *cTx) Header(key string) string {
+func (c *Context) Header(key string) string {
 	return c.req.Header.Get(key)
 }
 
 // Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
-func (c *cTx) Pattern() string {
+func (c *Context) Pattern() string {
 	if c.route == nil {
 		return ""
 	}
@@ -317,26 +260,22 @@ func (c *cTx) Pattern() string {
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
-func (c *cTx) Route() *Route {
+func (c *Context) Route() *Route {
 	return c.route
 }
 
 // String sends a formatted string with the specified status code.
-func (c *cTx) String(code int, format string, values ...any) (err error) {
+func (c *Context) String(code int, s string) (err error) {
 	if c.w.Header().Get(HeaderContentType) == "" {
 		c.w.Header().Set(HeaderContentType, MIMETextPlainCharsetUTF8)
 	}
 	c.w.WriteHeader(code)
-	if len(values) > 0 {
-		_, err = fmt.Fprintf(c.w, format, values...)
-		return
-	}
-	_, err = c.w.Write(bytesconv.Bytes(format))
+	_, err = c.w.Write(bytesconv.Bytes(s))
 	return
 }
 
 // Blob sends a byte slice with the specified status code and content type.
-func (c *cTx) Blob(code int, contentType string, buf []byte) (err error) {
+func (c *Context) Blob(code int, contentType string, buf []byte) (err error) {
 	c.w.Header().Set(HeaderContentType, contentType)
 	c.w.WriteHeader(code)
 	_, err = c.w.Write(buf)
@@ -344,7 +283,7 @@ func (c *cTx) Blob(code int, contentType string, buf []byte) (err error) {
 }
 
 // Stream sends data from an [io.Reader] with the specified status code and content type.
-func (c *cTx) Stream(code int, contentType string, r io.Reader) (err error) {
+func (c *Context) Stream(code int, contentType string, r io.Reader) (err error) {
 	c.w.Header().Set(HeaderContentType, contentType)
 	c.w.WriteHeader(code)
 	_, err = io.Copy(c.w, r)
@@ -352,7 +291,7 @@ func (c *cTx) Stream(code int, contentType string, r io.Reader) (err error) {
 }
 
 // Redirect sends an HTTP redirect response with the given status code and URL.
-func (c *cTx) Redirect(code int, url string) error {
+func (c *Context) Redirect(code int, url string) error {
 	if code < http.StatusMultipleChoices || code > http.StatusPermanentRedirect {
 		return ErrInvalidRedirectCode
 	}
@@ -361,14 +300,14 @@ func (c *cTx) Redirect(code int, url string) error {
 }
 
 // Fox returns the [Router] instance.
-func (c *cTx) Fox() *Router {
+func (c *Context) Fox() *Router {
 	return c.fox
 }
 
 // Clone returns a deep copy of the [Context] that is safe to use after the [HandlerFunc] returns.
 // Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
-func (c *cTx) Clone() Context {
-	cp := cTx{
+func (c *Context) Clone() *Context {
+	cp := Context{
 		rec:   c.rec,
 		req:   c.req.Clone(c.req.Context()),
 		fox:   c.fox,
@@ -393,11 +332,11 @@ func (c *cTx) Clone() Context {
 }
 
 // CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request] with the
-// provided ones. The method is designed for zero allocation during the copy process. The returned [ContextCloser] must
+// provided ones. The method is designed for zero allocation during the copy process. The returned [Context] must
 // be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
 // their custom [ResponseWriter] while preserving the state of the original [Context].
-func (c *cTx) CloneWith(w ResponseWriter, r *http.Request) ContextCloser {
-	cp := c.tree.pool.Get().(*cTx)
+func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
+	cp := c.tree.pool.Get().(*Context)
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
@@ -427,16 +366,16 @@ func copyWithResize[S ~[]T, T any](dst, src *S) {
 
 // Scope returns the [HandlerScope] associated with the current [Context].
 // This indicates the scope in which the handler is being executed, such as [RouteHandler], [NoRouteHandler], etc.
-func (c *cTx) Scope() HandlerScope {
+func (c *Context) Scope() HandlerScope {
 	return c.scope
 }
 
 // Close releases the context to be reused later.
-func (c *cTx) Close() {
+func (c *Context) Close() {
 	c.tree.pool.Put(c)
 }
 
-func (c *cTx) getQueries() url.Values {
+func (c *Context) getQueries() url.Values {
 	if c.cachedQueries == nil {
 		if c.req != nil {
 			c.cachedQueries = c.req.URL.Query()
@@ -450,7 +389,7 @@ func (c *cTx) getQueries() url.Values {
 // WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
-	return func(c Context) {
+	return func(c *Context) {
 		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
 			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
 			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
@@ -465,7 +404,7 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 // WrapH is an adapter for wrapping http.Handler and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
-	return func(c Context) {
+	return func(c *Context) {
 		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
 			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
 			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
@@ -480,7 +419,7 @@ func WrapH(h http.Handler) HandlerFunc {
 // WrapM is an adapter for wrapping http.Handler middleware and returns a [MiddlewareFunc] function.
 func WrapM(m func(http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				rec := new(recorder)
 				rec.reset(w)

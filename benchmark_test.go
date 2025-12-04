@@ -141,8 +141,7 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 
 func BenchmarkInfixCatchAll(b *testing.B) {
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", func(c Context) {
-	})
+	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/x/y/z/b/x/y/z/d/x/y/z/f/x/y/z/j", nil)
 	w := new(mockResponseWriter)
@@ -245,7 +244,7 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 
 func BenchmarkCloneWith(b *testing.B) {
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
 		cp := c.CloneWith(c.Writer(), c.Request())
 		cp.Close()
 	})

@@ -34,7 +34,7 @@ const (
 // response, panic with the value [http.ErrAbortHandler].
 //
 // HandlerFunc functions should be thread-safe, as they will be called concurrently.
-type HandlerFunc func(c Context)
+type HandlerFunc func(c *Context)
 
 // MiddlewareFunc is a function type for implementing [HandlerFunc] middleware.
 // The returned [HandlerFunc] usually wraps the input [HandlerFunc], allowing you to perform operations
@@ -51,15 +51,15 @@ type ClientIPResolver interface {
 	// ClientIP returns the "real" client IP according to the implemented resolver. It returns an error if no valid IP
 	// address can be derived. This is typically considered a misconfiguration error, unless the resolver involves
 	// obtaining an untrustworthy or optional value.
-	ClientIP(c Context) (*net.IPAddr, error)
+	ClientIP(c RequestContext) (*net.IPAddr, error)
 }
 
 // The ClientIPResolverFunc type is an adapter to allow the use of ordinary functions as [ClientIPResolver]. If f is a
 // function with the appropriate signature, ClientIPResolverFunc(f) is a ClientIPResolverFunc that calls f.
-type ClientIPResolverFunc func(c Context) (*net.IPAddr, error)
+type ClientIPResolverFunc func(c RequestContext) (*net.IPAddr, error)
 
 // ClientIP calls f(c).
-func (f ClientIPResolverFunc) ClientIP(c Context) (*net.IPAddr, error) {
+func (f ClientIPResolverFunc) ClientIP(c RequestContext) (*net.IPAddr, error) {
 	return f(c)
 }
 
@@ -340,7 +340,7 @@ func (fox *Router) Name(method, name string) *Route {
 // mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
 func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool) {
 	tree := fox.getTree()
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	defer tree.pool.Put(c)
 	c.resetWithRequest(r)
 
@@ -354,13 +354,13 @@ func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
-// [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
+// [Context], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
-// [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is safe for
+// [Route] and a [Context]. The [Context] should always be closed if non-nil. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Match] as an alternative.
-func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
+func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Context, tsr bool) {
 	tree := fox.getTree()
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	c.resetWithWriter(w, r)
 
 	path := c.Path()
@@ -424,7 +424,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 
 // HandleNoRoute calls the no route handler with the provided [Context].
 // Note that this bypasses any middleware attached to the no route handler.
-func (fox *Router) HandleNoRoute(c Context) {
+func (fox *Router) HandleNoRoute(c *Context) {
 	fox.noRouteBase(c)
 }
 
@@ -540,22 +540,22 @@ func (fox *Router) getTree() *iTree {
 
 // DefaultNotFoundHandler is a simple [HandlerFunc] that replies to each request
 // with a “404 page not found” reply.
-func DefaultNotFoundHandler(c Context) {
+func DefaultNotFoundHandler(c *Context) {
 	http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
 }
 
 // DefaultMethodNotAllowedHandler is a simple [HandlerFunc] that replies to each request
 // with a “405 Method Not Allowed” reply.
-func DefaultMethodNotAllowedHandler(c Context) {
+func DefaultMethodNotAllowedHandler(c *Context) {
 	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
 // DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
-func DefaultOptionsHandler(c Context) {
+func DefaultOptionsHandler(c *Context) {
 	c.Writer().WriteHeader(http.StatusNoContent)
 }
 
-func internalTrailingSlashHandler(c Context) {
+func internalTrailingSlashHandler(c *Context) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -572,7 +572,7 @@ func internalTrailingSlashHandler(c Context) {
 	http.Redirect(c.Writer(), req, path, code)
 }
 
-func internalFixedPathHandler(c Context) {
+func internalFixedPathHandler(c *Context) {
 	req := c.Request()
 
 	code := http.StatusMovedPermanently
@@ -597,7 +597,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var idx int
 
 	tree := fox.getTree()
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	c.reset(w, r)
 
 	path := c.Path()
@@ -1185,7 +1185,7 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 
 type noClientIPResolver struct{}
 
-func (s noClientIPResolver) ClientIP(_ Context) (*net.IPAddr, error) {
+func (s noClientIPResolver) ClientIP(c RequestContext) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPResolver
 }
 

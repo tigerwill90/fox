@@ -42,7 +42,7 @@ const (
 func Logger(handler slog.Handler) MiddlewareFunc {
 	log := slog.New(handler)
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			start := time.Now()
 			next(c)
 			latency := time.Since(start)

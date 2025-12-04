@@ -29,9 +29,9 @@ import (
 )
 
 var (
-	emptyHandler   = HandlerFunc(func(c Context) {})
-	pathHandler    = HandlerFunc(func(c Context) { _ = c.String(200, c.Path()) })
-	patternHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Pattern()) })
+	emptyHandler   = HandlerFunc(func(c *Context) {})
+	pathHandler    = HandlerFunc(func(c *Context) { _ = c.String(200, c.Path()) })
+	patternHandler = HandlerFunc(func(c *Context) { _ = c.String(200, c.Pattern()) })
 )
 
 type mockResponseWriter struct{}
@@ -995,7 +995,7 @@ func TestStaticRouteWithStaticDomainMalloc(t *testing.T) {
 func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1025,7 +1025,7 @@ func TestParamsRoute(t *testing.T) {
 func TestParamsHostnameRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1073,7 +1073,7 @@ func TestParamsHostnameRoute(t *testing.T) {
 func TestParamsRouteTxn(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1109,7 +1109,7 @@ func TestParamsRouteTxn(t *testing.T) {
 func TestParamsRouteWithDomain(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1141,7 +1141,7 @@ func TestParamsRouteWithDomain(t *testing.T) {
 func TestParamsRouteWithDomainTxn(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -3325,7 +3325,7 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedSlash, rf.TrailingSlashOption)
 			for _, path := range tc.paths {
-				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c Context) {
+				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c *Context) {
 					_ = c.String(http.StatusOK, c.Pattern())
 				})))
 				rte := f.Route(tc.method, path)
@@ -3672,7 +3672,7 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedPath, rf.FixedPathOption)
 
-			require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.path, func(c Context) {
+			require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.path, func(c *Context) {
 				c.Writer().WriteHeader(tc.wantCode)
 			})))
 
@@ -3889,11 +3889,11 @@ func TestRouterWithTsrParams(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c Context) {
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c *Context) {
 					assert.Equal(t, tc.wantPath, c.Pattern())
 					var params Params = slices.Collect(c.Params())
 					assert.Equal(t, tc.wantParams, params)
-					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
+					assert.Equal(t, tc.wantTsr, c.tsr)
 				})))
 			}
 			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
@@ -4073,7 +4073,7 @@ func TestTree_Methods(t *testing.T) {
 func TestRouterHandleNoRoute(t *testing.T) {
 	called := 0
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			called++
 			next(c)
 		}
@@ -4081,7 +4081,7 @@ func TestRouterHandleNoRoute(t *testing.T) {
 
 	f, err := New(WithMiddleware(m))
 	require.NoError(t, err)
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c *Context) {
 		c.Fox().HandleNoRoute(c)
 	})))
 
@@ -4096,7 +4096,7 @@ func TestRouterHandleNoRoute(t *testing.T) {
 func TestUpdateWithMiddleware(t *testing.T) {
 	called := false
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			called = true
 			next(c)
 		}
@@ -4140,21 +4140,21 @@ func TestUpdateWithMiddleware(t *testing.T) {
 func TestRouteMiddleware(t *testing.T) {
 	var c0, c1, c2 bool
 	m0 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			c0 = true
 			next(c)
 		}
 	})
 
 	m1 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			c1 = true
 			next(c)
 		}
 	})
 
 	m2 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			c2 = true
 			next(c)
 		}
@@ -4725,8 +4725,8 @@ func TestEncodedPath(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/*{request}", func(c Context) {
-		_ = c.String(http.StatusOK, "%s", c.Param("request"))
+	f.MustHandle(http.MethodGet, "/*{request}", func(c *Context) {
+		_ = c.String(http.StatusOK, c.Param("request"))
 	})
 
 	f.ServeHTTP(w, req)
@@ -4823,7 +4823,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	f, _ := New()
 
-	h := func(c Context) {}
+	h := func(c *Context) {}
 
 	require.NoError(t, f.Updates(func(txn *Txn) error {
 		for _, rte := range githubAPI {
@@ -4953,12 +4953,12 @@ func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(c Context) {
+	h := HandlerFunc(func(c *Context) {
 		c.Pattern()
 		for range c.Params() {
 		}
 	})
-	newH := HandlerFunc(func(c Context) {
+	newH := HandlerFunc(func(c *Context) {
 		c.Pattern()
 		for range c.Params() {
 		}
@@ -5029,14 +5029,14 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	r, _ := New()
 
 	// /repos/{owner}/{repo}/keys
-	h1 := HandlerFunc(func(c Context) {
+	h1 := HandlerFunc(func(c *Context) {
 		assert.Equal(t, "john", c.Param("owner"))
 		assert.Equal(t, "fox", c.Param("repo"))
 		_ = c.String(200, c.Pattern())
 	})
 
 	// /repos/{owner}/{repo}/contents/*{path}
-	h2 := HandlerFunc(func(c Context) {
+	h2 := HandlerFunc(func(c *Context) {
 		assert.Equal(t, "alex", c.Param("owner"))
 		assert.Equal(t, "vault", c.Param("repo"))
 		assert.Equal(t, "file.txt", c.Param("path"))
@@ -5044,7 +5044,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	})
 
 	// /users/{user}/received_events/public
-	h3 := HandlerFunc(func(c Context) {
+	h3 := HandlerFunc(func(c *Context) {
 		assert.Equal(t, "go", c.Param("user"))
 		_ = c.String(200, c.Pattern())
 	})
@@ -5114,8 +5114,8 @@ func ExampleNew() {
 
 	// Define a route with the path "/hello/{name}", and set a simple handler that greets the
 	// user by their name.
-	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	r.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
+		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 
 	// Start the HTTP server using fox router and listen on port 8080
@@ -5128,7 +5128,7 @@ func ExampleWithMiddleware() {
 	// Define a custom middleware to measure the time taken for request processing and
 	// log the URL, route, time elapsed, and status code.
 	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			start := time.Now()
 			next(c)
 			log.Printf(
@@ -5143,8 +5143,8 @@ func ExampleWithMiddleware() {
 
 	f, _ := New(WithMiddleware(metrics))
 
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
+		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 }
 
@@ -5152,7 +5152,7 @@ func ExampleWithMiddleware() {
 // lookup on the tree. If the cleaned path matches a registered route, the client is redirected to the valid path.
 func ExampleRouter_Lookup() {
 	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			req := c.Request()
 			target := req.URL.Path
 			cleanedPath := CleanPath(target)
@@ -5201,8 +5201,8 @@ func ExampleRouter_Lookup() {
 		WithMiddlewareFor(NoRouteHandler|NoMethodHandler, redirectFixedPath),
 	)
 
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
+		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 }
 
@@ -5231,8 +5231,8 @@ func ExampleRouter_Updates() {
 	// from the function then the transaction is committed. If an error is returned then the entire transaction is
 	// aborted.
 	if err := f.Updates(func(txn *Txn) error {
-		if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c Context) {
-			_ = c.String(http.StatusOK, "hello %s", c.Param("name"))
+		if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c *Context) {
+			_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 		}); err != nil {
 			return err
 		}
@@ -5261,8 +5261,8 @@ func ExampleRouter_Txn() {
 	txn := f.Txn(true)
 	defer txn.Abort()
 
-	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c Context) {
-		_ = c.String(http.StatusOK, "hello %s", c.Param("name"))
+	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c *Context) {
+		_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	}); err != nil {
 		log.Printf("error inserting route: %s", err)
 		return

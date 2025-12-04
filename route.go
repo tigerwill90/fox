@@ -23,12 +23,12 @@ type Route struct {
 }
 
 // Handle calls the handler with the provided [Context]. See also [Route.HandleMiddleware].
-func (r *Route) Handle(c Context) {
+func (r *Route) Handle(c *Context) {
 	r.hbase(c)
 }
 
 // HandleMiddleware calls the handler with route-specific middleware applied, using the provided [Context].
-func (r *Route) HandleMiddleware(c Context, _ ...struct{}) {
+func (r *Route) HandleMiddleware(c *Context, _ ...struct{}) {
 	// The variadic parameter is intentionally added to prevent this method from having the same signature as HandlerFunc.
 	// This avoids accidental use of HandleMiddleware where a HandlerFunc is required.
 	r.hself(c)

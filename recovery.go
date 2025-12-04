@@ -40,14 +40,14 @@ var reqHeaderSep = []byte("\r\n")
 
 // RecoveryFunc is a function type that defines how to handle panics that occur during the
 // handling of an HTTP request.
-type RecoveryFunc func(c Context, err any)
+type RecoveryFunc func(c *Context, err any)
 
 // RecoveryWithFunc returns a middleware that recovers from any panics, logs the error, request details, and stack trace
 // using the provided [slog.Handler] and then calls the handle function to handle the recovery.
 func RecoveryWithFunc(handler slog.Handler, handle RecoveryFunc) MiddlewareFunc {
 	slogger := slog.New(handler)
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			defer recovery(slogger, c, handle)
 			next(c)
 		}
@@ -62,11 +62,11 @@ func Recovery(handler slog.Handler) MiddlewareFunc {
 
 // DefaultHandleRecovery is a default implementation of the [RecoveryFunc].
 // It responds with a status code 500 and writes a generic error message.
-func DefaultHandleRecovery(c Context, _ any) {
+func DefaultHandleRecovery(c *Context, _ any) {
 	http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }
 
-func recovery(logger *slog.Logger, c Context, handle RecoveryFunc) {
+func recovery(logger *slog.Logger, c *Context, handle RecoveryFunc) {
 	if err := recover(); err != nil {
 		if e, ok := err.(error); ok && errors.Is(e, http.ErrAbortHandler) {
 			panic(e)

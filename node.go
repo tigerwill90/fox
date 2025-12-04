@@ -16,7 +16,7 @@ const offsetZero = 0
 
 type root map[string]*node
 
-func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
+func (rt root) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
 	// tsr come from the sync.Pool and has not been reset yet.
 	c.tsr = false
 
@@ -50,7 +50,7 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *n
 	return idx, n
 }
 
-func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (index int, n *node) {
+func lookupByHostname(root *node, host, path string, c *Context, lazy bool) (index int, n *node) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -279,7 +279,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (index int, n *node) {
+func lookupByPath(root *node, path string, c *Context, lazy bool, stackOffset int) (index int, n *node) {
 
 	var (
 		charsMatched     int

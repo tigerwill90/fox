@@ -83,7 +83,7 @@ func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string
 // This function is safe for concurrent use by multiple goroutines and while mutations on routes are ongoing.
 func (it Iter) Matches(methods iter.Seq[string], r *http.Request) iter.Seq2[string, RouteMatch] {
 	return func(yield func(string, RouteMatch) bool) {
-		c := it.tree.pool.Get().(*cTx)
+		c := it.tree.pool.Get().(*Context)
 		defer c.Close()
 
 		c.resetWithRequest(r)

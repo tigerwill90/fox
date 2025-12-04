@@ -301,7 +301,7 @@ func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	defer tree.pool.Put(c)
 	c.resetWithRequest(r)
 
@@ -315,17 +315,17 @@ func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
-// [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
+// [Context], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
-// [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is NOT
+// [Route] and a [Context]. The [Context] should always be closed if non-nil. This function is NOT
 // thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Match] as an alternative.
-func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
+func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Context, tsr bool) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	c.resetWithWriter(w, r)
 
 	path := c.Path()

@@ -396,7 +396,7 @@ func TestClientIpMatcher_Match(t *testing.T) {
 			_, ipNet, _ := net.ParseCIDR(tc.cidr)
 			m := ClientIpMatcher{ipNet: ipNet}
 
-			resolver := ClientIPResolverFunc(func(c Context) (*net.IPAddr, error) {
+			resolver := ClientIPResolverFunc(func(c RequestContext) (*net.IPAddr, error) {
 				return &net.IPAddr{IP: net.ParseIP(tc.clientIP)}, nil
 			})
 
@@ -404,7 +404,7 @@ func TestClientIpMatcher_Match(t *testing.T) {
 			w := httptest.NewRecorder()
 			f, c := NewTestContext(w, req, WithClientIPResolver(resolver))
 			rte, _ := f.NewRoute("/path", emptyHandler)
-			c.SetRoute(rte)
+			c.route = rte
 			assert.Equal(t, tc.want, m.Match(c))
 		})
 	}

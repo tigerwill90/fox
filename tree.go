@@ -34,15 +34,15 @@ func (t *iTree) txn() *tXn {
 	}
 }
 
-func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
+func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
 	return t.patterns.lookup(method, hostPort, path, c, lazy)
 }
 
-func (t *iTree) allocateContext() *cTx {
+func (t *iTree) allocateContext() *Context {
 	params := make([]string, 0, t.maxParams)
 	tsrParams := make([]string, 0, t.maxParams)
 	stacks := make(skipStack, 0, t.maxDepth)
-	return &cTx{
+	return &Context{
 		params:    &params,
 		tsrParams: &tsrParams,
 		skipStack: &stacks,
