@@ -45,6 +45,8 @@ type RouteOption interface {
 	applyRoute(sealedOption) error
 }
 
+type MountOption = RouteOption
+
 type MatcherOption interface {
 	RouteOption
 	applyMatcher(sealedOption) error

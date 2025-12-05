@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
 	"slices"
@@ -50,6 +51,64 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 		return nil, err
 	}
 	return rte, nil
+}
+
+func (txn *Txn) Mount(pattern string, r *Router, opts ...MountOption) error {
+	if txn.rootTxn == nil {
+		panic(ErrSettledTxn)
+	}
+	if !txn.write {
+		return ErrReadOnlyTxn
+	}
+
+	// Precomputed to avoid alloc in the hot path.
+	patternWithSlash := pattern + "/"
+	rte, err := txn.fox.newSubRouter(pattern, func(c *Context) {
+		tree := r.getTree()
+		subCtx := tree.pool.Get().(*Context)
+		subCtx.resetWithWriter(c.Writer(), c.Request())
+
+		subCtx.pattern = c.pattern
+
+		// Extract the path suffix to be routed by the subrouter. The suffix may be empty,
+		// but there is always at least a catch-all param recorded.
+		suffix := (*c.params)[len(*c.params)-1]
+		last := len(subCtx.pattern) - 1
+		if suffix != "" {
+			if subCtx.pattern[last] == '/' {
+				// Mount pattern ends with slash (e.g., /api/*{any}), so suffix lacks the
+				// leading slash (e.g., "users" instead of "/users"). Reslice from the
+				// original path to include it, avoiding allocation from "/" + suffix.
+				suffix = c.Path()[len(c.Path())-len(suffix)-1:]
+			} else {
+				// Mount pattern has no trailing slash (e.g., /api*{any}), so suffix
+				// already includes the leading slash. Use precomputed patternWithSlash
+				// to avoid allocation from pattern + "/".
+				subCtx.pattern = patternWithSlash
+			}
+		}
+
+		// Copy parent params and keys to the subrouter context, excluding the last
+		// entry which is the catch-all wildcard used to mount the subrouter.
+		// Subrouters are never evaluated in lazy lookup mode, so params are always
+		// captured. If parent has no params beyond the catch-all, this is a no-op.
+		*subCtx.params = append((*subCtx.params)[:0], (*c.params)[:len(*c.params)-1]...)
+		*subCtx.keys = append((*subCtx.keys)[:0], (*c.keys)[:len(*c.keys)-1]...)
+
+		// Serve the sub router
+		r.serveContext(subCtx, cmp.Or(suffix, "/"))
+
+		tree.pool.Put(subCtx)
+	}, r, opts...)
+	if err != nil {
+		return err
+	}
+
+	if err = txn.rootTxn.insert(methodMount, rte, modeInsert); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
@@ -307,7 +366,7 @@ func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 
 	path := c.Path()
 
-	idx, n := txn.rootTxn.patterns.lookup(method, r.Host, path, c, true)
+	idx, n := txn.rootTxn.patterns.lookup(method, r.Host, path, c, true, false)
 	if n != nil {
 		return n.routes[idx], c.tsr
 	}
@@ -330,7 +389,7 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Con
 
 	path := c.Path()
 
-	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
+	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false, false)
 	if n != nil {
 		c.route = n.routes[idx]
 		return n.routes[idx], c, c.tsr

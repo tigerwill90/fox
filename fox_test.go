@@ -861,11 +861,69 @@ func TestStaticRoute(t *testing.T) {
 	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
 
+func TestStaticRouteSubRouter(t *testing.T) {
+	sub, _ := New()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, onlyError(sub.Handle(route.method, route.path, pathHandler)))
+	}
+
+	f, _ := New()
+	require.NoError(t, f.Mount("/", sub))
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+	assert.Equal(t, iterutil.Len2(sub.Iter().All()), sub.Len())
+}
+
 func TestStaticHostnameRoute(t *testing.T) {
 	f, _ := New()
 
 	for _, route := range staticHostnames {
 		require.NoError(t, onlyError(f.Handle(route.method, route.path+"/foo", patternHandler)))
+	}
+
+	t.Run("same case", func(t *testing.T) {
+		for _, route := range staticHostnames {
+			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = route.path
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	t.Run("case-insensitive", func(t *testing.T) {
+		for _, route := range staticHostnames {
+			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = strings.ToUpper(route.path)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+}
+
+func TestStaticHostnameRouteSubRouter(t *testing.T) {
+	f, _ := New()
+
+	for _, route := range staticHostnames {
+		sub, _ := New()
+		require.NoError(t, onlyError(sub.Handle(route.method, "/foo", patternHandler)))
+		require.NoError(t, f.Mount(route.path+"/", sub))
 	}
 
 	t.Run("same case", func(t *testing.T) {

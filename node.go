@@ -16,9 +16,10 @@ const offsetZero = 0
 
 type root map[string]*node
 
-func (rt root) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
+func (rt root) lookup(method, hostPort, path string, c *Context, lazy, lax bool) (int, *node) {
 	// tsr come from the sync.Pool and has not been reset yet.
 	c.tsr = false
+	paramOffset := len(*c.params)
 
 	root := rt[method]
 	if root == nil {
@@ -28,21 +29,21 @@ func (rt root) lookup(method, hostPort, path string, c *Context, lazy bool) (int
 	*c.skipStack = (*c.skipStack)[:0]
 	// The tree for this method, we only have path registered
 	if len(root.params) == 0 && len(root.wildcards) == 0 && len(root.statics) == 1 && root.statics[0].label == slashDelim {
-		return lookupByPath(root, path, c, lazy, offsetZero)
+		return lookupByPath(root, path, c, lazy, lax, offsetZero)
 	}
 
 	host := netutil.StripHostPort(hostPort)
 	if host == "" {
-		return lookupByPath(root, path, c, lazy, offsetZero)
+		return lookupByPath(root, path, c, lazy, lax, offsetZero)
 	}
 
-	idx, n := lookupByHostname(root, host, path, c, lazy)
+	idx, n := lookupByHostname(root, host, path, c, lazy, lax)
 	if n == nil || c.tsr {
 		// Either no match or match with tsr, try lookup by path with tsr enable
 		// so we won't check for tsr again.
 		*c.skipStack = (*c.skipStack)[:0]
-		*c.params = (*c.params)[:0]
-		if i, pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
+		*c.params = (*c.params)[:paramOffset]
+		if i, pathNode := lookupByPath(root, path, c, lazy, lax, offsetZero); pathNode != nil {
 			return i, pathNode
 		}
 	}
@@ -50,7 +51,7 @@ func (rt root) lookup(method, hostPort, path string, c *Context, lazy bool) (int
 	return idx, n
 }
 
-func lookupByHostname(root *node, host, path string, c *Context, lazy bool) (index int, n *node) {
+func lookupByHostname(root *node, host, path string, c *Context, lazy, lax bool) (index int, n *node) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -233,7 +234,7 @@ Walk:
 
 	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil {
 		stackOffset := len(*c.skipStack)
-		idx, subNode := lookupByPath(matched, path, c, lazy, stackOffset)
+		idx, subNode := lookupByPath(matched, path, c, lazy, lax, stackOffset)
 		if subNode != nil {
 			if c.tsr {
 				n = subNode
@@ -279,7 +280,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, path string, c *Context, lazy bool, stackOffset int) (index int, n *node) {
+func lookupByPath(root *node, path string, c *Context, lazy, lax bool, stackOffset int) (index int, n *node) {
 
 	var (
 		charsMatched     int
@@ -511,6 +512,24 @@ Walk:
 			if route.match(c) {
 				c.tsr = false
 				return i, matched
+			}
+		}
+	}
+
+	// As a special case for sub router, we match empty. But this is the only
+	if lax {
+		for _, wildcardNode := range matched.wildcards {
+			if !wildcardNode.isLeaf() {
+				continue // Not a suffix catchall
+			}
+
+			for i, route := range wildcardNode.routes {
+				if route.match(c) {
+					// This is never lazy
+					*c.params = append(*c.params, search)
+					c.tsr = false
+					return i, wildcardNode
+				}
 			}
 		}
 	}

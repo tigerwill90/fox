@@ -34,18 +34,30 @@ func (t *iTree) txn() *tXn {
 	}
 }
 
-func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
-	return t.patterns.lookup(method, hostPort, path, c, lazy)
+func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy, lax bool) (int, *node) {
+	return t.patterns.lookup(method, hostPort, path, c, lazy, lax)
+}
+
+func (t *iTree) lookupByPath(method, path string, c *Context, lazy, lax bool) (int, *node) {
+	c.tsr = false
+	*c.skipStack = (*c.skipStack)[:0]
+	root := t.patterns[method]
+	if root == nil {
+		return 0, nil
+	}
+	return lookupByPath(root, path, c, lazy, lax, offsetZero)
 }
 
 func (t *iTree) allocateContext() *Context {
 	params := make([]string, 0, t.maxParams)
 	tsrParams := make([]string, 0, t.maxParams)
+	keys := make([]string, 0, t.maxParams)
 	stacks := make(skipStack, 0, t.maxDepth)
 	return &Context{
 		params:    &params,
 		tsrParams: &tsrParams,
 		skipStack: &stacks,
+		keys:      &keys,
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree: t,

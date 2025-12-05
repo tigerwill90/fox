@@ -256,3 +256,41 @@ func BenchmarkCloneWith(b *testing.B) {
 		f.ServeHTTP(w, r)
 	}
 }
+
+func BenchmarkSubRouter(b *testing.B) {
+	sub, _ := New()
+	sub.MustHandle(http.MethodGet, "/users/email", emptyHandler)
+
+	sub2, _ := New()
+	if err := sub2.Mount("/{name}/", sub); err != nil {
+		b.Fatal(err)
+	}
+
+	main, _ := New()
+	if err := main.Mount("/{v1}/", sub2); err != nil {
+		b.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/john/users/email", nil)
+	w := new(mockResponseWriter)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for range b.N {
+		main.ServeHTTP(w, req)
+	}
+
+}
+
+func BenchmarkStaticAllSubRouter(b *testing.B) {
+	sub, _ := New()
+	for _, route := range staticRoutes {
+		require.NoError(b, onlyError(sub.Handle(route.method, route.path, emptyHandler)))
+	}
+	r, _ := New()
+	if err := r.Mount("/", sub); err != nil {
+		b.Fatal(err)
+	}
+
+	benchRoute(b, r, staticRoutes)
+}

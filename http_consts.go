@@ -95,5 +95,9 @@ const (
 	HeaderXRealIP              = "X-Real-Ip"
 )
 
+const (
+	methodMount = "@"
+)
+
 // nolint:gosec
 var blacklistedHeader = []string{HeaderAuthorization, HeaderProxyAuthorization, "X-Vault-Token", HeaderCookie, HeaderSetCookie, HeaderXCSRFToken}

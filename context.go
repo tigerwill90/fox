@@ -58,6 +58,8 @@ type Context struct {
 	req           *http.Request
 	params        *[]string
 	tsrParams     *[]string
+	keys          *[]string
+	pattern       string
 	skipStack     *skipStack
 	route         *Route
 	tree          *iTree  // no reset
@@ -171,14 +173,14 @@ func (c *Context) Params() iter.Seq[Param] {
 	return func(yield func(Param) bool) {
 		if c.tsr {
 			for i, p := range *c.tsrParams {
-				if !yield(Param{Key: c.route.params[i], Value: p}) {
+				if !yield(Param{Key: (*c.keys)[i], Value: p}) {
 					return
 				}
 			}
 			return
 		}
 		for i, p := range *c.params {
-			if !yield(Param{Key: c.route.params[i], Value: p}) {
+			if !yield(Param{Key: (*c.keys)[i], Value: p}) {
 				return
 			}
 		}
@@ -256,7 +258,7 @@ func (c *Context) Pattern() string {
 	if c.route == nil {
 		return ""
 	}
-	return c.route.pattern
+	return c.pattern
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
@@ -308,16 +310,18 @@ func (c *Context) Fox() *Router {
 // Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
 func (c *Context) Clone() *Context {
 	cp := Context{
-		rec:   c.rec,
-		req:   c.req.Clone(c.req.Context()),
-		fox:   c.fox,
-		route: c.route,
-		scope: c.scope,
-		tsr:   c.tsr,
+		rec:     c.rec,
+		req:     c.req.Clone(c.req.Context()),
+		fox:     c.fox,
+		route:   c.route,
+		scope:   c.scope,
+		tsr:     c.tsr,
+		pattern: c.pattern,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
 	cp.w = noUnwrap{&cp.rec}
+
 	if !c.tsr {
 		params := make([]string, len(*c.params))
 		copy(params, *c.params)
@@ -327,6 +331,10 @@ func (c *Context) Clone() *Context {
 		copy(tsrParams, *c.tsrParams)
 		cp.tsrParams = &tsrParams
 	}
+
+	keys := make([]string, len(*c.keys))
+	copy(keys, *c.keys)
+	cp.keys = &keys
 
 	return &cp
 }
@@ -340,9 +348,12 @@ func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
+	cp.pattern = c.pattern
 	cp.scope = c.scope
 	cp.cachedQueries = nil // In case r is a different request than c.req
 	cp.tsr = c.tsr
+
+	copyWithResize(cp.keys, c.keys)
 
 	if !c.tsr {
 		copyWithResize(cp.params, c.params)
@@ -354,7 +365,7 @@ func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 }
 
 func copyWithResize[S ~[]T, T any](dst, src *S) {
-	if len(*src) > len(*dst) {
+	if len(*src) > len(*dst) { // TODO could be cap(*dst)
 		// Grow dst cap to a least len(src)
 		*dst = slices.Grow(*dst, len(*src)-len(*dst))
 	}

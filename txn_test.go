@@ -2,6 +2,7 @@ package fox
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -743,4 +744,35 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+func TestX(t *testing.T) {
+	f, _ := New(DevelopmentOptions())
+
+	sub1, _ := New()
+	sub1.MustHandle(http.MethodGet, "/", func(c *Context) {
+		fmt.Println(slices.Collect(c.Params()), c.Pattern())
+	})
+	sub1.MustHandle(http.MethodGet, "/users", func(c *Context) {
+		fmt.Println(slices.Collect(c.Params()), c.Pattern())
+	})
+
+	if err := f.Mount("foo.bar.com/api", sub1); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/", nil)
+	req.Host = "foo.bar.com"
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+
+	// pattern = /api/*
+	// => /api/ => vide, expected pattern /api/
+	// => /api/users => 'users', expected pattern /api/users
+
+	// pattern = /api*
+	// => /api => vide, expected pattern /api
+	// => /api/ => '/', expected pattern /api/
+	// => /api/users => '/users', expected pattern /api/users
+
 }
