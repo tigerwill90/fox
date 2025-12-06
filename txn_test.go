@@ -753,15 +753,19 @@ func TestX(t *testing.T) {
 	sub1.MustHandle(http.MethodGet, "/", func(c *Context) {
 		fmt.Println(slices.Collect(c.Params()), c.Pattern())
 	})
-	sub1.MustHandle(http.MethodGet, "/users", func(c *Context) {
+	sub1.MustHandle(http.MethodGet, "/{name}", func(c *Context) {
 		fmt.Println(slices.Collect(c.Params()), c.Pattern())
 	})
 
-	if err := f.Mount("foo.bar.com/api", sub1); err != nil {
+	route, err := f.NewSubRouter("foo.{bar}.com/api+{any}", sub1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.HandleRoute(MethodAny, route); err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
 	req.Host = "foo.bar.com"
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
@@ -776,3 +780,12 @@ func TestX(t *testing.T) {
 	// => /api/users => '/users', expected pattern /api/users
 
 }
+
+/*func TestY(t *testing.T) {
+	f, _ := New(AllowRegexpParam(true))
+	// f.MustHandle(http.MethodGet, "/foobar", func(c *Context) {})
+	// f.MustHandle(http.MethodGet, "/foo", func(c *Context) {})
+	f.MustHandle(http.MethodGet, "/foo+{args}", func(c *Context) {})
+	f.MustHandle(http.MethodGet, "/foo*{args:[A-z]+}", func(c *Context) {})
+	f.MustHandle(http.MethodGet, "/foo", func(c *Context) {})
+}*/

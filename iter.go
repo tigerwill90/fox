@@ -89,7 +89,7 @@ func (it Iter) Matches(methods iter.Seq[string], r *http.Request) iter.Seq2[stri
 		c.resetWithRequest(r)
 		for method := range methods {
 			path := c.Path()
-			idx, n := it.tree.lookup(method, r.Host, path, c, true, false)
+			idx, n := it.tree.lookup(method, r.Host, path, c, true)
 			if n != nil {
 				if !yield(method, RouteMatch{n.routes[idx], c.tsr}) {
 					return

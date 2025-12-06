@@ -402,7 +402,7 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.False(t, c.tsr)
 			require.Nil(t, n)
 			assert.Equal(t, 0, idx)
@@ -435,7 +435,7 @@ func TestRouteWithParams(t *testing.T) {
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		idx, n := lookupByPath(tree.patterns[http.MethodGet], rte, c, false, false, 0)
+		idx, n := lookupByPath(tree.patterns[http.MethodGet], rte, c, false, 0)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.routes[idx], "route: %s", rte)
 		assert.False(t, c.tsr)
@@ -490,7 +490,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			assert.Nil(t, n)
 			assert.Equal(t, 0, idx)
 			assert.Empty(t, slices.Collect(c.Params()))
@@ -1510,7 +1510,7 @@ func TestOverlappingRoute(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
@@ -1526,7 +1526,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			idx, n = lookupByPath(tree.patterns[http.MethodGet], tc.path, c, true, false, 0)
+			idx, n = lookupByPath(tree.patterns[http.MethodGet], tc.path, c, true, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
@@ -2631,7 +2631,7 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
@@ -2970,7 +2970,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
@@ -3062,7 +3062,7 @@ func TestTree_LookupTsr(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.key, c, true, false, 0)
+			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.key, c, true, 0)
 			assert.Equal(t, tc.want, c.tsr)
 			if tc.want {
 				require.NotNil(t, n)

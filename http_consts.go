@@ -96,7 +96,7 @@ const (
 )
 
 const (
-	methodMount = "@"
+	MethodAny = "@ANY"
 )
 
 // nolint:gosec

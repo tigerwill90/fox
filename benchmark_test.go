@@ -258,18 +258,18 @@ func BenchmarkCloneWith(b *testing.B) {
 }
 
 func BenchmarkSubRouter(b *testing.B) {
-	sub, _ := New()
-	sub.MustHandle(http.MethodGet, "/users/email", emptyHandler)
-
 	sub2, _ := New()
-	if err := sub2.Mount("/{name}/", sub); err != nil {
-		b.Fatal(err)
-	}
+	sub2.MustHandle(http.MethodGet, "/users/email", emptyHandler)
+
+	sub1, _ := New()
+	r, err := sub1.NewSubRouter("/{name}/+{any}", sub2)
+	require.NoError(b, err)
+	require.NoError(b, sub1.HandleRoute(MethodAny, r))
 
 	main, _ := New()
-	if err := main.Mount("/{v1}/", sub2); err != nil {
-		b.Fatal(err)
-	}
+	r, err = main.NewSubRouter("/{v1}/+{any}", sub1)
+	require.NoError(b, err)
+	require.NoError(b, main.HandleRoute(MethodAny, r))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/john/users/email", nil)
 	w := new(mockResponseWriter)
@@ -288,9 +288,9 @@ func BenchmarkStaticAllSubRouter(b *testing.B) {
 		require.NoError(b, onlyError(sub.Handle(route.method, route.path, emptyHandler)))
 	}
 	r, _ := New()
-	if err := r.Mount("/", sub); err != nil {
-		b.Fatal(err)
-	}
+	rte, err := r.NewSubRouter("/+{any}", sub)
+	require.NoError(b, err)
+	require.NoError(b, r.HandleRoute(MethodAny, rte))
 
 	benchRoute(b, r, staticRoutes)
 }

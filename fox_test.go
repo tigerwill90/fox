@@ -869,7 +869,9 @@ func TestStaticRouteSubRouter(t *testing.T) {
 	}
 
 	f, _ := New()
-	require.NoError(t, f.Mount("/", sub))
+	r, err := f.NewSubRouter("/+{args}", sub)
+	require.NoError(t, err)
+	require.NoError(t, f.HandleRoute(MethodAny, r))
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
@@ -877,6 +879,7 @@ func TestStaticRouteSubRouter(t *testing.T) {
 		f.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, route.path, w.Body.String())
+
 	}
 
 	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
@@ -923,7 +926,9 @@ func TestStaticHostnameRouteSubRouter(t *testing.T) {
 	for _, route := range staticHostnames {
 		sub, _ := New()
 		require.NoError(t, onlyError(sub.Handle(route.method, "/foo", patternHandler)))
-		require.NoError(t, f.Mount(route.path+"/", sub))
+		r, err := f.NewSubRouter(route.path+"/+{args}", sub)
+		require.NoError(t, err)
+		require.NoError(t, f.HandleRoute(MethodAny, r))
 	}
 
 	t.Run("same case", func(t *testing.T) {
@@ -3093,12 +3098,12 @@ func TestParseRoute(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokens, n, hostSplit, err := f.parseRoute(tc.path)
+			parsed, err := f.parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
-			assert.Equal(t, tc.wantN, n)
-			assert.Equal(t, tc.wantTokens, tokens)
+			assert.Equal(t, tc.wantN, parsed.paramCnt)
+			assert.Equal(t, tc.wantTokens, parsed.token)
 			if err == nil {
-				assert.Equal(t, strings.IndexByte(tc.path, '/'), hostSplit)
+				assert.Equal(t, strings.IndexByte(tc.path, '/'), parsed.endHost)
 			}
 		})
 	}
@@ -3107,72 +3112,72 @@ func TestParseRoute(t *testing.T) {
 func TestParseRouteParamsConstraint(t *testing.T) {
 	t.Run("param limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParams(3))
-		_, _, _, err := f.parseRoute("/{1}/{2}/{3}")
+		_, err := f.parseRoute("/{1}/{2}/{3}")
 		assert.NoError(t, err)
-		_, _, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
+		_, err = f.parseRoute("/{1}/{2}/{3}/{4}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
+		_, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
 		assert.Error(t, err)
 	})
 	t.Run("param key limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParamKeyBytes(3))
-		_, _, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
+		_, err := f.parseRoute("/{abc}/{abc}/{abc}")
 		assert.NoError(t, err)
-		_, _, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
+		_, err = f.parseRoute("/{abcd}/{abc}/{abc}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
+		_, err = f.parseRoute("/{abc}/{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
+		_, err = f.parseRoute("/{abc}/{abc}/{abcd}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
+		_, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
+		_, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
 		assert.Error(t, err)
 	})
 	t.Run("param key limit with regexp", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParamKeyBytes(3), AllowRegexpParam(true))
-		_, _, _, err := f.parseRoute("/{abc:a}/{abc:a}/{abc:a}")
+		_, err := f.parseRoute("/{abc:a}/{abc:a}/{abc:a}")
 		assert.NoError(t, err)
-		_, _, _, err = f.parseRoute("/{abcd:a}/{abc:a}/{abc:a}")
+		_, err = f.parseRoute("/{abcd:a}/{abc:a}/{abc:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/{abcd:a}/{abc:a}")
+		_, err = f.parseRoute("/{abc:a}/{abcd:a}/{abc:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/{abcd:a}")
+		_, err = f.parseRoute("/{abc:a}/{abc:a}/{abcd:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/*{abcd:a}/{abc:a}")
+		_, err = f.parseRoute("/{abc:a}/*{abcd:a}/{abc:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/*{abcdef:a}")
+		_, err = f.parseRoute("/{abc:a}/{abc:a}/*{abcdef:a}")
 		assert.Error(t, err)
 	})
 	t.Run("disabled regexp support for param", func(t *testing.T) {
 		f, _ := New()
-		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		_, err := f.parseRoute("/{a}/{b}/{c}")
 		assert.NoError(t, err)
 		// path params
-		_, _, _, err = f.parseRoute("/{a:a}/{b}/{c}")
+		_, err = f.parseRoute("/{a:a}/{b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/{b:b}/{c}")
+		_, err = f.parseRoute("/{a}/{b:b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/{b}/{c:c}")
+		_, err = f.parseRoute("/{a}/{b}/{c:c}")
 		assert.Error(t, err)
 		// hostname params
-		_, _, _, err = f.parseRoute("{a:a}.{b}.{c}/")
+		_, err = f.parseRoute("{a:a}.{b}.{c}/")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("{a}.{b:b}.{c}/")
+		_, err = f.parseRoute("{a}.{b:b}.{c}/")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("{a}.{b}.{c:c}/")
+		_, err = f.parseRoute("{a}.{b}.{c:c}/")
 		assert.Error(t, err)
 	})
 	t.Run("disabled regexp support for wildcard", func(t *testing.T) {
 		f, _ := New()
-		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		_, err := f.parseRoute("/{a}/{b}/{c}")
 		assert.NoError(t, err)
 		// wildcard
-		_, _, _, err = f.parseRoute("/*{a:a}/{b}/{c}")
+		_, err = f.parseRoute("/*{a:a}/{b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/*{b:b}/{c}")
+		_, err = f.parseRoute("/{a}/*{b:b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/{b}/*{c:c}")
+		_, err = f.parseRoute("/{a}/{b}/*{c:c}")
 		assert.Error(t, err)
 	})
 }
