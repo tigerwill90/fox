@@ -229,12 +229,14 @@ func (c *Context) Host() string {
 	return c.req.Host
 }
 
-// QueryParams parses the [http.Request] raw query and returns the corresponding values.
+// QueryParams parses the [http.Request] raw query and returns the corresponding values. The result is cached after
+// the first call.
 func (c *Context) QueryParams() url.Values {
 	return c.getQueries()
 }
 
-// QueryParam returns the first value associated with the given key.
+// QueryParam returns the first query value associated with the given key. The query parameters are parsed and
+// cached on first access.
 func (c *Context) QueryParam(name string) string {
 	return c.getQueries().Get(name)
 }
