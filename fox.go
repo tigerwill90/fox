@@ -134,6 +134,14 @@ type middleware struct {
 
 var _ http.Handler = (*Router)(nil)
 
+func MustNew(opts ...GlobalOption) *Router {
+	f, err := New(opts...)
+	if err != nil {
+		panic(err)
+	}
+	return f
+}
+
 // New returns a ready to use instance of Fox router.
 func New(opts ...GlobalOption) (*Router, error) {
 	r := new(Router)
@@ -180,6 +188,7 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 // Handle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -199,6 +208,7 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 
 // HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //
 // It's safe to add a new route while the router is serving requests. This function is safe for concurrent use by
@@ -216,6 +226,7 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 // Update override an existing route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -238,6 +249,7 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 // UpdateRoute override an existing [Route] for the given method and new [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
@@ -369,8 +381,20 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	idx, n := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		return n.routes[idx], c, c.tsr
+		c.pattern = c.route.pattern
+		*c.keys = c.route.params
+		return c.route, c, c.tsr
 	}
+
+	*c.params = (*c.params)[:0]
+	idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
+	if n != nil {
+		c.route = n.routes[idx]
+		c.pattern = c.route.pattern
+		*c.keys = c.route.params
+		return c.route, c, c.tsr
+	}
+
 	tree.pool.Put(c)
 	return nil, nil, false
 }
@@ -424,13 +448,26 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 	return rte, nil
 }
 
-func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...SubRouterOption) (*Route, error) {
+// NewSubRouter creates a new [Route] that mounts the provided [Router] at the given pattern.
+// The pattern must end with a catch-all wildcard (e.g., /api/*{path} or /api/+{path}).
+// The returned route can be used like any other route created with [Router.NewRoute].
+// The mounted router can be retrieved using [Route.SubRouter]. Note that requests pass through route middleware
+// before being dispatched to the mounted router.
+// If an error occurs, it returns one of the following:
+//   - [ErrInvalidRoute]: If the provided pattern is invalid or does not end with a catch-all wildcard.
+//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
+func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...RouteOption) (*Route, error) {
+	if fox == r {
+		panic("cannot mount router onto itself")
+	}
+
 	parsed, err := fox.parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	if parsed.startCatchAll == 0 {
+	if parsed.startCatchAll <= 0 {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "subrouter pattern must end with a suffix wildcard")
 	}
 
@@ -443,7 +480,7 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...SubRouterOpti
 		priority:    0,
 		tokens:      parsed.token,
 		sub:         r,
-		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == '+',
+		catchEmpty:  pattern[parsed.startCatchAll] == plusDelim,
 	}
 
 	rte.params = make([]string, 0, parsed.paramCnt)
@@ -454,7 +491,7 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...SubRouterOpti
 	}
 
 	for _, opt := range opts {
-		if err = opt.applySubRouter(sealedOption{route: rte}); err != nil {
+		if err = opt.applyRoute(sealedOption{route: rte}); err != nil {
 			return nil, err
 		}
 	}
@@ -466,18 +503,17 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...SubRouterOpti
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matcher")
 	}
 
+	patternPrefix := pattern[:parsed.startCatchAll]
 	// Precomputed to avoid alloc in the hot path.
-	thisPattern := pattern[:parsed.startCatchAll]
-	patternWithSlash := thisPattern + "/"
+	patternWithSlash := patternPrefix + "/"
 	rte.hbase = func(c *Context) {
 		tree := r.getTree()
 		subCtx := tree.pool.Get().(*Context)
 		subCtx.resetWithWriter(c.Writer(), c.Request())
-
-		subCtx.pattern = thisPattern
+		subCtx.pattern = patternPrefix
 
 		// Extract the path suffix to be routed by the subrouter. The suffix may be empty,
-		// but there is always at least a catch-all param recorded.
+		// but there is always at least a catch-all param recorded since we enforce suffix catch-all.
 		suffix := (*c.params)[len(*c.params)-1]
 		last := len(subCtx.pattern) - 1
 		if suffix != "" {
@@ -485,7 +521,8 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...SubRouterOpti
 				// Mount pattern ends with slash (e.g., /api/*{any}), so suffix lacks the
 				// leading slash (e.g., "users" instead of "/users"). Reslice from the
 				// original path to include it, avoiding allocation from "/" + suffix.
-				suffix = c.Path()[len(c.Path())-len(suffix)-1:]
+				path := c.Path()
+				suffix = path[len(path)-len(suffix)-1:]
 			} else {
 				// Mount pattern has no trailing slash (e.g., /api*{any}), so suffix
 				// already includes the leading slash. Use precomputed patternWithSlash
@@ -498,11 +535,12 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...SubRouterOpti
 		// entry which is the catch-all wildcard used to mount the subrouter.
 		// Subrouters are never evaluated in lazy lookup mode, so params are always
 		// captured. If parent has no params beyond the catch-all, this is a no-op.
+		// TODO subCtx.params already reset.
 		*subCtx.params = append((*subCtx.params)[:0], (*c.params)[:len(*c.params)-1]...)
 		*subCtx.keys = append((*subCtx.keys)[:0], (*c.keys)[:len(*c.keys)-1]...)
 
 		// Serve the sub router
-		r.serveContext(subCtx, cmp.Or(suffix, "/"))
+		r.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
 
 		tree.pool.Put(subCtx)
 	}
@@ -898,7 +936,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tree.pool.Put(c)
 }
 
-func (fox *Router) serveContext(c *Context, path string) {
+func (fox *Router) serveSubRouter(c *Context, path string) {
 	var n *node
 	var idx int
 

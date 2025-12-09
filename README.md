@@ -48,11 +48,12 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
 * [Getting started](#getting-started)
   * [Install](#install)
   * [Basic example](#basic-example)
-  * [Route Validation and Error Handling](#route-validation-and-error-handling)
   * [Named parameters](#named-parameters)
   * [Named wildcards](#named-wildcards-catch-all)
-  * [Hostname validation & restrictions](#hostname-validation--restrictions)
+  * [Optional Named wildcards](#optional-named-wildcards-catch-all)
   * [Route matchers](#route-matchers)
+  * [Method-less routes](#method-less-routes)
+  * [Hostname validation & restrictions](#hostname-validation--restrictions)
   * [Priority rules](#priority-rules)
   * [Hostname routing](#hostname-routing)
   * [Warning about context](#warning-about-context)
@@ -86,19 +87,18 @@ package main
 
 import (
 	"errors"
-	"github.com/tigerwill90/fox"
+	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/tigerwill90/fox"
 )
 
 func main() {
-	f, err := fox.New(fox.DefaultOptions())
-	if err != nil {
-		panic(err)
-	}
+	f := fox.MustNew(fox.DefaultOptions())
 
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c fox.Context) {
-		_ = c.String(http.StatusOK, "hello %s\n", c.Param("name"))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *fox.Context) {
+		_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 
 	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -106,25 +106,6 @@ func main() {
 	}
 }
 ````
-
-#### Route Validation and Error Handling
-Since new route may be added at any given time, Fox, unlike other router, does not panic when a route is malformed or conflicts with another.
-Instead, it returns the following error values:
-```go
-var ErrRouteExist = errors.New("route already registered")
-var ErrInvalidRoute = errors.New("invalid route")
-var ErrInvalidConfig = errors.New("invalid config")
-```
-
-Conflict error may be unwrapped to retrieve conflicting route.
-```go
-var conflict *RouteConflictError
-if errors.As(err, &conflict) {
-	fmt.Println(conflict.Method)             // GET
-	fmt.Println(conflict.New.Pattern())      // /users/{id}
-	fmt.Println(conflict.Existing.Pattern()) // /users/{name}
-}
-```
 
 #### Named parameters
 Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching 
@@ -200,9 +181,26 @@ first.second.example.com/avengers   matches
 example.com/avengers               no matches
 ````
 
-Named wildcard can include regular expression using the syntax `*{name:regexp}`. Regular expressions cannot
-contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via
-`fox.AllowRegexpParam(true)` option.
+#### Optional Named Wildcards (Catch-all)
+Optional named wildcard start with a plus sign `+` followed by a name `{param}` and match any sequence of characters
+**including empty** strings. Unlike `*{param}`. Optional wildcards can only be used as a suffix.
+
+````
+Pattern /src/+{filepath}
+
+/src/conf.txt                      matches
+/src/dir/config.txt                 matches
+/src/                              matches
+
+Pattern /src/file=+{path}
+
+/src/file=config.txt                 matches
+/src/file=/dir/config.txt            matches
+/src/file=                          matches
+````
+
+Named wildcard can include regular expression using the syntax `*{name:regexp}` or `+{name:regexp}`. Regular expressions cannot
+contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via `fox.AllowRegexpParam(true)` option.
 
 ````
 Pattern /src/*{filepath:[A-Za-z/]+\.json}
@@ -210,20 +208,6 @@ Pattern /src/*{filepath:[A-Za-z/]+\.json}
 /src/dir/config.json            matches
 /src/dir/config.txt             no matches
 ````
-
-#### Hostname validation & restrictions
-
-Hostnames are validated to conform to the [LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2)
-(lowercase only) and SRV-like "underscore labels". Wildcard segments within hostnames, such as {a}.b.c/, are exempt from LDH validation 
-since they act as placeholders rather than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label, 
-nor the 255-character limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
-(Punycode) representation.
-
-The DNS specification permits a trailing period to be used to denote the root, e.g., `a.b.c` and `a.b.c.` are equivalent, 
-but the latter is more explicit and is required to be accepted by applications. Fox will reject route registered with 
-trailing period. However, the router will automatically strip any trailing period from incoming request host so it can match 
-the route regardless of a trailing period. Note that FQDN (with trailing period) does not play well with golang 
-TLS stdlib (see traefik/traefik#9157 (comment)).
 
 #### Route matchers
 
@@ -246,10 +230,44 @@ Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, 
 and `fox.WithClientIPMatcher`. Multiple matchers on a route use AND logic. Routes without matchers serve as fallbacks.
 For custom matching logic, implement the `fox.Matcher` interface and use `fox.WithMatcher`.
 
+#### Method-less routes
+
+Routes can be registered with `fox.MethodAny` to match any HTTP method.
+
+````go
+// Handle any method on /health
+f.MustHandle(fox.MethodAny, "/health", HealthHandler)
+// Forward all requests to a backend service
+f.MustHandle(fox.MethodAny, "/api/+{any}", ProxyHandler)
+````
+
+Routes registered with a specific HTTP method always take precedence over `fox.MethodAny` routes. This allows defining method-specific
+behavior while falling back to a generic handler for other methods.
+````go
+// Specific handler for GET requests
+f.MustHandle(http.MethodGet, "/resource", GetHandler)
+// All other methods handled here
+f.MustHandle(fox.MethodAny, "/resource", FallbackHandler)
+````
+
+#### Hostname validation & restrictions
+
+Hostnames are validated to conform to the [LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2)
+(lowercase only) and SRV-like "underscore labels". Wildcard segments within hostnames, such as {sub}.example.com/, are exempt from LDH validation
+since they act as placeholders rather than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label,
+nor the 255-character limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
+(Punycode) representation.
+
+The DNS specification permits a trailing period to be used to denote the root, e.g., `example.com` and `example.com.` are equivalent,
+but the latter is more explicit and is required to be accepted by applications. Fox will reject route registered with
+trailing period. However, the router will automatically strip any trailing period from incoming request host so it can match
+the route regardless of a trailing period. Note that FQDN (with trailing period) does not play well with golang
+TLS stdlib (see traefik/traefik#9157 (comment)).
+
 #### Priority rules
 
-The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to 
-store routes efficiently. When a request is received, Fox finds the longest matching route by evaluating each path segment 
+The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to
+store routes efficiently. When a request is received, Fox finds the longest matching route by evaluating each path segment
 in the following priority order:
 
 1. Static segments
@@ -257,17 +275,19 @@ in the following priority order:
 3. Named parameters without constraints
 4. Catch-all parameters with regex constraints
 5. Catch-all parameters without constraints
-6. Route Matchers
 
 Matchers are evaluated after a successful hostname and/or path match. When multiple routes share the same pattern but differ
 in matchers, Fox evaluates them in priority order, configurable via `fox.WithMatcherPriority`. Priority defaults to the number
 of matchers on the route. Routes with equal priority may be evaluated in any order.
 
-If a match candidate fails to complete the full route, Fox returns to the last decision point and tries the next 
-available alternative following the same priority order.
+Routes registered with a specific HTTP method take precedence over routes registered with `fox.MethodAny`, which match regardless
+of the request method.
 
-Note that routes with hostnames are always evaluated before path-only routes and when multiple regex-constrained 
-parameters or wildcards exist at the same level, they are evaluated in registration order.
+Routes with hostnames are always evaluated before path-only routes.
+
+If a match candidate fails to complete the full route, including matchers, Fox returns to the last decision point and tries the next available
+alternative following the same priority order. When multiple regex-constrained parameters or wildcards exist at the same level,
+they are evaluated in registration order.
 
 Additionally, let's consider an example to illustrate the prioritization:
 ````
@@ -301,7 +321,7 @@ Hostname matching is **case-insensitive**, so requests to `Example.COM`, `exampl
 The `fox.Context` instance is freed once the request handler function returns to optimize resource allocation.
 If you need to retain `fox.Context` beyond the scope of the handler, use the `fox.Context.Clone` methods.
 ````go
-func Hello(c fox.Context) {
+func Hello(c *fox.Context) {
     cc := c.Clone()
     go func() {
         time.Sleep(2 * time.Second)
@@ -312,10 +332,10 @@ func Hello(c fox.Context) {
 ````
 
 ## Concurrency
-Fox implements an immutable Radix Tree that supports uncoordinated read while allowing a single writer to make progress.
+Fox implements an immutable Radix Tree that supports lock-free read while allowing a single writer to make progress.
 Updates are applied by calculating the change which would be made to the tree were it mutable, assembling those changes
 into a **patch** which is propagated to the root and applied in a **single atomic operation**. The result is a shallow copy 
-of the tree, where only the modified path and its ancestors are cloned, ensuring efficient updates and minimal memory overhead.
+of the tree, where only the modified path and its ancestors are cloned, ensuring minimal memory overhead.
 Multiple patches can be applied in a single transaction, with intermediate nodes cached during the process to prevent 
 redundant cloning.
 
@@ -340,13 +360,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/tigerwill90/fox"
 )
 
-func Action(c fox.Context) {
+func Action(c *fox.Context) {
 	var data map[string]string
 	if err := json.NewDecoder(c.Request().Body).Decode(&data); err != nil {
 		http.Error(c.Writer(), err.Error(), http.StatusBadRequest)
@@ -366,11 +387,11 @@ func Action(c fox.Context) {
 	action := c.Param("action")
 	switch action {
 	case "add":
-		_, err = c.Fox().Handle(method, path, func(c fox.Context) {
+		_, err = c.Fox().Handle(method, path, func(c *fox.Context) {
 			_ = c.String(http.StatusOK, text)
 		})
 	case "update":
-		_, err = c.Fox().Update(method, path, func(c fox.Context) {
+		_, err = c.Fox().Update(method, path, func(c *fox.Context) {
 			_ = c.String(http.StatusOK, text)
 		})
 	case "delete":
@@ -384,14 +405,11 @@ func Action(c fox.Context) {
 		return
 	}
 
-	_ = c.String(http.StatusOK, "%s route [%s] %s: success\n", action, method, path)
+	_ = c.String(http.StatusOK, fmt.Sprintf("%s route [%s] %s: success\n", action, method, path))
 }
 
 func main() {
-	f, err := fox.New(fox.DefaultOptions())
-	if err != nil {
-		panic(err)
-	}
+	f := fox.MustNew(fox.DefaultOptions())
 
 	f.MustHandle(http.MethodPost, "/routes/{action}", Action)
 
@@ -486,7 +504,7 @@ articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     _, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
 })
 
-f, _ := fox.New(fox.DefaultOptions())
+f := fox.MustNew(fox.DefaultOptions())
 f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(articles))
 ```
 
@@ -498,14 +516,15 @@ to create and apply automatically a simple logging middleware to all routes (inc
 package main
 
 import (
-	"github.com/tigerwill90/fox"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/tigerwill90/fox"
 )
 
 func Logger(next fox.HandlerFunc) fox.HandlerFunc {
-	return func(c fox.Context) {
+	return func(c *fox.Context) {
 		start := time.Now()
 		next(c)
 		log.Printf("route: %s, latency: %s, status: %d, size: %d",
@@ -518,19 +537,10 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 }
 
 func main() {
-	f, err := fox.New(fox.WithMiddleware(Logger))
-	if err != nil {
-		panic(err)
-	}
+	f := fox.MustNew(fox.WithMiddleware(Logger))
 
-	f.MustHandle(http.MethodGet, "/", func(c fox.Context) {
-		resp, err := http.Get("https://api.coindesk.com/v1/bpi/currentprice.json")
-		if err != nil {
-			http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-		defer resp.Body.Close()
-		_ = c.Stream(http.StatusOK, fox.MIMEApplicationJSON, resp.Body)
+	f.MustHandle(http.MethodGet, "/", func(c *fox.Context) {
+		_ = c.String(http.StatusOK, "Hello World")
 	})
 
 	log.Fatalln(http.ListenAndServe(":8080", f))
@@ -552,8 +562,8 @@ Finally, it's also possible to attaches middleware on a per-route basis. Note th
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
 ````go
-f, _ := fox.New(
-	fox.WithMiddleware(fox.Logger()),
+f := fox.MustNew(
+    fox.WithMiddleware(fox.Logger(slog.NewTextHandler(os.Stdout, nil))),
 )
 f.MustHandle("GET", "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
 f.MustHandle("GET", "/foo", SomeOtherHandler)
@@ -640,9 +650,10 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/tigerwill90/fox"
 	"github.com/tigerwill90/fox/clientip"
-	"net/http"
 )
 
 func main() {
@@ -660,7 +671,7 @@ func main() {
 		panic(err)
 	}
 
-	f.MustHandle(http.MethodGet, "/foo/bar", func(c fox.Context) {
+	f.MustHandle(http.MethodGet, "/foo/bar", func(c *fox.Context) {
 		ipAddr, err := c.ClientIP()
 		if err != nil {
 			// If the current resolver is not able to derive the client IP, an error

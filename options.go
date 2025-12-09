@@ -40,6 +40,7 @@ type RouteOption interface {
 	applyRoute(sealedOption) error
 }
 
+// TODO probably don't need me.
 type SubRouterOption interface {
 	applySubRouter(sealedOption) error
 }

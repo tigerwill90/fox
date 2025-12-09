@@ -520,9 +520,8 @@ Walk:
 	for _, wildcardNode := range matched.wildcards {
 		for i, route := range wildcardNode.routes {
 			if route.catchEmpty && route.match(c) {
-				// This is never lazy
 				if !lazy {
-					*c.params = append(*c.params, search) // TODO probably "" in enough
+					*c.params = append(*c.params, search) // Not that search here is always empty
 				}
 				c.tsr = false
 				return i, wildcardNode

@@ -19,6 +19,7 @@ type Txn struct {
 // Handle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -54,6 +55,7 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 
 // HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
@@ -80,6 +82,7 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 // Update override an existing route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -120,6 +123,7 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 // UpdateRoute override an existing [Route] for the given method and new [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
@@ -333,8 +337,20 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Con
 	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		return n.routes[idx], c, c.tsr
+		c.pattern = c.route.pattern
+		*c.keys = c.route.params
+		return c.route, c, c.tsr
 	}
+
+	*c.params = (*c.params)[:0]
+	idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
+	if n != nil {
+		c.route = n.routes[idx]
+		c.pattern = c.route.pattern
+		*c.keys = c.route.params
+		return c.route, c, c.tsr
+	}
+
 	tree.pool.Put(c)
 	return nil, nil, false
 }

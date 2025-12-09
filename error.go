@@ -7,6 +7,7 @@ package fox
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var (
@@ -33,25 +34,62 @@ var (
 type RouteConflictError struct {
 	// New is the route that was being registered when the conflict was detected.
 	New *Route
-	// Existing is the previously registered route that conflicts with New.
-	Existing *Route
+	// Conflicts contains the previously registered routes that conflict with New.
+	Conflicts []*Route
 	// Method is the HTTP method for which the conflict occurred.
 	Method string
-	// this is a name conflict
-	isNameConflict bool
 }
 
 func (e *RouteConflictError) Error() string {
-	if !e.isNameConflict {
-		return fmt.Sprintf("%s: new route %s %s conflict with %s", ErrRouteExist, e.Method, e.New.pattern, e.Existing.pattern)
+	var sb strings.Builder
+	sb.WriteString("route already registered: new route ")
+	sb.WriteString(e.Method)
+	sb.WriteByte(' ')
+	sb.WriteString(e.New.pattern)
+	sb.WriteString(" conflicts with ")
+
+	// A RouteConflictError as always at least one conflicting route.
+	first := e.Conflicts[0].pattern
+	sb.WriteString(first)
+	for _, route := range e.Conflicts[1:] {
+		sb.WriteString(";")
+		sb.WriteString(route.pattern)
 	}
-	return fmt.Sprintf("%s: new route name '%s' conflict with route at %s %s", ErrRouteNameExist, e.New.name, e.Method, e.Existing.pattern)
+
+	return sb.String()
+}
+
+func (e *RouteConflictError) conflict() string {
+	// A RouteConflictError as always at least one conflicting route.
+	first := e.Conflicts[0].pattern
+	if len(e.Conflicts) == 1 {
+		return first
+	}
+
+	var sb strings.Builder
+	sb.WriteString(first)
+	for _, route := range e.Conflicts[1:] {
+		sb.WriteString(";")
+		sb.WriteString(route.pattern)
+	}
+	return sb.String()
 }
 
 // Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
-	if !e.isNameConflict {
-		return ErrRouteExist
-	}
+	return ErrRouteExist
+}
+
+type RouteNameConflictError struct {
+	New      *Route
+	Conflict *Route
+	Method   string
+}
+
+func (e *RouteNameConflictError) Error() string {
+	return fmt.Sprintf("%s: new route name '%s' conflict with route at %s %s", ErrRouteNameExist, e.New.name, e.Method, e.Conflict.pattern)
+}
+
+func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
 }

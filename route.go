@@ -107,6 +107,8 @@ func (r *Route) Matchers() iter.Seq[Matcher] {
 	}
 }
 
+// SubRouter returns the [Router] mounted at this route, or nil if this route
+// was not created with [Router.NewSubRouter].
 func (r *Route) SubRouter() *Router {
 	return r.sub
 }

@@ -155,7 +155,7 @@ func (t *tXn) insertNameIn(n *node, search string, route *Route, mode insertMode
 			// update mode provides a stronger guarantee: the caller has already verified that old.name == new.name
 			// before invoking insert. This precondition eliminates the need to check for update errors in cases
 			// like node splitting, which the standard insert path must handle.
-			return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[0], isNameConflict: true}
+			return nil, &RouteNameConflictError{Method: t.method, New: route, Conflict: n.routes[0]}
 		}
 
 		nc := t.writeNode(n)
@@ -319,21 +319,24 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 		case modeInsert:
 			if n.isLeaf() {
 				if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.matchersEqual(route.matchers) }); idx >= 0 {
-					return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[idx]}
+					return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: []*Route{n.routes[idx]}}
 				}
 			}
 
 			if route.catchEmpty && p != nil && p.isLeaf() {
-				// TODO passing all conflicting routes
-				return nil, &RouteConflictError{Method: t.method, New: route, Existing: p.routes[0]}
+				return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: p.routes}
 			}
+
+			var conflicts []*Route
 			for _, wildcard := range n.wildcards {
 				for _, r := range wildcard.routes {
 					if r.catchEmpty {
-						// TODO passing all conflicting routes
-						return nil, &RouteConflictError{Method: t.method, New: route, Existing: r}
+						conflicts = append(conflicts, r)
 					}
 				}
+			}
+			if len(conflicts) > 0 {
+				return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: conflicts}
 			}
 
 			if route.name != "" {

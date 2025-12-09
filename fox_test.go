@@ -1721,105 +1721,105 @@ func TestInsertConflict(t *testing.T) {
 		routes    []string
 		insert    string
 		wantErr   error
-		wantMatch string
+		wantMatch []string
 	}{
 		{
 			name:      "static route already exist",
 			routes:    []string{"/foo/bar", "/foo/baz"},
 			insert:    "/foo/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/bar",
+			wantMatch: []string{"/foo/bar"},
 		},
 		{
 			name:      "route with same parameters",
 			routes:    []string{"/foo/{foo}"},
 			insert:    "/foo/{foo}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo}",
+			wantMatch: []string{"/foo/{foo}"},
 		},
 		{
 			name:      "route with same wildcard",
 			routes:    []string{"/foo/*{foo}"},
 			insert:    "/foo/*{foo}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo}",
+			wantMatch: []string{"/foo/*{foo}"},
 		},
 		{
 			name:      "route with same parameters but different name",
 			routes:    []string{"/foo/{foo}"},
 			insert:    "/foo/{bar}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo}",
+			wantMatch: []string{"/foo/{foo}"},
 		},
 		{
 			name:      "route with same wildcard but different name",
 			routes:    []string{"/foo/*{foo}"},
 			insert:    "/foo/*{bar}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo}",
+			wantMatch: []string{"/foo/*{foo}"},
 		},
 		{
 			name:      "route with middle same parameters but different name",
 			routes:    []string{"/{foo}/bar"},
 			insert:    "/{other}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/{foo}/bar",
+			wantMatch: []string{"/{foo}/bar"},
 		},
 		{
 			name:      "route with middle same wildcard but different name",
 			routes:    []string{"/*{foo}/bar"},
 			insert:    "/*{other}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/*{foo}/bar",
+			wantMatch: []string{"/*{foo}/bar"},
 		},
 		{
 			name:      "route with same regexp parameter",
 			routes:    []string{"/foo/{foo:[A-z]+}"},
 			insert:    "/foo/{foo:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo:[A-z]+}",
+			wantMatch: []string{"/foo/{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with same regexp parameter but different name",
 			routes:    []string{"/foo/{foo:[A-z]+}"},
 			insert:    "/foo/{bar:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo:[A-z]+}",
+			wantMatch: []string{"/foo/{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with same regexp wildcard",
 			routes:    []string{"/foo/*{foo:[A-z]+}"},
 			insert:    "/foo/*{foo:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo:[A-z]+}",
+			wantMatch: []string{"/foo/*{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with same regexp wildcard but different name",
 			routes:    []string{"/foo/*{foo:[A-z]+}"},
 			insert:    "/foo/*{bar:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo:[A-z]+}",
+			wantMatch: []string{"/foo/*{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with middle same regexp parameter but different name",
 			routes:    []string{"/{foo:[A-z]+}/bar"},
 			insert:    "/{other:[A-z]+}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/{foo:[A-z]+}/bar",
+			wantMatch: []string{"/{foo:[A-z]+}/bar"},
 		},
 		{
 			name:      "route with middle same regexp wildcard but different name",
 			routes:    []string{"/*{foo:[A-z]+}/bar"},
 			insert:    "/*{other:[A-z]+}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/*{foo:[A-z]+}/bar",
+			wantMatch: []string{"/*{foo:[A-z]+}/bar"},
 		},
 		{
 			name:      "simple hostname conflict",
 			routes:    []string{"a.{b}.c/fox", "{a}.b.c/fox"},
 			insert:    "a.{d}.c/fox",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "a.{b}.c/fox",
+			wantMatch: []string{"a.{b}.c/fox"},
 		},
 	}
 
@@ -1833,7 +1833,10 @@ func TestInsertConflict(t *testing.T) {
 			assert.ErrorIs(t, got, ErrRouteExist)
 			var conflict *RouteConflictError
 			require.ErrorAs(t, got, &conflict)
-			assert.Equal(t, tc.wantMatch, conflict.Existing.pattern)
+			patterns := iterutil.Map(slices.Values(conflict.Conflicts), func(a *Route) string {
+				return a.pattern
+			})
+			assert.Equal(t, tc.wantMatch, slices.Collect(patterns))
 		})
 	}
 }

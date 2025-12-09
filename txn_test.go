@@ -765,7 +765,7 @@ func TestX(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/foo/bar", nil)
 	req.Host = "foo.bar.com"
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
@@ -780,12 +780,3 @@ func TestX(t *testing.T) {
 	// => /api/users => '/users', expected pattern /api/users
 
 }
-
-/*func TestY(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	// f.MustHandle(http.MethodGet, "/foobar", func(c *Context) {})
-	// f.MustHandle(http.MethodGet, "/foo", func(c *Context) {})
-	f.MustHandle(http.MethodGet, "/foo+{args}", func(c *Context) {})
-	f.MustHandle(http.MethodGet, "/foo*{args:[A-z]+}", func(c *Context) {})
-	f.MustHandle(http.MethodGet, "/foo", func(c *Context) {})
-}*/
