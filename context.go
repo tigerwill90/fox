@@ -54,11 +54,12 @@ type RequestContext interface {
 
 // Context holds request-related information and allows interaction with the [ResponseWriter].
 type Context struct {
-	w             ResponseWriter
-	req           *http.Request
-	params        *[]string
-	tsrParams     *[]string
-	keys          *[]string
+	w         ResponseWriter
+	req       *http.Request
+	params    *[]string
+	tsrParams *[]string
+	keys      *[]string
+	// TODO use Request.Pattern
 	pattern       string
 	skipStack     *skipStack
 	route         *Route
@@ -191,7 +192,7 @@ func (c *Context) Params() iter.Seq[Param] {
 func (c *Context) Param(name string) string {
 	if c.tsr {
 		for i := range *c.tsrParams {
-			key := c.route.params[i]
+			key := (*c.keys)[i]
 			if key == name {
 				return (*c.tsrParams)[i]
 			}
@@ -200,7 +201,7 @@ func (c *Context) Param(name string) string {
 	}
 
 	for i := range *c.params {
-		key := c.route.params[i]
+		key := (*c.keys)[i]
 		if key == name {
 			return (*c.params)[i]
 		}
@@ -292,6 +293,7 @@ func (c *Context) Stream(code int, contentType string, r io.Reader) (err error) 
 	return
 }
 
+// TODO superflus, delete me
 // Redirect sends an HTTP redirect response with the given status code and URL.
 func (c *Context) Redirect(code int, url string) error {
 	if code < http.StatusMultipleChoices || code > http.StatusPermanentRedirect {
