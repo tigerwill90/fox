@@ -183,7 +183,7 @@ example.com/avengers               no matches
 
 #### Optional Named Wildcards (Catch-all)
 Optional named wildcard start with a plus sign `+` followed by a name `{param}` and match any sequence of characters
-**including empty** strings. Unlike `*{param}`. Optional wildcards can only be used as a suffix.
+**including empty** strings. Unlike `*{param}`, optional wildcards can only be used as a suffix.
 
 ````
 Pattern /src/+{filepath}
