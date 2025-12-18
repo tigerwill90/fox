@@ -1182,7 +1182,7 @@ func TestDomainLookup(t *testing.T) {
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
 			c.route = n.routes[idx]
-			*c.keys = c.route.params
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -1463,7 +1463,7 @@ func TestMatchersLookup(t *testing.T) {
 			assert.Equal(t, tc.wantPattern, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
 			c.route = n.routes[idx]
-			*c.keys = c.route.params
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -1609,7 +1609,7 @@ func TestMatchersLookupWithPriority(t *testing.T) {
 			assert.Equal(t, tc.wantPattern, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantMatcher, n.routes[idx].matchers)
 			c.route = n.routes[idx]
-			*c.keys = c.route.params
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}

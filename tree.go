@@ -54,10 +54,10 @@ func (t *iTree) allocateContext() *Context {
 	keys := make([]string, 0, t.maxParams)
 	stacks := make(skipStack, 0, t.maxDepth)
 	return &Context{
-		params:    &params,
-		tsrParams: &tsrParams,
-		skipStack: &stacks,
-		keys:      &keys,
+		params:     &params,
+		tsrParams:  &tsrParams,
+		skipStack:  &stacks,
+		paramsKeys: &keys,
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree: t,

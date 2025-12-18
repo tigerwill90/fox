@@ -1516,7 +1516,7 @@ func TestOverlappingRoute(t *testing.T) {
 			assert.False(t, c.tsr)
 			assert.Equal(t, tc.wantMatch, n.routes[idx].pattern)
 			c.route = n.routes[idx]
-			*c.keys = c.route.params
+			*c.paramsKeys = c.route.params
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
@@ -2636,7 +2636,7 @@ func TestInfixWildcard(t *testing.T) {
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
 			c.route = n.routes[idx]
-			*c.keys = c.route.params
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -2975,7 +2975,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
 			c.route = n.routes[idx]
-			*c.keys = c.route.params
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}

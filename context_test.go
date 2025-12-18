@@ -156,7 +156,7 @@ func TestContext_Clone(t *testing.T) {
 	c := newTextContextOnly(f, httptest.NewRecorder(), req)
 	c.route = &Route{params: []string{"a"}}
 	*c.params = []string{"a"}
-	*c.keys = c.route.params
+	*c.paramsKeys = c.route.params
 
 	buf := []byte("foo bar")
 	_, err := c.w.Write(buf)
@@ -185,7 +185,7 @@ func TestContext_CloneWith(t *testing.T) {
 	c := newTextContextOnly(f, w, req)
 	c.route = &Route{params: []string{"a"}}
 	*c.params = []string{"a"}
-	*c.keys = c.route.params
+	*c.paramsKeys = c.route.params
 
 	cp := c.CloneWith(c.Writer(), c.Request())
 	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
@@ -463,7 +463,7 @@ func TestWrapF(t *testing.T) {
 			rte, err := f.NewRoute("/{foo}", emptyHandler)
 			require.NoError(t, err)
 			c.route = rte
-			*c.keys = rte.params
+			*c.paramsKeys = rte.params
 
 			params := make(Params, 0)
 			if tc.params != nil {
@@ -532,7 +532,7 @@ func TestWrapH(t *testing.T) {
 			rte, err := f.NewRoute("/{foo}", emptyHandler)
 			require.NoError(t, err)
 			c.route = rte
-			*c.keys = rte.params
+			*c.paramsKeys = rte.params
 
 			params := make(Params, 0)
 			if tc.params != nil {

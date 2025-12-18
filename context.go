@@ -54,13 +54,11 @@ type RequestContext interface {
 
 // Context holds request-related information and allows interaction with the [ResponseWriter].
 type Context struct {
-	w         ResponseWriter
-	req       *http.Request
-	params    *[]string
-	tsrParams *[]string
-	keys      *[]string
-	// TODO use Request.Pattern
-	pattern       string
+	w             ResponseWriter
+	req           *http.Request
+	params        *[]string
+	tsrParams     *[]string
+	paramsKeys    *[]string
 	skipStack     *skipStack
 	route         *Route
 	tree          *iTree  // no reset
@@ -174,14 +172,14 @@ func (c *Context) Params() iter.Seq[Param] {
 	return func(yield func(Param) bool) {
 		if c.tsr {
 			for i, p := range *c.tsrParams {
-				if !yield(Param{Key: (*c.keys)[i], Value: p}) {
+				if !yield(Param{Key: (*c.paramsKeys)[i], Value: p}) {
 					return
 				}
 			}
 			return
 		}
 		for i, p := range *c.params {
-			if !yield(Param{Key: (*c.keys)[i], Value: p}) {
+			if !yield(Param{Key: (*c.paramsKeys)[i], Value: p}) {
 				return
 			}
 		}
@@ -192,7 +190,7 @@ func (c *Context) Params() iter.Seq[Param] {
 func (c *Context) Param(name string) string {
 	if c.tsr {
 		for i := range *c.tsrParams {
-			key := (*c.keys)[i]
+			key := (*c.paramsKeys)[i]
 			if key == name {
 				return (*c.tsrParams)[i]
 			}
@@ -201,7 +199,7 @@ func (c *Context) Param(name string) string {
 	}
 
 	for i := range *c.params {
-		key := (*c.keys)[i]
+		key := (*c.paramsKeys)[i]
 		if key == name {
 			return (*c.params)[i]
 		}
@@ -258,10 +256,7 @@ func (c *Context) Header(key string) string {
 
 // Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
 func (c *Context) Pattern() string {
-	if c.route == nil {
-		return ""
-	}
-	return c.pattern
+	return c.req.Pattern
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
@@ -314,13 +309,12 @@ func (c *Context) Fox() *Router {
 // Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
 func (c *Context) Clone() *Context {
 	cp := Context{
-		rec:     c.rec,
-		req:     c.req.Clone(c.req.Context()),
-		fox:     c.fox,
-		route:   c.route,
-		scope:   c.scope,
-		tsr:     c.tsr,
-		pattern: c.pattern,
+		rec:   c.rec,
+		req:   c.req.Clone(c.req.Context()),
+		fox:   c.fox,
+		route: c.route,
+		scope: c.scope,
+		tsr:   c.tsr,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
@@ -336,9 +330,9 @@ func (c *Context) Clone() *Context {
 		cp.tsrParams = &tsrParams
 	}
 
-	keys := make([]string, len(*c.keys))
-	copy(keys, *c.keys)
-	cp.keys = &keys
+	keys := make([]string, len(*c.paramsKeys))
+	copy(keys, *c.paramsKeys)
+	cp.paramsKeys = &keys
 
 	return &cp
 }
@@ -352,12 +346,11 @@ func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
-	cp.pattern = c.pattern
 	cp.scope = c.scope
 	cp.cachedQueries = nil // In case r is a different request than c.req
 	cp.tsr = c.tsr
 
-	copyWithResize(cp.keys, c.keys)
+	copyWithResize(cp.paramsKeys, c.paramsKeys)
 
 	if !c.tsr {
 		copyWithResize(cp.params, c.params)

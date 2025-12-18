@@ -381,8 +381,8 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	idx, n := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		c.pattern = c.route.pattern
-		*c.keys = c.route.params
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
 		return c.route, c, c.tsr
 	}
 
@@ -390,8 +390,8 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		c.pattern = c.route.pattern
-		*c.keys = c.route.params
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
 		return c.route, c, c.tsr
 	}
 
@@ -510,14 +510,16 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...RouteOption) 
 		tree := r.getTree()
 		subCtx := tree.pool.Get().(*Context)
 		subCtx.resetWithWriter(c.Writer(), c.Request())
-		subCtx.pattern = patternPrefix
+
+		req := subCtx.Request()
+		req.Pattern = patternPrefix
 
 		// Extract the path suffix to be routed by the subrouter. The suffix may be empty,
 		// but there is always at least a catch-all param recorded since we enforce suffix catch-all.
 		suffix := (*c.params)[len(*c.params)-1]
-		last := len(subCtx.pattern) - 1
+		last := len(req.Pattern) - 1
 		if suffix != "" {
-			if subCtx.pattern[last] == '/' {
+			if req.Pattern[last] == '/' {
 				// Mount pattern ends with slash (e.g., /api/*{any}), so suffix lacks the
 				// leading slash (e.g., "users" instead of "/users"). Reslice from the
 				// original path to include it, avoiding allocation from "/" + suffix.
@@ -527,17 +529,16 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...RouteOption) 
 				// Mount pattern has no trailing slash (e.g., /api*{any}), so suffix
 				// already includes the leading slash. Use precomputed patternWithSlash
 				// to avoid allocation from pattern + "/".
-				subCtx.pattern = patternWithSlash
+				req.Pattern = patternWithSlash
 			}
 		}
 
-		// Copy parent params and keys to the subrouter context, excluding the last
+		// Copy parent params and paramsKeys to the subrouter context, excluding the last
 		// entry which is the catch-all wildcard used to mount the subrouter.
 		// Subrouters are never evaluated in lazy lookup mode, so params are always
 		// captured. If parent has no params beyond the catch-all, this is a no-op.
-		// TODO subCtx.params already reset.
-		*subCtx.params = append((*subCtx.params)[:0], (*c.params)[:len(*c.params)-1]...)
-		*subCtx.keys = append((*subCtx.keys)[:0], (*c.keys)[:len(*c.keys)-1]...)
+		*subCtx.params = append(*subCtx.params, (*c.params)[:len(*c.params)-1]...)
+		*subCtx.paramsKeys = append((*subCtx.paramsKeys)[:0], (*c.paramsKeys)[:len(*c.paramsKeys)-1]...)
 
 		// Serve the sub router
 		r.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
@@ -734,8 +735,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	idx, n = tree.lookup(r.Method, r.Host, path, c, false)
 	if !c.tsr && n != nil {
 		c.route = n.routes[idx]
-		c.pattern = c.route.pattern
-		*c.keys = c.route.params
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
 		c.route.hall(c)
 		tree.pool.Put(c)
 		return
@@ -746,8 +747,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
 		if !c.tsr && n != nil {
 			c.route = n.routes[idx]
-			c.pattern = c.route.pattern
-			*c.keys = c.route.params
+			r.Pattern = c.route.pattern
+			*c.paramsKeys = c.route.params
 			c.route.hall(c)
 			tree.pool.Put(c)
 			return
@@ -759,8 +760,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
-				c.pattern = c.route.pattern
-				*c.keys = c.route.params
+				r.Pattern = c.route.pattern
+				*c.paramsKeys = c.route.params
 				route.hall(c)
 				tree.pool.Put(c)
 				return
@@ -781,8 +782,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*c.params = (*c.params)[:0]
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
-				c.pattern = c.route.pattern
-				*c.keys = c.route.params
+				r.Pattern = c.route.pattern
+				*c.paramsKeys = c.route.params
 				c.route.hall(c)
 				tree.pool.Put(c)
 				return
@@ -807,6 +808,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	isOPTIONS := r.Method == http.MethodOptions
 
+	// TODO handle @ANY
 	// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 	// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 	if fox.systemWideOPTIONS && isOPTIONS && path == "*" {
@@ -948,8 +950,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 	idx, n = tree.lookupByPath(r.Method, path, c, false)
 	if !c.tsr && n != nil {
 		c.route = n.routes[idx]
-		*c.keys = append(*c.keys, c.route.params...)
-		c.pattern += c.route.pattern[1:]
+		*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
+		r.Pattern += c.route.pattern[1:]
 		c.route.hall(c)
 		return
 	}
@@ -960,8 +962,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		idx, n = tree.lookupByPath(MethodAny, path, c, false)
 		if !c.tsr && n != nil {
 			c.route = n.routes[idx]
-			*c.keys = append(*c.keys, c.route.params...)
-			c.pattern += c.route.pattern[1:]
+			*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
+			r.Pattern += c.route.pattern[1:]
 			c.route.hall(c)
 			return
 		}
@@ -972,8 +974,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
-				*c.keys = append(*c.keys, route.params...)
-				c.pattern += c.route.pattern[1:]
+				*c.paramsKeys = append(*c.paramsKeys, route.params...)
+				r.Pattern += c.route.pattern[1:]
 				route.hall(c)
 				return
 			}
@@ -992,8 +994,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			*c.params = (*c.params)[:paramsOffset]
 			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
-				*c.keys = append(*c.keys, c.route.params...)
-				c.pattern += c.route.pattern[1:]
+				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
+				r.Pattern += c.route.pattern[1:]
 				c.route.hall(c)
 				return
 			}
@@ -1002,7 +1004,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		if fox.handlePath == RedirectPath {
 			*c.params = (*c.params)[:paramsOffset] // TODO do we need that, since lazy, do it bellow
 			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				// *c.keys = (*c.keys)[:0] // TODO don't really need a reset here
+				// *c.paramsKeys = (*c.paramsKeys)[:0] // TODO don't really need a reset here
 				c.tsr = false
 				c.route = nil
 				c.scope = RedirectPathHandler

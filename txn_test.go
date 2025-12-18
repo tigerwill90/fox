@@ -765,7 +765,7 @@ func TestX(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/foo/bar", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/boulou", nil)
 	req.Host = "foo.bar.com"
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)

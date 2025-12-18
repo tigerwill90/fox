@@ -337,8 +337,8 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Con
 	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		c.pattern = c.route.pattern
-		*c.keys = c.route.params
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
 		return c.route, c, c.tsr
 	}
 
@@ -346,8 +346,8 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Con
 	idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		c.pattern = c.route.pattern
-		*c.keys = c.route.params
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
 		return c.route, c, c.tsr
 	}
 
