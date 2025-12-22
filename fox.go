@@ -419,7 +419,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		hostSplit:   parsed.endHost, // 0 if no host
 		priority:    0,
 		tokens:      parsed.token,
-		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == '+',
+		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == plusDelim,
 	}
 
 	rte.params = make([]string, 0, parsed.paramCnt)
@@ -451,8 +451,7 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 // NewSubRouter creates a new [Route] that mounts the provided [Router] at the given pattern.
 // The pattern must end with a catch-all wildcard (e.g., /api/*{path} or /api/+{path}).
 // The returned route can be used like any other route created with [Router.NewRoute].
-// The mounted router can be retrieved using [Route.SubRouter]. Note that requests pass through route middleware
-// before being dispatched to the mounted router.
+// The mounted router can be retrieved using [Route.SubRouter].
 // If an error occurs, it returns one of the following:
 //   - [ErrInvalidRoute]: If the provided pattern is invalid or does not end with a catch-all wildcard.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
@@ -514,7 +513,7 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...RouteOption) 
 		req := subCtx.Request()
 		req.Pattern = patternPrefix
 
-		// Extract the path suffix to be routed by the subrouter. The suffix may be empty,
+		// Extract the path suffix to be routed by the subrouter. The suffix value may be empty,
 		// but there is always at least a catch-all param recorded since we enforce suffix catch-all.
 		suffix := (*c.params)[len(*c.params)-1]
 		last := len(req.Pattern) - 1
@@ -1559,7 +1558,7 @@ func applyRouteMiddleware(mws []middleware, base HandlerFunc) (HandlerFunc, Hand
 
 type noClientIPResolver struct{}
 
-func (s noClientIPResolver) ClientIP(c RequestContext) (*net.IPAddr, error) {
+func (s noClientIPResolver) ClientIP(_ RequestContext) (*net.IPAddr, error) {
 	return nil, ErrNoClientIPResolver
 }
 

@@ -780,3 +780,14 @@ func TestX(t *testing.T) {
 	// => /api/users => '/users', expected pattern /api/users
 
 }
+
+func TestY(t *testing.T) {
+	f := MustNew(WithHandleTrailingSlash(RelaxedSlash))
+	f.MustHandle(http.MethodGet, "/foo/+{any}", func(c *Context) {
+		fmt.Println(c.Pattern())
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+}

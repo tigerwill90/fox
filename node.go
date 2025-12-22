@@ -320,9 +320,9 @@ Walk:
 					continue
 				}
 
-				if !c.tsr && child.isLeaf() && strings.HasPrefix(child.key, search) {
-					remaining := child.key[len(search):]
-					if remaining == "/" {
+				// Child key is /foo/, we can fully match /foo prefix and the remaining is exactly "/".
+				if !c.tsr && strings.HasPrefix(child.key, search) && child.key[len(search):] == "/" {
+					if child.isLeaf() {
 						for i, route := range child.routes {
 							if route.match(c) {
 								c.tsr = true
@@ -332,6 +332,22 @@ Walk:
 									copyWithResize(c.tsrParams, c.params)
 								}
 								break
+							}
+						}
+					} else {
+						// Since /foo/ and /foo/+{any} conflict on registration, we don't search for match empty catch-all
+						// if the child is a leaf.
+						for _, wildcardNode := range child.wildcards {
+							for i, route := range wildcardNode.routes {
+								if route.catchEmpty && route.match(c) {
+									c.tsr = true
+									n = wildcardNode
+									index = i //nolint:staticcheck
+									if !lazy {
+										copyWithResize(c.tsrParams, c.params)
+									}
+									break
+								}
 							}
 						}
 					}
