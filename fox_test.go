@@ -2063,11 +2063,12 @@ func TestParseRoute(t *testing.T) {
 	}
 
 	cases := []struct {
-		wantErr    error
-		name       string
-		path       string
-		wantN      int
-		wantTokens []token
+		wantErr           error
+		name              string
+		path              string
+		wantN             int
+		wantTokens        []token
+		wantStartCatchAll int
 	}{
 		{
 			name:       "valid static route",
@@ -2100,6 +2101,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/foo/bar/", false),
 				wildcardToken("arg", ""),
 			)),
+			wantStartCatchAll: 9,
 		},
 		{
 			name:  "valid param route",
@@ -2144,6 +2146,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("arg", ""),
 			)),
+			wantStartCatchAll: 17,
 		},
 		{
 			name:  "valid inflight param",
@@ -2162,6 +2165,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/foo/xyz:", false),
 				wildcardToken("bar", ""),
 			)),
+			wantStartCatchAll: 9,
 		},
 		{
 			name:  "valid multi inflight param and catch all",
@@ -2175,6 +2179,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("arg", ""),
 			)),
+			wantStartCatchAll: 25,
 		},
 		{
 			name:  "catch all with arg in the middle of the route",
@@ -2440,6 +2445,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("any", ""),
 			)),
+			wantStartCatchAll: 8,
 		},
 		{
 			name:    "illegal control character in path",
@@ -2865,7 +2871,8 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/foo/", false),
 				wildcardToken("bar", "[A-z]+"),
 			)),
-			wantN: 1,
+			wantN:             1,
+			wantStartCatchAll: 5,
 		},
 		{
 			name: "simple infix param with regexp",
@@ -2897,7 +2904,8 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/a", false),
 				wildcardToken("baz", "[0-9]+"),
 			)),
-			wantN: 2,
+			wantN:             2,
+			wantStartCatchAll: 20,
 		},
 		{
 			name: "consecutive infix regexp wildcard and regexp param allowed",
@@ -2978,7 +2986,19 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("bar", ""),
 			)),
-			wantN: 2,
+			wantN:             2,
+			wantStartCatchAll: 7,
+		},
+		{
+			name: "consecutive wildcard with empty catch all from hostname to path",
+			path: "*{foo}/+{bar}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("foo", ""),
+				staticToken("/", false),
+				wildcardToken("bar", ""),
+			)),
+			wantN:             2,
+			wantStartCatchAll: 7,
 		},
 		{
 			name: "param then wildcard regexp",
@@ -3003,8 +3023,28 @@ func TestParseRoute(t *testing.T) {
 			wantN: 2,
 		},
 		{
+			name: "catch all empty as suffix",
+			path: "/foo/+{any}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("any", ""),
+			)),
+			wantN:             1,
+			wantStartCatchAll: 5,
+		},
+		{
 			name:    "consecutive infix wildcard at start with regexp not allowed",
 			path:    "/*{foo:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive wildcard with catch all empty not allowed",
+			path:    "/*{foo}/+{baz}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with catch all empty at start with regexp not allowed",
+			path:    "/*{foo:[A-z]+}/+{baz:[0-9]+}",
 			wantErr: ErrInvalidRoute,
 		},
 		{
@@ -3147,6 +3187,21 @@ func TestParseRoute(t *testing.T) {
 			path:    "/foo/*:bar}",
 			wantErr: ErrInvalidRoute,
 		},
+		{
+			name:    "no infix catch all empty",
+			path:    "/foo/+{any}/bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "no infix inflight catch all empty",
+			path:    "/foo/uuid_+{any}/bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "no suffix catch all empty in hostname",
+			path:    "a.b.+{any}/",
+			wantErr: ErrInvalidRoute,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3154,6 +3209,7 @@ func TestParseRoute(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.wantN, parsed.paramCnt)
 			assert.Equal(t, tc.wantTokens, parsed.token)
+			assert.Equal(t, tc.wantStartCatchAll, parsed.startCatchAll)
 			if err == nil {
 				assert.Equal(t, strings.IndexByte(tc.path, '/'), parsed.endHost)
 			}
