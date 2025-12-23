@@ -34,10 +34,10 @@ var (
 type RouteConflictError struct {
 	// New is the route that was being registered when the conflict was detected.
 	New *Route
-	// Conflicts contains the previously registered routes that conflict with New.
-	Conflicts []*Route
 	// Method is the HTTP method for which the conflict occurred.
 	Method string
+	// Conflicts contains the previously registered routes that conflict with New.
+	Conflicts []*Route
 }
 
 func (e *RouteConflictError) Error() string {
@@ -52,26 +52,10 @@ func (e *RouteConflictError) Error() string {
 	first := e.Conflicts[0].pattern
 	sb.WriteString(first)
 	for _, route := range e.Conflicts[1:] {
-		sb.WriteString(";")
+		sb.WriteString("; ")
 		sb.WriteString(route.pattern)
 	}
 
-	return sb.String()
-}
-
-func (e *RouteConflictError) conflict() string {
-	// A RouteConflictError as always at least one conflicting route.
-	first := e.Conflicts[0].pattern
-	if len(e.Conflicts) == 1 {
-		return first
-	}
-
-	var sb strings.Builder
-	sb.WriteString(first)
-	for _, route := range e.Conflicts[1:] {
-		sb.WriteString(";")
-		sb.WriteString(route.pattern)
-	}
 	return sb.String()
 }
 

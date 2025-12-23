@@ -427,6 +427,7 @@ func TestRouteWithParams(t *testing.T) {
 		"/doc/go1.html",
 		"/info/{user}/public",
 		"/info/{user}/project/{project}",
+		"/info/{user}/filepath/+{any}",
 	}
 	for _, rte := range routes {
 		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))

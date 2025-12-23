@@ -3949,6 +3949,36 @@ func TestRouterWithTsrParams(t *testing.T) {
 			wantPath:   "/foo",
 			wantTsr:    true,
 		},
+		{
+			name:   "tsr with empty catch all",
+			routes: []string{"/a/foo/+{any}", "/{a}/foo/y", "/{a}/foo/b"},
+			target: "/a/foo",
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "",
+				},
+			},
+			wantPath: "/a/foo/+{any}",
+			wantTsr:  true,
+		},
+		{
+			name:   "tsr with empty catch all and param before",
+			routes: []string{"/{a}/foo/+{any}", "/{a}/foo/y", "/{a}/foo/b"},
+			target: "/a/foo",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "any",
+					Value: "",
+				},
+			},
+			wantPath: "/{a}/foo/+{any}",
+			wantTsr:  true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -4399,6 +4429,10 @@ func TestTree_Has(t *testing.T) {
 		"/users/uid_{id:[A-z]+}",
 		"/users/uid_{id:[A-z]+}/ch",
 		"/john/doe/",
+		"/foo/+{name}",
+		"/foo/+{name:[A-z]+}",
+		"/foo/uid_+{id}",
+		"/foo/uid_+{id:[A-z]+}",
 	}
 
 	f, _ := New(AllowRegexpParam(true))
@@ -4846,7 +4880,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 				assert.Nil(t, rte, "route /%s", rte)
 				continue
 			}
-			assert.NotNilf(t, rte, "route /%s", rte)
+			assert.NotNilf(t, rte, "route /%v", rte)
 			inserted++
 		}
 		return nil
@@ -5208,64 +5242,6 @@ func ExampleWithMiddleware() {
 	}
 
 	f, _ := New(WithMiddleware(metrics))
-
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
-		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))
-	})
-}
-
-// This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
-// lookup on the tree. If the cleaned path matches a registered route, the client is redirected to the valid path.
-func ExampleRouter_Lookup() {
-	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c *Context) {
-			req := c.Request()
-			target := req.URL.Path
-			cleanedPath := CleanPath(target)
-
-			// Nothing to clean, call next handler.
-			if cleanedPath == target {
-				next(c)
-				return
-			}
-
-			req.URL.Path = cleanedPath
-			route, cc, tsr := c.Fox().Lookup(c.Writer(), req)
-			if route != nil {
-				defer cc.Close()
-
-				code := http.StatusMovedPermanently
-				if req.Method != http.MethodGet {
-					code = http.StatusPermanentRedirect
-				}
-
-				// Redirect the client if direct match or indirect match.
-				if !tsr || route.TrailingSlashOption() == RelaxedSlash {
-					if err := c.Redirect(code, cleanedPath); err != nil {
-						// Only if not in the range 300..308, so not possible here!
-						panic(err)
-					}
-					return
-				}
-
-				if err := c.Redirect(code, cleanedPath); err != nil {
-					// Only if not in the range 300..308, so not possible here
-					panic(err)
-				}
-				return
-			}
-
-			// rollback to the original path before calling the
-			// next handler or middleware.
-			req.URL.Path = target
-			next(c)
-		}
-	})
-
-	f, _ := New(
-		// Register the middleware for the NoRouteHandler scope.
-		WithMiddlewareFor(NoRouteHandler|NoMethodHandler, redirectFixedPath),
-	)
 
 	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
 		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))

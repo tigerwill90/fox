@@ -290,16 +290,6 @@ func (c *Context) Stream(code int, contentType string, r io.Reader) (err error) 
 	return
 }
 
-// TODO superflus, delete me
-// Redirect sends an HTTP redirect response with the given status code and URL.
-func (c *Context) Redirect(code int, url string) error {
-	if code < http.StatusMultipleChoices || code > http.StatusPermanentRedirect {
-		return ErrInvalidRedirectCode
-	}
-	http.Redirect(c.w, c.req, url, code)
-	return nil
-}
-
 // Fox returns the [Router] instance.
 func (c *Context) Fox() *Router {
 	return c.fox

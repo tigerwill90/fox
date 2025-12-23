@@ -344,7 +344,9 @@ Walk:
 									n = wildcardNode
 									index = i //nolint:staticcheck
 									if !lazy {
-										copyWithResize(c.tsrParams, c.params)
+										*c.tsrParams = (*c.tsrParams)[:0]
+										*c.tsrParams = append(*c.tsrParams, *c.params...)
+										*c.tsrParams = append(*c.tsrParams, "")
 									}
 									break
 								}
@@ -537,7 +539,7 @@ Walk:
 		for i, route := range wildcardNode.routes {
 			if route.catchEmpty && route.match(c) {
 				if !lazy {
-					*c.params = append(*c.params, search) // Not that search here is always empty
+					*c.params = append(*c.params, "")
 				}
 				c.tsr = false
 				return i, wildcardNode

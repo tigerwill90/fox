@@ -201,16 +201,6 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 }
 
-func TestContext_Redirect(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	c := NewTestContextOnly(w, r)
-	require.NoError(t, c.Redirect(http.StatusTemporaryRedirect, "https://example.com/foo/bar"))
-	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
-	assert.Equal(t, "https://example.com/foo/bar", w.Header().Get(HeaderLocation))
-}
-
 func TestContext_Blob(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()

@@ -2,7 +2,6 @@ package fox
 
 import (
 	"errors"
-	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -744,50 +743,4 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 		}
 		return nil
 	}))
-}
-
-func TestX(t *testing.T) {
-	f, _ := New(DevelopmentOptions())
-
-	sub1, _ := New()
-	sub1.MustHandle(http.MethodGet, "/", func(c *Context) {
-		fmt.Println(slices.Collect(c.Params()), c.Pattern())
-	})
-	sub1.MustHandle(http.MethodGet, "/{name}", func(c *Context) {
-		fmt.Println(slices.Collect(c.Params()), c.Pattern())
-	})
-
-	route, err := f.NewSubRouter("foo.{bar}.com/api+{any}", sub1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.HandleRoute(MethodAny, route); err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/boulou", nil)
-	req.Host = "foo.bar.com"
-	w := httptest.NewRecorder()
-	f.ServeHTTP(w, req)
-
-	// pattern = /api/*
-	// => /api/ => vide, expected pattern /api/
-	// => /api/users => 'users', expected pattern /api/users
-
-	// pattern = /api*
-	// => /api => vide, expected pattern /api
-	// => /api/ => '/', expected pattern /api/
-	// => /api/users => '/users', expected pattern /api/users
-
-}
-
-func TestY(t *testing.T) {
-	f := MustNew(WithHandleTrailingSlash(RelaxedSlash))
-	f.MustHandle(http.MethodGet, "/foo/+{any}", func(c *Context) {
-		fmt.Println(c.Pattern())
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
-	w := httptest.NewRecorder()
-	f.ServeHTTP(w, req)
 }
