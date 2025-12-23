@@ -779,7 +779,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if fox.handlePath == RelaxedPath {
+		switch fox.handlePath {
+		case RelaxedPath:
 			*c.params = (*c.params)[:0]
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
@@ -789,7 +790,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
-		} else if fox.handlePath == RedirectPath {
+		case RedirectPath:
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
 				c.tsr = false
@@ -799,6 +800,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
+		default:
 		}
 	}
 
@@ -988,7 +990,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			}
 		}
 
-		if fox.handlePath == RelaxedPath {
+		switch fox.handlePath {
+		case RelaxedPath:
 			*c.params = (*c.params)[:paramsOffset]
 			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
@@ -997,9 +1000,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 				c.route.hall(c)
 				return
 			}
-		}
-
-		if fox.handlePath == RedirectPath {
+		case RedirectPath:
 			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
 				c.tsr = false
@@ -1008,6 +1009,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 				fox.pathRedirect(c)
 				return
 			}
+		default:
 		}
 	}
 
