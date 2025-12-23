@@ -415,16 +415,31 @@ func WrapH(h http.Handler) HandlerFunc {
 }
 
 // WrapM is an adapter for wrapping http.Handler middleware and returns a [MiddlewareFunc] function.
+// The route parameters are being accessed by the wrapped handler through the context.
 func WrapM(m func(http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return func(c *Context) {
-			m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				rec := new(recorder)
-				rec.reset(w)
-				cc := c.CloneWith(rec, r)
-				defer cc.Close()
-				next(cc)
-			})).ServeHTTP(c.Writer(), c.Request())
-		}
+		return middlewareWrapper{next: next, m: m}.handle
 	}
+}
+
+type middlewareWrapper struct {
+	next HandlerFunc
+	m    func(http.Handler) http.Handler
+}
+
+func (mw middlewareWrapper) handle(c *Context) {
+	req := c.Request()
+	if route := c.Route(); route != nil && route.ParamsLen() > 0 {
+		params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
+		ctx := context.WithValue(c.Request().Context(), paramsKey, params)
+		req = req.WithContext(ctx)
+	}
+
+	mw.m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := new(recorder)
+		rec.reset(w)
+		cc := c.CloneWith(rec, r)
+		defer cc.Close()
+		mw.next(cc)
+	})).ServeHTTP(c.Writer(), req)
 }

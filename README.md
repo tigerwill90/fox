@@ -63,9 +63,9 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
   * [Managed read-write transaction](#managed-read-write-transaction)
   * [Unmanaged read-write transaction](#unmanaged-read-write-transaction)
   * [Managed read-only transaction](#managed-read-only-transaction)
-* [Working with http.Handler](#working-with-httphandler)
 * [Middleware](#middleware)
   * [Official middlewares](#official-middlewares)
+* [Working with http.Handler](#working-with-httphandler)
 * [Handling OPTIONS Requests and CORS Automatically](#handling-options-requests-and-cors-automatically)
 * [Resolving Client IP](#resolving-client-ip)
 * [Benchmark](#benchmark)
@@ -489,25 +489,6 @@ _ = f.View(func(txn *fox.Txn) error {
 })
 ````
 
-## Working with http.Handler
-Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
-provides convenient `fox.WrapF` and `fox.WrapH` adapter to be use with `http.Handler`.
-
-The route parameters can be accessed by the wrapped handler through the `context.Context` when the adapters `fox.WrapF` and `fox.WrapH` are used.
-
-Wrapping an `http.Handler`
-```go
-articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    params := fox.ParamsFromContext(r.Context())
-    // Article id: 80
-    // Matched route: /articles/{id}
-    _, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
-})
-
-f := fox.MustNew(fox.DefaultOptions())
-f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(articles))
-```
-
 ## Middleware
 Middlewares can be registered globally using the `fox.WithMiddleware` option. The example below demonstrates how 
 to create and apply automatically a simple logging middleware to all routes (including 404, 405, etc...).
@@ -575,6 +556,38 @@ f.MustHandle("GET", "/foo", SomeOtherHandler)
 * [tigerwill90/foxtimeout](https://github.com/tigerwill90/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
 * [tigerwill90/foxwaf](https://github.com/tigerwill90/foxwaf): Coraza WAF middleware (experimental).
 * [tigerwill90/foxgeoip](https://github.com/tigerwill90/foxgeoip): Block requests using GeoIP data based on client IP (experimental).
+
+## Working with http.Handler
+Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
+provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use with `http.Handler`.
+
+The route parameters can be accessed by the wrapped handler through the request `context.Context` when the adapters are used.
+
+Wrapping an `http.Handler`
+```go
+articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    params := fox.ParamsFromContext(r.Context())
+    // Article id: 80
+    // Matched route: /articles/{id}
+    _, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
+})
+
+f := fox.MustNew(fox.DefaultOptions())
+f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(articles))
+```
+
+Wrapping any standard `http.Hanlder` middleware
+```go
+corsMw, _ := cors.NewMiddleware(cors.Config{
+	Origins:        []string{"https://example.com"},
+	Methods:        []string{http.MethodGet, http.MethodPost, http.MethodPut},
+	RequestHeaders: []string{"Authorization"},
+})
+
+f := fox.MustNew(
+	fox.WithMiddlewareFor(fox.RouteHandler|fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
+)
+```
 
 ## Handling OPTIONS Requests and CORS Automatically
 The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 

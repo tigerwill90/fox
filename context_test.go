@@ -587,3 +587,25 @@ func BenchmarkWrapF(b *testing.B) {
 	}
 
 }
+
+func BenchmarkWrapM(b *testing.B) {
+
+	m := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(w, r)
+		})
+	}
+
+	f := MustNew(WithMiddleware(WrapM(m)))
+	f.MustHandle(http.MethodGet, "/{a}/{b}/c", func(c *Context) {
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/a/b/c", nil)
+	w := httptest.NewRecorder()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for range b.N {
+		f.ServeHTTP(w, req)
+	}
+}
