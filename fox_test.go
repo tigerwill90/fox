@@ -1952,7 +1952,7 @@ func TestUpdateConflict(t *testing.T) {
 }
 
 func TestInvalidRoute(t *testing.T) {
-	f, _ := New()
+	f := MustNew()
 	// Invalid route on insert
 	assert.ErrorIs(t, onlyError(f.Handle("G\x00ET", "/foo", emptyHandler)), ErrInvalidRoute)
 	assert.ErrorIs(t, onlyError(f.Handle("", "/foo", emptyHandler)), ErrInvalidRoute)
@@ -2030,7 +2030,7 @@ func TestUpdateRoute(t *testing.T) {
 }
 
 func TestParseRoute(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
+	f := MustNew(AllowRegexpParam(true))
 
 	staticToken := func(v string, hsplit bool) token {
 		return token{

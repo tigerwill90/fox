@@ -134,6 +134,8 @@ type middleware struct {
 
 var _ http.Handler = (*Router)(nil)
 
+// MustNew returns a ready to use instance of Fox router.
+// This function is a convenience wrapper for [New] and panics on error.
 func MustNew(opts ...GlobalOption) *Router {
 	f, err := New(opts...)
 	if err != nil {
@@ -347,7 +349,7 @@ func (fox *Router) Name(method, name string) *Route {
 	return matched.routes[0]
 }
 
-// Match perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
+// Match perform a reverse lookup for the given method and [http.Request]. It returns the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is safe for concurrent use by multiple goroutine and while
 // mutation on routes are ongoing. See also [Router.Lookup] as an alternative.
