@@ -789,11 +789,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
-		}
-
-		if fox.handlePath == RedirectPath {
-			*c.params = (*c.params)[:0]
+		} else if fox.handlePath == RedirectPath {
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+				*c.params = (*c.params)[:0]
 				c.tsr = false
 				c.route = nil
 				c.scope = RedirectPathHandler
@@ -1002,9 +1000,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		}
 
 		if fox.handlePath == RedirectPath {
-			*c.params = (*c.params)[:paramsOffset] // TODO do we need that, since lazy, do it bellow
 			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				// *c.paramsKeys = (*c.paramsKeys)[:0] // TODO don't really need a reset here
+				*c.params = (*c.params)[:0]
 				c.tsr = false
 				c.route = nil
 				c.scope = RedirectPathHandler
@@ -1019,40 +1016,6 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 	isOPTIONS := r.Method == http.MethodOptions
 
-	// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
-	// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
-	if fox.systemWideOPTIONS && isOPTIONS && path == "*" {
-		var sb strings.Builder
-		sb.Grow(150)
-
-		_, hasOPTIONS := tree.patterns[http.MethodOptions]
-		mayHandleOPTIONS := fox.handleOPTIONS && len(tree.patterns) > 0
-
-		for method := range tree.patterns {
-			if method == http.MethodOptions {
-				continue
-			}
-			if sb.Len() > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(method)
-		}
-
-		// Include OPTIONS in Allow only if explicitly registered or if auto-OPTIONS is enabled
-		// with at least one route. A server responding solely to OPTIONS * doesn't meaningfully
-		// "support" OPTIONS for resource access.
-		if hasOPTIONS || mayHandleOPTIONS {
-			sb.WriteString(", ")
-			sb.WriteString(http.MethodOptions)
-		}
-
-		if sb.Len() > 0 {
-			w.Header().Set(HeaderAllow, sb.String())
-		}
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
 	if fox.handleOPTIONS && isOPTIONS {
 		// A CORS request is an HTTP request that includes an `Origin` header: https://fetch.spec.whatwg.org/#cors-request
 		// A CORS preflight request contains at most one ACRM header: https://fetch.spec.whatwg.org/#cors-preflight-fetch
@@ -1063,7 +1026,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			sb.Grow(150)
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.patterns {
-				if idx, n := tree.lookup(method, "", path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
@@ -1086,7 +1049,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			// preflight's purpose, and building it would require a full lookup across all registered methods.
 			// The fast-path is to lookup directly for the ACRM, since in most case a preflight request should target an existing resource,
 			// which avoid unnecessary lookup on method which does have a matching route registered.
-			if idx, n := tree.lookup(acrm, "", path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n := tree.lookupByPath(acrm, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.scope = OptionsHandler
 				c.tsr = false
 				fox.autoOPTIONS(c)
@@ -1098,7 +1061,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 				if method == acrm {
 					continue
 				}
-				if idx, n := tree.lookup(method, "", path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					c.scope = OptionsHandler
 					c.tsr = false
 					fox.autoOPTIONS(c)
@@ -1113,7 +1076,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		hasOptions := false
 		for method := range tree.patterns {
 			if method != r.Method {
-				if idx, n := tree.lookup(method, "", path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
 					}
