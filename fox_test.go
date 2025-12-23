@@ -1075,9 +1075,24 @@ func TestParamsRoute(t *testing.T) {
 	}
 	for _, route := range githubAPI {
 		require.NoError(t, onlyError(r.Handle(route.method, route.path, h)))
+		if route.method == http.MethodGet {
+			require.NoError(t, onlyError(r.Handle(MethodAny, route.path, h)))
+		}
+
 	}
 	for _, route := range githubAPI {
 		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+
+	for _, route := range githubAPI {
+		if route.method != http.MethodGet {
+			continue
+		}
+		req := httptest.NewRequest("PURGE", route.path, nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -1107,6 +1122,9 @@ func TestParamsHostnameRoute(t *testing.T) {
 	}
 	for _, route := range wildcardHostnames {
 		require.NoError(t, onlyError(r.Handle(route.method, route.path+"/foo", h)))
+		if route.method == http.MethodGet {
+			require.NoError(t, onlyError(r.Handle(MethodAny, route.path+"/foo", h)))
+		}
 	}
 	t.Run("same case", func(t *testing.T) {
 		for _, route := range wildcardHostnames {
@@ -1120,9 +1138,40 @@ func TestParamsHostnameRoute(t *testing.T) {
 		}
 	})
 
+	t.Run("same case with any method", func(t *testing.T) {
+		for _, route := range wildcardHostnames {
+			if route.method != http.MethodGet {
+				continue
+			}
+			req, err := http.NewRequest("PURGE", "/foo", nil)
+			require.NoError(t, err)
+			req.Host = route.path
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
 	t.Run("case insensitive", func(t *testing.T) {
 		for _, route := range wildcardHostnames {
 			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = strings.ToUpper(route.path)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	t.Run("case insensitive with any method", func(t *testing.T) {
+		for _, route := range wildcardHostnames {
+			if route.method != http.MethodGet {
+				continue
+			}
+
+			req, err := http.NewRequest("PURGE", "/foo", nil)
 			require.NoError(t, err)
 			req.Host = strings.ToUpper(route.path)
 			w := httptest.NewRecorder()

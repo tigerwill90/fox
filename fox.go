@@ -807,7 +807,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	isOPTIONS := r.Method == http.MethodOptions
 
-	// TODO handle @ANY
 	// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 	// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 	if fox.systemWideOPTIONS && isOPTIONS && path == "*" {
@@ -818,7 +817,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mayHandleOPTIONS := fox.handleOPTIONS && len(tree.patterns) > 0
 
 		for method := range tree.patterns {
-			if method == http.MethodOptions {
+			if method == http.MethodOptions || method == MethodAny {
 				continue
 			}
 			if sb.Len() > 0 {
