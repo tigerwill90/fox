@@ -1339,6 +1339,79 @@ func TestHandleRoute(t *testing.T) {
 	})
 }
 
+func TestHandleSubRouter(t *testing.T) {
+	f := MustNew()
+
+	t.Run("panic when mounting itself", func(t *testing.T) {
+		assert.Panics(t, func() {
+			_, _ = f.NewSubRouter("/foo/+{any}", f)
+		})
+	})
+
+	t.Run("not a catch all", func(t *testing.T) {
+		sub := MustNew()
+		_, err := f.NewSubRouter("/foo", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+
+		_, err = f.NewSubRouter("/foo/", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+
+		_, err = f.NewSubRouter("/foo{ps}", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+
+		_, err = f.NewSubRouter("/foo/{ps}", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+	})
+
+	t.Run("route with slash", func(t *testing.T) {
+		sub := MustNew()
+		sub.MustHandle(http.MethodGet, "/", patternHandler)
+		sub.MustHandle(http.MethodGet, "/users", patternHandler)
+		route, err := f.NewSubRouter("/v1/api/+{sub}", sub)
+		require.NoError(t, err)
+		assert.NoError(t, f.HandleRoute(http.MethodGet, route))
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/api", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+
+		req = httptest.NewRequest(http.MethodGet, "/v1/api/", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v1/api/", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/v1/api/users", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v1/api/users", w.Body.String())
+	})
+
+	t.Run("route with and without slash when inflight", func(t *testing.T) {
+		sub := MustNew()
+		sub.MustHandle(http.MethodGet, "/", patternHandler)
+		sub.MustHandle(http.MethodGet, "/users", patternHandler)
+		route, err := f.NewSubRouter("/v2/api+{sub}", sub)
+		require.NoError(t, err)
+		assert.NoError(t, f.HandleRoute(http.MethodGet, route))
+
+		req := httptest.NewRequest(http.MethodGet, "/v2/api", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v2/api", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/v2/api/", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v2/api/", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/v2/api/users", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v2/api/users", w.Body.String())
+	})
+}
+
 func TestParamsRouteWithDomainMalloc(t *testing.T) {
 	r, _ := New()
 	for _, route := range githubAPI {
