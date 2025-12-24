@@ -151,25 +151,8 @@ func bufApp(buf *[]byte, s string, w int, c byte) {
 
 // escapeLeadingSlashes prevents open redirect vulnerabilities, in the context of trailing slash redirect, by URL-encoding
 // problematic character sequences at the start of URLs.
-//
-// Fox uses URL.RawPath when available, bypassing standard URL decoding.
-// This makes typical encoded payloads like /%2Fevil.com/ ineffective,
-// limiting the primary attack vector to literal "//" sequences.
-//
-// Backslash handling is client-dependent: Go's HTTP server doesn't normalize
-// backslashes, but browsers typically treat them as forward slashes, making
-// "/\", "\/", and "\\" functionally equivalent to "//". Other HTTP clients
-// may handle these differently.
-//
-// Since request URLs can be rewritten upstream, this function defensively
-// handles all known bypass patterns for comprehensive protection.
 func escapeLeadingSlashes(uri string) string {
-	// Don't escape two character sequence, as it cannot lead to open redirect
-	if len(uri) == 2 {
-		return uri
-	}
-
-	if len(uri) > 1 && (uri[0] == '\\' || uri[0] == '/') {
+	if len(uri) > 2 && (uri[0] == '\\' || uri[0] == '/') {
 		if uri[1] == '/' {
 			return uri[0:1] + "%2F" + uri[2:]
 		}
