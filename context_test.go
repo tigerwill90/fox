@@ -547,13 +547,19 @@ func TestWrapM(t *testing.T) {
 		http.ResponseWriter
 	}
 
-	mw := func(h http.Handler) http.Handler {
+	mw1 := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(w, r)
+		})
+	}
+
+	mw2 := func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h.ServeHTTP(&writer{w}, r)
 		})
 	}
 
-	f, _ := New(WithMiddleware(WrapM(mw)))
+	f, _ := New(WithMiddleware(WrapM(mw1), WrapM(mw2)))
 	f.MustHandle(http.MethodGet, "/foo", func(c *Context) {
 		w := c.Writer()
 		inner := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
@@ -597,7 +603,7 @@ func BenchmarkWrapM(b *testing.B) {
 	}
 
 	f := MustNew(WithMiddleware(WrapM(m)))
-	f.MustHandle(http.MethodGet, "/{a}/{b}/c", func(c *Context) {
+	f.MustHandle(http.MethodGet, "/a/b/c", func(c *Context) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/a/b/c", nil)

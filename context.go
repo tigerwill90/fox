@@ -436,8 +436,12 @@ func (mw middlewareWrapper) handle(c *Context) {
 	}
 
 	mw.m(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec := new(recorder)
-		rec.reset(w)
+		// Avoid allocation if w has not been wrapped by m.
+		rec, ok := w.(*recorder)
+		if !ok {
+			rec = new(recorder)
+			rec.reset(w)
+		}
 		cc := c.CloneWith(rec, r)
 		defer cc.Close()
 		mw.next(cc)
