@@ -4161,7 +4161,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
+			f := MustNew(WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c *Context) {
 					assert.Equal(t, tc.wantPath, c.Pattern())
@@ -4174,9 +4174,22 @@ func TestRouterWithTsrParams(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusOK, w.Code)
+
+			f = MustNew(WithHandleTrailingSlash(RelaxedSlash))
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(f.Handle(MethodAny, rte, func(c *Context) {
+					assert.Equal(t, tc.wantPath, c.Pattern())
+					var params Params = slices.Collect(c.Params())
+					assert.Equal(t, tc.wantParams, params)
+					assert.Equal(t, tc.wantTsr, c.tsr)
+				})))
+			}
+			req = httptest.NewRequest(http.MethodGet, tc.target, nil)
+			w = httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
 		})
 	}
-
 }
 
 func TestTree_Delete(t *testing.T) {
