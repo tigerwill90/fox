@@ -790,8 +790,26 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				tree.pool.Put(c)
 				return
 			}
+			*c.params = (*c.params)[:0]
+			if idx, n := tree.lookup(MethodAny, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				c.route = n.routes[idx]
+				r.Pattern = c.route.pattern
+				*c.paramsKeys = c.route.params
+				c.route.hall(c)
+				tree.pool.Put(c)
+				return
+			}
 		case RedirectPath:
 			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+				*c.params = (*c.params)[:0]
+				c.tsr = false
+				c.route = nil
+				c.scope = RedirectPathHandler
+				fox.pathRedirect(c)
+				tree.pool.Put(c)
+				return
+			}
+			if idx, n := tree.lookup(MethodAny, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
 				c.tsr = false
 				c.route = nil
@@ -854,6 +872,9 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sb.Grow(150)
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.patterns {
+				if method == MethodAny {
+					continue
+				}
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
@@ -888,7 +909,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			// Else we search for a matching route for any method, but unlike regular OPTIONS, we stop at the first match.
 			for method := range tree.patterns {
-				if method == acrm {
+				if method == acrm || method == MethodAny {
 					continue
 				}
 				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
@@ -1000,8 +1021,24 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 				c.route.hall(c)
 				return
 			}
+			*c.params = (*c.params)[:paramsOffset]
+			if idx, n := tree.lookupByPath(MethodAny, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				c.route = n.routes[idx]
+				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
+				r.Pattern += c.route.pattern[1:]
+				c.route.hall(c)
+				return
+			}
 		case RedirectPath:
 			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+				*c.params = (*c.params)[:0]
+				c.tsr = false
+				c.route = nil
+				c.scope = RedirectPathHandler
+				fox.pathRedirect(c)
+				return
+			}
+			if idx, n := tree.lookupByPath(MethodAny, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
 				c.tsr = false
 				c.route = nil
