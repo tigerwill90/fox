@@ -3834,7 +3834,7 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+			f := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 			rf := f.RouterInfo()
 			assert.Equal(t, RedirectPath, rf.FixedPathOption)
 
@@ -3842,6 +3842,18 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
 			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+			}
+
+			f = MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+
+			require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, emptyHandler)))
+
+			req = httptest.NewRequest(tc.method, tc.req, nil)
+			w = httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
@@ -3912,7 +3924,7 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+			f := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
 			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedPath, rf.FixedPathOption)
 
@@ -3922,6 +3934,17 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, tc.req, nil)
 			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			assert.Equal(t, tc.wantCode, w.Code)
+
+			f = MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+
+			require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, func(c *Context) {
+				c.Writer().WriteHeader(tc.wantCode)
+			})))
+
+			req = httptest.NewRequest(http.MethodGet, tc.req, nil)
+			w = httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 		})
