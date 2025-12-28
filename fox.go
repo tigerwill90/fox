@@ -1065,6 +1065,9 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			sb.Grow(150)
 			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
 			for method := range tree.patterns {
+				if method == MethodAny {
+					continue
+				}
 				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 					if sb.Len() > 0 {
 						sb.WriteString(", ")
@@ -1097,7 +1100,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 			// Else we search for a matching route for any method, but unlike regular OPTIONS, we stop at the first match.
 			for method := range tree.patterns {
-				if method == acrm {
+				if method == acrm || method == MethodAny {
 					continue
 				}
 				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
