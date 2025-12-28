@@ -247,7 +247,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
+			f := MustNew(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, method := range tc.methods {
 				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c *Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
@@ -261,6 +261,35 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+
+			// Skip sub router test for system-wide OPTIONS request
+			if tc.target == "*" {
+				return
+			}
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
+				for _, method := range tc.methods {
+					require.NoError(t, onlyError(sub.Handle(method, tc.path, func(c *Context) {
+						req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
+						req.Host = c.Host()
+						c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
+						c.Writer().WriteHeader(http.StatusNoContent)
+					})))
+				}
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+			})
 		})
 	}
 }
@@ -611,7 +640,7 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithAutoOptions(true), WithSystemWideOptions(true), WithNoMethod(true))
+			f := MustNew(WithAutoOptions(true), WithSystemWideOptions(true), WithNoMethod(true))
 			rf := f.RouterInfo()
 			require.True(t, rf.AutoOptions)
 			require.True(t, rf.SystemWideOptions)
@@ -624,6 +653,26 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 			assert.ElementsMatch(t, tc.wantMethods, parseAllowHeader(w.Header().Get("Allow")))
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithAutoOptions(true), WithSystemWideOptions(true), WithNoMethod(true))
+				for _, method := range tc.methods {
+					require.NoError(t, onlyError(sub.Handle(method, tc.path, emptyHandler)))
+				}
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
+				req.Host = "example.com"
+				req.Header = tc.headers
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				assert.ElementsMatch(t, tc.wantMethods, parseAllowHeader(w.Header().Get("Allow")))
+			})
 		})
 	}
 }

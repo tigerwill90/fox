@@ -20,12 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/netutil"
-
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 var (
@@ -844,7 +843,7 @@ var wildcardHostnames = []route{
 }
 
 func TestStaticRoute(t *testing.T) {
-	f, _ := New()
+	f := MustNew()
 
 	for _, route := range staticRoutes {
 		require.NoError(t, onlyError(f.Handle(route.method, route.path, pathHandler)))
@@ -862,13 +861,38 @@ func TestStaticRoute(t *testing.T) {
 }
 
 func TestStaticRouteSubRouter(t *testing.T) {
-	sub, _ := New()
+	sub := MustNew()
 
 	for _, route := range staticRoutes {
 		require.NoError(t, onlyError(sub.Handle(route.method, route.path, pathHandler)))
 	}
 
-	f, _ := New()
+	f := MustNew()
+	r, err := f.NewSubRouter("/+{args}", sub)
+	require.NoError(t, err)
+	require.NoError(t, f.HandleRoute(MethodAny, r))
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+
+	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+	assert.Equal(t, iterutil.Len2(sub.Iter().All()), sub.Len())
+}
+
+func TestStaticRouteSubRouterWithAny(t *testing.T) {
+	sub := MustNew()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, onlyError(sub.Handle(MethodAny, route.path, pathHandler)))
+	}
+
+	f := MustNew()
 	r, err := f.NewSubRouter("/+{args}", sub)
 	require.NoError(t, err)
 	require.NoError(t, f.HandleRoute(MethodAny, r))
@@ -3736,6 +3760,53 @@ func TestRedirectTrailingSlash(t *testing.T) {
 					assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
 				}
 			}
+
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleTrailingSlash(RedirectSlash))
+
+				for _, path := range tc.paths {
+					require.NoError(t, onlyError(f.Handle(MethodAny, path, emptyHandler)))
+					rte := f.Route(MethodAny, path)
+					require.NotNil(t, rte)
+					assert.Equal(t, RedirectSlash, rte.TrailingSlashOption())
+				}
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+					if tc.method == http.MethodGet {
+						assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
+					}
+				}
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleTrailingSlash(RedirectSlash))
+
+				for _, path := range tc.paths {
+					require.NoError(t, onlyError(sub.Handle(tc.method, path, emptyHandler)))
+				}
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+					if tc.method == http.MethodGet {
+						assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
+					}
+				}
+			})
 		})
 	}
 }
@@ -3848,17 +3919,57 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
 			}
 
-			f = MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 
-			require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, emptyHandler)))
 
-			req = httptest.NewRequest(tc.method, tc.req, nil)
-			w = httptest.NewRecorder()
-			f.ServeHTTP(w, req)
-			assert.Equal(t, tc.wantCode, w.Code)
-			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
-				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
-			}
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				}
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(tc.method, tc.path, emptyHandler)))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				}
+			})
+
+			t.Run("with sub router and any", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(MethodAny, tc.path, emptyHandler)))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				}
+			})
 		})
 	}
 }
@@ -3937,16 +4048,54 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
 
-			f = MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
 
-			require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, func(c *Context) {
-				c.Writer().WriteHeader(tc.wantCode)
-			})))
+				require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, func(c *Context) {
+					c.Writer().WriteHeader(tc.wantCode)
+				})))
 
-			req = httptest.NewRequest(http.MethodGet, tc.req, nil)
-			w = httptest.NewRecorder()
-			f.ServeHTTP(w, req)
-			assert.Equal(t, tc.wantCode, w.Code)
+				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(http.MethodGet, tc.path, func(c *Context) {
+					c.Writer().WriteHeader(tc.wantCode)
+				})))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+			})
+
+			t.Run("with sub router and any", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(MethodAny, tc.path, func(c *Context) {
+					c.Writer().WriteHeader(tc.wantCode)
+				})))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+			})
 		})
 	}
 }
@@ -4198,19 +4347,44 @@ func TestRouterWithTsrParams(t *testing.T) {
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			f = MustNew(WithHandleTrailingSlash(RelaxedSlash))
-			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodAny, rte, func(c *Context) {
-					assert.Equal(t, tc.wantPath, c.Pattern())
-					var params Params = slices.Collect(c.Params())
-					assert.Equal(t, tc.wantParams, params)
-					assert.Equal(t, tc.wantTsr, c.tsr)
-				})))
-			}
-			req = httptest.NewRequest(http.MethodGet, tc.target, nil)
-			w = httptest.NewRecorder()
-			f.ServeHTTP(w, req)
-			assert.Equal(t, http.StatusOK, w.Code)
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleTrailingSlash(RelaxedSlash))
+				for _, rte := range tc.routes {
+					require.NoError(t, onlyError(f.Handle(MethodAny, rte, func(c *Context) {
+						assert.Equal(t, tc.wantPath, c.Pattern())
+						var params Params = slices.Collect(c.Params())
+						assert.Equal(t, tc.wantParams, params)
+						assert.Equal(t, tc.wantTsr, c.tsr)
+					})))
+				}
+				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, http.StatusOK, w.Code)
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleTrailingSlash(RelaxedSlash))
+				for _, rte := range tc.routes {
+					require.NoError(t, onlyError(sub.Handle(http.MethodGet, rte, func(c *Context) {
+						assert.Equal(t, "example.com"+tc.wantPath, c.Pattern())
+						var params Params = slices.Collect(c.Params())
+						assert.Equal(t, tc.wantParams, params)
+						assert.Equal(t, tc.wantTsr, c.tsr)
+					})))
+				}
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, http.StatusOK, w.Code)
+			})
 		})
 	}
 }
