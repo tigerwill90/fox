@@ -82,7 +82,8 @@ func (m QueryRegexpMatcher) Key() string {
 }
 
 func (m QueryRegexpMatcher) Regex() *regexp.Regexp {
-	return m.regex
+	re2 := *m.regex
+	return &re2
 }
 
 func (m QueryRegexpMatcher) Match(c RequestContext) bool {
@@ -160,7 +161,8 @@ func (m HeaderRegexpMatcher) Key() string {
 }
 
 func (m HeaderRegexpMatcher) Regex() *regexp.Regexp {
-	return m.regex
+	re2 := *m.regex
+	return &re2
 }
 
 func (m HeaderRegexpMatcher) Match(c RequestContext) bool {
@@ -194,7 +196,16 @@ type ClientIpMatcher struct {
 }
 
 func (m ClientIpMatcher) IPNet() *net.IPNet {
-	return m.ipNet
+	ip := make(net.IP, len(m.ipNet.IP))
+	copy(ip, m.ipNet.IP)
+
+	mask := make(net.IPMask, len(m.ipNet.Mask))
+	copy(mask, m.ipNet.Mask)
+
+	return &net.IPNet{
+		IP:   ip,
+		Mask: mask,
+	}
 }
 
 func (m ClientIpMatcher) Match(c RequestContext) bool {
