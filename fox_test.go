@@ -20,18 +20,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/netutil"
-
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tigerwill90/fox/internal/iterutil"
+	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 var (
-	emptyHandler   = HandlerFunc(func(c Context) {})
-	pathHandler    = HandlerFunc(func(c Context) { _ = c.String(200, c.Path()) })
-	patternHandler = HandlerFunc(func(c Context) { _ = c.String(200, c.Pattern()) })
+	emptyHandler   = HandlerFunc(func(c *Context) {})
+	pathHandler    = HandlerFunc(func(c *Context) { _ = c.String(200, c.Path()) })
+	patternHandler = HandlerFunc(func(c *Context) { _ = c.String(200, c.Pattern()) })
 )
 
 type mockResponseWriter struct{}
@@ -844,7 +843,7 @@ var wildcardHostnames = []route{
 }
 
 func TestStaticRoute(t *testing.T) {
-	f, _ := New()
+	f := MustNew()
 
 	for _, route := range staticRoutes {
 		require.NoError(t, onlyError(f.Handle(route.method, route.path, pathHandler)))
@@ -861,11 +860,99 @@ func TestStaticRoute(t *testing.T) {
 	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
 }
 
+func TestStaticRouteSubRouter(t *testing.T) {
+	sub := MustNew()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, onlyError(sub.Handle(route.method, route.path, pathHandler)))
+	}
+
+	f := MustNew()
+	r, err := f.NewSubRouter("/+{args}", sub)
+	require.NoError(t, err)
+	require.NoError(t, f.HandleRoute(MethodAny, r))
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+
+	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+	assert.Equal(t, iterutil.Len2(sub.Iter().All()), sub.Len())
+}
+
+func TestStaticRouteSubRouterWithAny(t *testing.T) {
+	sub := MustNew()
+
+	for _, route := range staticRoutes {
+		require.NoError(t, onlyError(sub.Handle(MethodAny, route.path, pathHandler)))
+	}
+
+	f := MustNew()
+	r, err := f.NewSubRouter("/+{args}", sub)
+	require.NoError(t, err)
+	require.NoError(t, f.HandleRoute(MethodAny, r))
+
+	for _, route := range staticRoutes {
+		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+
+	}
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+	assert.Equal(t, iterutil.Len2(sub.Iter().All()), sub.Len())
+}
+
 func TestStaticHostnameRoute(t *testing.T) {
 	f, _ := New()
 
 	for _, route := range staticHostnames {
 		require.NoError(t, onlyError(f.Handle(route.method, route.path+"/foo", patternHandler)))
+	}
+
+	t.Run("same case", func(t *testing.T) {
+		for _, route := range staticHostnames {
+			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = route.path
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	t.Run("case-insensitive", func(t *testing.T) {
+		for _, route := range staticHostnames {
+			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = strings.ToUpper(route.path)
+			w := httptest.NewRecorder()
+			f.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	assert.Equal(t, iterutil.Len2(f.Iter().All()), f.Len())
+}
+
+func TestStaticHostnameRouteSubRouter(t *testing.T) {
+	f, _ := New()
+
+	for _, route := range staticHostnames {
+		sub, _ := New()
+		require.NoError(t, onlyError(sub.Handle(route.method, "/foo", patternHandler)))
+		r, err := f.NewSubRouter(route.path+"/+{args}", sub)
+		require.NoError(t, err)
+		require.NoError(t, f.HandleRoute(MethodAny, r))
 	}
 
 	t.Run("same case", func(t *testing.T) {
@@ -995,7 +1082,7 @@ func TestStaticRouteWithStaticDomainMalloc(t *testing.T) {
 func TestParamsRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1012,9 +1099,24 @@ func TestParamsRoute(t *testing.T) {
 	}
 	for _, route := range githubAPI {
 		require.NoError(t, onlyError(r.Handle(route.method, route.path, h)))
+		if route.method == http.MethodGet {
+			require.NoError(t, onlyError(r.Handle(MethodAny, route.path, h)))
+		}
+
 	}
 	for _, route := range githubAPI {
 		req := httptest.NewRequest(route.method, route.path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, route.path, w.Body.String())
+	}
+
+	for _, route := range githubAPI {
+		if route.method != http.MethodGet {
+			continue
+		}
+		req := httptest.NewRequest("PURGE", route.path, nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -1025,7 +1127,7 @@ func TestParamsRoute(t *testing.T) {
 func TestParamsHostnameRoute(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1044,10 +1146,28 @@ func TestParamsHostnameRoute(t *testing.T) {
 	}
 	for _, route := range wildcardHostnames {
 		require.NoError(t, onlyError(r.Handle(route.method, route.path+"/foo", h)))
+		if route.method == http.MethodGet {
+			require.NoError(t, onlyError(r.Handle(MethodAny, route.path+"/foo", h)))
+		}
 	}
 	t.Run("same case", func(t *testing.T) {
 		for _, route := range wildcardHostnames {
 			req, err := http.NewRequest(route.method, "/foo", nil)
+			require.NoError(t, err)
+			req.Host = route.path
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
+
+	t.Run("same case with any method", func(t *testing.T) {
+		for _, route := range wildcardHostnames {
+			if route.method != http.MethodGet {
+				continue
+			}
+			req, err := http.NewRequest("PURGE", "/foo", nil)
 			require.NoError(t, err)
 			req.Host = route.path
 			w := httptest.NewRecorder()
@@ -1068,12 +1188,28 @@ func TestParamsHostnameRoute(t *testing.T) {
 			assert.Equal(t, route.path+"/foo", w.Body.String())
 		}
 	})
+
+	t.Run("case insensitive with any method", func(t *testing.T) {
+		for _, route := range wildcardHostnames {
+			if route.method != http.MethodGet {
+				continue
+			}
+
+			req, err := http.NewRequest("PURGE", "/foo", nil)
+			require.NoError(t, err)
+			req.Host = strings.ToUpper(route.path)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, route.path+"/foo", w.Body.String())
+		}
+	})
 }
 
 func TestParamsRouteTxn(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1109,7 +1245,7 @@ func TestParamsRouteTxn(t *testing.T) {
 func TestParamsRouteWithDomain(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1141,7 +1277,7 @@ func TestParamsRouteWithDomain(t *testing.T) {
 func TestParamsRouteWithDomainTxn(t *testing.T) {
 	rx := regexp.MustCompile("({|\\*{)[A-z]+[}]")
 	r, _ := New()
-	h := func(c Context) {
+	h := func(c *Context) {
 		matches := rx.FindAllString(c.Path(), -1)
 		for _, match := range matches {
 			var key string
@@ -1224,6 +1360,79 @@ func TestHandleRoute(t *testing.T) {
 	t.Run("handle and update route with nil route", func(t *testing.T) {
 		assert.ErrorIs(t, f.HandleRoute("/john", nil), ErrInvalidRoute)
 		assert.ErrorIs(t, f.UpdateRoute("/foo", nil), ErrInvalidRoute)
+	})
+}
+
+func TestHandleSubRouter(t *testing.T) {
+	f := MustNew()
+
+	t.Run("panic when mounting itself", func(t *testing.T) {
+		assert.Panics(t, func() {
+			_, _ = f.NewSubRouter("/foo/+{any}", f)
+		})
+	})
+
+	t.Run("not a catch all", func(t *testing.T) {
+		sub := MustNew()
+		_, err := f.NewSubRouter("/foo", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+
+		_, err = f.NewSubRouter("/foo/", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+
+		_, err = f.NewSubRouter("/foo{ps}", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+
+		_, err = f.NewSubRouter("/foo/{ps}", sub)
+		assert.ErrorIs(t, err, ErrInvalidRoute)
+	})
+
+	t.Run("route with slash", func(t *testing.T) {
+		sub := MustNew()
+		sub.MustHandle(http.MethodGet, "/", patternHandler)
+		sub.MustHandle(http.MethodGet, "/users", patternHandler)
+		route, err := f.NewSubRouter("/v1/api/+{sub}", sub)
+		require.NoError(t, err)
+		assert.NoError(t, f.HandleRoute(http.MethodGet, route))
+
+		req := httptest.NewRequest(http.MethodGet, "/v1/api", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+
+		req = httptest.NewRequest(http.MethodGet, "/v1/api/", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v1/api/", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/v1/api/users", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v1/api/users", w.Body.String())
+	})
+
+	t.Run("route with and without slash when inflight", func(t *testing.T) {
+		sub := MustNew()
+		sub.MustHandle(http.MethodGet, "/", patternHandler)
+		sub.MustHandle(http.MethodGet, "/users", patternHandler)
+		route, err := f.NewSubRouter("/v2/api+{sub}", sub)
+		require.NoError(t, err)
+		assert.NoError(t, f.HandleRoute(http.MethodGet, route))
+
+		req := httptest.NewRequest(http.MethodGet, "/v2/api", nil)
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v2/api", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/v2/api/", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v2/api/", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/v2/api/users", nil)
+		w = httptest.NewRecorder()
+		f.ServeHTTP(w, req)
+		assert.Equal(t, "/v2/api/users", w.Body.String())
 	})
 }
 
@@ -1658,105 +1867,105 @@ func TestInsertConflict(t *testing.T) {
 		routes    []string
 		insert    string
 		wantErr   error
-		wantMatch string
+		wantMatch []string
 	}{
 		{
 			name:      "static route already exist",
 			routes:    []string{"/foo/bar", "/foo/baz"},
 			insert:    "/foo/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/bar",
+			wantMatch: []string{"/foo/bar"},
 		},
 		{
 			name:      "route with same parameters",
 			routes:    []string{"/foo/{foo}"},
 			insert:    "/foo/{foo}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo}",
+			wantMatch: []string{"/foo/{foo}"},
 		},
 		{
 			name:      "route with same wildcard",
 			routes:    []string{"/foo/*{foo}"},
 			insert:    "/foo/*{foo}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo}",
+			wantMatch: []string{"/foo/*{foo}"},
 		},
 		{
 			name:      "route with same parameters but different name",
 			routes:    []string{"/foo/{foo}"},
 			insert:    "/foo/{bar}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo}",
+			wantMatch: []string{"/foo/{foo}"},
 		},
 		{
 			name:      "route with same wildcard but different name",
 			routes:    []string{"/foo/*{foo}"},
 			insert:    "/foo/*{bar}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo}",
+			wantMatch: []string{"/foo/*{foo}"},
 		},
 		{
 			name:      "route with middle same parameters but different name",
 			routes:    []string{"/{foo}/bar"},
 			insert:    "/{other}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/{foo}/bar",
+			wantMatch: []string{"/{foo}/bar"},
 		},
 		{
 			name:      "route with middle same wildcard but different name",
 			routes:    []string{"/*{foo}/bar"},
 			insert:    "/*{other}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/*{foo}/bar",
+			wantMatch: []string{"/*{foo}/bar"},
 		},
 		{
 			name:      "route with same regexp parameter",
 			routes:    []string{"/foo/{foo:[A-z]+}"},
 			insert:    "/foo/{foo:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo:[A-z]+}",
+			wantMatch: []string{"/foo/{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with same regexp parameter but different name",
 			routes:    []string{"/foo/{foo:[A-z]+}"},
 			insert:    "/foo/{bar:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/{foo:[A-z]+}",
+			wantMatch: []string{"/foo/{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with same regexp wildcard",
 			routes:    []string{"/foo/*{foo:[A-z]+}"},
 			insert:    "/foo/*{foo:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo:[A-z]+}",
+			wantMatch: []string{"/foo/*{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with same regexp wildcard but different name",
 			routes:    []string{"/foo/*{foo:[A-z]+}"},
 			insert:    "/foo/*{bar:[A-z]+}",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/foo/*{foo:[A-z]+}",
+			wantMatch: []string{"/foo/*{foo:[A-z]+}"},
 		},
 		{
 			name:      "route with middle same regexp parameter but different name",
 			routes:    []string{"/{foo:[A-z]+}/bar"},
 			insert:    "/{other:[A-z]+}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/{foo:[A-z]+}/bar",
+			wantMatch: []string{"/{foo:[A-z]+}/bar"},
 		},
 		{
 			name:      "route with middle same regexp wildcard but different name",
 			routes:    []string{"/*{foo:[A-z]+}/bar"},
 			insert:    "/*{other:[A-z]+}/bar",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "/*{foo:[A-z]+}/bar",
+			wantMatch: []string{"/*{foo:[A-z]+}/bar"},
 		},
 		{
 			name:      "simple hostname conflict",
 			routes:    []string{"a.{b}.c/fox", "{a}.b.c/fox"},
 			insert:    "a.{d}.c/fox",
 			wantErr:   ErrRouteNotFound,
-			wantMatch: "a.{b}.c/fox",
+			wantMatch: []string{"a.{b}.c/fox"},
 		},
 	}
 
@@ -1770,7 +1979,10 @@ func TestInsertConflict(t *testing.T) {
 			assert.ErrorIs(t, got, ErrRouteExist)
 			var conflict *RouteConflictError
 			require.ErrorAs(t, got, &conflict)
-			assert.Equal(t, tc.wantMatch, conflict.Existing.pattern)
+			patterns := iterutil.Map(slices.Values(conflict.Conflicts), func(a *Route) string {
+				return a.pattern
+			})
+			assert.Equal(t, tc.wantMatch, slices.Collect(patterns))
 		})
 	}
 }
@@ -1837,7 +2049,7 @@ func TestUpdateConflict(t *testing.T) {
 }
 
 func TestInvalidRoute(t *testing.T) {
-	f, _ := New()
+	f := MustNew()
 	// Invalid route on insert
 	assert.ErrorIs(t, onlyError(f.Handle("G\x00ET", "/foo", emptyHandler)), ErrInvalidRoute)
 	assert.ErrorIs(t, onlyError(f.Handle("", "/foo", emptyHandler)), ErrInvalidRoute)
@@ -1915,7 +2127,7 @@ func TestUpdateRoute(t *testing.T) {
 }
 
 func TestParseRoute(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
+	f := MustNew(AllowRegexpParam(true))
 
 	staticToken := func(v string, hsplit bool) token {
 		return token{
@@ -1948,11 +2160,12 @@ func TestParseRoute(t *testing.T) {
 	}
 
 	cases := []struct {
-		wantErr    error
-		name       string
-		path       string
-		wantN      int
-		wantTokens []token
+		wantErr           error
+		name              string
+		path              string
+		wantN             int
+		wantTokens        []token
+		wantStartCatchAll int
 	}{
 		{
 			name:       "valid static route",
@@ -1985,6 +2198,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/foo/bar/", false),
 				wildcardToken("arg", ""),
 			)),
+			wantStartCatchAll: 9,
 		},
 		{
 			name:  "valid param route",
@@ -2029,6 +2243,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("arg", ""),
 			)),
+			wantStartCatchAll: 17,
 		},
 		{
 			name:  "valid inflight param",
@@ -2047,6 +2262,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/foo/xyz:", false),
 				wildcardToken("bar", ""),
 			)),
+			wantStartCatchAll: 9,
 		},
 		{
 			name:  "valid multi inflight param and catch all",
@@ -2060,6 +2276,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("arg", ""),
 			)),
+			wantStartCatchAll: 25,
 		},
 		{
 			name:  "catch all with arg in the middle of the route",
@@ -2325,6 +2542,7 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("any", ""),
 			)),
+			wantStartCatchAll: 8,
 		},
 		{
 			name:    "illegal control character in path",
@@ -2750,7 +2968,8 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/foo/", false),
 				wildcardToken("bar", "[A-z]+"),
 			)),
-			wantN: 1,
+			wantN:             1,
+			wantStartCatchAll: 5,
 		},
 		{
 			name: "simple infix param with regexp",
@@ -2782,7 +3001,8 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/a", false),
 				wildcardToken("baz", "[0-9]+"),
 			)),
-			wantN: 2,
+			wantN:             2,
+			wantStartCatchAll: 20,
 		},
 		{
 			name: "consecutive infix regexp wildcard and regexp param allowed",
@@ -2863,7 +3083,19 @@ func TestParseRoute(t *testing.T) {
 				staticToken("/", false),
 				wildcardToken("bar", ""),
 			)),
-			wantN: 2,
+			wantN:             2,
+			wantStartCatchAll: 7,
+		},
+		{
+			name: "consecutive wildcard with empty catch all from hostname to path",
+			path: "*{foo}/+{bar}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				wildcardToken("foo", ""),
+				staticToken("/", false),
+				wildcardToken("bar", ""),
+			)),
+			wantN:             2,
+			wantStartCatchAll: 7,
 		},
 		{
 			name: "param then wildcard regexp",
@@ -2888,8 +3120,28 @@ func TestParseRoute(t *testing.T) {
 			wantN: 2,
 		},
 		{
+			name: "catch all empty as suffix",
+			path: "/foo/+{any}",
+			wantTokens: slices.Collect(iterutil.SeqOf(
+				staticToken("/foo/", false),
+				wildcardToken("any", ""),
+			)),
+			wantN:             1,
+			wantStartCatchAll: 5,
+		},
+		{
 			name:    "consecutive infix wildcard at start with regexp not allowed",
 			path:    "/*{foo:[A-z]+}/*{baz:[0-9]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive wildcard with catch all empty not allowed",
+			path:    "/*{foo}/+{baz}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "consecutive infix wildcard with catch all empty at start with regexp not allowed",
+			path:    "/*{foo:[A-z]+}/+{baz:[0-9]+}",
 			wantErr: ErrInvalidRoute,
 		},
 		{
@@ -3032,15 +3284,31 @@ func TestParseRoute(t *testing.T) {
 			path:    "/foo/*:bar}",
 			wantErr: ErrInvalidRoute,
 		},
+		{
+			name:    "no infix catch all empty",
+			path:    "/foo/+{any}/bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "no infix inflight catch all empty",
+			path:    "/foo/uuid_+{any}/bar",
+			wantErr: ErrInvalidRoute,
+		},
+		{
+			name:    "no suffix catch all empty in hostname",
+			path:    "a.b.+{any}/",
+			wantErr: ErrInvalidRoute,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokens, n, hostSplit, err := f.parseRoute(tc.path)
+			parsed, err := f.parseRoute(tc.path)
 			require.ErrorIs(t, err, tc.wantErr)
-			assert.Equal(t, tc.wantN, n)
-			assert.Equal(t, tc.wantTokens, tokens)
+			assert.Equal(t, tc.wantN, parsed.paramCnt)
+			assert.Equal(t, tc.wantTokens, parsed.token)
+			assert.Equal(t, tc.wantStartCatchAll, parsed.startCatchAll)
 			if err == nil {
-				assert.Equal(t, strings.IndexByte(tc.path, '/'), hostSplit)
+				assert.Equal(t, strings.IndexByte(tc.path, '/'), parsed.endHost)
 			}
 		})
 	}
@@ -3049,72 +3317,72 @@ func TestParseRoute(t *testing.T) {
 func TestParseRouteParamsConstraint(t *testing.T) {
 	t.Run("param limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParams(3))
-		_, _, _, err := f.parseRoute("/{1}/{2}/{3}")
+		_, err := f.parseRoute("/{1}/{2}/{3}")
 		assert.NoError(t, err)
-		_, _, _, err = f.parseRoute("/{1}/{2}/{3}/{4}")
+		_, err = f.parseRoute("/{1}/{2}/{3}/{4}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
+		_, err = f.parseRoute("/ab{1}/{2}/cd/{3}/{4}/ef")
 		assert.Error(t, err)
 	})
 	t.Run("param key limit", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParamKeyBytes(3))
-		_, _, _, err := f.parseRoute("/{abc}/{abc}/{abc}")
+		_, err := f.parseRoute("/{abc}/{abc}/{abc}")
 		assert.NoError(t, err)
-		_, _, _, err = f.parseRoute("/{abcd}/{abc}/{abc}")
+		_, err = f.parseRoute("/{abcd}/{abc}/{abc}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/{abcd}/{abc}")
+		_, err = f.parseRoute("/{abc}/{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/{abc}/{abcd}")
+		_, err = f.parseRoute("/{abc}/{abc}/{abcd}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
+		_, err = f.parseRoute("/{abc}/*{abcd}/{abc}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
+		_, err = f.parseRoute("/{abc}/{abc}/*{abcdef}")
 		assert.Error(t, err)
 	})
 	t.Run("param key limit with regexp", func(t *testing.T) {
 		f, _ := New(WithMaxRouteParamKeyBytes(3), AllowRegexpParam(true))
-		_, _, _, err := f.parseRoute("/{abc:a}/{abc:a}/{abc:a}")
+		_, err := f.parseRoute("/{abc:a}/{abc:a}/{abc:a}")
 		assert.NoError(t, err)
-		_, _, _, err = f.parseRoute("/{abcd:a}/{abc:a}/{abc:a}")
+		_, err = f.parseRoute("/{abcd:a}/{abc:a}/{abc:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/{abcd:a}/{abc:a}")
+		_, err = f.parseRoute("/{abc:a}/{abcd:a}/{abc:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/{abcd:a}")
+		_, err = f.parseRoute("/{abc:a}/{abc:a}/{abcd:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/*{abcd:a}/{abc:a}")
+		_, err = f.parseRoute("/{abc:a}/*{abcd:a}/{abc:a}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{abc:a}/{abc:a}/*{abcdef:a}")
+		_, err = f.parseRoute("/{abc:a}/{abc:a}/*{abcdef:a}")
 		assert.Error(t, err)
 	})
 	t.Run("disabled regexp support for param", func(t *testing.T) {
 		f, _ := New()
-		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		_, err := f.parseRoute("/{a}/{b}/{c}")
 		assert.NoError(t, err)
 		// path params
-		_, _, _, err = f.parseRoute("/{a:a}/{b}/{c}")
+		_, err = f.parseRoute("/{a:a}/{b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/{b:b}/{c}")
+		_, err = f.parseRoute("/{a}/{b:b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/{b}/{c:c}")
+		_, err = f.parseRoute("/{a}/{b}/{c:c}")
 		assert.Error(t, err)
 		// hostname params
-		_, _, _, err = f.parseRoute("{a:a}.{b}.{c}/")
+		_, err = f.parseRoute("{a:a}.{b}.{c}/")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("{a}.{b:b}.{c}/")
+		_, err = f.parseRoute("{a}.{b:b}.{c}/")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("{a}.{b}.{c:c}/")
+		_, err = f.parseRoute("{a}.{b}.{c:c}/")
 		assert.Error(t, err)
 	})
 	t.Run("disabled regexp support for wildcard", func(t *testing.T) {
 		f, _ := New()
-		_, _, _, err := f.parseRoute("/{a}/{b}/{c}")
+		_, err := f.parseRoute("/{a}/{b}/{c}")
 		assert.NoError(t, err)
 		// wildcard
-		_, _, _, err = f.parseRoute("/*{a:a}/{b}/{c}")
+		_, err = f.parseRoute("/*{a:a}/{b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/*{b:b}/{c}")
+		_, err = f.parseRoute("/{a}/*{b:b}/{c}")
 		assert.Error(t, err)
-		_, _, _, err = f.parseRoute("/{a}/{b}/*{c:c}")
+		_, err = f.parseRoute("/{a}/{b}/*{c:c}")
 		assert.Error(t, err)
 	})
 }
@@ -3325,7 +3593,7 @@ func TestRouterWithIgnoreTrailingSlash(t *testing.T) {
 			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedSlash, rf.TrailingSlashOption)
 			for _, path := range tc.paths {
-				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c Context) {
+				require.NoError(t, onlyError(f.Handle(tc.method, path, func(c *Context) {
 					_ = c.String(http.StatusOK, c.Pattern())
 				})))
 				rte := f.Route(tc.method, path)
@@ -3492,6 +3760,53 @@ func TestRedirectTrailingSlash(t *testing.T) {
 					assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
 				}
 			}
+
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleTrailingSlash(RedirectSlash))
+
+				for _, path := range tc.paths {
+					require.NoError(t, onlyError(f.Handle(MethodAny, path, emptyHandler)))
+					rte := f.Route(MethodAny, path)
+					require.NotNil(t, rte)
+					assert.Equal(t, RedirectSlash, rte.TrailingSlashOption())
+				}
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+					if tc.method == http.MethodGet {
+						assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
+					}
+				}
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleTrailingSlash(RedirectSlash))
+
+				for _, path := range tc.paths {
+					require.NoError(t, onlyError(sub.Handle(tc.method, path, emptyHandler)))
+				}
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+					if tc.method == http.MethodGet {
+						assert.Equal(t, MIMETextHTMLCharsetUTF8, w.Header().Get(HeaderContentType))
+					}
+				}
+			})
 		})
 	}
 }
@@ -3590,7 +3905,7 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+			f := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 			rf := f.RouterInfo()
 			assert.Equal(t, RedirectPath, rf.FixedPathOption)
 
@@ -3603,6 +3918,58 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 			if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
 				assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
 			}
+
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+
+				require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, emptyHandler)))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				}
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(tc.method, tc.path, emptyHandler)))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				}
+			})
+
+			t.Run("with sub router and any", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(MethodAny, tc.path, emptyHandler)))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(tc.method, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+				if w.Code == http.StatusPermanentRedirect || w.Code == http.StatusMovedPermanently {
+					assert.Equal(t, tc.wantLocation, w.Header().Get(HeaderLocation))
+				}
+			})
 		})
 	}
 }
@@ -3668,11 +4035,11 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+			f := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
 			rf := f.RouterInfo()
 			assert.Equal(t, RelaxedPath, rf.FixedPathOption)
 
-			require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.path, func(c Context) {
+			require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.path, func(c *Context) {
 				c.Writer().WriteHeader(tc.wantCode)
 			})))
 
@@ -3680,6 +4047,55 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
+
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+
+				require.NoError(t, onlyError(f.Handle(MethodAny, tc.path, func(c *Context) {
+					c.Writer().WriteHeader(tc.wantCode)
+				})))
+
+				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(http.MethodGet, tc.path, func(c *Context) {
+					c.Writer().WriteHeader(tc.wantCode)
+				})))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+			})
+
+			t.Run("with sub router and any", func(t *testing.T) {
+				sub := MustNew(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+				require.NoError(t, onlyError(sub.Handle(MethodAny, tc.path, func(c *Context) {
+					c.Writer().WriteHeader(tc.wantCode)
+				})))
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, tc.wantCode, w.Code)
+			})
 		})
 	}
 }
@@ -3883,26 +4299,94 @@ func TestRouterWithTsrParams(t *testing.T) {
 			wantPath:   "/foo",
 			wantTsr:    true,
 		},
+		{
+			name:   "tsr with empty catch all",
+			routes: []string{"/a/foo/+{any}", "/{a}/foo/y", "/{a}/foo/b"},
+			target: "/a/foo",
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "",
+				},
+			},
+			wantPath: "/a/foo/+{any}",
+			wantTsr:  true,
+		},
+		{
+			name:   "tsr with empty catch all and param before",
+			routes: []string{"/{a}/foo/+{any}", "/{a}/foo/y", "/{a}/foo/b"},
+			target: "/a/foo",
+			wantParams: Params{
+				{
+					Key:   "a",
+					Value: "a",
+				},
+				{
+					Key:   "any",
+					Value: "",
+				},
+			},
+			wantPath: "/{a}/foo/+{any}",
+			wantTsr:  true,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
+			f := MustNew(WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c Context) {
+				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, func(c *Context) {
 					assert.Equal(t, tc.wantPath, c.Pattern())
 					var params Params = slices.Collect(c.Params())
 					assert.Equal(t, tc.wantParams, params)
-					assert.Equal(t, tc.wantTsr, unwrapContext(t, c).tsr)
+					assert.Equal(t, tc.wantTsr, c.tsr)
 				})))
 			}
 			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusOK, w.Code)
+
+			t.Run("with any", func(t *testing.T) {
+				f := MustNew(WithHandleTrailingSlash(RelaxedSlash))
+				for _, rte := range tc.routes {
+					require.NoError(t, onlyError(f.Handle(MethodAny, rte, func(c *Context) {
+						assert.Equal(t, tc.wantPath, c.Pattern())
+						var params Params = slices.Collect(c.Params())
+						assert.Equal(t, tc.wantParams, params)
+						assert.Equal(t, tc.wantTsr, c.tsr)
+					})))
+				}
+				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, http.StatusOK, w.Code)
+			})
+
+			t.Run("with sub router", func(t *testing.T) {
+				sub := MustNew(WithHandleTrailingSlash(RelaxedSlash))
+				for _, rte := range tc.routes {
+					require.NoError(t, onlyError(sub.Handle(http.MethodGet, rte, func(c *Context) {
+						assert.Equal(t, "example.com"+tc.wantPath, c.Pattern())
+						var params Params = slices.Collect(c.Params())
+						assert.Equal(t, tc.wantParams, params)
+						assert.Equal(t, tc.wantTsr, c.tsr)
+					})))
+				}
+
+				f := MustNew()
+				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				require.NoError(t, err)
+				require.NoError(t, f.HandleRoute(MethodAny, route))
+
+				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+				req.Host = "example.com"
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, req)
+				assert.Equal(t, http.StatusOK, w.Code)
+			})
 		})
 	}
-
 }
 
 func TestTree_Delete(t *testing.T) {
@@ -4073,7 +4557,7 @@ func TestTree_Methods(t *testing.T) {
 func TestRouterHandleNoRoute(t *testing.T) {
 	called := 0
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			called++
 			next(c)
 		}
@@ -4081,7 +4565,7 @@ func TestRouterHandleNoRoute(t *testing.T) {
 
 	f, err := New(WithMiddleware(m))
 	require.NoError(t, err)
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
+	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c *Context) {
 		c.Fox().HandleNoRoute(c)
 	})))
 
@@ -4096,7 +4580,7 @@ func TestRouterHandleNoRoute(t *testing.T) {
 func TestUpdateWithMiddleware(t *testing.T) {
 	called := false
 	m := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			called = true
 			next(c)
 		}
@@ -4140,21 +4624,21 @@ func TestUpdateWithMiddleware(t *testing.T) {
 func TestRouteMiddleware(t *testing.T) {
 	var c0, c1, c2 bool
 	m0 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			c0 = true
 			next(c)
 		}
 	})
 
 	m1 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			c1 = true
 			next(c)
 		}
 	})
 
 	m2 := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			c2 = true
 			next(c)
 		}
@@ -4333,6 +4817,10 @@ func TestTree_Has(t *testing.T) {
 		"/users/uid_{id:[A-z]+}",
 		"/users/uid_{id:[A-z]+}/ch",
 		"/john/doe/",
+		"/foo/+{name}",
+		"/foo/+{name:[A-z]+}",
+		"/foo/uid_+{id}",
+		"/foo/uid_+{id:[A-z]+}",
 	}
 
 	f, _ := New(AllowRegexpParam(true))
@@ -4725,8 +5213,8 @@ func TestEncodedPath(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/*{request}", func(c Context) {
-		_ = c.String(http.StatusOK, "%s", c.Param("request"))
+	f.MustHandle(http.MethodGet, "/*{request}", func(c *Context) {
+		_ = c.String(http.StatusOK, c.Param("request"))
 	})
 
 	f.ServeHTTP(w, req)
@@ -4780,7 +5268,7 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 				assert.Nil(t, rte, "route /%s", rte)
 				continue
 			}
-			assert.NotNilf(t, rte, "route /%s", rte)
+			assert.NotNilf(t, rte, "route /%v", rte)
 			inserted++
 		}
 		return nil
@@ -4823,7 +5311,7 @@ func TestRaceHostnamePathSwitch(t *testing.T) {
 
 	f, _ := New()
 
-	h := func(c Context) {}
+	h := func(c *Context) {}
 
 	require.NoError(t, f.Updates(func(txn *Txn) error {
 		for _, rte := range githubAPI {
@@ -4953,12 +5441,12 @@ func TestDataRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start, wait := atomicSync()
 
-	h := HandlerFunc(func(c Context) {
+	h := HandlerFunc(func(c *Context) {
 		c.Pattern()
 		for range c.Params() {
 		}
 	})
-	newH := HandlerFunc(func(c Context) {
+	newH := HandlerFunc(func(c *Context) {
 		c.Pattern()
 		for range c.Params() {
 		}
@@ -5029,14 +5517,14 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	r, _ := New()
 
 	// /repos/{owner}/{repo}/keys
-	h1 := HandlerFunc(func(c Context) {
+	h1 := HandlerFunc(func(c *Context) {
 		assert.Equal(t, "john", c.Param("owner"))
 		assert.Equal(t, "fox", c.Param("repo"))
 		_ = c.String(200, c.Pattern())
 	})
 
 	// /repos/{owner}/{repo}/contents/*{path}
-	h2 := HandlerFunc(func(c Context) {
+	h2 := HandlerFunc(func(c *Context) {
 		assert.Equal(t, "alex", c.Param("owner"))
 		assert.Equal(t, "vault", c.Param("repo"))
 		assert.Equal(t, "file.txt", c.Param("path"))
@@ -5044,7 +5532,7 @@ func TestConcurrentRequestHandling(t *testing.T) {
 	})
 
 	// /users/{user}/received_events/public
-	h3 := HandlerFunc(func(c Context) {
+	h3 := HandlerFunc(func(c *Context) {
 		assert.Equal(t, "go", c.Param("user"))
 		_ = c.String(200, c.Pattern())
 	})
@@ -5114,8 +5602,8 @@ func ExampleNew() {
 
 	// Define a route with the path "/hello/{name}", and set a simple handler that greets the
 	// user by their name.
-	r.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	r.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
+		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 
 	// Start the HTTP server using fox router and listen on port 8080
@@ -5128,7 +5616,7 @@ func ExampleWithMiddleware() {
 	// Define a custom middleware to measure the time taken for request processing and
 	// log the URL, route, time elapsed, and status code.
 	metrics := func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			start := time.Now()
 			next(c)
 			log.Printf(
@@ -5143,66 +5631,8 @@ func ExampleWithMiddleware() {
 
 	f, _ := New(WithMiddleware(metrics))
 
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
-	})
-}
-
-// This example demonstrates how to create a custom middleware that cleans the request path and performs a manual
-// lookup on the tree. If the cleaned path matches a registered route, the client is redirected to the valid path.
-func ExampleRouter_Lookup() {
-	redirectFixedPath := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
-			req := c.Request()
-			target := req.URL.Path
-			cleanedPath := CleanPath(target)
-
-			// Nothing to clean, call next handler.
-			if cleanedPath == target {
-				next(c)
-				return
-			}
-
-			req.URL.Path = cleanedPath
-			route, cc, tsr := c.Fox().Lookup(c.Writer(), req)
-			if route != nil {
-				defer cc.Close()
-
-				code := http.StatusMovedPermanently
-				if req.Method != http.MethodGet {
-					code = http.StatusPermanentRedirect
-				}
-
-				// Redirect the client if direct match or indirect match.
-				if !tsr || route.TrailingSlashOption() == RelaxedSlash {
-					if err := c.Redirect(code, cleanedPath); err != nil {
-						// Only if not in the range 300..308, so not possible here!
-						panic(err)
-					}
-					return
-				}
-
-				if err := c.Redirect(code, cleanedPath); err != nil {
-					// Only if not in the range 300..308, so not possible here
-					panic(err)
-				}
-				return
-			}
-
-			// rollback to the original path before calling the
-			// next handler or middleware.
-			req.URL.Path = target
-			next(c)
-		}
-	})
-
-	f, _ := New(
-		// Register the middleware for the NoRouteHandler scope.
-		WithMiddlewareFor(NoRouteHandler|NoMethodHandler, redirectFixedPath),
-	)
-
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
-		_ = c.String(200, "Hello %s\n", c.Param("name"))
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
+		_ = c.String(200, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 }
 
@@ -5231,8 +5661,8 @@ func ExampleRouter_Updates() {
 	// from the function then the transaction is committed. If an error is returned then the entire transaction is
 	// aborted.
 	if err := f.Updates(func(txn *Txn) error {
-		if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c Context) {
-			_ = c.String(http.StatusOK, "hello %s", c.Param("name"))
+		if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c *Context) {
+			_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 		}); err != nil {
 			return err
 		}
@@ -5261,8 +5691,8 @@ func ExampleRouter_Txn() {
 	txn := f.Txn(true)
 	defer txn.Abort()
 
-	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c Context) {
-		_ = c.String(http.StatusOK, "hello %s", c.Param("name"))
+	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", func(c *Context) {
+		_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	}); err != nil {
 		log.Printf("error inserting route: %s", err)
 		return

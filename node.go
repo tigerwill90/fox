@@ -16,9 +16,10 @@ const offsetZero = 0
 
 type root map[string]*node
 
-func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
+func (rt root) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
 	// tsr come from the sync.Pool and has not been reset yet.
 	c.tsr = false
+	paramOffset := len(*c.params)
 
 	root := rt[method]
 	if root == nil {
@@ -41,8 +42,8 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *n
 		// Either no match or match with tsr, try lookup by path with tsr enable
 		// so we won't check for tsr again.
 		*c.skipStack = (*c.skipStack)[:0]
-		*c.params = (*c.params)[:0]
-		if i, pathNode := lookupByPath(root, path, c, lazy, 0); pathNode != nil {
+		*c.params = (*c.params)[:paramOffset]
+		if i, pathNode := lookupByPath(root, path, c, lazy, offsetZero); pathNode != nil {
 			return i, pathNode
 		}
 	}
@@ -50,7 +51,7 @@ func (rt root) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *n
 	return idx, n
 }
 
-func lookupByHostname(root *node, host, path string, c *cTx, lazy bool) (index int, n *node) {
+func lookupByHostname(root *node, host, path string, c *Context, lazy bool) (index int, n *node) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -279,7 +280,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, path string, c *cTx, lazy bool, stackOffset int) (index int, n *node) {
+func lookupByPath(root *node, path string, c *Context, lazy bool, stackOffset int) (index int, n *node) {
 
 	var (
 		charsMatched     int
@@ -319,9 +320,9 @@ Walk:
 					continue
 				}
 
-				if !c.tsr && child.isLeaf() && strings.HasPrefix(child.key, search) {
-					remaining := child.key[len(search):]
-					if remaining == "/" {
+				// Child key is /foo/, we can fully match /foo prefix and the remaining is exactly "/".
+				if !c.tsr && strings.HasPrefix(child.key, search) && child.key[len(search):] == "/" {
+					if child.isLeaf() {
 						for i, route := range child.routes {
 							if route.match(c) {
 								c.tsr = true
@@ -331,6 +332,24 @@ Walk:
 									copyWithResize(c.tsrParams, c.params)
 								}
 								break
+							}
+						}
+					} else {
+						// Since /foo/ and /foo/+{any} conflict on registration, we don't search for match empty catch-all
+						// if the child is a leaf.
+						for _, wildcardNode := range child.wildcards {
+							for i, route := range wildcardNode.routes {
+								if route.catchEmpty && route.match(c) {
+									c.tsr = true
+									n = wildcardNode
+									index = i //nolint:staticcheck
+									if !lazy {
+										*c.tsrParams = (*c.tsrParams)[:0]
+										*c.tsrParams = append(*c.tsrParams, *c.params...)
+										*c.tsrParams = append(*c.tsrParams, "")
+									}
+									break
+								}
 							}
 						}
 					}
@@ -511,6 +530,19 @@ Walk:
 			if route.match(c) {
 				c.tsr = false
 				return i, matched
+			}
+		}
+	}
+
+	// Try to catch empty for wildcard supporting it.
+	for _, wildcardNode := range matched.wildcards {
+		for i, route := range wildcardNode.routes {
+			if route.catchEmpty && route.match(c) {
+				if !lazy {
+					*c.params = append(*c.params, "")
+				}
+				c.tsr = false
+				return i, wildcardNode
 			}
 		}
 	}
@@ -852,7 +884,8 @@ func (n *node) searchPattern(key string) (matched *node) {
 	search := key
 
 	for len(search) > 0 {
-		if search[0] == bracketDelim {
+		switch search[0] {
+		case bracketDelim:
 			end, paramName := parseBraceSegment(search)
 			if paramName == "" {
 				goto STATIC
@@ -864,9 +897,7 @@ func (n *node) searchPattern(key string) (matched *node) {
 			current = child
 			search = search[end+1:]
 			continue
-		}
-
-		if search[0] == starDelim {
+		case starDelim, plusDelim:
 			end, paramName := parseBraceSegment(search)
 			if paramName == "" {
 				goto STATIC
@@ -937,7 +968,8 @@ func parseBraceSegment(pattern string) (int, string) {
 	}
 
 	key := "?"
-	if strings.HasPrefix(pattern, "*{") {
+	// TODO this is garbage, I don't like it at all
+	if strings.HasPrefix(pattern, "*{") || strings.HasPrefix(pattern, "+{") {
 		key = "*"
 	}
 

@@ -16,14 +16,14 @@ import (
 )
 
 func TestAbortHandler(t *testing.T) {
-	m := RecoveryWithFunc(slog.DiscardHandler, func(c Context, err any) {
+	m := RecoveryWithFunc(slog.DiscardHandler, func(c *Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
 
 	f, _ := New(WithMiddleware(m))
 
-	h := func(c Context) {
+	h := func(c *Context) {
 		func() { panic(http.ErrAbortHandler) }()
 		_ = c.String(200, "foo")
 	}
@@ -51,7 +51,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		We:  weBuf,
 		Wo:  woBuf,
 		Lvl: slog.LevelDebug,
-	}, func(c Context, err any) {
+	}, func(c *Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
@@ -59,7 +59,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 	f, _ := New(WithMiddleware(m))
 
 	const errMsg = "unexpected error"
-	h := func(c Context) {
+	h := func(c *Context) {
 		func() { panic(errMsg) }()
 		_ = c.String(200, "foo")
 	}
@@ -88,7 +88,7 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 		We:  weBuf,
 		Wo:  woBuf,
 		Lvl: slog.LevelDebug,
-	}, func(c Context, err any) {
+	}, func(c *Context, err any) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
@@ -96,7 +96,7 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 	const errMsg = "unexpected error"
 
 	panicMiddleware := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
-		return func(c Context) {
+		return func(c *Context) {
 			panic(errMsg)
 		}
 	})
@@ -106,13 +106,13 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 		WithHandleFixedPath(RedirectPath),
 		WithMiddleware(m),
 		WithMiddlewareFor(RedirectSlashHandler|RedirectPathHandler, panicMiddleware),
-		WithNoRouteHandler(func(c Context) {
+		WithNoRouteHandler(func(c *Context) {
 			panic(errMsg)
 		}),
-		WithOptionsHandler(func(c Context) {
+		WithOptionsHandler(func(c *Context) {
 			panic(errMsg)
 		}),
-		WithNoMethodHandler(func(c Context) {
+		WithNoMethodHandler(func(c *Context) {
 			panic(errMsg)
 		}),
 	)
@@ -186,12 +186,12 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 				We:  weBuf,
 				Wo:  woBuf,
 				Lvl: slog.LevelDebug,
-			}, func(c Context, err any) {
+			}, func(c *Context, err any) {
 				if !connIsBroken(err) {
 					http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				}
 			})))
-			require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c Context) {
+			require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c *Context) {
 				e := &net.OpError{Err: &os.SyscallError{Err: errno}}
 				panic(e)
 			})))
@@ -211,7 +211,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 func BenchmarkRecoveryMiddleware(b *testing.B) {
 
 	f, _ := New(WithMiddleware(RecoveryWithFunc(slog.DiscardHandler, DefaultHandleRecovery)))
-	f.MustHandle(http.MethodGet, "/{1}/{2}/{3}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/{1}/{2}/{3}", func(c *Context) {
 		panic("yolo")
 	})
 

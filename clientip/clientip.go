@@ -86,7 +86,7 @@ func NewChain(resolvers ...fox.ClientIPResolver) Chain {
 }
 
 // ClientIP try to derive the client IP using this resolver chain.
-func (s Chain) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s Chain) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	var errs error
 	for _, sub := range s.resolvers {
 		ipAddr, err := sub.ClientIP(c)
@@ -111,7 +111,7 @@ func NewRemoteAddr() RemoteAddr {
 // ClientIP derives the client IP using the [RemoteAddr] resolver. The returned [net.IPAddr] may contain a zone identifier.
 // This should only happen if the remote address has been modified to something illegal, or if the server is accepting connections
 // on a Unix domain socket (in which case [RemoteAddr] is "@"). If no valid IP can be derived, an error is returned.
-func (s RemoteAddr) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s RemoteAddr) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	ipAddr, err := ParseIPAddr(c.Request().RemoteAddr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRemoteAddress, err)
@@ -145,7 +145,7 @@ func NewSingleIPHeader(headerName string) (SingleIPHeader, error) {
 
 // ClientIP derives the client IP using the [SingleIPHeader] resolver. The returned [net.IPAddr] may contain a zone identifier.
 // If no valid IP can be derived, an error is returned.
-func (s SingleIPHeader) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s SingleIPHeader) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	// RFC 2616 does not allow multiple instances of single-IP headers (or any non-list header).
 	// It is debatable whether it is better to treat multiple such headers as an error
 	// (more correct) or simply pick one of them (more flexible). As we've already
@@ -195,7 +195,7 @@ func NewLeftmostNonPrivate(key HeaderKey, limit uint, opts ...BlacklistRangeOpti
 
 // ClientIP derives the client IP using the [LeftmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
-func (s LeftmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s LeftmostNonPrivate) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	if values, ok := c.Request().Header[s.headerName]; ok && len(values) > 0 {
 		for ip := range iterutil.Take(ipAddrSeq(values, s.headerName), s.limit) {
 			if ip != nil && !isIPContainedInRanges(ip.IP, s.blacklistedRanges) {
@@ -236,7 +236,7 @@ func NewRightmostNonPrivate(key HeaderKey, opts ...TrustedRangeOption) (Rightmos
 
 // ClientIP derives the client IP using the [RightmostNonPrivate] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
-func (s RightmostNonPrivate) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s RightmostNonPrivate) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	if values, ok := c.Request().Header[s.headerName]; ok && len(values) > 0 {
 		for ip := range backwardIpAddrSeq(values, s.headerName) {
 			if ip != nil && !isIPContainedInRanges(ip.IP, s.trustedRanges) {
@@ -272,7 +272,7 @@ func NewRightmostTrustedCount(key HeaderKey, trustedCount uint) (RightmostTruste
 
 // ClientIP derives the client IP using the [RightmostTrustedCount] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error returned.
-func (s RightmostTrustedCount) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s RightmostTrustedCount) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	ip, ok := iterutil.At(backwardIpAddrSeq(c.Request().Header[s.headerName], s.headerName), s.trustedCount-1)
 	if !ok {
 		// This is a misconfiguration error. There were fewer IPs than we expected.
@@ -317,7 +317,7 @@ func NewRightmostTrustedRange(key HeaderKey, resolver TrustedIPRange) (Rightmost
 
 // ClientIP derives the client IP using the [RightmostTrustedRange] resolver. The returned [net.IPAddr] may contain a
 // zone identifier. If no valid IP can be derived, an error is returned.
-func (s RightmostTrustedRange) ClientIP(c fox.Context) (*net.IPAddr, error) {
+func (s RightmostTrustedRange) ClientIP(c fox.RequestContext) (*net.IPAddr, error) {
 	trustedRange, err := s.resolver.TrustedIPRange()
 	if err != nil {
 		return nil, fmt.Errorf("%w: unable to resolve trusted ip range: %w", ErrRightmostTrustedRange, err)

@@ -19,6 +19,7 @@ type Txn struct {
 // Handle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -54,6 +55,7 @@ func (txn *Txn) Handle(method, pattern string, handler HandlerFunc, opts ...Rout
 
 // HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
 //   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
@@ -80,6 +82,7 @@ func (txn *Txn) HandleRoute(method string, route *Route) error {
 // Update override an existing route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
@@ -120,6 +123,7 @@ func (txn *Txn) Update(method, pattern string, handler HandlerFunc, opts ...Rout
 // UpdateRoute override an existing [Route] for the given method and new [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
+//   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
@@ -163,15 +167,15 @@ func (txn *Txn) Delete(method, pattern string, opts ...MatcherOption) (*Route, e
 		return nil, fmt.Errorf("%w: invalid method", ErrInvalidRoute)
 	}
 
-	tokens, _, endHost, err := txn.fox.parseRoute(pattern)
+	parsed, err := txn.fox.parseRoute(pattern)
 	if err != nil {
 		return nil, err
 	}
 
 	rte := &Route{
 		pattern:   pattern,
-		hostSplit: endHost,
-		tokens:    tokens,
+		hostSplit: parsed.endHost,
+		tokens:    parsed.token,
 	}
 
 	for _, opt := range opts {
@@ -291,7 +295,7 @@ func (txn *Txn) Name(method, name string) *Route {
 	return matched.routes[0]
 }
 
-// Match perform a reverse lookup for the given [http.Request] and method. It returns the matching registered [Route]
+// Match perform a reverse lookup for the given method and [http.Request]. It returns the matching registered [Route]
 // (if any) along with a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). This function is NOT thread-safe and should be run serially, along with all
 // other [Txn] APIs. See also [Txn.Lookup] as an alternative.
@@ -301,7 +305,7 @@ func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	defer tree.pool.Put(c)
 	c.resetWithRequest(r)
 
@@ -315,17 +319,17 @@ func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
-// [ContextCloser], and a boolean indicating if the route was matched by adding or removing a trailing slash
+// [Context], and a boolean indicating if the route was matched by adding or removing a trailing slash
 // (trailing slash action recommended). If there is a direct match or a tsr is possible, Lookup always return a
-// [Route] and a [ContextCloser]. The [ContextCloser] should always be closed if non-nil. This function is NOT
+// [Route] and a [Context]. The [Context] should always be closed if non-nil. This function is NOT
 // thread-safe and should be run serially, along with all other [Txn] APIs. See also [Txn.Match] as an alternative.
-func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc ContextCloser, tsr bool) {
+func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Context, tsr bool) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
 
 	tree := txn.rootTxn.tree
-	c := tree.pool.Get().(*cTx)
+	c := tree.pool.Get().(*Context)
 	c.resetWithWriter(w, r)
 
 	path := c.Path()
@@ -333,8 +337,20 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc Cont
 	idx, n := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		return n.routes[idx], c, c.tsr
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
+		return c.route, c, c.tsr
 	}
+
+	*c.params = (*c.params)[:0]
+	idx, n = txn.rootTxn.patterns.lookup(MethodAny, r.Host, path, c, false)
+	if n != nil {
+		c.route = n.routes[idx]
+		r.Pattern = c.route.pattern
+		*c.paramsKeys = c.route.params
+		return c.route, c, c.tsr
+	}
+
 	tree.pool.Put(c)
 	return nil, nil, false
 }
@@ -438,7 +454,7 @@ func validMethod(method string) bool {
 	   extension-method = token
 	     token          = 1*<any CHAR except CTLs or separators>
 	*/
-	return len(method) > 0 && strings.IndexFunc(method, isNotToken) == -1
+	return method == MethodAny || (len(method) > 0 && strings.IndexFunc(method, isNotToken) == -1)
 }
 
 func isNotToken(r rune) bool {

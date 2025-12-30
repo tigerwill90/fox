@@ -252,8 +252,8 @@ func WithMiddleware(m ...MiddlewareFunc) Option {
 // WithMiddlewareFor attaches middleware to the router for a specified scope. Middlewares provided will be chained
 // in the order they were added. The scope parameter determines which types of handlers the middleware will be applied to.
 // Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectSlashHandler],
-// [OptionsHandler], and any combination of these. Use this option when you need fine-grained control over where the
-// middleware is applied.
+// [RedirectPathHandler], [OptionsHandler], and any combination of these. Use this option when you need fine-grained control
+// over where the middleware is applied.
 func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 	return globOptionFunc(func(s sealedOption) error {
 		for i := range m {

@@ -427,6 +427,7 @@ func TestRouteWithParams(t *testing.T) {
 		"/doc/go1.html",
 		"/info/{user}/public",
 		"/info/{user}/project/{project}",
+		"/info/{user}/filepath/+{any}",
 	}
 	for _, rte := range routes {
 		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
@@ -1516,6 +1517,7 @@ func TestOverlappingRoute(t *testing.T) {
 			assert.False(t, c.tsr)
 			assert.Equal(t, tc.wantMatch, n.routes[idx].pattern)
 			c.route = n.routes[idx]
+			*c.paramsKeys = c.route.params
 			if len(tc.wantParams) == 0 {
 				assert.Empty(t, slices.Collect(c.Params()))
 			} else {
@@ -2635,6 +2637,7 @@ func TestInfixWildcard(t *testing.T) {
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
 			c.route = n.routes[idx]
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}
@@ -2973,6 +2976,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
 			c.route = n.routes[idx]
+			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
 	}

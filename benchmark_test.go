@@ -141,8 +141,7 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 
 func BenchmarkInfixCatchAll(b *testing.B) {
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", func(c Context) {
-	})
+	f.MustHandle(http.MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/x/y/z/b/x/y/z/d/x/y/z/f/x/y/z/j", nil)
 	w := new(mockResponseWriter)
@@ -245,7 +244,7 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 
 func BenchmarkCloneWith(b *testing.B) {
 	f, _ := New()
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c Context) {
+	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *Context) {
 		cp := c.CloneWith(c.Writer(), c.Request())
 		cp.Close()
 	})
@@ -256,4 +255,42 @@ func BenchmarkCloneWith(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		f.ServeHTTP(w, r)
 	}
+}
+
+func BenchmarkSubRouter(b *testing.B) {
+	sub2, _ := New()
+	sub2.MustHandle(http.MethodGet, "/users/email", emptyHandler)
+
+	sub1, _ := New()
+	r, err := sub1.NewSubRouter("/{name}/+{any}", sub2)
+	require.NoError(b, err)
+	require.NoError(b, sub1.HandleRoute(MethodAny, r))
+
+	main, _ := New()
+	r, err = main.NewSubRouter("/{v1}/+{any}", sub1)
+	require.NoError(b, err)
+	require.NoError(b, main.HandleRoute(MethodAny, r))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/john/users/email", nil)
+	w := new(mockResponseWriter)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for range b.N {
+		main.ServeHTTP(w, req)
+	}
+
+}
+
+func BenchmarkStaticAllSubRouter(b *testing.B) {
+	sub, _ := New()
+	for _, route := range staticRoutes {
+		require.NoError(b, onlyError(sub.Handle(route.method, route.path, emptyHandler)))
+	}
+	r, _ := New()
+	rte, err := r.NewSubRouter("/+{any}", sub)
+	require.NoError(b, err)
+	require.NoError(b, r.HandleRoute(MethodAny, rte))
+
+	benchRoute(b, r, staticRoutes)
 }

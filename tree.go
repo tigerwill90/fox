@@ -34,18 +34,30 @@ func (t *iTree) txn() *tXn {
 	}
 }
 
-func (t *iTree) lookup(method, hostPort, path string, c *cTx, lazy bool) (int, *node) {
+func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
 	return t.patterns.lookup(method, hostPort, path, c, lazy)
 }
 
-func (t *iTree) allocateContext() *cTx {
+func (t *iTree) lookupByPath(method, path string, c *Context, lazy bool) (int, *node) {
+	c.tsr = false
+	*c.skipStack = (*c.skipStack)[:0]
+	root := t.patterns[method]
+	if root == nil {
+		return 0, nil
+	}
+	return lookupByPath(root, path, c, lazy, offsetZero)
+}
+
+func (t *iTree) allocateContext() *Context {
 	params := make([]string, 0, t.maxParams)
 	tsrParams := make([]string, 0, t.maxParams)
+	keys := make([]string, 0, t.maxParams)
 	stacks := make(skipStack, 0, t.maxDepth)
-	return &cTx{
-		params:    &params,
-		tsrParams: &tsrParams,
-		skipStack: &stacks,
+	return &Context{
+		params:     &params,
+		tsrParams:  &tsrParams,
+		skipStack:  &stacks,
+		paramsKeys: &keys,
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree: t,
@@ -143,7 +155,7 @@ func (t *tXn) insertNameIn(n *node, search string, route *Route, mode insertMode
 			// update mode provides a stronger guarantee: the caller has already verified that old.name == new.name
 			// before invoking insert. This precondition eliminates the need to check for update errors in cases
 			// like node splitting, which the standard insert path must handle.
-			return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[0], isNameConflict: true}
+			return nil, &RouteNameConflictError{Method: t.method, New: route, Conflict: n.routes[0]}
 		}
 
 		nc := t.writeNode(n)
@@ -283,7 +295,7 @@ func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 	t.mode = mode
 	t.method = method
 
-	newRoot, err := t.insertTokens(root, route.tokens, route)
+	newRoot, err := t.insertTokens(nil, root, route.tokens, route)
 	if err != nil {
 		return err
 	}
@@ -300,15 +312,31 @@ func (t *tXn) insert(method string, route *Route, mode insertMode) error {
 	return nil
 }
 
-func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error) {
+func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, error) {
 	// Base case: no tokens left, attach route
 	if len(tokens) == 0 {
 		switch t.mode {
 		case modeInsert:
 			if n.isLeaf() {
 				if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.matchersEqual(route.matchers) }); idx >= 0 {
-					return nil, &RouteConflictError{Method: t.method, New: route, Existing: n.routes[idx]}
+					return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: []*Route{n.routes[idx]}}
 				}
+			}
+
+			if route.catchEmpty && p != nil && p.isLeaf() {
+				return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: p.routes}
+			}
+
+			var conflicts []*Route
+			for _, wildcard := range n.wildcards {
+				for _, r := range wildcard.routes {
+					if r.catchEmpty {
+						conflicts = append(conflicts, r)
+					}
+				}
+			}
+			if len(conflicts) > 0 {
+				return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: conflicts}
 			}
 
 			if route.name != "" {
@@ -380,7 +408,7 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 
 	switch tk.typ {
 	case nodeStatic:
-		return t.insertStatic(n, tk, remaining, route)
+		return t.insertStatic(p, n, tk, remaining, route)
 	case nodeParam:
 		return t.insertParam(n, tk, remaining, route)
 	case nodeWildcard:
@@ -390,11 +418,11 @@ func (t *tXn) insertTokens(n *node, tokens []token, route *Route) (*node, error)
 	}
 }
 
-func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (*node, error) {
+func (t *tXn) insertStatic(p, n *node, tk token, remaining []token, route *Route) (*node, error) {
 	search := tk.value
 
 	if len(search) == 0 {
-		return t.insertTokens(n, remaining, route)
+		return t.insertTokens(p, n, remaining, route)
 	}
 
 	idx, child := n.getStaticEdge(search[0])
@@ -404,6 +432,7 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 		}
 
 		newChild, err := t.insertTokens(
+			n,
 			&node{
 				label: search[0],
 				key:   search,
@@ -425,7 +454,7 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 		search = search[commonPrefix:]
 		remaining = append([]token{{typ: nodeStatic, value: search, hsplit: tk.hsplit}}, remaining...)
 		// e.g. child /foo and want insert /fooo, insert "o"
-		newChild, err := t.insertTokens(child, remaining, route)
+		newChild, err := t.insertTokens(n, child, remaining, route)
 		if err != nil {
 			return nil, err
 		}
@@ -450,7 +479,7 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 		// e.g. we have /foo and want to insert /fo,
 		// we first split /foo into /fo, o and then fo <- get the new route
 		if len(remaining) > 0 {
-			newSplitNode, err := t.insertTokens(splitNode, remaining, route)
+			newSplitNode, err := t.insertTokens(n, splitNode, remaining, route)
 			if err != nil {
 				return nil, err
 			}
@@ -487,6 +516,7 @@ func (t *tXn) insertStatic(n *node, tk token, remaining []token, route *Route) (
 	// e.g. we have /foo and want to insert /fob
 	// we first have our splitNode /fo, with old child (modChild) equal o, and insert the edge b
 	newChild, err := t.insertTokens(
+		n,
 		&node{
 			label: search[0],
 			key:   search,
@@ -519,6 +549,7 @@ func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*
 		}
 
 		newChild, err := t.insertTokens(
+			n,
 			&node{
 				key:    key,
 				regexp: tk.regexp,
@@ -535,7 +566,7 @@ func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*
 		return nc, nil
 	}
 
-	newChild, err := t.insertTokens(child, remaining, route)
+	newChild, err := t.insertTokens(n, child, remaining, route)
 	if err != nil {
 		return nil, err
 	}
@@ -554,6 +585,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 		}
 
 		newChild, err := t.insertTokens(
+			n,
 			&node{
 				key:    key,
 				regexp: tk.regexp,
@@ -569,7 +601,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 		return nc, nil
 	}
 
-	newChild, err := t.insertTokens(child, remaining, route)
+	newChild, err := t.insertTokens(n, child, remaining, route)
 	if err != nil {
 		return nil, err
 	}
