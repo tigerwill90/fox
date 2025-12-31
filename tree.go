@@ -295,15 +295,31 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 
-			// TODO maybe specify with the same methods and or matchers
-			if route.catchEmpty && p != nil && p.isLeaf() {
-				return nil, &RouteConflictError{New: route, Conflicts: p.routes}
+			// Catch-all with empty capture conflict detection.
+			// Routes like /foo/ and /foo/+{any} conflict because a request to /foo/ always matches the exact route,
+			// making /foo/+{any} unreachable. The correct semantic is to use /foo/*{any} which doesn't capture empty segments.
+			//
+			// We handle both insertion orders:
+			//   1. /foo/ then /foo/+{any}: check parent for existing exact match
+			//   2. /foo/+{any} then /foo/: check child wildcards with catchEmpty flag
+			//
+			// Conflicts are method-aware: GET /foo/ and POST /foo/+{any} don't conflict since they route to different method sets.
+			// Conflicts are matcher-agnostic: /foo/ and /foo/+{any}?a=b still conflict because pattern matching precedes matcher evaluation.
+			var conflicts []*Route
+			if route.catchEmpty && p != nil {
+				for _, r := range p.routes {
+					if slicesutil.Overlap(r.methods, route.methods) {
+						conflicts = append(conflicts, r)
+					}
+				}
+			}
+			if len(conflicts) > 0 {
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts}
 			}
 
-			var conflicts []*Route
 			for _, wildcard := range n.wildcards {
 				for _, r := range wildcard.routes {
-					if r.catchEmpty {
+					if r.catchEmpty && slicesutil.Overlap(r.methods, route.methods) {
 						conflicts = append(conflicts, r)
 					}
 				}

@@ -38,36 +38,13 @@ type RouteConflictError struct {
 }
 
 func (e *RouteConflictError) Error() string {
-	var sb strings.Builder
-	sb.WriteString("route already registered: new route ")
-
-	if len(e.New.methods) > 0 {
-		first := e.New.methods[0]
-		sb.WriteByte('[')
-		sb.WriteString(first)
-		for _, method := range e.New.methods[1:] {
-			sb.WriteString(", ")
-			sb.WriteString(method)
-		}
-		sb.WriteString("] ")
-	}
-
-	sb.WriteString(e.New.pattern)
-	sb.WriteString(" conflicts with")
-
-	for _, route := range e.Conflicts {
+	sb := new(strings.Builder)
+	sb.WriteString("route already registered: new route\n")
+	routef(sb, e.New, 4)
+	sb.WriteString("\nconflicts with")
+	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
-		sb.WriteString(route.pattern)
-		if len(route.methods) > 0 {
-			first := route.methods[0]
-			sb.WriteString(" [")
-			sb.WriteString(first)
-			for _, method := range route.methods[1:] {
-				sb.WriteString(", ")
-				sb.WriteString(method)
-			}
-			sb.WriteByte(']')
-		}
+		routef(sb, conflict, 4)
 	}
 
 	return sb.String()
@@ -88,30 +65,55 @@ type RouteNameConflictError struct {
 }
 
 func (e *RouteNameConflictError) Error() string {
-	var sb strings.Builder
-	sb.WriteString("route name already registered: new route name ")
-	sb.WriteByte('\'')
-	sb.WriteString(e.New.name)
-	sb.WriteString("' conflicts with route at ")
-
-	if len(e.Conflict.methods) > 0 {
-		first := e.Conflict.methods[0]
-		sb.WriteByte('[')
-		sb.WriteString(first)
-		for _, method := range e.Conflict.methods[1:] {
-			sb.WriteString(", ")
-			sb.WriteString(method)
-		}
-		sb.WriteString("] ")
-	}
-
-	sb.WriteString(e.Conflict.pattern)
-
+	sb := new(strings.Builder)
+	sb.WriteString("route name already registered: new route\n")
+	routef(sb, e.New, 4)
+	sb.WriteString("\nconflicts with\n")
+	routef(sb, e.Conflict, 4)
 	return sb.String()
 }
 
 func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
+}
+
+func routef(sb *strings.Builder, route *Route, pad int) {
+	sb.WriteString(strings.Repeat(" ", pad))
+	sb.WriteString("method:")
+	if len(route.methods) > 0 {
+		first := route.methods[0]
+		sb.WriteString(first)
+		for _, method := range route.methods[1:] {
+			sb.WriteByte(',')
+			sb.WriteString(method)
+		}
+	} else {
+		sb.WriteString("*")
+	}
+
+	sb.WriteString(" pattern:")
+	sb.WriteString(route.pattern)
+
+	if route.name != "" {
+		sb.WriteString(" name:")
+		sb.WriteString(route.name)
+	}
+
+	size := sb.Len()
+	for _, matcher := range route.matchers {
+		if m, ok := matcher.(fmt.Stringer); ok {
+			if sb.Len() > size {
+				sb.WriteByte(',')
+			}
+			if size == sb.Len() {
+				sb.WriteString(" matchers:{")
+			}
+			sb.WriteString(m.String())
+		}
+	}
+	if sb.Len() > size {
+		sb.WriteByte('}')
+	}
 }
 
 func newRouteNotFoundError(route *Route) error {

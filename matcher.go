@@ -58,6 +58,10 @@ func (m QueryMatcher) Equal(matcher Matcher) bool {
 	return m.key == om.key && m.value == om.value
 }
 
+func (m QueryMatcher) String() string {
+	return "q:" + m.key + "=" + m.value
+}
+
 func MatchQueryRegexp(key, expr string) (QueryRegexpMatcher, error) {
 	if key == "" {
 		return QueryRegexpMatcher{}, errors.New("empty query key")
@@ -84,6 +88,10 @@ func (m QueryRegexpMatcher) Key() string {
 func (m QueryRegexpMatcher) Regex() *regexp.Regexp {
 	re2 := *m.regex
 	return &re2
+}
+
+func (m QueryRegexpMatcher) String() string {
+	return "qx:" + m.key + "=" + m.regex.String()
 }
 
 func (m QueryRegexpMatcher) Match(c RequestContext) bool {
@@ -137,6 +145,10 @@ func (m HeaderMatcher) Equal(matcher Matcher) bool {
 	return m.canonicalKey == om.canonicalKey && m.value == om.value
 }
 
+func (m HeaderMatcher) String() string {
+	return "h:" + m.canonicalKey + "=" + m.value
+}
+
 func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
 	if key == "" {
 		return HeaderRegexpMatcher{}, errors.New("empty header key")
@@ -181,6 +193,10 @@ func (m HeaderRegexpMatcher) Equal(matcher Matcher) bool {
 	return m.canonicalKey == om.canonicalKey && m.regex.String() == om.regex.String()
 }
 
+func (m HeaderRegexpMatcher) String() string {
+	return "hx:" + m.canonicalKey + "=" + m.regex.String()
+}
+
 func MatchClientIP(ip string) (ClientIpMatcher, error) {
 	ipNet, err := netutil.ParseCIDR(ip)
 	if err != nil {
@@ -222,4 +238,8 @@ func (m ClientIpMatcher) Equal(matcher Matcher) bool {
 		return false
 	}
 	return m.ipNet.IP.Equal(om.ipNet.IP) && bytes.Equal(m.ipNet.Mask, om.ipNet.Mask)
+}
+
+func (m ClientIpMatcher) String() string {
+	return "ip:" + m.ipNet.String()
 }
