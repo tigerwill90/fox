@@ -1993,7 +1993,7 @@ func TestInsertConflict(t *testing.T) {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 			got := onlyError(f.Handle(MethodGet, tc.insert, emptyHandler))
-			assert.ErrorIs(t, got, ErrRouteExist)
+			assert.ErrorIs(t, got, ErrRouteConflict)
 			var conflict *RouteConflictError
 			require.ErrorAs(t, got, &conflict)
 			patterns := iterutil.Map(slices.Values(conflict.Conflicts), func(a *Route) string {

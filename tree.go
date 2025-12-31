@@ -304,28 +304,31 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 			//   2. /foo/+{any} then /foo/: check child wildcards with catchEmpty flag
 			//
 			// Conflicts are method-aware: GET /foo/ and POST /foo/+{any} don't conflict since they route to different method sets.
-			// Conflicts are matcher-agnostic: /foo/ and /foo/+{any}?a=b still conflict because pattern matching precedes matcher evaluation.
+			// Conflicts are matcher-aware: /foo/?x=y and /foo/+{any}?a=b don't conflict because the exact path's matcher
+			// creates a gap, such as request with ?a=b (but not ?x=y) fail the exact match and fall through to the catch-empty.
+			// Since pattern matching precedes matcher evaluation, a conflict occurs when the exact path has no matchers (shadows all requests
+			// to that pattern) or matchers equal to the catch-empty's (both match the same request).
 			var conflicts []*Route
 			if route.catchEmpty && p != nil {
 				for _, r := range p.routes {
-					if slicesutil.Overlap(r.methods, route.methods) {
+					if (len(r.matchers) == 0 || r.matchersEqual(route.matchers)) && slicesutil.Overlap(r.methods, route.methods) {
 						conflicts = append(conflicts, r)
 					}
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{New: route, Conflicts: conflicts}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts, Type: ConflictShadowed}
 			}
 
 			for _, wildcard := range n.wildcards {
 				for _, r := range wildcard.routes {
-					if r.catchEmpty && slicesutil.Overlap(r.methods, route.methods) {
+					if r.catchEmpty && (len(route.matchers) == 0 || route.matchersEqual(r.matchers)) && slicesutil.Overlap(route.methods, r.methods) {
 						conflicts = append(conflicts, r)
 					}
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{New: route, Conflicts: conflicts}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts, Type: ConflictShadowed}
 			}
 
 			if route.name != "" {

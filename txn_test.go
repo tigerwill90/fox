@@ -247,7 +247,7 @@ func TestInsertConflictWithName(t *testing.T) {
 		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/users/{id}", emptyHandler,
 			WithQueryMatcher("version", "v2"),
 			WithHeaderMatcher("Authorization", "secret"),
-		)), ErrRouteExist)
+		)), ErrRouteConflict)
 		assert.Nil(t, txn.rootTxn.writable)
 	})
 	t.Run("conflict with name", func(t *testing.T) {

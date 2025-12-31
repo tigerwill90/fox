@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrRouteNotFound           = errors.New("route not found")
-	ErrRouteExist              = errors.New("route already registered")
+	ErrRouteConflict           = errors.New("route conflict")
 	ErrRouteNameExist          = errors.New("route name already registered")
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
@@ -28,6 +28,13 @@ var (
 	ErrInvalidMatcher          = errors.New("invalid matcher")
 )
 
+type ConflictType uint8
+
+const (
+	ConflictExact    ConflictType = iota // identical patterns & matchers with overlapping methods
+	ConflictShadowed                     // route maybe unreachable
+)
+
 // RouteConflictError represents a conflict that occurred during route registration.
 // It contains the route being registered, and the existing routes that caused the conflict.
 type RouteConflictError struct {
@@ -35,13 +42,21 @@ type RouteConflictError struct {
 	New *Route
 	// Conflicts contains the previously registered routes that conflict with New.
 	Conflicts []*Route
+	Type      ConflictType
 }
 
 func (e *RouteConflictError) Error() string {
 	sb := new(strings.Builder)
-	sb.WriteString("route already registered: new route\n")
+	sb.WriteString("route conflict: new route\n")
 	routef(sb, e.New, 4)
-	sb.WriteString("\nconflicts with")
+
+	switch e.Type {
+	case ConflictShadowed:
+		sb.WriteString("\nis shadowed by")
+	default:
+		sb.WriteString("\nconflicts with")
+	}
+
 	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
 		routef(sb, conflict, 4)
@@ -52,7 +67,7 @@ func (e *RouteConflictError) Error() string {
 
 // Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
-	return ErrRouteExist
+	return ErrRouteConflict
 }
 
 // RouteNameConflictError represents a conflict that occurred during route name registration.
@@ -73,6 +88,7 @@ func (e *RouteNameConflictError) Error() string {
 	return sb.String()
 }
 
+// Unwrap returns the sentinel value [ErrRouteNameExist].
 func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
 }
