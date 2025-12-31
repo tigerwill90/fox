@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"fmt"
 	"reflect"
 	"regexp"
 	"slices"
@@ -1064,7 +1065,11 @@ func (n *node) string(space int) string {
 				if i > 0 {
 					sb.WriteString(", ")
 				}
-				sb.WriteString(reflect.TypeOf(matcher).String())
+				if m, ok := matcher.(fmt.Stringer); ok {
+					sb.WriteString(m.String())
+				} else {
+					sb.WriteString(reflect.TypeOf(matcher).String())
+				}
 			}
 			sb.WriteByte(']')
 		}
