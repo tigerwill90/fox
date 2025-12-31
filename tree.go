@@ -626,7 +626,7 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, route *Route) (*node, 
 
 		oldRoute := n.routes[idx]
 		nc := t.writeNode(n)
-		nc.delRoute(oldRoute)
+		nc.delRoute(idx)
 		if oldRoute.name != "" {
 			t.deleteName(oldRoute) // The root key always hold the http method.
 		}

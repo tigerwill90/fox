@@ -745,11 +745,7 @@ func (n *node) replaceRoute(route *Route) {
 	n.routes = slices.Insert(n.routes, insertPos, route)
 }
 
-// TODO we should pass index here
-func (n *node) delRoute(route *Route) {
-	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return slices.Equal(r.methods, route.methods) && r.matchersEqual(route.matchers)
-	})
+func (n *node) delRoute(idx int) {
 	if idx >= 0 {
 		copy(n.routes[idx:], n.routes[idx+1:])
 		last := len(n.routes) - 1
