@@ -38,6 +38,7 @@ func (r *Route) HandleMiddleware(c *Context, _ ...struct{}) {
 	r.hself(c)
 }
 
+// Methods returns an iterator over all HTTP methods this route responds to (if any), in lexicographical order.
 func (r *Route) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for _, m := range r.methods {
