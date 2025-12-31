@@ -344,6 +344,7 @@ func WithAnnotation(key, value any) RouteOption {
 // WithAnnotationFunc attaches arbitrary metadata to routes like [WithAnnotation], but the annotation value
 // is produced by a function that can also return an error. If the function returns an error, route
 // registration fails with that error wrapped in [ErrInvalidConfig].
+// TODO probably delete me
 func WithAnnotationFunc(key any, fn func() (value any, err error)) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
 		if !reflect.TypeOf(key).Comparable() {
@@ -362,7 +363,7 @@ func WithAnnotationFunc(key any, fn func() (value any, err error)) RouteOption {
 }
 
 // WithName assigns a name to a route for identification and lookup purposes.
-// The name must be unique among routes registered with the same HTTP method.
+// The name must be unique among all other routes registered.
 func WithName(name string) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
 		if name == "" {

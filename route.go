@@ -2,6 +2,7 @@ package fox
 
 import (
 	"iter"
+	"slices"
 )
 
 // Route represents an immutable HTTP route with associated handlers and settings.
@@ -14,6 +15,7 @@ type Route struct {
 	sub         *Router
 	pattern     string
 	name        string
+	methods     []string
 	mws         []middleware
 	params      []string
 	tokens      []token
@@ -34,6 +36,16 @@ func (r *Route) HandleMiddleware(c *Context, _ ...struct{}) {
 	// The variadic parameter is intentionally added to prevent this method from having the same signature as HandlerFunc.
 	// This avoids accidental use of HandleMiddleware where a HandlerFunc is required.
 	r.hself(c)
+}
+
+func (r *Route) Methods() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, m := range r.methods {
+			if !yield(m) {
+				return
+			}
+		}
+	}
 }
 
 // Pattern returns the registered route pattern.
@@ -118,8 +130,13 @@ func (r *Route) SubRouter() *Router {
 	return r.sub
 }
 
-// match returns true if all matchers attached to this [Route] match the request.
-func (r *Route) match(c RequestContext) bool {
+// match reports whether the request satisfies this route's method constraint (if any)
+// and all attached matchers.
+func (r *Route) match(method string, c RequestContext) bool {
+	if len(r.methods) > 0 && !slices.Contains(r.methods, method) {
+		return false
+	}
+
 	for _, m := range r.matchers {
 		if !m.Match(c) {
 			return false
@@ -134,12 +151,10 @@ func (r *Route) matchersEqual(matchers []Matcher) bool {
 		return false
 	}
 
-	// O(n²) in the worst case, but the matched slice should be stack-allocated in most cases.
+	// Runs in O(n²) time, but the matched slice should be stack-allocated in most cases.
 	// A hash-based O(n) approach was considered, but for small arrays the cost of populating
 	// a map outweighs the quadratic comparison cost. Additionally, maps with more than 8 elements
-	// are heap-allocated, which adds to the cost. Also, for typical use cases such as a reverse proxy
-	// that read configuration from events, database or file, matchers are likely in the same order as when the
-	// route was registered, which gives performance closer to O(n) in practice.
+	// are heap-allocated, which adds to the cost.
 	matched := make([]bool, len(matchers))
 
 outer:

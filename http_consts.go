@@ -4,6 +4,8 @@
 
 package fox
 
+import "net/http"
+
 // MIME types
 const (
 	charsetUTF8                          = "charset=utf-8"
@@ -95,9 +97,20 @@ const (
 	HeaderXRealIP              = "X-Real-Ip"
 )
 
-const (
-	MethodAny = "@ANY"
+// Common HTTP methods.
+var (
+	MethodGet     = []string{http.MethodGet}
+	MethodHead    = []string{http.MethodHead}
+	MethodPost    = []string{http.MethodPost}
+	MethodPut     = []string{http.MethodPut}
+	MethodPatch   = []string{http.MethodPatch}
+	MethodDelete  = []string{http.MethodDelete}
+	MethodConnect = []string{http.MethodConnect}
+	MethodOptions = []string{http.MethodOptions}
+	MethodTrace   = []string{http.MethodTrace}
 )
+
+var MethodAny []string
 
 // nolint:gosec
 var blacklistedHeader = []string{HeaderAuthorization, HeaderProxyAuthorization, "X-Vault-Token", HeaderCookie, HeaderSetCookie, HeaderXCSRFToken}

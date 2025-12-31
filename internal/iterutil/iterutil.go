@@ -12,26 +12,6 @@ import (
 	"github.com/tigerwill90/fox/internal/constraints"
 )
 
-func Left[K, V any](seq iter.Seq2[K, V]) iter.Seq[K] {
-	return func(yield func(K) bool) {
-		for k := range seq {
-			if !yield(k) {
-				return
-			}
-		}
-	}
-}
-
-func Right[K, V any](seq iter.Seq2[K, V]) iter.Seq[V] {
-	return func(yield func(V) bool) {
-		for _, v := range seq {
-			if !yield(v) {
-				return
-			}
-		}
-	}
-}
-
 func SeqOf[E any](elems ...E) iter.Seq[E] {
 	return func(yield func(E) bool) {
 		for _, e := range elems {
@@ -52,7 +32,7 @@ func Map[A, B any](seq iter.Seq[A], f func(A) B) iter.Seq[B] {
 	}
 }
 
-func Len2[K, V any](seq iter.Seq2[K, V]) int {
+func Len[E any](seq iter.Seq[E]) int {
 	var n int
 	for range seq {
 		n++
@@ -75,6 +55,14 @@ func Take[I constraints.Integer, E any](seq iter.Seq[E], count I) iter.Seq[E] {
 	}
 }
 
+func First[E any](seq iter.Seq[E]) E {
+	var zero E
+	for e := range seq {
+		return e
+	}
+	return zero
+}
+
 func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
 	if n < 0 {
 		panic("cannot be negative")
@@ -89,16 +77,6 @@ func At[I constraints.Integer, E any](seq iter.Seq[E], n I) (e E, ok bool) {
 		return
 	}
 	return
-}
-
-func Filter2[K, V any](seq iter.Seq2[K, V], p func(K, V) bool) iter.Seq2[K, V] {
-	return func(yield func(K, V) bool) {
-		for k, v := range seq {
-			if p(k, v) && !yield(k, v) {
-				return
-			}
-		}
-	}
 }
 
 func SplitBytesSeq(s, sep []byte) iter.Seq[[]byte] {

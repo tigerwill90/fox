@@ -1,6 +1,7 @@
 package fox
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -398,11 +399,11 @@ func TestEmptyCatchAll(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.False(t, c.tsr)
 			require.Nil(t, n)
 			assert.Equal(t, 0, idx)
@@ -430,13 +431,13 @@ func TestRouteWithParams(t *testing.T) {
 		"/info/{user}/filepath/+{any}",
 	}
 	for _, rte := range routes {
-		require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 	}
 
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		idx, n := lookupByPath(tree.patterns[http.MethodGet], rte, c, false, 0)
+		idx, n := lookupByPath(tree.patterns, http.MethodGet, rte, c, false, 0)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.routes[idx], "route: %s", rte)
 		assert.False(t, c.tsr)
@@ -484,14 +485,14 @@ func TestRouteParamEmptySegment(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		require.NoError(t, onlyError(f.Handle(http.MethodGet, tc.route, emptyHandler)))
+		require.NoError(t, onlyError(f.Handle(MethodGet, tc.route, emptyHandler)))
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			assert.Nil(t, n)
 			assert.Equal(t, 0, idx)
 			assert.Empty(t, slices.Collect(c.Params()))
@@ -1505,13 +1506,13 @@ func TestOverlappingRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
@@ -1527,7 +1528,7 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			idx, n = lookupByPath(tree.patterns[http.MethodGet], tc.path, c, true, 0)
+			idx, n = lookupByPath(tree.patterns, http.MethodGet, tc.path, c, true, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, c.tsr)
@@ -2628,11 +2629,11 @@ func TestInfixWildcard(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
@@ -2965,13 +2966,13 @@ func TestInfixWildcardTsr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New()
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.path, c, false, 0)
+			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantTsr, c.tsr)
@@ -3059,11 +3060,11 @@ func TestTree_LookupTsr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New()
 			for _, path := range tc.paths {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodGet, path, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns[http.MethodGet], tc.key, c, true, 0)
+			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.key, c, true, 0)
 			assert.Equal(t, tc.want, c.tsr)
 			if tc.want {
 				require.NotNil(t, n)
@@ -3076,28 +3077,30 @@ func TestTree_LookupTsr(t *testing.T) {
 
 func TestNode_String(t *testing.T) {
 	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
 	require.NoError(t, onlyError(f.Handle(
-		http.MethodGet, "/foo/bar",
+		MethodAny, "/foo/bar",
 		emptyHandler,
 		WithQueryMatcher("a", "b"),
 		WithHeaderMatcher("b", "c"),
 	)))
 	require.NoError(t, onlyError(f.Handle(
-		http.MethodGet, "/foo/bar",
+		[]string{http.MethodPost, http.MethodDelete}, "/foo/bar",
 		emptyHandler,
 		WithQueryMatcher("a", "b"),
 	)))
 	tree := f.getTree()
 
-	want := `path: GET
+	want := `root:
       path: /foo/ [params: 1]
           path: bar
+                => /foo/bar [methods: DELETE, POST] [matchers: fox.QueryMatcher] [priority: 1]
                 => /foo/bar [matchers: fox.QueryMatcher, fox.HeaderMatcher] [priority: 2]
-                => /foo/bar [matchers: fox.QueryMatcher] [priority: 1]
           path: ?
               path: / [wildcards: 1]
                   path: *
-                        => /foo/{bar}/*{baz} [priority: 0]`
-	assert.Equal(t, want, strings.TrimSuffix(tree.patterns[http.MethodGet].String(), "\n"))
+                        => /foo/{bar}/*{baz} [methods: GET] [priority: 0]`
+	assert.Equal(t, want, strings.TrimSuffix(tree.patterns.String(), "\n"))
+
+	fmt.Println(tree.patterns)
 }

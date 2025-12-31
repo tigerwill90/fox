@@ -1,7 +1,6 @@
 package fox
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -12,7 +11,7 @@ import (
 func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
 	f, _ := New()
 	for _, rte := range githubAPI {
-		require.NoError(t, onlyError(f.Handle(rte.method, rte.path, emptyHandler)))
+		require.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler)))
 	}
 
 	for _, rte := range githubAPI {
@@ -67,7 +66,7 @@ func TestRoute_HostnamePath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New()
-			r, err := f.Handle(http.MethodGet, tc.pattern, emptyHandler)
+			r, err := f.Handle(MethodGet, tc.pattern, emptyHandler)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantHost, r.Hostname())
 			assert.Equal(t, tc.wantPath, r.Path())

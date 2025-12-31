@@ -29,13 +29,10 @@ var (
 )
 
 // RouteConflictError represents a conflict that occurred during route registration.
-// It contains the HTTP method, the route being registered, and the existing route
-// that caused the conflict.
+// It contains the route being registered, and the existing routes that caused the conflict.
 type RouteConflictError struct {
 	// New is the route that was being registered when the conflict was detected.
 	New *Route
-	// Method is the HTTP method for which the conflict occurred.
-	Method string
 	// Conflicts contains the previously registered routes that conflict with New.
 	Conflicts []*Route
 }
@@ -43,17 +40,34 @@ type RouteConflictError struct {
 func (e *RouteConflictError) Error() string {
 	var sb strings.Builder
 	sb.WriteString("route already registered: new route ")
-	sb.WriteString(e.Method)
-	sb.WriteByte(' ')
+
+	if len(e.New.methods) > 0 {
+		first := e.New.methods[0]
+		sb.WriteByte('[')
+		sb.WriteString(first)
+		for _, method := range e.New.methods[1:] {
+			sb.WriteString(", ")
+			sb.WriteString(method)
+		}
+		sb.WriteString("] ")
+	}
+
 	sb.WriteString(e.New.pattern)
 	sb.WriteString(" conflicts with ")
 
-	// A RouteConflictError as always at least one conflicting route.
-	first := e.Conflicts[0].pattern
-	sb.WriteString(first)
-	for _, route := range e.Conflicts[1:] {
-		sb.WriteString("; ")
+	for _, route := range e.Conflicts {
+		sb.WriteByte('\n')
 		sb.WriteString(route.pattern)
+		if len(route.methods) > 0 {
+			first := route.methods[0]
+			sb.WriteString(" [")
+			sb.WriteString(first)
+			for _, method := range route.methods[1:] {
+				sb.WriteString(", ")
+				sb.WriteString(method)
+			}
+			sb.WriteByte(']')
+		}
 	}
 
 	return sb.String()
@@ -64,16 +78,45 @@ func (e *RouteConflictError) Unwrap() error {
 	return ErrRouteExist
 }
 
+// RouteNameConflictError represents a conflict that occurred during route name registration.
+// It contains the route being registered, and the existing route that caused the conflict.
 type RouteNameConflictError struct {
-	New      *Route
+	// New is the route that was being registered when the conflict was detected.
+	New *Route
+	// Conflict is the previously registered route that conflict with New.
 	Conflict *Route
-	Method   string
 }
 
 func (e *RouteNameConflictError) Error() string {
-	return fmt.Sprintf("%s: new route name '%s' conflict with route at %s %s", ErrRouteNameExist, e.New.name, e.Method, e.Conflict.pattern)
+	var sb strings.Builder
+	sb.WriteString("route name already registered: new route name ")
+	sb.WriteByte('\'')
+	sb.WriteString(e.New.name)
+	sb.WriteString("' conflicts with route at ")
+
+	if len(e.Conflict.methods) > 0 {
+		first := e.Conflict.methods[0]
+		sb.WriteByte('[')
+		sb.WriteString(first)
+		for _, method := range e.Conflict.methods[1:] {
+			sb.WriteString(", ")
+			sb.WriteString(method)
+		}
+		sb.WriteString("] ")
+	}
+
+	sb.WriteString(e.Conflict.pattern)
+
+	return sb.String()
 }
 
 func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
+}
+
+func newRouteNotFoundError(route *Route) error {
+	if len(route.methods) > 0 {
+		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, strings.Join(route.methods, ", "), route.pattern)
+	}
+	return fmt.Errorf("%w: route %s is not registered", ErrRouteNotFound, route.pattern)
 }

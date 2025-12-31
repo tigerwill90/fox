@@ -13,7 +13,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox/internal/iterutil"
 )
 
 func TestDefaultOptions(t *testing.T) {
@@ -36,16 +35,16 @@ func TestRouterWithClientIP(t *testing.T) {
 		assert.NotNil(t, ip)
 		DefaultNotFoundHandler(c)
 	}))
-	f.MustHandle(http.MethodGet, "/foo", emptyHandler)
+	f.MustHandle(MethodGet, "/foo", emptyHandler)
 	rf := f.RouterInfo()
 	assert.True(t, rf.ClientIP)
 
-	rte := f.Route(http.MethodGet, "/foo")
+	rte := f.Route(MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.NotNil(t, rte.ClientIPResolver())
 
-	require.NoError(t, onlyError(f.Update(http.MethodGet, "/foo", emptyHandler, WithClientIPResolver(nil))))
-	rte = f.Route(http.MethodGet, "/foo")
+	require.NoError(t, onlyError(f.Update(MethodGet, "/foo", emptyHandler, WithClientIPResolver(nil))))
+	rte = f.Route(MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.Nil(t, rte.ClientIPResolver())
 
@@ -63,7 +62,7 @@ func TestWithNotFoundHandler(t *testing.T) {
 
 	f, err := New(WithNoRouteHandler(notFound))
 	require.NoError(t, err)
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(MethodGet, "/foo", emptyHandler)))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
 	w := httptest.NewRecorder()
@@ -83,7 +82,7 @@ func TestRouterWithMethodNotAllowedHandler(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(MethodPost, "/foo/bar", emptyHandler)))
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
@@ -103,8 +102,8 @@ func TestRouterWithOptionsHandler(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/foo/{bar}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(MethodGet, "/foo/{bar}", emptyHandler)))
+	require.NoError(t, onlyError(f.Handle(MethodPost, "/foo/{bar}", emptyHandler)))
 
 	req := httptest.NewRequest(http.MethodOptions, "/foo/bar", nil)
 	w := httptest.NewRecorder()
@@ -168,7 +167,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsEnable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, emptyHandler)))
 			}
 			req := httptest.NewRequest(tc.target, tc.req, nil)
 			w := httptest.NewRecorder()
@@ -249,10 +248,10 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := MustNew(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c *Context) {
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, func(c *Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
+					c.SetHeader("Allow", strings.Join(tc.methods, ","))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -270,18 +269,18 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 			t.Run("with sub router", func(t *testing.T) {
 				sub := MustNew(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
 				for _, method := range tc.methods {
-					require.NoError(t, onlyError(sub.Handle(method, tc.path, func(c *Context) {
+					require.NoError(t, onlyError(sub.Handle([]string{method}, tc.path, func(c *Context) {
 						req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 						req.Host = c.Host()
-						c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
+						c.SetHeader("Allow", strings.Join(tc.methods, ","))
 						c.Writer().WriteHeader(http.StatusNoContent)
 					})))
 				}
 
 				f := MustNew()
-				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				route, err := f.NewSubRouter(MethodAny, "example.com/+{any}", sub)
 				require.NoError(t, err)
-				require.NoError(t, f.HandleRoute(MethodAny, route))
+				require.NoError(t, f.HandleRoute(route))
 
 				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 				req.Host = "example.com"
@@ -315,7 +314,7 @@ func TestWithScopedMiddleware(t *testing.T) {
 	})
 
 	r, _ := New(WithMiddlewareFor(NoRouteHandler, m))
-	require.NoError(t, onlyError(r.Handle(http.MethodGet, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(r.Handle(MethodGet, "/foo/bar", emptyHandler)))
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
 	w := httptest.NewRecorder()
@@ -334,12 +333,12 @@ func TestInvalidMiddleware(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 	f, err := New()
 	require.NoError(t, err)
-	require.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMiddleware(nil))), ErrInvalidConfig)
+	require.ErrorIs(t, onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithMiddleware(nil))), ErrInvalidConfig)
 }
 
 func TestMiddlewareLength(t *testing.T) {
 	f, _ := New(DevelopmentOptions())
-	r := f.MustHandle(http.MethodGet, "/", emptyHandler, WithMiddleware(Recovery(slog.DiscardHandler), Logger(slog.DiscardHandler)))
+	r := f.MustHandle(MethodGet, "/", emptyHandler, WithMiddleware(Recovery(slog.DiscardHandler), Logger(slog.DiscardHandler)))
 	assert.Len(t, f.mws, 2)
 	assert.Len(t, r.mws, 4)
 }
@@ -397,7 +396,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, emptyHandler)))
 			}
 			req := httptest.NewRequest(tc.target, tc.path, nil)
 			w := httptest.NewRecorder()
@@ -449,7 +448,7 @@ func TestRouterWithAllowedMethodAndAutoOptions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, emptyHandler)))
 			}
 			req := httptest.NewRequest(tc.target, tc.req, nil)
 			w := httptest.NewRecorder()
@@ -491,7 +490,7 @@ func TestRouterWithAllowedMethodAndIgnoreTsDisable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, emptyHandler)))
 			}
 			req := httptest.NewRequest(tc.target, tc.req, nil)
 			w := httptest.NewRecorder()
@@ -575,10 +574,10 @@ func TestRouterWithAutomaticOptions(t *testing.T) {
 			require.True(t, rf.AutoOptions)
 			require.True(t, rf.SystemWideOptions)
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c *Context) {
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, func(c *Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
+					c.SetHeader("Allow", strings.Join(tc.methods, ","))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -645,7 +644,7 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 			require.True(t, rf.AutoOptions)
 			require.True(t, rf.SystemWideOptions)
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, emptyHandler)))
 			}
 			req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 			req.Header = tc.headers
@@ -657,13 +656,13 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 			t.Run("with sub router", func(t *testing.T) {
 				sub := MustNew(WithAutoOptions(true), WithSystemWideOptions(true), WithNoMethod(true))
 				for _, method := range tc.methods {
-					require.NoError(t, onlyError(sub.Handle(method, tc.path, emptyHandler)))
+					require.NoError(t, onlyError(sub.Handle([]string{method}, tc.path, emptyHandler)))
 				}
 
 				f := MustNew()
-				route, err := f.NewSubRouter("example.com/+{any}", sub)
+				route, err := f.NewSubRouter(MethodAny, "example.com/+{any}", sub)
 				require.NoError(t, err)
-				require.NoError(t, f.HandleRoute(MethodAny, route))
+				require.NoError(t, f.HandleRoute(route))
 
 				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 				req.Host = "example.com"
@@ -705,10 +704,10 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionDisable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(WithAutoOptions(true))
 			for _, method := range tc.methods {
-				require.NoError(t, onlyError(f.Handle(method, tc.path, func(c *Context) {
+				require.NoError(t, onlyError(f.Handle([]string{method}, tc.path, func(c *Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(slices.Sorted(iterutil.Left(c.Fox().Iter().Matches(c.Fox().Iter().Methods(), req))), ", "))
+					c.SetHeader("Allow", strings.Join(tc.methods, ","))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -724,7 +723,7 @@ func TestInvalidAnnotation(t *testing.T) {
 	var nonComparableKey = []int{1, 2, 3}
 	f, err := New()
 	require.NoError(t, err)
-	assert.ErrorIs(t, onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler, WithAnnotation(nonComparableKey, nil))), ErrInvalidConfig)
+	assert.ErrorIs(t, onlyError(f.Handle(MethodGet, "/foo/{bar}", emptyHandler, WithAnnotation(nonComparableKey, nil))), ErrInvalidConfig)
 }
 
 func TestAnnotationFuncWithError(t *testing.T) {
@@ -735,7 +734,7 @@ func TestAnnotationFuncWithError(t *testing.T) {
 		return nil, want
 	}
 
-	err = onlyError(f.Handle(http.MethodGet, "/foo/{bar}", emptyHandler, WithAnnotationFunc("foo", fn)))
+	err = onlyError(f.Handle(MethodGet, "/foo/{bar}", emptyHandler, WithAnnotationFunc("foo", fn)))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 	assert.ErrorIs(t, err, want)
 }
@@ -771,14 +770,14 @@ func TestWithQueryMatcher(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := New()
 			require.NoError(t, err)
-			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithQueryMatcher(tc.key, tc.value)))
+			err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithQueryMatcher(tc.key, tc.value)))
 			if tc.wantErr {
 				assert.ErrorIs(t, err, ErrInvalidMatcher)
 				return
 			}
 			require.NoError(t, err)
 			m, _ := MatchQuery(tc.key, tc.value)
-			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+			assert.True(t, f.Has(MethodGet, "/foo", m))
 		})
 	}
 }
@@ -814,14 +813,14 @@ func TestWithQueryRegexpMatcher(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := New()
 			require.NoError(t, err)
-			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithQueryRegexpMatcher(tc.key, tc.expr)))
+			err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithQueryRegexpMatcher(tc.key, tc.expr)))
 			if tc.wantErr {
 				assert.ErrorIs(t, err, ErrInvalidMatcher)
 				return
 			}
 			require.NoError(t, err)
 			m, _ := MatchQueryRegexp(tc.key, tc.expr)
-			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+			assert.True(t, f.Has(MethodGet, "/foo", m))
 		})
 	}
 }
@@ -857,14 +856,14 @@ func TestWithHeaderMatcher(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := New()
 			require.NoError(t, err)
-			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithHeaderMatcher(tc.key, tc.value)))
+			err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithHeaderMatcher(tc.key, tc.value)))
 			if tc.wantErr {
 				assert.ErrorIs(t, err, ErrInvalidMatcher)
 				return
 			}
 			require.NoError(t, err)
 			m, _ := MatchHeader(tc.key, tc.value)
-			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+			assert.True(t, f.Has(MethodGet, "/foo", m))
 		})
 	}
 }
@@ -900,14 +899,14 @@ func TestWithHeaderRegexpMatcher(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := New()
 			require.NoError(t, err)
-			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithHeaderRegexpMatcher(tc.key, tc.expr)))
+			err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithHeaderRegexpMatcher(tc.key, tc.expr)))
 			if tc.wantErr {
 				assert.ErrorIs(t, err, ErrInvalidMatcher)
 				return
 			}
 			require.NoError(t, err)
 			m, _ := MatchHeaderRegexp(tc.key, tc.expr)
-			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+			assert.True(t, f.Has(MethodGet, "/foo", m))
 		})
 	}
 }
@@ -949,14 +948,14 @@ func TestWithClientIPMatcher(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := New()
 			require.NoError(t, err)
-			err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithClientIPMatcher(tc.ip)))
+			err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithClientIPMatcher(tc.ip)))
 			if tc.wantErr {
 				assert.ErrorIs(t, err, ErrInvalidMatcher)
 				return
 			}
 			require.NoError(t, err)
 			m, _ := MatchClientIP(tc.ip)
-			assert.True(t, f.Has(http.MethodGet, "/foo", m))
+			assert.True(t, f.Has(MethodGet, "/foo", m))
 		})
 	}
 }
@@ -966,15 +965,15 @@ func TestWithMatcher(t *testing.T) {
 		f, err := New()
 		require.NoError(t, err)
 		m, _ := MatchQuery("foo", "bar")
-		err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcher(m)))
+		err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithMatcher(m)))
 		require.NoError(t, err)
-		assert.True(t, f.Has(http.MethodGet, "/foo", m))
+		assert.True(t, f.Has(MethodGet, "/foo", m))
 	})
 
 	t.Run("nil matcher", func(t *testing.T) {
 		f, err := New()
 		require.NoError(t, err)
-		err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcher(nil)))
+		err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithMatcher(nil)))
 		assert.ErrorIs(t, err, ErrInvalidMatcher)
 	})
 
@@ -982,7 +981,7 @@ func TestWithMatcher(t *testing.T) {
 		f, err := New()
 		require.NoError(t, err)
 		m, _ := MatchQuery("foo", "bar")
-		err = onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler, WithMatcher(m, nil)))
+		err = onlyError(f.Handle(MethodGet, "/foo", emptyHandler, WithMatcher(m, nil)))
 		assert.ErrorIs(t, err, ErrInvalidMatcher)
 	})
 }

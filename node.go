@@ -14,44 +14,82 @@ import (
 
 const offsetZero = 0
 
-type root map[string]*node
+type node struct {
+	// routes holds the registered handlers if this node is a leaf.
+	routes []*Route
 
-func (rt root) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
+	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.
+	// When present, captured segments must match this pattern during lookup.
+	regexp *regexp.Regexp
+
+	// key identifies the node's content and varies by node type:
+	//
+	// Static nodes: Contains the literal path segment (e.g., "/users", "foo")
+	//
+	// Param nodes without regex: Contains "?" as a canonical placeholder.
+	// This allows routes with different param names (/foo/{bar} and /foo/{fizz})
+	// to share the same tree node while preventing duplicate route registration.
+	// The actual placeholder names are stored in the route definition.
+	//
+	// Wildcard nodes without regex: Contains "*" as a canonical placeholder,
+	// following the same sharing semantics as params.
+	//
+	// Param/wildcard nodes with regex contains the regex pattern literal.
+	// Multiple regex nodes can exist at the same level, each with a distinct pattern.
+	// During lookup, patterns are evaluated in insertion order until one matches.
+	key string
+
+	// statics contains child nodes for static path segments, sorted by label byte.
+	statics []*node
+
+	// params contains child nodes for parameters. Regex params are ordered first
+	// (in insertion order), followed by at most one non-regex param node ("?").
+	params []*node
+
+	// wildcards contains child nodes for catch-all segments. Regex wildcards are
+	// ordered first (in insertion order), followed by at most one non-regex wildcard ("*").
+	wildcards []*node
+
+	// label is the first byte of the key for static nodes, used for binary search.
+	// Set to 0x00 for param and wildcard nodes.
+	label byte
+
+	// host indicates this node's key belongs to the hostname portion of the route.
+	// A node that belong to a host cannot be merged with a child key that start with a '/'.
+	host bool
+}
+
+func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
 	// tsr come from the sync.Pool and has not been reset yet.
 	c.tsr = false
 	paramOffset := len(*c.params)
 
-	root := rt[method]
-	if root == nil {
-		return 0, nil
-	}
-
 	*c.skipStack = (*c.skipStack)[:0]
 	// The tree for this method, we only have path registered
-	if len(root.params) == 0 && len(root.wildcards) == 0 && len(root.statics) == 1 && root.statics[0].label == slashDelim {
-		return lookupByPath(root, path, c, lazy, offsetZero)
+	if len(n.params) == 0 && len(n.wildcards) == 0 && len(n.statics) == 1 && n.statics[0].label == slashDelim {
+		return lookupByPath(n, method, path, c, lazy, offsetZero)
 	}
 
 	host := netutil.StripHostPort(hostPort)
 	if host == "" {
-		return lookupByPath(root, path, c, lazy, offsetZero)
+		return lookupByPath(n, method, path, c, lazy, offsetZero)
 	}
 
-	idx, n := lookupByHostname(root, host, path, c, lazy)
-	if n == nil || c.tsr {
+	idx, nd := lookupByHostname(n, method, host, path, c, lazy)
+	if nd == nil || c.tsr {
 		// Either no match or match with tsr, try lookup by path with tsr enable
 		// so we won't check for tsr again.
 		*c.skipStack = (*c.skipStack)[:0]
 		*c.params = (*c.params)[:paramOffset]
-		if i, pathNode := lookupByPath(root, path, c, lazy, offsetZero); pathNode != nil {
+		if i, pathNode := lookupByPath(n, method, path, c, lazy, offsetZero); pathNode != nil {
 			return i, pathNode
 		}
 	}
 	// Hostname direct match
-	return idx, n
+	return idx, nd
 }
 
-func lookupByHostname(root *node, host, path string, c *Context, lazy bool) (index int, n *node) {
+func lookupByHostname(root *node, method, host, path string, c *Context, lazy bool) (index int, n *node) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -234,7 +272,7 @@ Walk:
 
 	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil {
 		stackOffset := len(*c.skipStack)
-		idx, subNode := lookupByPath(matched, path, c, lazy, stackOffset)
+		idx, subNode := lookupByPath(matched, method, path, c, lazy, stackOffset)
 		if subNode != nil {
 			if c.tsr {
 				n = subNode
@@ -280,7 +318,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, path string, c *Context, lazy bool, stackOffset int) (index int, n *node) {
+func lookupByPath(root *node, method, path string, c *Context, lazy bool, stackOffset int) (index int, n *node) {
 
 	var (
 		charsMatched     int
@@ -324,7 +362,7 @@ Walk:
 				if !c.tsr && strings.HasPrefix(child.key, search) && child.key[len(search):] == "/" {
 					if child.isLeaf() {
 						for i, route := range child.routes {
-							if route.match(c) {
+							if route.match(method, c) {
 								c.tsr = true
 								n = child
 								index = i //nolint:staticcheck
@@ -339,7 +377,7 @@ Walk:
 						// if the child is a leaf.
 						for _, wildcardNode := range child.wildcards {
 							for i, route := range wildcardNode.routes {
-								if route.catchEmpty && route.match(c) {
+								if route.catchEmpty && route.match(method, c) {
 									c.tsr = true
 									n = wildcardNode
 									index = i //nolint:staticcheck
@@ -428,7 +466,7 @@ Walk:
 						if !c.tsr && len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								for j, route := range child.routes {
-									if route.match(c) {
+									if route.match(method, c) {
 										c.tsr = true
 										n = child
 										index = j //nolint:staticcheck
@@ -511,7 +549,7 @@ Walk:
 				}
 
 				for i, route := range wildcardNode.routes {
-					if route.match(c) {
+					if route.match(method, c) {
 						if !lazy {
 							*c.params = append(*c.params, search)
 						}
@@ -527,7 +565,7 @@ Walk:
 
 	if matched.isLeaf() {
 		for i, route := range matched.routes {
-			if route.match(c) {
+			if route.match(method, c) {
 				c.tsr = false
 				return i, matched
 			}
@@ -537,7 +575,7 @@ Walk:
 	// Try to catch empty for wildcard supporting it.
 	for _, wildcardNode := range matched.wildcards {
 		for i, route := range wildcardNode.routes {
-			if route.catchEmpty && route.match(c) {
+			if route.catchEmpty && route.match(method, c) {
 				if !lazy {
 					*c.params = append(*c.params, "")
 				}
@@ -550,7 +588,7 @@ Walk:
 	if !c.tsr {
 		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 			for i, route := range child.routes {
-				if route.match(c) {
+				if route.match(method, c) {
 					c.tsr = true
 					n = child
 					index = i //nolint:staticcheck
@@ -562,7 +600,7 @@ Walk:
 			}
 		} else if matched.key == "/" && parent != nil && parent.isLeaf() {
 			for i, route := range parent.routes {
-				if route.match(c) {
+				if route.match(method, c) {
 					c.tsr = true
 					n = parent
 					index = i //nolint:staticcheck
@@ -578,7 +616,7 @@ Walk:
 Backtrack:
 	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
-			if route.match(c) {
+			if route.match(method, c) {
 				c.tsr = true
 				n = matched
 				index = i //nolint:staticcheck
@@ -622,68 +660,43 @@ Backtrack:
 	goto Walk
 }
 
-type node struct {
-	// routes holds the registered handlers if this node is a leaf.
-	routes []*Route
-
-	// regexp is an optional compiled regular expression constraint for param and wildcard nodes.
-	// When present, captured segments must match this pattern during lookup.
-	regexp *regexp.Regexp
-
-	// key identifies the node's content and varies by node type:
-	//
-	// Static nodes: Contains the literal path segment (e.g., "/users", "foo")
-	//
-	// Param nodes without regex: Contains "?" as a canonical placeholder.
-	// This allows routes with different param names (/foo/{bar} and /foo/{fizz})
-	// to share the same tree node while preventing duplicate route registration.
-	// The actual placeholder names are stored in the route definition.
-	//
-	// Wildcard nodes without regex: Contains "*" as a canonical placeholder,
-	// following the same sharing semantics as params.
-	//
-	// Param/wildcard nodes with regex contains the regex pattern literal.
-	// Multiple regex nodes can exist at the same level, each with a distinct pattern.
-	// During lookup, patterns are evaluated in insertion order until one matches.
-	key string
-
-	// statics contains child nodes for static path segments, sorted by label byte.
-	statics []*node
-
-	// params contains child nodes for parameters. Regex params are ordered first
-	// (in insertion order), followed by at most one non-regex param node ("?").
-	params []*node
-
-	// wildcards contains child nodes for catch-all segments. Regex wildcards are
-	// ordered first (in insertion order), followed by at most one non-regex wildcard ("*").
-	wildcards []*node
-
-	// label is the first byte of the key for static nodes, used for binary search.
-	// Set to 0x00 for param and wildcard nodes.
-	label byte
-
-	// host indicates this node's key belongs to the hostname portion of the route.
-	// A node that belong to a host cannot be merged with a child key that start with a '/'.
-	host bool
-}
-
 func (n *node) addRoute(route *Route) {
-	// route with no matcher always goes at the end
-	if len(route.matchers) == 0 {
+	// route with no matcher and no methods always goes at the end
+	if len(route.matchers) == 0 && len(route.methods) == 0 {
 		n.routes = append(n.routes, route)
 		return
 	}
 
 	insertPos := len(n.routes)
-	for i, existing := range n.routes {
-		if len(existing.matchers) == 0 {
-			insertPos = i
-			break
-		}
+	if len(route.matchers) > 0 {
+		routeHasMethods := len(route.methods) > 0
+		for i, existing := range n.routes {
+			// before any matcher-less routes
+			if len(existing.matchers) == 0 {
+				insertPos = i
+				break
+			}
 
-		if route.priority > existing.priority {
-			insertPos = i
-			break
+			existingHasMethods := len(existing.methods) > 0
+
+			// routes with methods before routes without (regardless of priority)
+			if routeHasMethods && !existingHasMethods {
+				insertPos = i
+				break
+			}
+
+			// within same method "tier", higher priority first
+			if routeHasMethods == existingHasMethods && route.priority > existing.priority {
+				insertPos = i
+				break
+			}
+		}
+	} else {
+		for i, existing := range n.routes {
+			if len(existing.matchers) == 0 && len(existing.methods) == 0 {
+				insertPos = i
+				break
+			}
 		}
 	}
 
@@ -692,7 +705,7 @@ func (n *node) addRoute(route *Route) {
 
 func (n *node) replaceRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return r.matchersEqual(route.matchers)
+		return slices.Equal(r.methods, route.methods) && r.matchersEqual(route.matchers)
 	})
 	if idx < 0 {
 		panic("internal error: replacing missing route")
@@ -708,6 +721,7 @@ func (n *node) replaceRoute(route *Route) {
 
 	n.routes = slices.Delete(n.routes, idx, idx+1)
 	insertPos := len(n.routes)
+	routeHasMethods := len(route.methods) > 0
 
 	for i, existing := range n.routes {
 		if len(existing.matchers) == 0 {
@@ -715,7 +729,14 @@ func (n *node) replaceRoute(route *Route) {
 			break
 		}
 
-		if route.priority > existing.priority {
+		existingHasMethods := len(existing.methods) > 0
+
+		if routeHasMethods && !existingHasMethods {
+			insertPos = i
+			break
+		}
+
+		if routeHasMethods == existingHasMethods && route.priority > existing.priority {
 			insertPos = i
 			break
 		}
@@ -724,9 +745,10 @@ func (n *node) replaceRoute(route *Route) {
 	n.routes = slices.Insert(n.routes, insertPos, route)
 }
 
+// TODO we should pass index here
 func (n *node) delRoute(route *Route) {
 	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return r.matchersEqual(route.matchers)
+		return slices.Equal(r.methods, route.methods) && r.matchersEqual(route.matchers)
 	})
 	if idx >= 0 {
 		copy(n.routes[idx:], n.routes[idx+1:])
@@ -1001,8 +1023,12 @@ func (n *node) String() string {
 func (n *node) string(space int) string {
 	sb := strings.Builder{}
 	sb.WriteString(strings.Repeat(" ", space))
-	sb.WriteString("path: ")
-	sb.WriteString(n.key)
+	if n.key == "" {
+		sb.WriteString("root:")
+	} else {
+		sb.WriteString("path: ")
+		sb.WriteString(n.key)
+	}
 	if n.host {
 		sb.WriteString(" (host)")
 	}
@@ -1024,6 +1050,18 @@ func (n *node) string(space int) string {
 		sb.WriteString(strings.Repeat(" ", space+8))
 		sb.WriteString("=> ")
 		sb.WriteString(route.pattern)
+
+		if len(route.methods) > 0 {
+			sb.WriteString(" [methods: ")
+			for i, method := range route.methods {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(method)
+			}
+			sb.WriteByte(']')
+		}
+
 		if len(route.matchers) > 0 {
 			sb.WriteString(" [matchers: ")
 			for i, matcher := range route.matchers {

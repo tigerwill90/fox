@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/tigerwill90/fox/internal/simplelru"
+	"github.com/tigerwill90/fox/internal/slicesutil"
 )
 
 const defaultModifiedCache = 4096
@@ -16,8 +17,9 @@ const defaultModifiedCache = 4096
 type iTree struct {
 	pool      sync.Pool
 	fox       *Router
-	patterns  root
-	names     root
+	patterns  *node
+	names     *node
+	methods   map[string]uint
 	size      int
 	maxParams int
 	maxDepth  int
@@ -28,6 +30,7 @@ func (t *iTree) txn() *tXn {
 		tree:      t,
 		patterns:  t.patterns,
 		names:     t.names,
+		methods:   t.methods,
 		size:      t.size,
 		maxParams: t.maxParams,
 		maxDepth:  t.maxDepth,
@@ -41,11 +44,7 @@ func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy bool) (in
 func (t *iTree) lookupByPath(method, path string, c *Context, lazy bool) (int, *node) {
 	c.tsr = false
 	*c.skipStack = (*c.skipStack)[:0]
-	root := t.patterns[method]
-	if root == nil {
-		return 0, nil
-	}
-	return lookupByPath(root, path, c, lazy, offsetZero)
+	return lookupByPath(t.patterns, method, path, c, lazy, offsetZero)
 }
 
 func (t *iTree) allocateContext() *Context {
@@ -69,14 +68,13 @@ func (t *iTree) allocateContext() *Context {
 type tXn struct {
 	tree      *iTree
 	writable  *simplelru.LRU[*node, struct{}]
-	patterns  root
-	names     root
-	method    string
+	patterns  *node
+	names     *node
+	methods   map[string]uint
 	size      int
 	maxParams int
 	maxDepth  int
-	pForked   bool
-	nForked   bool
+	forked    bool
 	mode      insertMode
 }
 
@@ -84,6 +82,7 @@ func (t *tXn) commit() *iTree {
 	tc := &iTree{
 		patterns:  t.patterns,
 		names:     t.names,
+		methods:   t.methods,
 		fox:       t.tree.fox,
 		size:      t.size,
 		maxParams: t.maxParams,
@@ -95,8 +94,7 @@ func (t *tXn) commit() *iTree {
 		},
 	}
 	t.writable = nil
-	t.pForked = false
-	t.nForked = false
+	t.forked = false
 	return tc
 }
 
@@ -105,11 +103,12 @@ func (t *tXn) commit() *iTree {
 // in different tree on commit.
 func (t *tXn) clone() *tXn {
 	t.writable = nil
-	t.pForked = false
-	t.nForked = false
+	t.forked = false
 	tx := &tXn{
 		tree:      t.tree,
 		patterns:  t.patterns,
+		names:     t.names,
+		methods:   t.methods,
 		size:      t.size,
 		maxParams: t.maxParams,
 		maxDepth:  t.maxDepth,
@@ -119,31 +118,19 @@ func (t *tXn) clone() *tXn {
 
 // snapshot capture a point-in-time snapshot of the roots tree. Further mutation to txn
 // will not be reflected on the snapshot.
-func (t *tXn) snapshot() (patterns, names root) {
+func (t *tXn) snapshot() (patterns, names *node, methods map[string]uint) {
 	t.writable = nil
-	t.pForked = false
-	t.nForked = false
-	return t.patterns, t.names
+	t.forked = false
+	return t.patterns, t.names, t.methods
 }
 
-func (t *tXn) insertName(method string, route *Route, mode insertMode) error {
-	root := t.names[method]
-	if root == nil {
-		root = &node{
-			key: method,
-		}
-	}
-
-	newRoot, err := t.insertNameIn(root, route.name, route, mode)
+func (t *tXn) insertName(route *Route, mode insertMode) error {
+	newRoot, err := t.insertNameIn(t.names, route.name, route, mode)
 	if err != nil {
 		return err
 	}
 	if newRoot != nil {
-		if !t.nForked {
-			t.names = maps.Clone(t.names)
-			t.nForked = true
-		}
-		t.names[method] = newRoot
+		t.names = newRoot
 	}
 	return nil
 }
@@ -155,7 +142,7 @@ func (t *tXn) insertNameIn(n *node, search string, route *Route, mode insertMode
 			// update mode provides a stronger guarantee: the caller has already verified that old.name == new.name
 			// before invoking insert. This precondition eliminates the need to check for update errors in cases
 			// like node splitting, which the standard insert path must handle.
-			return nil, &RouteNameConflictError{Method: t.method, New: route, Conflict: n.routes[0]}
+			return nil, &RouteNameConflictError{New: route, Conflict: n.routes[0]}
 		}
 
 		nc := t.writeNode(n)
@@ -214,22 +201,10 @@ func (t *tXn) insertNameIn(n *node, search string, route *Route, mode insertMode
 	return nc, nil
 }
 
-func (t *tXn) deleteName(method string, route *Route) bool {
-	root := t.names[method]
-	if root == nil {
-		return false
-	}
-
-	newRoot := t.deleteNameIn(root, root, route.name)
+func (t *tXn) deleteName(route *Route) bool {
+	newRoot := t.deleteNameIn(t.names, t.names, route.name)
 	if newRoot != nil {
-		if !t.nForked {
-			t.names = maps.Clone(t.names)
-			t.nForked = true
-		}
-		t.names[method] = newRoot
-		if len(newRoot.statics) == 0 {
-			delete(t.names, method)
-		}
+		t.names = newRoot
 		return true
 	}
 
@@ -281,33 +256,28 @@ func (t *tXn) deleteNameIn(root, n *node, search string) *node {
 }
 
 // insert performs a recursive copy-on-write insertion.
-func (t *tXn) insert(method string, route *Route, mode insertMode) error {
-	root := t.patterns[method]
-	if root == nil {
-		if t.mode == modeUpdate {
-			return fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, method, route.pattern)
-		}
-		root = &node{
-			key: method,
-		}
-	}
-
+func (t *tXn) insert(route *Route, mode insertMode) error {
 	t.mode = mode
-	t.method = method
 
-	newRoot, err := t.insertTokens(nil, root, route.tokens, route)
+	newRoot, err := t.insertTokens(nil, t.patterns, route.tokens, route)
 	if err != nil {
 		return err
 	}
 	if newRoot != nil {
-		if !t.pForked {
-			t.patterns = maps.Clone(t.patterns)
-			t.pForked = true
-		}
-		t.patterns[method] = newRoot
+		t.patterns = newRoot
 		t.maxDepth = max(t.maxDepth, t.computePathDepth(newRoot, route.tokens))
 		t.maxParams = max(t.maxParams, len(route.params))
 		t.size++
+		if len(route.methods) > 0 && t.mode == modeInsert {
+			if !t.forked {
+				t.methods = maps.Clone(t.methods)
+				t.forked = true
+			}
+
+			for _, method := range route.methods {
+				t.methods[method]++
+			}
+		}
 	}
 	return nil
 }
@@ -318,13 +288,16 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 		switch t.mode {
 		case modeInsert:
 			if n.isLeaf() {
-				if idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.matchersEqual(route.matchers) }); idx >= 0 {
-					return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: []*Route{n.routes[idx]}}
+				if idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+					return r.matchersEqual(route.matchers) && slicesutil.Overlap(r.methods, route.methods)
+				}); idx >= 0 {
+					return nil, &RouteConflictError{New: route, Conflicts: []*Route{n.routes[idx]}}
 				}
 			}
 
+			// TODO maybe specify with the same methods and or matchers
 			if route.catchEmpty && p != nil && p.isLeaf() {
-				return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: p.routes}
+				return nil, &RouteConflictError{New: route, Conflicts: p.routes}
 			}
 
 			var conflicts []*Route
@@ -336,11 +309,11 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{Method: t.method, New: route, Conflicts: conflicts}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts}
 			}
 
 			if route.name != "" {
-				if err := t.insertName(t.method, route, modeInsert); err != nil {
+				if err := t.insertName(route, modeInsert); err != nil {
 					return nil, err
 				}
 			}
@@ -349,9 +322,11 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 			nc.addRoute(route)
 			return nc, nil
 		case modeUpdate:
-			idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.matchersEqual(route.matchers) })
+			idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+				return r.pattern == route.pattern && slices.Equal(r.methods, route.methods) && r.matchersEqual(route.matchers)
+			})
 			if idx == -1 {
-				return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+				return nil, newRouteNotFoundError(route)
 			}
 
 			oldRoute := n.routes[idx]
@@ -366,20 +341,20 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				// If the new route has no name, we simply need to delete the old name (and the new route will not have
 				// any name registered)
 				if route.name == "" {
-					t.deleteName(t.method, n.routes[idx])
+					t.deleteName(n.routes[idx])
 				} else if oldRoute.name == route.name {
 					// If the new route name is equal to the old route name, we need to update the registered name with
 					// the new route. Since we have the guarantee that the route exist at oldRoute.name, this cannot fail.
-					if err := t.insertName(t.method, route, modeUpdate); err != nil {
+					if err := t.insertName(route, modeUpdate); err != nil {
 						panic(fmt.Errorf("internal error: update name: %w", err))
 					}
 				} else {
 					// If the new route name is different from the old route name, we first try to insert the new name and
 					// then only on success, we can safely deregister the old name.
-					if err := t.insertName(t.method, route, modeInsert); err != nil {
+					if err := t.insertName(route, modeInsert); err != nil {
 						return nil, err
 					}
-					t.deleteName(t.method, n.routes[idx])
+					t.deleteName(n.routes[idx])
 				}
 
 				nc := t.writeNode(n)
@@ -390,7 +365,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 			// Last but not least, the oldRoute may not have any name registered, and in this case this is a simple
 			// insert for this new name.
 			if route.name != "" {
-				if err := t.insertName(t.method, route, modeInsert); err != nil {
+				if err := t.insertName(route, modeInsert); err != nil {
 					return nil, err
 				}
 			}
@@ -428,7 +403,7 @@ func (t *tXn) insertStatic(p, n *node, tk token, remaining []token, route *Route
 	idx, child := n.getStaticEdge(search[0])
 	if child == nil {
 		if t.mode == modeUpdate {
-			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+			return nil, newRouteNotFoundError(route)
 		}
 
 		newChild, err := t.insertTokens(
@@ -464,7 +439,7 @@ func (t *tXn) insertStatic(p, n *node, tk token, remaining []token, route *Route
 	}
 
 	if t.mode == modeUpdate {
-		return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+		return nil, newRouteNotFoundError(route)
 	}
 
 	// All following case require creating a split node.
@@ -497,7 +472,7 @@ func (t *tXn) insertStatic(p, n *node, tk token, remaining []token, route *Route
 		}
 
 		if route.name != "" {
-			if err := t.insertName(t.method, route, modeInsert); err != nil {
+			if err := t.insertName(route, modeInsert); err != nil {
 				return nil, err
 			}
 		}
@@ -545,7 +520,7 @@ func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*
 	idx, child := n.getParamEdge(key)
 	if child == nil {
 		if t.mode == modeUpdate {
-			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+			return nil, newRouteNotFoundError(route)
 		}
 
 		newChild, err := t.insertTokens(
@@ -581,7 +556,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 	idx, child := n.getWildcardEdge(key)
 	if child == nil {
 		if t.mode == modeUpdate {
-			return nil, fmt.Errorf("%w: route %s %s is not registered", ErrRouteNotFound, t.method, route.pattern)
+			return nil, newRouteNotFoundError(route)
 		}
 
 		newChild, err := t.insertTokens(
@@ -611,27 +586,26 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 }
 
 // delete performs a recursive copy-on-write deletion.
-func (t *tXn) delete(method string, route *Route) (*Route, bool) {
-	root := t.patterns[method]
-	if root == nil {
-		return nil, false
-	}
+func (t *tXn) delete(route *Route) (*Route, bool) {
 
-	newRoot, route := t.deleteTokens(root, root, route.tokens, route)
+	newRoot, oldRoute := t.deleteTokens(t.patterns, t.patterns, route.tokens, route)
 	if newRoot != nil {
-		if !t.pForked {
-			t.patterns = maps.Clone(t.patterns)
-			t.pForked = true
-		}
-		t.patterns[method] = newRoot
-		if len(newRoot.wildcards) == 0 && len(newRoot.params) == 0 && len(newRoot.statics) == 0 {
-			delete(t.patterns, method)
+		t.patterns = newRoot
+		if !t.forked && len(route.methods) > 0 {
+			t.methods = maps.Clone(t.methods)
+			t.forked = true
 		}
 	}
 
-	if route != nil {
+	if oldRoute != nil {
 		t.size--
-		return route, true
+		for _, method := range route.methods {
+			t.methods[method]--
+			if n, ok := t.methods[method]; ok && n == 0 {
+				delete(t.methods, method)
+			}
+		}
+		return oldRoute, true
 	}
 
 	return nil, false
@@ -643,7 +617,9 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, route *Route) (*node, 
 			return nil, nil
 		}
 
-		idx := slices.IndexFunc(n.routes, func(r *Route) bool { return r.pattern == route.pattern && r.matchersEqual(route.matchers) })
+		idx := slices.IndexFunc(n.routes, func(r *Route) bool {
+			return r.pattern == route.pattern && slices.Equal(r.methods, route.methods) && r.matchersEqual(route.matchers)
+		})
 		if idx == -1 {
 			return nil, nil
 		}
@@ -652,7 +628,7 @@ func (t *tXn) deleteTokens(root, n *node, tokens []token, route *Route) (*node, 
 		nc := t.writeNode(n)
 		nc.delRoute(oldRoute)
 		if oldRoute.name != "" {
-			t.deleteName(root.key, oldRoute) // The root key always hold the http method.
+			t.deleteName(oldRoute) // The root key always hold the http method.
 		}
 
 		if n != root &&
@@ -798,41 +774,15 @@ func (t *tXn) deleteWildcard(root, n *node, key string, remaining []token, route
 	return nc, deletedRoute
 }
 
-func (t *tXn) truncate(methods []string) {
-	if len(methods) == 0 {
-		t.patterns = make(root)
-		t.names = make(root)
-		t.maxDepth = 0
-		t.maxParams = 0
-		t.size = 0
-		t.pForked = true
-		t.nForked = true
-		return
-	}
-
-	updated := false
-	for _, method := range methods {
-		if _, ok := t.patterns[method]; ok {
-			// Only fork the root if we have something to delete
-			if !t.pForked {
-				t.patterns = maps.Clone(t.patterns)
-				t.pForked = true
-			}
-			delete(t.patterns, method)
-			updated = true
-		}
-		if _, ok := t.names[method]; ok {
-			// Only fork the root if we have something to delete
-			if !t.nForked {
-				t.names = maps.Clone(t.names)
-				t.nForked = true
-			}
-			delete(t.names, method)
-		}
-	}
-	if updated {
-		t.recomputeTreeStats()
-	}
+func (t *tXn) truncate() {
+	t.patterns = new(node)
+	t.names = new(node)
+	t.methods = make(map[string]uint)
+	t.maxDepth = 0
+	t.maxParams = 0
+	t.size = 0
+	t.writable = nil
+	t.forked = false
 }
 
 func (t *tXn) computePathDepth(root *node, tokens []token) int {
@@ -871,64 +821,6 @@ func (t *tXn) computePathDepth(root *node, tokens []token) int {
 	}
 
 	return depth
-}
-
-func (t *tXn) recomputeTreeStats() {
-	type stack struct {
-		edges []*node
-		depth int
-	}
-
-	var stacks []stack
-	if t.maxDepth < stackSizeThreshold {
-		stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
-	} else {
-		stacks = make([]stack, 0, t.maxDepth) // heap allocation
-	}
-
-	t.size = 0
-	t.maxDepth = 0
-	t.maxParams = 0
-
-	for _, root := range t.patterns {
-		stacks = append(stacks, stack{
-			edges: []*node{root},
-		})
-
-		for len(stacks) > 0 {
-			n := len(stacks)
-			last := stacks[n-1]
-			elem := last.edges[0]
-
-			if len(last.edges) > 1 {
-				stacks[n-1].edges = last.edges[1:]
-			} else {
-				stacks = stacks[:n-1]
-			}
-
-			depth := last.depth
-			if len(elem.params) > 0 || len(elem.wildcards) > 0 {
-				depth = depth + 1
-			}
-
-			if len(elem.statics) > 0 {
-				stacks = append(stacks, stack{edges: elem.statics, depth: depth})
-			}
-			if len(elem.params) > 0 {
-				stacks = append(stacks, stack{edges: elem.params, depth: depth})
-			}
-			if len(elem.wildcards) > 0 {
-				stacks = append(stacks, stack{edges: elem.wildcards, depth: depth})
-			}
-
-			if elem.isLeaf() {
-				t.size++
-				// Here we can use routes[0] because all routes at the same leaf share the same params count.
-				t.maxParams = max(t.maxParams, len(elem.routes[0].params))
-				t.maxDepth = max(t.maxDepth, depth)
-			}
-		}
-	}
 }
 
 func (t *tXn) writeNode(n *node) *node {

@@ -1173,7 +1173,7 @@ func TestDomainLookup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -1451,7 +1451,7 @@ func TestMatchersLookup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -1598,7 +1598,7 @@ func TestMatchersLookupWithPriority(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(http.MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...), WithMatcherPriority(rte.priority))))
+				require.NoError(t, onlyError(f.Handle(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...), WithMatcherPriority(rte.priority))))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
