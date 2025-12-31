@@ -1,7 +1,9 @@
 package fox
 
 import (
+	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,4 +74,12 @@ func TestRoute_HostnamePath(t *testing.T) {
 			assert.Equal(t, tc.wantPath, r.Path())
 		})
 	}
+}
+
+func TestRoute_Methods(t *testing.T) {
+	f := MustNew()
+	f.MustHandle([]string{http.MethodHead, http.MethodOptions, http.MethodGet}, "/foo/bar", emptyHandler)
+
+	route := f.Route([]string{http.MethodOptions, http.MethodHead, http.MethodGet}, "/foo/bar")
+	assert.Equal(t, []string{http.MethodGet, http.MethodHead, http.MethodOptions}, slices.Collect(route.Methods()))
 }

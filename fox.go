@@ -469,12 +469,11 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 func (fox *Router) NewSubRouter(methods []string, pattern string, r *Router, opts ...RouteOption) (*Route, error) {
-	if fox == r {
-		panic("cannot mount router onto itself")
-	}
-
 	if r == nil {
 		return nil, fmt.Errorf("%w: nil router", ErrInvalidRoute)
+	}
+	if fox == r {
+		panic("cannot mount subrouter onto itself")
 	}
 
 	for _, method := range methods {

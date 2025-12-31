@@ -53,7 +53,7 @@ func (e *RouteConflictError) Error() string {
 	}
 
 	sb.WriteString(e.New.pattern)
-	sb.WriteString(" conflicts with ")
+	sb.WriteString(" conflicts with")
 
 	for _, route := range e.Conflicts {
 		sb.WriteByte('\n')

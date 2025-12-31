@@ -62,7 +62,6 @@ func (txn *Txn) HandleRoute(route *Route) error {
 	if !txn.write {
 		return ErrReadOnlyTxn
 	}
-
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
 	}
@@ -120,7 +119,6 @@ func (txn *Txn) UpdateRoute(route *Route) error {
 	if !txn.write {
 		return ErrReadOnlyTxn
 	}
-
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
 	}
