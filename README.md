@@ -554,7 +554,7 @@ f  := fox.MustNew(
 Finally, it's also possible to attaches middleware on a per-route basis. Note that route-specific middleware must be explicitly reapplied 
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
-````
+````go
 f := fox.MustNew(
 	fox.WithMiddleware(fox.Logger(slog.NewTextHandler(os.Stdout, nil))),
 )
@@ -576,7 +576,7 @@ provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use w
 The route parameters can be accessed by the wrapped handler through the request `context.Context` when the adapters are used.
 
 Wrapping an `http.Handler`
-```
+```go
 articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	params := fox.ParamsFromContext(r.Context())
 	// Article id: 80
