@@ -9,12 +9,14 @@
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tigerwill90/fox)
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/fox)
 
-Fox is a zero allocation, lightweight, high performance HTTP request router for [Go](https://go.dev/). The main difference with other routers is
-that it supports **mutation on its routing tree while handling request concurrently**. Internally, Fox use a Radix Tree that support **lock-free 
-reads** while allowing a **concurrent writer**. The router tree is optimized for high-concurrency and high performance reads, and low-concurrency write. 
+Fox is a lightweight and high performance HTTP request router for [Go](https://go.dev/), designed for building reverse proxies,
+API gateways, or other applications that require managing routes at runtime based on configuration changes or external events.
+It is also well-suited for general use cases such as microservices and REST APIs, though it focuses on routing and does not include 
+convenience helpers found in full-featured frameworks, such as automatic binding, content negotiation, file uploads, cookies, etc.
 
-Fox supports various use cases, but it is especially designed for applications that require frequent changes at runtime to their 
-routing structure based on user input, configuration changes, or other runtime events.
+Fox supports **mutation on its routing tree while handling requests concurrently**. Internally, it uses a Radix Tree that supports
+**lock-free** reads while allowing a concurrent writer, and is optimized for high-concurrency reads and low-concurrency writes.
+The router supports complex routing patterns, enforces clear priority rules, and performs strict validation to prevent misconfigurations.
 
 ## Disclaimer
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
@@ -23,15 +25,11 @@ The current api is not yet stabilize. Breaking changes may occur before `v1.0.0`
 **Runtime updates:** Register, update and delete route handler safely at any time without impact on performance. Fox never block while serving
 request!
 
-**Wildcard pattern:** Route can be registered using wildcard parameters. The matched segment can then be easily retrieved by 
-name. Due to Fox design, wildcard route are cheap and scale really well.
+**Flexible routing:** Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear priority rules, ensuring that
+there are no unintended matches and maintaining high performance even for complex routing patterns. Supported features include named parameters,
+suffix and infix catch-all, regexp constraints, hostname matching, method and method-less routes, route matchers, and sub-routers.
 
-**Hostname matching:** Fox supports hostname-based routing with wildcard matching.
-
-**Flexible routing:**  Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear
-priority rules, ensuring that there are no unintended matches and maintaining high performance even for complex routing pattern.
-
-**Flexible trailing slash handling:** Automatically handle trailing slash inconsistencies by either ignoring them, redirecting to 
+**Trailing slash handling:** Automatically handle trailing slash inconsistencies by either ignoring them, redirecting to 
 the canonical path, or enforcing strict matching based on your needs.
 
 **Path correction:** Automatically handle malformed paths with extra slashes or dots by either serving the cleaned path directly or redirecting to the canonical form.
@@ -53,9 +51,10 @@ Of course, you can also register custom `NotFound` and `MethodNotAllowed` handle
   * [Optional Named wildcards](#optional-named-wildcards-catch-all)
   * [Route matchers](#route-matchers)
   * [Method-less routes](#method-less-routes)
+  * [Sub-Routers](#sub-routers)
   * [Hostname validation & restrictions](#hostname-validation--restrictions)
   * [Priority rules](#priority-rules)
-  * [Hostname routing](#hostname-routing)
+    * [Hostname routing](#hostname-routing)
   * [Warning about context](#warning-about-context)
 * [Concurrency](#concurrency)
   * [Managing routes a runtime](#managing-routes-a-runtime)
@@ -97,7 +96,7 @@ import (
 func main() {
 	f := fox.MustNew(fox.DefaultOptions())
 
-	f.MustHandle(http.MethodGet, "/hello/{name}", func(c *fox.Context) {
+	f.MustHandle([]string{http.MethodHead, http.MethodGet}, "/hello/{name}", func(c *fox.Context) {
 		_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 
@@ -211,28 +210,30 @@ Pattern /src/*{filepath:[A-Za-z/]+\.json}
 
 #### Route matchers
 
-Route matchers enable routing decisions based on request properties beyond method, hostname and path. Multiple routes can share
-the same pattern and be differentiated by query parameters, headers, client IP, or custom criteria.
+Route matchers enable routing decisions based on request properties beyond methods, hostname and path. Multiple routes can share
+the same pattern and methods and be differentiated by query parameters, headers, client IP, or custom criteria.
 
 ````go
-f.MustHandle(http.MethodGet, "/api/users", PremiumHandler,
-	fox.WithQueryMatcher("tier", "premium"),
+f.MustHandle(fox.MethodGet, "/api/users", PremiumHandler,
+    fox.WithQueryMatcher("tier", "premium"),
 )
 
-f.MustHandle(http.MethodGet, "/api/users", StandardHandler,
-	fox.WithHeaderMatcher("X-API-Version", "v2"),
+f.MustHandle(fox.MethodGet, "/api/users", StandardHandler,
+    fox.WithHeaderMatcher("X-API-Version", "v2"),
 )
 
-f.MustHandle(http.MethodGet, "/api/users", DefaultHandler) // Fallback route
+f.MustHandle(fox.MethodGet, "/api/users", DefaultHandler) // Fallback route
 ````
 
 Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, `fox.WithHeaderMatcher`, `fox.WithHeaderRegexpMatcher`,
 and `fox.WithClientIPMatcher`. Multiple matchers on a route use AND logic. Routes without matchers serve as fallbacks.
-For custom matching logic, implement the `fox.Matcher` interface and use `fox.WithMatcher`.
+For custom matching logic, implement the `fox.Matcher` interface and use `fox.WithMatcher`. See [Priority rules](#priority-rules) for matcher
+evaluation order.
 
 #### Method-less routes
 
-Routes can be registered with `fox.MethodAny` to match any HTTP method.
+Routes can be registered without specifying an HTTP method to match any method. The constant `fox.MethodAny` is
+a convenience placeholder equivalent to an empty method set (nil or empty slice).
 
 ````go
 // Handle any method on /health
@@ -241,14 +242,41 @@ f.MustHandle(fox.MethodAny, "/health", HealthHandler)
 f.MustHandle(fox.MethodAny, "/api/+{any}", ProxyHandler)
 ````
 
-Routes registered with a specific HTTP method always take precedence over `fox.MethodAny` routes. This allows defining method-specific
+Routes registered with a specific HTTP method always take precedence over method-less routes. This allows defining method-specific
 behavior while falling back to a generic handler for other methods.
 ````go
 // Specific handler for GET requests
-f.MustHandle(http.MethodGet, "/resource", GetHandler)
+f.MustHandle(fox.MethodGet, "/resource", GetHandler)
 // All other methods handled here
 f.MustHandle(fox.MethodAny, "/resource", FallbackHandler)
 ````
+
+#### Sub-Routers
+Fox supports mounting a router as a regular route, enabling modular route management and isolated configuration.
+
+```go
+api := fox.MustNew(fox.WithMiddleware(AuthMiddleware()))
+api.MustHandle(fox.MethodGet, "/users", ListUsers)
+api.MustHandle(fox.MethodGet, "/users/{id}", GetUser)
+api.MustHandle(fox.MethodPost, "/users", CreateUser)
+
+f := fox.MustNew()
+route, err := f.NewSubRouter(fox.MethodAny, "/api/+{mount}", api)
+if err != nil {
+    log.Fatal(err)
+}
+if err := f.HandleRoute(route); err != nil {
+    log.Fatal(err)
+}
+```
+
+The subrouter pattern must end with a catch-all parameter (`*{param}` or `+{param}`). Requests matching the prefix are delegated
+to the mounted router with the remaining path.
+
+Use cases include:
+- Applying middleware or global router option to a route subtree
+- Managing entire route subtree at runtime (e.g. insert, update, or delete via the parent router)
+- Organizing routes into groups with shared configuration
 
 #### Hostname validation & restrictions
 
@@ -267,42 +295,29 @@ TLS stdlib (see traefik/traefik#9157 (comment)).
 #### Priority rules
 
 The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to
-store routes efficiently. When a request is received, Fox finds the longest matching route by evaluating each path segment
-in the following priority order:
+store routes efficiently. When a request arrives, Fox evaluates routes in the following order:
 
-1. Static segments
-2. Named parameters with regex constraints
-3. Named parameters without constraints
-4. Catch-all parameters with regex constraints
-5. Catch-all parameters without constraints
+1. **Hostname matching**
+    - Routes with hostnames are evaluated before path-only routes
 
-Matchers are evaluated after a successful hostname and/or path match. When multiple routes share the same pattern but differ
-in matchers, Fox evaluates them in priority order, configurable via `fox.WithMatcherPriority`. Priority defaults to the number
-of matchers on the route. Routes with equal priority may be evaluated in any order.
+2. **Pattern matching** (longest match, most specific first)
+    - Static segments
+    - Named parameters with regex constraints
+    - Named parameters without constraints
+    - Catch-all parameters with regex constraints
+    - Catch-all parameters without constraints
+    - At the same level, multiple regex-constrained parameters are evaluated in registration order
 
-Routes registered with a specific HTTP method take precedence over routes registered with `fox.MethodAny`, which match regardless
-of the request method.
+3. **Method matching**
+    - Routes with specific methods are evaluated before method-less routes
 
-Routes with hostnames are always evaluated before path-only routes.
+4. **Matcher evaluation** (for routes sharing the same pattern and overlapping methods)
+    - Routes with matchers are evaluated before routes without
+    - Among routes with matchers, higher priority is evaluated first (configurable via `fox.WithMatcherPriority`, defaults to the number of matchers)
+    - Routes with equal priority may be evaluated in any order
 
 If a match candidate fails to complete the full route, including matchers, Fox returns to the last decision point and tries the next available
-alternative following the same priority order. When multiple regex-constrained parameters or wildcards exist at the same level,
-they are evaluated in registration order.
-
-Additionally, let's consider an example to illustrate the prioritization:
-````
-Route Definitions:
-
-1. GET /fs/avengers.txt         # Highest priority (static)
-2. GET /fs/{filename}            # Next priority (named parameter)
-3. GET /fs/*{filepath}           # Lowest priority (catch-all parameter)
-
-Request Matching:
-
-- /fs/avengers.txt              matches Route 1
-- /fs/ironman.txt               matches Route 2
-- /fs/avengers/ironman.txt      matches Route 3
-````
+alternative following the same priority order.
 
 ##### Hostname routing
 
@@ -367,19 +382,16 @@ import (
 	"github.com/tigerwill90/fox"
 )
 
+type Data struct {
+	Pattern string   `json:"pattern"`
+	Methods []string `json:"methods"`
+	Text    string   `json:"text"`
+}
+
 func Action(c *fox.Context) {
-	var data map[string]string
-	if err := json.NewDecoder(c.Request().Body).Decode(&data); err != nil {
+	data := new(Data)
+	if err := json.NewDecoder(c.Request().Body).Decode(data); err != nil {
 		http.Error(c.Writer(), err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	method := strings.ToUpper(data["method"])
-	path := data["path"]
-	text := data["text"]
-
-	if path == "" || method == "" {
-		http.Error(c.Writer(), "missing method or path", http.StatusBadRequest)
 		return
 	}
 
@@ -387,15 +399,15 @@ func Action(c *fox.Context) {
 	action := c.Param("action")
 	switch action {
 	case "add":
-		_, err = c.Fox().Handle(method, path, func(c *fox.Context) {
-			_ = c.String(http.StatusOK, text)
+		_, err = c.Fox().Handle(data.Methods, data.Pattern, func(c *fox.Context) {
+			_ = c.String(http.StatusOK, data.Text)
 		})
 	case "update":
-		_, err = c.Fox().Update(method, path, func(c *fox.Context) {
-			_ = c.String(http.StatusOK, text)
+		_, err = c.Fox().Update(data.Methods, data.Pattern, func(c *fox.Context) {
+			_ = c.String(http.StatusOK, data.Text)
 		})
 	case "delete":
-		_, err = c.Fox().Delete(method, path)
+		_, err = c.Fox().Delete(data.Methods, data.Pattern)
 	default:
 		http.Error(c.Writer(), fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
 		return
@@ -405,13 +417,13 @@ func Action(c *fox.Context) {
 		return
 	}
 
-	_ = c.String(http.StatusOK, fmt.Sprintf("%s route [%s] %s: success\n", action, method, path))
+	_ = c.String(http.StatusOK, fmt.Sprintf("%s route [%s] %s: success\n", action, strings.Join(data.Methods, ","), data.Pattern))
 }
 
 func main() {
 	f := fox.MustNew(fox.DefaultOptions())
 
-	f.MustHandle(http.MethodPost, "/routes/{action}", Action)
+	f.MustHandle(fox.MethodPost, "/routes/{action}", Action)
 
 	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalln(err)
@@ -431,7 +443,7 @@ the tree, ensuring they do not observe any ongoing or committed changes made aft
 // from the function then the transaction is committed. If an error is returned then the entire transaction is
 // aborted.
 if err := f.Updates(func(txn *fox.Txn) error {
-	if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+	if _, err := txn.Handle(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
 		return err
 	}
 
@@ -439,9 +451,9 @@ if err := f.Updates(func(txn *fox.Txn) error {
 	it := txn.Iter()
 	// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
 	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
-	// observed in the result returned by Prefix (or any other iterator).
-	for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-		if _, err := txn.Delete(method, route.Pattern()); err != nil {
+	// observed in the result returned by PatternPrefix (or any other iterator).
+	for route := range it.PatternPrefix("tmp.exemple.com/") {
+		if _, err := txn.Delete(slices.Collect(route.Methods()), route.Pattern()); err != nil {
 			return err
 		}
 	}
@@ -451,13 +463,25 @@ if err := f.Updates(func(txn *fox.Txn) error {
 }
 ````
 
+#### Managed read-only transaction
+````go
+_ = f.View(func(txn *fox.Txn) error {
+	if txn.Has(fox.MethodGet, "/foo") {
+		if txn.Has(fox.MethodGet, "/bar") {
+			// do something
+		}
+	}
+	return nil
+})
+````
+
 #### Unmanaged read-write transaction
 ````go
 // Txn create an unmanaged read-write or read-only transaction.
 txn := f.Txn(true)
 defer txn.Abort()
 
-if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+if _, err := txn.Handle(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
 	log.Printf("error inserting route: %s", err)
 	return
 }
@@ -466,27 +490,15 @@ if _, err := txn.Handle(http.MethodGet, "exemple.com/hello/{name}", Handler); er
 it := txn.Iter()
 // When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
 // It means that writing on the current transaction while iterating is allowed, but the mutation will not be
-// observed in the result returned by Prefix (or any other iterator).
-for method, route := range it.Prefix(it.Methods(), "tmp.exemple.com/") {
-	if _, err := txn.Delete(method, route.Pattern()); err != nil {
+// observed in the result returned by PatternPrefix (or any other iterator).
+for route := range it.PatternPrefix("tmp.exemple.com/") {
+	if _, err := txn.Delete(slices.Collect(route.Methods()), route.Pattern()); err != nil {
 		log.Printf("error deleting route: %s", err)
 		return
 	}
 }
 // Finalize the transaction
 txn.Commit()
-````
-
-#### Managed read-only transaction
-````go
-_ = f.View(func(txn *fox.Txn) error {
-	if txn.Has(http.MethodGet, "/foo") {
-		if txn.Has(http.MethodGet, "/bar") {
-			// do something
-		}
-	}
-	return nil
-})
 ````
 
 ## Middleware
@@ -520,7 +532,7 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 func main() {
 	f := fox.MustNew(fox.WithMiddleware(Logger))
 
-	f.MustHandle(http.MethodGet, "/", func(c *fox.Context) {
+	f.MustHandle(fox.MethodGet, "/", func(c *fox.Context) {
 		_ = c.String(http.StatusOK, "Hello World")
 	})
 
@@ -533,21 +545,21 @@ only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regul
 `fox.RedirectSlashHandler`, `fox.RedirectPathHandler`, `fox.OptionsHandler` and any combination of these.
 
 ````go
-f, _ := fox.New(
-    fox.WithMiddlewareFor(fox.RouteHandler, fox.Recovery(), Logger),
-    fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
+f  := fox.MustNew(
+	fox.WithMiddlewareFor(fox.RouteHandler, Logger),
+	fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
 )
 ````
 
 Finally, it's also possible to attaches middleware on a per-route basis. Note that route-specific middleware must be explicitly reapplied 
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
-````go
+````
 f := fox.MustNew(
-    fox.WithMiddleware(fox.Logger(slog.NewTextHandler(os.Stdout, nil))),
+	fox.WithMiddleware(fox.Logger(slog.NewTextHandler(os.Stdout, nil))),
 )
-f.MustHandle("GET", "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
-f.MustHandle("GET", "/foo", SomeOtherHandler)
+f.MustHandle(fox.MethodGet, "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
+f.MustHandle(fox.MethodGet, "/foo", SomeOtherHandler)
 ````
 
 ### Official middlewares
@@ -564,16 +576,16 @@ provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use w
 The route parameters can be accessed by the wrapped handler through the request `context.Context` when the adapters are used.
 
 Wrapping an `http.Handler`
-```go
+```
 articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    params := fox.ParamsFromContext(r.Context())
-    // Article id: 80
-    // Matched route: /articles/{id}
-    _, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
+	params := fox.ParamsFromContext(r.Context())
+	// Article id: 80
+	// Matched route: /articles/{id}
+	_, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
 })
 
-f := fox.MustNew(fox.DefaultOptions())
-f.MustHandle(http.MethodGet, "/articles/{id}", fox.WrapH(articles))
+f := fox.MustNew()
+f.MustHandle(fox.MethodGet, "/articles/{id}", fox.WrapH(articles))
 ```
 
 Wrapping any standard `http.Hanlder` middleware
@@ -624,16 +636,13 @@ func main() {
 	}
 	corsMw.SetDebug(true) // turn debug mode on (optional)
 
-	f, err := fox.New(
+	f := fox.MustNew(
 		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
 		fox.WithMiddlewareFor(fox.OptionsHandler|fox.RouteHandler, fox.WrapM(corsMw.Wrap)),
 	)
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	f.MustHandle(http.MethodGet, "/api/users", getHandler)
-	f.MustHandle(http.MethodPost, "/api/users", postHandler)
+	f.MustHandle(fox.MethodGet, "/api/users", getHandler)
+	f.MustHandle(fox.MethodPost, "/api/users", postHandler)
 
 	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
@@ -642,8 +651,7 @@ func main() {
 ````
 
 The CORS protocol is complex and security-sensitive. We do **NOT** recommend implementing CORS handling manually. Instead,
-consider using [jub0bs/cors](https://github.com/jub0bs/cors), which performs extensive validation before allowing middleware
-creation, helping you avoid common pitfalls.
+consider using [jub0bs/cors](https://github.com/jub0bs/cors), which performs extensive validation before allowing middleware creation, helping you avoid common pitfalls.
 
 ## Resolving Client IP
 The `WithClientIPResolver` option allows you to set up strategies to resolve the client IP address based on your 
@@ -663,7 +671,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/tigerwill90/fox"
 	"github.com/tigerwill90/fox/clientip"
@@ -674,17 +681,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	f, err := fox.New(
+	f := fox.MustNew(
 		fox.DefaultOptions(),
 		fox.WithClientIPResolver(
 			resolver,
 		),
 	)
-	if err != nil {
-		panic(err)
-	}
 
-	f.MustHandle(http.MethodGet, "/foo/bar", func(c *fox.Context) {
+	f.MustHandle(fox.MethodGet, "/foo/bar", func(c *fox.Context) {
 		ipAddr, err := c.ClientIP()
 		if err != nil {
 			// If the current resolver is not able to derive the client IP, an error
@@ -701,7 +705,7 @@ It is also possible to create a chain with multiple resolvers that attempt to de
 
 ````go
 resolver, _ := clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10)
-f, _ = fox.New(
+f := fox.MustNew(
 	fox.DefaultOptions(),
 	fox.WithClientIPResolver(
 		// A common use for this is if a server is both directly connected to the
