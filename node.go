@@ -662,88 +662,57 @@ Backtrack:
 }
 
 func (n *node) addRoute(route *Route) {
-	// route with no matcher and no methods always goes at the end
-	if len(route.matchers) == 0 && len(route.methods) == 0 {
+	// Method-less and no matchers is always evaluated last.
+	if len(route.methods) == 0 && len(route.matchers) == 0 {
 		n.routes = append(n.routes, route)
 		return
 	}
 
-	insertPos := len(n.routes)
-	if len(route.matchers) > 0 {
-		routeHasMethods := len(route.methods) > 0
-		for i, existing := range n.routes {
-			// before any matcher-less routes
-			if len(existing.matchers) == 0 {
-				insertPos = i
-				break
-			}
-
-			existingHasMethods := len(existing.methods) > 0
-
-			// routes with methods before routes without (regardless of priority)
-			if routeHasMethods && !existingHasMethods {
-				insertPos = i
-				break
-			}
-
-			// within same method "tier", higher priority first
-			if routeHasMethods == existingHasMethods && route.priority > existing.priority {
-				insertPos = i
-				break
-			}
-		}
-	} else {
-		for i, existing := range n.routes {
-			if len(existing.matchers) == 0 && len(existing.methods) == 0 {
-				insertPos = i
-				break
-			}
-		}
-	}
-
-	n.routes = slices.Insert(n.routes, insertPos, route)
+	pos := n.findInsertPosition(route)
+	n.routes = slices.Insert(n.routes, pos, route)
 }
 
-func (n *node) replaceRoute(route *Route) {
-	idx := slices.IndexFunc(n.routes, func(r *Route) bool {
-		return slices.Equal(r.methods, route.methods) && r.matchersEqual(route.matchers)
-	})
-	if idx < 0 {
-		panic("internal error: replacing missing route")
-	}
-
-	oldRoute := n.routes[idx]
-
-	// priority unchanged or there is no matchers, replace in place.
-	if oldRoute.priority == route.priority || len(route.matchers) == 0 {
+func (n *node) replaceRoute(idx int, route *Route) {
+	// Priority unchanged or no matchers, replace in place
+	if n.routes[idx].priority == route.priority || len(route.matchers) == 0 {
 		n.routes[idx] = route
 		return
 	}
 
+	// Priority changed with matchers, we need to reposition the route.
 	n.routes = slices.Delete(n.routes, idx, idx+1)
-	insertPos := len(n.routes)
-	routeHasMethods := len(route.methods) > 0
+	pos := n.findInsertPosition(route)
+	n.routes = slices.Insert(n.routes, pos, route)
+}
+
+func (n *node) findInsertPosition(route *Route) int {
+	hasMethods := len(route.methods) > 0
+	hasMatchers := len(route.matchers) > 0
 
 	for i, existing := range n.routes {
-		if len(existing.matchers) == 0 {
-			insertPos = i
-			break
-		}
-
 		existingHasMethods := len(existing.methods) > 0
+		existingHasMatchers := len(existing.matchers) > 0
 
-		if routeHasMethods && !existingHasMethods {
-			insertPos = i
-			break
+		// Routes with methods before routes without
+		if hasMethods && !existingHasMethods {
+			return i
 		}
 
-		if routeHasMethods == existingHasMethods && route.priority > existing.priority {
-			insertPos = i
-			break
+		// Within same method tier...
+		if hasMethods == existingHasMethods {
+			// Routes with matchers before routes without
+			if hasMatchers && !existingHasMatchers {
+				return i
+			}
+
+			// Within same matchers tier, higher priority first
+			if hasMatchers && existingHasMatchers && route.priority > existing.priority {
+				return i
+			}
 		}
 	}
 
-	n.routes = slices.Insert(n.routes, insertPos, route)
+	return len(n.routes)
 }
 
 func (n *node) delRoute(idx int) {

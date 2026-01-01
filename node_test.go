@@ -1,7 +1,6 @@
 package fox
 
 import (
-	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -3094,13 +3093,11 @@ func TestNode_String(t *testing.T) {
 	want := `root:
       path: /foo/ [params: 1]
           path: bar
-                => /foo/bar [methods: DELETE, POST] [matchers: fox.QueryMatcher] [priority: 1]
-                => /foo/bar [matchers: fox.QueryMatcher, fox.HeaderMatcher] [priority: 2]
+                => /foo/bar [methods: DELETE, POST] [matchers: q:a=b] [priority: 1]
+                => /foo/bar [matchers: q:a=b, h:B=c] [priority: 2]
           path: ?
               path: / [wildcards: 1]
                   path: *
                         => /foo/{bar}/*{baz} [methods: GET] [priority: 0]`
 	assert.Equal(t, want, strings.TrimSuffix(tree.patterns.String(), "\n"))
-
-	fmt.Println(tree.patterns)
 }

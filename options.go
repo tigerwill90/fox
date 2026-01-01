@@ -353,9 +353,11 @@ func WithName(name string) RouteOption {
 	})
 }
 
-// WithMatcherPriority sets the priority for a route with matchers. When multiple routes share the same pattern,
-// route matchers are evaluated by priority order (highest first). Routes with equal priority may be evaluated in any order.
-// Routes without matchers are always evaluated last. If unset or 0, the priority defaults to the number of matchers.
+// WithMatcherPriority sets the priority for a route with matchers. When multiple routes share the same pattern
+// (regardless of param names) and have overlapping methods, matchers are evaluated by priority (highest first).
+// Routes with equal priority may be evaluated in any order. Routes without matchers are always evaluated last.
+// If unset or 0, the priority defaults to the number of matchers. Note that routes with specific methods are
+// always evaluated before method-less routes, regardless of priority.
 func WithMatcherPriority(priority uint) RouteOption {
 	return routeOptionFunc(func(s sealedOption) error {
 		s.route.priority = priority

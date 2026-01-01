@@ -377,7 +377,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 
 				nc := t.writeNode(n)
-				nc.replaceRoute(route)
+				nc.replaceRoute(idx, route)
 				return nc, nil
 			}
 
@@ -390,7 +390,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 			}
 
 			nc := t.writeNode(n)
-			nc.replaceRoute(route)
+			nc.replaceRoute(idx, route)
 			return nc, nil
 		default:
 			panic("internal error: unexpected insert mode")
@@ -801,7 +801,7 @@ func (t *tXn) truncate() {
 	t.maxParams = 0
 	t.size = 0
 	t.writable = nil
-	t.forked = false
+	t.forked = true
 }
 
 func (t *tXn) computePathDepth(root *node, tokens []token) int {
