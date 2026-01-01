@@ -313,7 +313,7 @@ store routes efficiently. When a request arrives, Fox evaluates routes in the fo
 
 4. **Matcher evaluation** (for routes sharing the same pattern and overlapping methods)
     - Routes with matchers are evaluated before routes without
-    - Among routes with matchers, higher priority is evaluated first (configurable via `fox.WithMatcherPriority`, defaults to the number of matchers)
+    - Among routes with matchers, higher priority is evaluated first (configurable via `fox.WithMatcherPriority`, or defaults to the number of matchers)
     - Routes with equal priority may be evaluated in any order
 
 If a match candidate fails to complete the full route, including matchers, Fox returns to the last decision point and tries the next available
@@ -326,8 +326,8 @@ additional configuration or action. If any route with a hostname is registered, 
 prioritize hostname matching. Conversely, if no hostname-specific routes are registered, the router reverts to 
 path-priority mode.
 
-- If the router for a given method has no routes registered with hostnames, the router will perform a path-based lookup only.
-- If the router for a given method includes at least one route with a hostname, the router will prioritize lookup based 
+- If the router has no routes registered with hostnames, the router will perform a path-based lookup only.
+- If the router includes at least one route with a hostname, the router will prioritize lookup based 
 on the request host and path. If no match is found, the router will then fall back to a path-only lookup.
 
 Hostname matching is **case-insensitive**, so requests to `Example.COM`, `example.com`, and `EXAMPLE.COM` will all match a route registered for `example.com`.
