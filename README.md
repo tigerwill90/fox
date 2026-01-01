@@ -109,7 +109,7 @@ func main() {
 #### Named parameters
 Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching 
 segment are recorder as [Param](https://pkg.go.dev/github.com/tigerwill90/fox#Param) and accessible via the 
-[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context) interface. Named parameters are supported anywhere in 
+[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Named parameters are supported anywhere in 
 the route, but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 
 ````
