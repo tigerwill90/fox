@@ -28,13 +28,6 @@ var (
 	ErrInvalidMatcher          = errors.New("invalid matcher")
 )
 
-type ConflictType uint8
-
-const (
-	ConflictExact    ConflictType = iota // identical patterns & matchers with overlapping methods
-	ConflictShadowed                     // route maybe unreachable
-)
-
 // RouteConflictError represents a conflict that occurred during route registration.
 // It contains the route being registered, and the existing routes that caused the conflict.
 type RouteConflictError struct {
@@ -42,7 +35,8 @@ type RouteConflictError struct {
 	New *Route
 	// Conflicts contains the previously registered routes that conflict with New.
 	Conflicts []*Route
-	Type      ConflictType
+	// IsShadowed indicate that the New route shadow other routes.
+	IsShadowed bool
 }
 
 func (e *RouteConflictError) Error() string {
@@ -50,16 +44,16 @@ func (e *RouteConflictError) Error() string {
 	sb.WriteString("route conflict: new route\n")
 	routef(sb, e.New, 4)
 
-	switch e.Type {
-	case ConflictShadowed:
+	if e.IsShadowed {
 		sb.WriteString("\nis shadowed by")
-	default:
+	} else {
 		sb.WriteString("\nconflicts with")
 	}
 
 	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
 		routef(sb, conflict, 4)
+		// TODO (with redirect slash or with relaxed slash)
 	}
 
 	return sb.String()
