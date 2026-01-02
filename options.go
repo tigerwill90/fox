@@ -277,9 +277,9 @@ func WithNoMethod(enable bool) GlobalOption {
 	})
 }
 
-// WithAutoOptions enables automatic response to OPTIONS requests with, by default, a 204 status code.
-// Use the [WithOptionsHandler] option to customize the response. When this option is enabled, the router automatically
-// determines the "Allow" header value based on the methods registered for the given route (except for CORS preflight request).
+// WithAutoOptions enables automatic responses to OPTIONS requests with, by default, a 204 status code. For regular OPTIONS requests,
+// the router responds with the "Allow" header listing methods registered for the matched routes, or calls the NoRoute handler if
+// no route matches. For CORS preflight requests, the router always responds to all request by calling the OPTIONS handler.
 // Note that custom OPTIONS handler take priority over automatic replies. This option is automatically enabled when providing
 // a custom handler with the option [WithOptionsHandler].
 func WithAutoOptions(enable bool) GlobalOption {

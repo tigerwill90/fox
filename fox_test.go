@@ -5756,3 +5756,13 @@ func ExampleRouter_View() {
 func onlyError[T any](_ T, err error) error {
 	return err
 }
+
+func valueOrFail[T any](t testing.TB) func(v T, err error) T {
+	return func(v T, err error) T {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+}
