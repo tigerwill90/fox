@@ -190,7 +190,7 @@ func BenchmarkWithIgnoreTrailingSlash(b *testing.B) {
 	f.MustHandle(MethodGet, "/{a}/{b}/e", emptyHandler)
 	f.MustHandle(MethodGet, "/{a}/{b}/d", emptyHandler)
 	f.MustHandle(MethodGet, "/foo/{b}", emptyHandler)
-	f.MustHandle(MethodGet, "/foo/{b}/x/", emptyHandler)
+	f.MustHandle(MethodGet, "/foo/bar/x/", emptyHandler)
 	f.MustHandle(MethodGet, "/foo/{b}/y/", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar/", nil)

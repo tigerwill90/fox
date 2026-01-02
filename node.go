@@ -196,7 +196,7 @@ Walk:
 					captureEnd := searchStart + idx
 					capturedValue := host[charsMatched:captureEnd]
 
-					// Skip empty captures (consecutive slashes)
+					// Skip empty captures (consecutive dot)
 					if capturedValue == "" {
 						searchStart++
 						continue
@@ -429,7 +429,7 @@ Walk:
 
 		wildcards := matched.wildcards[childWildcardIdx:]
 		if len(wildcards) > 0 {
-			offset := charsMatched
+			offset := charsMatched // TODO we can probably remove that offset and use charsMatched directly
 			// Try infix wildcards first
 			for i, wildcardNode := range wildcards {
 				if len(wildcardNode.statics) == 0 {
@@ -446,6 +446,11 @@ Walk:
 					if idx < 0 {
 						if len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
+								// We have the path /foo/x/y/z for the route /foo/*{any:[A-z]}/ that may be matched with a ts,
+								// but we need to make sure that the regexp match too.
+								if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(path[charsMatched:]) {
+									break
+								}
 								for j, route := range child.routes {
 									if route.match(method, c) {
 										if !lazy {

@@ -306,6 +306,7 @@ store routes efficiently. When a request arrives, Fox evaluates routes in the fo
     - Named parameters without constraints
     - Catch-all parameters with regex constraints
     - Catch-all parameters without constraints
+    - Infix catch-all are evaluated before suffix catch-all (e.g., `/bucket/*{path}/meta` before `/bucket/*{path}`)
     - At the same level, multiple regex-constrained parameters are evaluated in registration order
 
 3. **Method matching**

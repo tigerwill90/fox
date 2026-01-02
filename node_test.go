@@ -713,8 +713,8 @@ func TestOverlappingRoute(t *testing.T) {
 			path: "/base/val1/123/new/bar/",
 			routes: []string{
 				"/{base}/val1/{id}",
-				"/{base}/val1/123/{a}/bar",
-				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val1/123/{a}/barr",
+				"/{base}/val1/{id}/new/{name}/y",
 				"/{base}/val*{all}",
 			},
 			wantMatch: "/{base}/val*{all}",
@@ -734,7 +734,7 @@ func TestOverlappingRoute(t *testing.T) {
 			path: "/base/val1/123/new/bar/",
 			routes: []string{
 				"/{base}/val1/{id:[0-9]+}",
-				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/123/{a:[A-z]+}/barr",
 				"/{base}/val1/{id:[0-9]+}/new/{name:ba}",
 				"/{base}/val*{all}",
 			},
@@ -2159,8 +2159,8 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
-			name:     "overlapping infix suffix wildcard and param match suffix without ts",
-			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/"},
+			name:     "overlapping infix suffix wildcard and param match suffix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/y"},
 			path:     "/foo/a",
 			wantPath: "/foo/*{args}",
 			wantTsr:  false,
@@ -2173,7 +2173,7 @@ func TestInfixWildcard(t *testing.T) {
 		},
 		{
 			name:     "overlapping infix suffix wildcard and param match suffix without ts",
-			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}"},
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/y"},
 			path:     "/foo/a/",
 			wantPath: "/foo/*{args}",
 			wantTsr:  false,
@@ -2525,7 +2525,7 @@ func TestInfixWildcard(t *testing.T) {
 			name: "overlapping static and infix with most specific",
 			routes: []string{
 				"/foo/*{any}/{a}/ddd/",
-				"/foo/*{any}/bbb/{d}",
+				"/foo/*{any}/bbb/{d}/e",
 			},
 			path:     "/foo/a/b/c/bbb/ddd/",
 			wantPath: "/foo/*{any}/{a}/ddd/",
@@ -2591,10 +2591,10 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with trailing slash most specific",
+			name: "infix wildcard with fallback to suffix",
 			routes: []string{
 				"/foo/*{any}",
-				"/foo/*{any}/",
+				"/foo/*{any}/x",
 			},
 			path:     "/foo/x/y/z",
 			wantPath: "/foo/*{any}",
@@ -2607,10 +2607,11 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
-			name: "infix regexp wildcard with trailing slash most specific",
+			// infix regexp wildcard with trailing slash most specific
+			name: "infix regexp wildcard with fallback to suffix",
 			routes: []string{
 				"/foo/*{any:.*}",
-				"/foo/*{any:.*}/",
+				"/foo/*{any:[A-z]}/",
 			},
 			path:     "/foo/x/y/z",
 			wantPath: "/foo/*{any:.*}",
@@ -2684,18 +2685,18 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with tsr but skipped node match",
+			name: "infix wildcard with tsr and skipped node match",
 			routes: []string{
 				"/foo/*{any}/",
 				"/{x}/a/b/c",
 			},
 			path:     "/foo/a/b/c",
-			wantPath: "/{x}/a/b/c",
-			wantTsr:  false,
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
-					Key:   "x",
-					Value: "foo",
+					Key:   "any",
+					Value: "a/b/c",
 				},
 			},
 		},
@@ -2753,9 +2754,25 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with sub-node tsr at depth 1 but direct match",
+			name: "infix wildcard with with more specific tsr",
 			routes: []string{
 				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbb",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/*{any}/c/bbb/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with with more specific tsr but regexp don't pass",
+			routes: []string{
+				"/foo/*{any:bar}/c/bbb/",
 				"/foo/*{any}/bbb",
 			},
 			path:     "/foo/a/b/c/bbb",
@@ -2769,19 +2786,19 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with sub-node tsr at depth 1 and 2 but direct match",
+			name: "infix wildcard with more specific tsr (multi depth)",
 			routes: []string{
 				"/foo/*{any}/b/c/bbb/",
 				"/foo/*{any}/c/bbb/",
 				"/foo/*{any}/bbb",
 			},
 			path:     "/foo/a/b/c/bbb",
-			wantPath: "/foo/*{any}/bbb",
-			wantTsr:  false,
+			wantPath: "/foo/*{any}/b/c/bbb/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
 					Key:   "any",
-					Value: "a/b/c",
+					Value: "a",
 				},
 			},
 		},
@@ -2849,18 +2866,18 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "multi infix wildcard with sub-node tsr at depth 1 but direct match",
+			name: "multi infix with most specific and match",
 			routes: []string{
 				"/foo/*{any1}/b/c/*{any2}/d/",
 				"/foo/*{any1}/c/*{any2}/d",
 			},
 			path:     "/foo/a/b/c/x/y/z/d",
-			wantPath: "/foo/*{any1}/c/*{any2}/d",
-			wantTsr:  false,
+			wantPath: "/foo/*{any1}/b/c/*{any2}/d/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
 					Key:   "any1",
-					Value: "a/b",
+					Value: "a",
 				},
 				{
 					Key:   "any2",
@@ -2937,7 +2954,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "multi infix wildcard with sub-node tsr and skipped nodes at depth 1 with direct match depth 0",
+			name: "multi infix wildcard with most specific tsr match",
 			routes: []string{
 				"/foo/*{any1}/b/c/*{any2}/{a}/",
 				"/foo/*{any1}/b/c/*{any2}/d{a}/",
@@ -2946,16 +2963,16 @@ func TestInfixWildcardTsr(t *testing.T) {
 				"/{a}/*{any1}/c/x/y/z/dd",
 			},
 			path:     "/foo/a/b/c/x/y/z/dd",
-			wantPath: "/{a}/*{any1}/c/x/y/z/dd",
-			wantTsr:  false,
+			wantPath: "/foo/*{any1}/b/c/*{any2}/dd/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
-					Key:   "a",
-					Value: "foo",
+					Key:   "any1",
+					Value: "a",
 				},
 				{
-					Key:   "any1",
-					Value: "a/b",
+					Key:   "any2",
+					Value: "x/y/z",
 				},
 			},
 		},
@@ -2963,7 +2980,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}

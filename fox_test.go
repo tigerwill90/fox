@@ -4227,16 +4227,11 @@ func TestRouterWithTsrParams(t *testing.T) {
 			wantPath: "/foo/{b}",
 		},
 		{
-			name:   "current not a leaf, with leave on exact match",
-			routes: []string{"/a/foo/", "/a/foobar", "/{a}/foo"},
-			target: "/a/foo",
-			wantParams: Params{
-				{
-					Key:   "a",
-					Value: "a",
-				},
-			},
-			wantPath: "/{a}/foo",
+			name:       "current not a leaf, with most specifc tsr",
+			routes:     []string{"/a/foo/", "/a/foobar", "/{a}/foo"},
+			target:     "/a/foo",
+			wantParams: Params(nil),
+			wantPath:   "/a/foo/",
 		},
 		{
 			name:   "current not a leaf, with child slash match",
