@@ -565,7 +565,7 @@ Walk:
 				return i, child, true
 			}
 		}
-	} else if matched.key == "/" && parent != nil && parent.isLeaf() {
+	} else if matched.key == "/" && parent != nil && parent.isLeaf() && parent.key != "*" {
 		for i, route := range parent.routes {
 			if route.match(method, c) {
 				return i, parent, true
@@ -574,7 +574,7 @@ Walk:
 	}
 
 Backtrack:
-	if matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
+	if matched.isLeaf() && matched.key != "*" && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
 			if route.match(method, c) {
 				return i, matched, true
