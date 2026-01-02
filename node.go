@@ -60,9 +60,7 @@ type node struct {
 	host bool
 }
 
-func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
-	// tsr come from the sync.Pool and has not been reset yet.
-	c.tsr = false
+func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node, bool) {
 	paramOffset := len(*c.params)
 
 	*c.skipStack = (*c.skipStack)[:0]
@@ -76,21 +74,20 @@ func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int
 		return lookupByPath(n, method, path, c, lazy, offsetZero)
 	}
 
-	idx, nd := lookupByHostname(n, method, host, path, c, lazy)
-	if nd == nil || c.tsr {
-		// Either no match or match with tsr, try lookup by path with tsr enable
-		// so we won't check for tsr again.
+	idx, nd, tsr := lookupByHostname(n, method, host, path, c, lazy)
+	if nd == nil {
+		// No match with hostname, fallback to path-only.
 		*c.skipStack = (*c.skipStack)[:0]
 		*c.params = (*c.params)[:paramOffset]
-		if i, pathNode := lookupByPath(n, method, path, c, lazy, offsetZero); pathNode != nil {
-			return i, pathNode
+		if i, pathNode, pathTsr := lookupByPath(n, method, path, c, lazy, offsetZero); pathNode != nil {
+			return i, pathNode, pathTsr
 		}
 	}
 	// Hostname direct match
-	return idx, nd
+	return idx, nd, tsr
 }
 
-func lookupByHostname(root *node, method, host, path string, c *Context, lazy bool) (index int, n *node) {
+func lookupByHostname(root *node, method, host, path string, c *Context, lazy bool) (index int, n *node, tsr bool) {
 	var (
 		charsMatched     int
 		skipStatic       bool
@@ -273,15 +270,9 @@ Walk:
 
 	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil {
 		stackOffset := len(*c.skipStack)
-		idx, subNode := lookupByPath(matched, method, path, c, lazy, stackOffset)
+		idx, subNode, subTsr := lookupByPath(matched, method, path, c, lazy, stackOffset)
 		if subNode != nil {
-			if c.tsr {
-				n = subNode
-				index = idx
-			} else {
-				c.tsr = false
-				return idx, subNode
-			}
+			return idx, subNode, subTsr
 		}
 
 		// Remove any unused skip nodes added during the path lookup.
@@ -319,7 +310,7 @@ Backtrack:
 	goto Walk
 }
 
-func lookupByPath(root *node, method, path string, c *Context, lazy bool, stackOffset int) (index int, n *node) {
+func lookupByPath(root *node, method, path string, c *Context, lazy bool, stackOffset int) (index int, n *node, tsr bool) {
 
 	var (
 		charsMatched     int
@@ -360,35 +351,24 @@ Walk:
 				}
 
 				// Child key is /foo/, we can fully match /foo prefix and the remaining is exactly "/".
-				if !c.tsr && strings.HasPrefix(child.key, search) && child.key[len(search):] == "/" {
+				if strings.HasPrefix(child.key, search) && child.key[len(search):] == "/" {
 					if child.isLeaf() {
 						for i, route := range child.routes {
 							if route.match(method, c) {
-								c.tsr = true
-								n = child
-								index = i //nolint:staticcheck
-								if !lazy {
-									copyWithResize(c.tsrParams, c.params)
-								}
-								break
+								return i, child, true
 							}
 						}
-					} else {
-						// Since /foo/ and /foo/+{any} conflict on registration, we don't search for match empty catch-all
-						// if the child is a leaf.
-						for _, wildcardNode := range child.wildcards {
-							for i, route := range wildcardNode.routes {
-								if route.catchEmpty && route.match(method, c) {
-									c.tsr = true
-									n = wildcardNode
-									index = i //nolint:staticcheck
-									if !lazy {
-										*c.tsrParams = (*c.tsrParams)[:0]
-										*c.tsrParams = append(*c.tsrParams, *c.params...)
-										*c.tsrParams = append(*c.tsrParams, "")
-									}
-									break
+					}
+					// Since /foo/ and /foo/+{any} are permitted with different set of matchers and methods, we still need
+					// to search for match empty catch-all.
+					for _, wildcardNode := range child.wildcards {
+						for i, route := range wildcardNode.routes {
+							if route.catchEmpty && route.match(method, c) {
+								if !lazy {
+									// record empty match
+									*c.params = append(*c.params, "")
 								}
+								return i, wildcardNode, true
 							}
 						}
 					}
@@ -464,18 +444,14 @@ Walk:
 					// Search for next slash from current offset
 					idx := strings.IndexByte(path[searchStart:], slashDelim)
 					if idx < 0 {
-						if !c.tsr && len(path[searchStart:]) > 0 {
+						if len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								for j, route := range child.routes {
 									if route.match(method, c) {
-										c.tsr = true
-										n = child
-										index = j //nolint:staticcheck
 										if !lazy {
-											copyWithResize(c.tsrParams, c.params)
-											*c.tsrParams = append(*c.tsrParams, path[charsMatched:])
+											*c.params = append(*c.params, path[charsMatched:])
 										}
-										break
+										return j, child, true
 									}
 								}
 							}
@@ -554,8 +530,7 @@ Walk:
 						if !lazy {
 							*c.params = append(*c.params, search)
 						}
-						c.tsr = false
-						return i, wildcardNode
+						return i, wildcardNode, false
 					}
 				}
 			}
@@ -567,8 +542,7 @@ Walk:
 	if matched.isLeaf() {
 		for i, route := range matched.routes {
 			if route.match(method, c) {
-				c.tsr = false
-				return i, matched
+				return i, matched, false
 			}
 		}
 	}
@@ -580,51 +554,30 @@ Walk:
 				if !lazy {
 					*c.params = append(*c.params, "")
 				}
-				c.tsr = false
-				return i, wildcardNode
+				return i, wildcardNode, false
 			}
 		}
 	}
 
-	if !c.tsr {
-		if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
-			for i, route := range child.routes {
-				if route.match(method, c) {
-					c.tsr = true
-					n = child
-					index = i //nolint:staticcheck
-					if !lazy {
-						copyWithResize(c.tsrParams, c.params)
-					}
-					break
-				}
+	if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
+		for i, route := range child.routes {
+			if route.match(method, c) {
+				return i, child, true
 			}
-		} else if matched.key == "/" && parent != nil && parent.isLeaf() {
-			for i, route := range parent.routes {
-				if route.match(method, c) {
-					c.tsr = true
-					n = parent
-					index = i //nolint:staticcheck
-					if !lazy {
-						copyWithResize(c.tsrParams, c.params)
-					}
-					break
-				}
+		}
+	} else if matched.key == "/" && parent != nil && parent.isLeaf() {
+		for i, route := range parent.routes {
+			if route.match(method, c) {
+				return i, parent, true
 			}
 		}
 	}
 
 Backtrack:
-	if !c.tsr && matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
+	if matched.isLeaf() && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
 			if route.match(method, c) {
-				c.tsr = true
-				n = matched
-				index = i //nolint:staticcheck
-				if !lazy {
-					copyWithResize(c.tsrParams, c.params)
-				}
-				break
+				return i, matched, true
 			}
 		}
 	}

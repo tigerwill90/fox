@@ -170,11 +170,6 @@ func TestContext_Clone(t *testing.T) {
 	assert.Panics(t, func() {
 		_, _ = cc.Writer().Write([]byte("invalid"))
 	})
-
-	c.tsr = true
-	*c.tsrParams = []string{"b"}
-	cc = c.Clone()
-	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 }
 
 func TestContext_CloneWith(t *testing.T) {
@@ -194,11 +189,6 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, c.Pattern(), cp.Pattern())
 	assert.Equal(t, c.Fox(), cp.Fox())
 	assert.Nil(t, cp.cachedQueries)
-
-	c.tsr = true
-	*c.tsrParams = []string{"b"}
-	cp = c.CloneWith(c.Writer(), c.Request())
-	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 }
 
 func TestContext_Blob(t *testing.T) {
