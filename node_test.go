@@ -2980,7 +2980,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
@@ -3074,7 +3074,7 @@ func TestTree_LookupTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(MethodGet, path, emptyHandler)))
 			}

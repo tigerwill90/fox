@@ -1220,7 +1220,7 @@ func TestDomainLookup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
@@ -1488,7 +1488,7 @@ func TestMatchersLookup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
 			}

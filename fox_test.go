@@ -4743,7 +4743,7 @@ func TestRouter_Reverse(t *testing.T) {
 	})
 
 	t.Run("reverse with tsr", func(t *testing.T) {
-		f, _ := New()
+		f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 		for _, rte := range staticRoutes {
 			if rte.path == "/" {
 				continue
@@ -5081,7 +5081,7 @@ func TestFoxReverse(t *testing.T) {
 		"/users/uid_{id}",
 	}
 
-	f, _ := New()
+	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 	for _, rte := range routes {
 		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 	}

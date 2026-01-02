@@ -354,7 +354,7 @@ Walk:
 				if strings.HasPrefix(child.key, search) && child.key[len(search):] == "/" {
 					if child.isLeaf() {
 						for i, route := range child.routes {
-							if route.match(method, c) {
+							if route.handleSlash != StrictSlash && route.match(method, c) {
 								return i, child, true
 							}
 						}
@@ -363,7 +363,7 @@ Walk:
 					// to search for match empty catch-all.
 					for _, wildcardNode := range child.wildcards {
 						for i, route := range wildcardNode.routes {
-							if route.catchEmpty && route.match(method, c) {
+							if route.handleSlash != StrictSlash && route.catchEmpty && route.match(method, c) {
 								if !lazy {
 									// record empty match
 									*c.params = append(*c.params, "")
@@ -452,7 +452,7 @@ Walk:
 									break
 								}
 								for j, route := range child.routes {
-									if route.match(method, c) {
+									if route.handleSlash != StrictSlash && route.match(method, c) {
 										if !lazy {
 											*c.params = append(*c.params, path[charsMatched:])
 										}
@@ -566,13 +566,13 @@ Walk:
 
 	if _, child := matched.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 		for i, route := range child.routes {
-			if route.match(method, c) {
+			if route.handleSlash != StrictSlash && route.match(method, c) {
 				return i, child, true
 			}
 		}
 	} else if matched.key == "/" && parent != nil && parent.isLeaf() && parent.key != "*" {
 		for i, route := range parent.routes {
-			if route.match(method, c) {
+			if route.handleSlash != StrictSlash && route.match(method, c) {
 				return i, parent, true
 			}
 		}
@@ -581,7 +581,7 @@ Walk:
 Backtrack:
 	if matched.isLeaf() && matched.key != "*" && search == "/" && !strings.HasSuffix(path, "//") {
 		for i, route := range matched.routes {
-			if route.match(method, c) {
+			if route.handleSlash != StrictSlash && route.match(method, c) {
 				return i, matched, true
 			}
 		}
