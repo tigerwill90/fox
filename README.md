@@ -94,9 +94,9 @@ import (
 )
 
 func main() {
-	f := fox.MustNew(fox.DefaultOptions())
+	f := fox.MustRouter(fox.DefaultOptions())
 
-	f.MustHandle([]string{http.MethodHead, http.MethodGet}, "/hello/{name}", func(c *fox.Context) {
+	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/hello/{name}", func(c *fox.Context) {
 		_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
 	})
 
@@ -213,16 +213,16 @@ Pattern /src/*{filepath:[A-Za-z/]+\.json}
 Route matchers enable routing decisions based on request properties beyond methods, hostname and path. Multiple routes can share
 the same pattern and methods and be differentiated by query parameters, headers, client IP, or custom criteria.
 
-````go
-f.MustHandle(fox.MethodGet, "/api/users", PremiumHandler,
-    fox.WithQueryMatcher("tier", "premium"),
+````
+f.MustAdd(fox.MethodGet, "/api/users", PremiumHandler,
+	fox.WithQueryMatcher("tier", "premium"),
 )
 
-f.MustHandle(fox.MethodGet, "/api/users", StandardHandler,
-    fox.WithHeaderMatcher("X-API-Version", "v2"),
+f.MustAdd(fox.MethodGet, "/api/users", StandardHandler,
+	fox.WithHeaderMatcher("X-API-Version", "v2"),
 )
 
-f.MustHandle(fox.MethodGet, "/api/users", DefaultHandler) // Fallback route
+f.MustAdd(fox.MethodGet, "/api/users", DefaultHandler) // Fallback route
 ````
 
 Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, `fox.WithHeaderMatcher`, `fox.WithHeaderRegexpMatcher`,
@@ -237,37 +237,36 @@ a convenience placeholder equivalent to an empty method set (nil or empty slice)
 
 ````go
 // Handle any method on /health
-f.MustHandle(fox.MethodAny, "/health", HealthHandler)
+f.MustAdd(fox.MethodAny, "/health", HealthHandler)
 // Forward all requests to a backend service
-f.MustHandle(fox.MethodAny, "/api/+{any}", ProxyHandler)
+f.MustAdd(fox.MethodAny, "/api/+{any}", ProxyHandler)
 ````
 
 Routes registered with a specific HTTP method always take precedence over method-less routes. This allows defining method-specific
 behavior while falling back to a generic handler for other methods.
 ````go
 // Specific handler for GET requests
-f.MustHandle(fox.MethodGet, "/resource", GetHandler)
+f.MustAdd(fox.MethodGet, "/resource", GetHandler)
 // All other methods handled here
-f.MustHandle(fox.MethodAny, "/resource", FallbackHandler)
+f.MustAdd(fox.MethodAny, "/resource", FallbackHandler)
 ````
 
 #### Sub-Routers
 Fox supports mounting a router as a regular route, enabling modular route management and isolated configuration.
 
 ```go
-api := fox.MustNew(fox.WithMiddleware(AuthMiddleware()))
-api.MustHandle(fox.MethodGet, "/users", ListUsers)
-api.MustHandle(fox.MethodGet, "/users/{id}", GetUser)
-api.MustHandle(fox.MethodPost, "/users", CreateUser)
+f := fox.MustRouter(
+	fox.DefaultOptions(),
+	fox.DevelopmentOptions(),
+)
+f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/+{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
 
-f := fox.MustNew()
-route, err := f.NewSubRouter(fox.MethodAny, "/api/+{mount}", api)
-if err != nil {
-    log.Fatal(err)
-}
-if err := f.HandleRoute(route); err != nil {
-    log.Fatal(err)
-}
+api, r := f.MustSubRouter(fox.MethodAny, "/api+{mount}", fox.WithMiddleware(AuthMiddleware()))
+api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/", HelloHandler)
+api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUser)
+api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users/{id}", GetUser)
+api.MustAdd(fox.MethodPost, "/users", CreateUser)
+f.MustAddRoute(r)
 ```
 
 The subrouter pattern must end with a catch-all parameter (`*{param}` or `+{param}`). Requests matching the prefix are delegated
@@ -400,7 +399,7 @@ func Action(c *fox.Context) {
 	action := c.Param("action")
 	switch action {
 	case "add":
-		_, err = c.Fox().Handle(data.Methods, data.Pattern, func(c *fox.Context) {
+		_, err = c.Fox().Add(data.Methods, data.Pattern, func(c *fox.Context) {
 			_ = c.String(http.StatusOK, data.Text)
 		})
 	case "update":
@@ -422,9 +421,9 @@ func Action(c *fox.Context) {
 }
 
 func main() {
-	f := fox.MustNew(fox.DefaultOptions())
+	f := fox.MustRouter(fox.DefaultOptions())
 
-	f.MustHandle(fox.MethodPost, "/routes/{action}", Action)
+	f.MustAdd(fox.MethodPost, "/routes/{action}", Action)
 
 	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalln(err)
@@ -444,7 +443,7 @@ the tree, ensuring they do not observe any ongoing or committed changes made aft
 // from the function then the transaction is committed. If an error is returned then the entire transaction is
 // aborted.
 if err := f.Updates(func(txn *fox.Txn) error {
-	if _, err := txn.Handle(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+	if _, err := txn.Add(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
 		return err
 	}
 
@@ -482,7 +481,7 @@ _ = f.View(func(txn *fox.Txn) error {
 txn := f.Txn(true)
 defer txn.Abort()
 
-if _, err := txn.Handle(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+if _, err := txn.Add(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
 	log.Printf("error inserting route: %s", err)
 	return
 }
@@ -531,9 +530,9 @@ func Logger(next fox.HandlerFunc) fox.HandlerFunc {
 }
 
 func main() {
-	f := fox.MustNew(fox.WithMiddleware(Logger))
+	f := fox.MustRouter(fox.WithMiddleware(Logger))
 
-	f.MustHandle(fox.MethodGet, "/", func(c *fox.Context) {
+	f.MustAdd(fox.MethodGet, "/", func(c *fox.Context) {
 		_ = c.String(http.StatusOK, "Hello World")
 	})
 
@@ -545,8 +544,8 @@ Additionally, `fox.WithMiddlewareFor` option provide a more fine-grained control
 only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NoRouteHandler`, `fox.NoMethodHandler`, 
 `fox.RedirectSlashHandler`, `fox.RedirectPathHandler`, `fox.OptionsHandler` and any combination of these.
 
-````go
-f  := fox.MustNew(
+````gp
+f  := fox.MustRouter(
 	fox.WithMiddlewareFor(fox.RouteHandler, Logger),
 	fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
 )
@@ -556,11 +555,11 @@ Finally, it's also possible to attaches middleware on a per-route basis. Note th
 when updating a route. If not, any middleware will be removed, and the route will fall back to using only global middleware (if any).
 
 ````go
-f := fox.MustNew(
+f := fox.MustRouter(
 	fox.WithMiddleware(fox.Logger(slog.NewTextHandler(os.Stdout, nil))),
 )
-f.MustHandle(fox.MethodGet, "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
-f.MustHandle(fox.MethodGet, "/foo", SomeOtherHandler)
+f.MustAdd(fox.MethodGet, "/", SomeHandler, fox.WithMiddleware(foxtimeout.Middleware(2*time.Second)))
+f.MustAdd(fox.MethodGet, "/foo", SomeOtherHandler)
 ````
 
 ### Official middlewares
@@ -577,7 +576,7 @@ provides convenient `fox.WrapF`, `fox.WrapH` and `fox.WrapM` adapter to be use w
 The route parameters can be accessed by the wrapped handler through the request `context.Context` when the adapters are used.
 
 Wrapping an `http.Handler`
-```go
+````go
 articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	params := fox.ParamsFromContext(r.Context())
 	// Article id: 80
@@ -585,22 +584,22 @@ articles := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, "Article id: %s\nMatched route: %s\n", params.Get("id"), r.Pattern)
 })
 
-f := fox.MustNew()
-f.MustHandle(fox.MethodGet, "/articles/{id}", fox.WrapH(articles))
-```
+f := fox.MustRouter()
+f.MustAdd(fox.MethodGet, "/articles/{id}", fox.WrapH(articles))
+````
 
 Wrapping any standard `http.Hanlder` middleware
-```go
+````go
 corsMw, _ := cors.NewMiddleware(cors.Config{
 	Origins:        []string{"https://example.com"},
 	Methods:        []string{http.MethodGet, http.MethodPost, http.MethodPut},
 	RequestHeaders: []string{"Authorization"},
 })
 
-f := fox.MustNew(
+f := fox.MustRouter(
 	fox.WithMiddlewareFor(fox.RouteHandler|fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 )
-```
+````
 
 ## Handling OPTIONS Requests and CORS Automatically
 The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 
@@ -637,13 +636,13 @@ func main() {
 	}
 	corsMw.SetDebug(true) // turn debug mode on (optional)
 
-	f := fox.MustNew(
+	f := fox.MustRouter(
 		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
-		fox.WithMiddlewareFor(fox.OptionsHandler|fox.RouteHandler, fox.WrapM(corsMw.Wrap)),
+		fox.WithMiddlewareFor(fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 	)
 
-	f.MustHandle(fox.MethodGet, "/api/users", getHandler)
-	f.MustHandle(fox.MethodPost, "/api/users", postHandler)
+	f.MustAdd(fox.MethodGet, "/api/users", getHandler)
+	f.MustAdd(fox.MethodPost, "/api/users", postHandler)
 
 	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
@@ -682,14 +681,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	f := fox.MustNew(
+	f := fox.MustRouter(
 		fox.DefaultOptions(),
 		fox.WithClientIPResolver(
 			resolver,
 		),
 	)
 
-	f.MustHandle(fox.MethodGet, "/foo/bar", func(c *fox.Context) {
+	f.MustAdd(fox.MethodGet, "/foo/bar", func(c *fox.Context) {
 		ipAddr, err := c.ClientIP()
 		if err != nil {
 			// If the current resolver is not able to derive the client IP, an error
@@ -706,7 +705,7 @@ It is also possible to create a chain with multiple resolvers that attempt to de
 
 ````go
 resolver, _ := clientip.NewLeftmostNonPrivate(clientip.ForwardedKey, 10)
-f := fox.MustNew(
+f := fox.MustRouter(
 	fox.DefaultOptions(),
 	fox.WithClientIPResolver(
 		// A common use for this is if a server is both directly connected to the
