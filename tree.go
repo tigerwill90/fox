@@ -292,39 +292,6 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 
-			/*			var conflicts []*Route
-						if p != nil {
-							for _, r := range p.routes {
-								if r.handleSlash != StrictSlash && r.matchersEqual(route.matchers) && slicesutil.Overlap(r.methods, route.methods) {
-									conflicts = append(conflicts, r)
-								}
-							}
-						}
-						if len(conflicts) > 0 {
-							return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: wouldShadowKind, ts: true}
-						}
-
-						if _, child := n.getStaticEdge(slashDelim); child != nil && child.key == "/" {
-							if route.handleSlash != StrictSlash {
-								for _, r := range child.routes {
-									if r.matchersEqual(route.matchers) && slicesutil.Overlap(r.methods, route.methods) {
-										conflicts = append(conflicts, r)
-									}
-								}
-								if len(conflicts) > 0 {
-									return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: isShadowedKind, ts: true}
-								}
-							}
-							for _, r := range child.routes {
-								if r.handleSlash != StrictSlash && r.matchersEqual(route.matchers) && slicesutil.Overlap(r.methods, route.methods) {
-									conflicts = append(conflicts, r)
-								}
-								if len(conflicts) > 0 {
-									return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: wouldShadowKind, ts: true}
-								}
-							}
-						}*/
-
 			// Catch-all with empty capture conflict detection.
 			// Routes like /foo/ and /foo/+{any} conflict because a request to /foo/ always matches the exact route,
 			// making /foo/+{any} unreachable. The correct semantic is to use /foo/*{any} which doesn't capture empty segments.
@@ -519,28 +486,6 @@ func (t *tXn) insertStatic(p, n *node, tk token, remaining []token, route *Route
 
 			return nc, nil
 		}
-
-		/*		if strings.HasPrefix(child.key, splitNode.key) && child.key[len(splitNode.key):] == "/" {
-				var conflicts []*Route
-				if route.handleSlash != StrictSlash {
-					for _, r := range child.routes {
-						if r.matchersEqual(route.matchers) && slicesutil.Overlap(r.methods, route.methods) {
-							conflicts = append(conflicts, r)
-						}
-					}
-					if len(conflicts) > 0 {
-						return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: isShadowedKind, ts: true}
-					}
-				}
-				for _, r := range child.routes {
-					if r.handleSlash != StrictSlash && r.matchersEqual(route.matchers) && slicesutil.Overlap(r.methods, route.methods) {
-						conflicts = append(conflicts, r)
-					}
-				}
-				if len(conflicts) > 0 {
-					return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: wouldShadowKind, ts: true}
-				}
-			}*/
 
 		if route.name != "" {
 			if err := t.insertName(route, modeInsert); err != nil {
