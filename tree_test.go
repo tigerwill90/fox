@@ -39,6 +39,38 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "infix hostname wildcard with consecutive capturing single dot",
+			routes: []string{
+				"a.*{any}.com/bar",
+			},
+			host:     "a...com",
+			path:     "/bar",
+			wantPath: "a.*{any}.com/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: ".",
+				},
+			},
+		},
+		{
+			name: "sufix hostname wildcard with hostname ending with single dot",
+			routes: []string{
+				"*{any}/bar",
+			},
+			host:     "a.com.",
+			path:     "/bar",
+			wantPath: "*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a.com",
+				},
+			},
+		},
+		{
 			name: "static hostname with complex overlapping route with static priority and regexp",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1:[0-9]}/jo",
@@ -400,9 +432,9 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
-			name: "regexp priority with tsr but backtrack to most specific",
+			name: "regexp priority but backtrack to most specific",
 			routes: []string{
-				"{a:.*}.{b}.{c}/foo/",
+				"{a:.*}.{b}.{c}/foo/x",
 				"{a:[A-z]+}.{b}.c/foo",
 				"{a:a}.b.c/foo",
 				"/foo/bar",
@@ -585,11 +617,11 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
-			name: "path priority with tsr hostname",
+			name: "path priority with no hostname match",
 			routes: []string{
 				"{a}.{b}.{c}/{d}",
 				"{a}.{b}.c/{d}",
-				"{a}.b.c/{path}/bar/",
+				"{a}.b.c/{path}/bar/x",
 				"/{a}/bar",
 			},
 			host:     "foo.b.c",
@@ -654,7 +686,7 @@ func TestDomainLookup(t *testing.T) {
 			routes: []string{
 				"{a:.*}.{b:.*}.{c}/{d}",
 				"{a:foo}.{b}.c/{d}",
-				"{a:[A-z]+}.b.c/{path}/bar/",
+				"{a:[A-z]+}.b.c/{path}/bar/x",
 				"/{a}/bar",
 			},
 			host:     "foo.b.c",
@@ -944,6 +976,23 @@ func TestDomainLookup(t *testing.T) {
 			},
 		},
 		{
+			name: "fallback to catch-all with leading dot",
+			routes: []string{
+				"*{any}/bar",
+				"{ps}/bar",
+			},
+			host:     ".com",
+			path:     "/bar",
+			wantPath: "*{any}/bar",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: ".com",
+				},
+			},
+		},
+		{
 			name: "eval param with wildcard fallback",
 			routes: []string{
 				"*{any}.b.com/bar",
@@ -1076,7 +1125,7 @@ func TestDomainLookup(t *testing.T) {
 			routes: []string{
 				"*{a}.{b}.{c}/{d}",
 				"*{a}.{b}.c/{d}",
-				"*{a}.b.c/{path}/bar/",
+				"*{a}.b.c/{path}/bar/x",
 				"/{path}/bar",
 			},
 			host:     "foo.b.c",
@@ -1171,16 +1220,16 @@ func TestDomainLookup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
+			idx, n, tsr := tree.lookup(http.MethodGet, tc.host, tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
-			assert.Equal(t, tc.wantTsr, c.tsr)
+			assert.Equal(t, tc.wantTsr, tsr)
 			c.route = n.routes[idx]
 			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -1301,9 +1350,9 @@ func TestMatchersLookup(t *testing.T) {
 			wantTsr:     true,
 		},
 		{
-			name: "match with tsr on hostname but more specific matchers",
+			name: "no match with hostname but path with matchers",
 			routes: []route{
-				{pattern: "exemple.com/foo/bar/"},
+				{pattern: "exemple.com/foo/bar/baz"},
 				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
 			},
 			host:        "exemple.com",
@@ -1311,9 +1360,9 @@ func TestMatchersLookup(t *testing.T) {
 			wantPattern: "/foo/bar",
 		},
 		{
-			name: "match with tsr on hostname but more specific matchers with param backtrack",
+			name: "no match with hostname but path with param backtrack",
 			routes: []route{
-				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "exemple.com/{name}/bar/baz"},
 				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
 			},
 			host:        "exemple.com",
@@ -1323,17 +1372,7 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "match with multiple same query matchers",
 			routes: []route{
-				{pattern: "exemple.com/{name}/bar/"},
-				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"a", "b"}}},
-			},
-			host:        "exemple.com",
-			path:        "/foo/bar?a=b",
-			wantPattern: "/foo/bar",
-		},
-		{
-			name: "match with multiple same query matchers",
-			routes: []route{
-				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "exemple.com/{name}/bar/baz"},
 				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"a", "b"}}},
 			},
 			host:        "exemple.com",
@@ -1343,7 +1382,7 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "match many query matchers",
 			routes: []route{
-				{pattern: "exemple.com/{name}/bar/"},
+				{pattern: "exemple.com/{name}/bar/baz"},
 				{pattern: "/foo/bar", matchers: []Matcher{
 					QueryMatcher{"a", "b"},
 					QueryMatcher{"c", "d"},
@@ -1380,7 +1419,7 @@ func TestMatchersLookup(t *testing.T) {
 			name: "fallback to must specific hostname with wildcard, regexp priority and matchers",
 			routes: []route{
 				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
-				{pattern: "*{a:[A-z]+}.b.c/{path}/bar/", matchers: []Matcher{QueryMatcher{"b", "c"}}},
+				{pattern: "*{a:[A-z]+}.b.c/{path}/bar/", matchers: []Matcher{QueryMatcher{"d", "e"}}},
 				{pattern: "*{a:foo}.{b}.c/{d}/bar"},
 				{pattern: "/{a:^$}/bar"},
 			},
@@ -1407,7 +1446,7 @@ func TestMatchersLookup(t *testing.T) {
 			name: "match must specific hostname with wildcard, regexp priority and matchers",
 			routes: []route{
 				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
-				{pattern: "*{a:foo}.{b}.c/{d}/bar/"},
+				{pattern: "*{a:foo}.{b}.c/{d}/bar/baz"},
 				{pattern: "*{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"b", "c"}}},
 				{pattern: "/{a:^$}/bar"},
 			},
@@ -1430,7 +1469,7 @@ func TestMatchersLookup(t *testing.T) {
 			name: "fallback must specific path with wildcard, regexp priority and matchers",
 			routes: []route{
 				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
-				{pattern: "*{a:foo}.{b}.c/{d}/bar/", matchers: []Matcher{QueryMatcher{"b", "c"}}},
+				{pattern: "*{a:foo}.{b}.c/{d}/bar/", matchers: []Matcher{QueryMatcher{"d", "f"}}},
 				{pattern: "*{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"e", "f"}}},
 				{pattern: "/{a:.*}/bar"},
 			},
@@ -1449,7 +1488,7 @@ func TestMatchersLookup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
 			}
@@ -1458,10 +1497,10 @@ func TestMatchersLookup(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 			req.Host = tc.host
 			c.req = req
-			idx, n := tree.lookup(http.MethodGet, tc.host, c.Path(), c, false)
+			idx, n, tsr := tree.lookup(http.MethodGet, tc.host, c.Path(), c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPattern, n.routes[idx].pattern)
-			assert.Equal(t, tc.wantTsr, c.tsr)
+			assert.Equal(t, tc.wantTsr, tsr)
 			c.route = n.routes[idx]
 			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -1604,7 +1643,7 @@ func TestMatchersLookupWithPriority(t *testing.T) {
 			c := newTestContext(f)
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 			c.req = req
-			idx, n := tree.lookup(http.MethodGet, "", c.Path(), c, false)
+			idx, n, _ := tree.lookup(http.MethodGet, "", c.Path(), c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPattern, n.routes[idx].pattern)
 			assert.Equal(t, tc.wantMatcher, n.routes[idx].matchers)

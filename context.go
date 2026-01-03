@@ -57,7 +57,6 @@ type Context struct {
 	w             ResponseWriter
 	req           *http.Request
 	params        *[]string
-	tsrParams     *[]string
 	paramsKeys    *[]string
 	skipStack     *skipStack
 	route         *Route
@@ -66,7 +65,6 @@ type Context struct {
 	cachedQueries url.Values
 	rec           recorder
 	scope         HandlerScope
-	tsr           bool
 }
 
 // reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].
@@ -88,7 +86,6 @@ func (c *Context) resetNil() {
 	c.cachedQueries = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
-	c.tsr = false
 }
 
 // resetWithRequest resets the [Context] to its initial state, with the provided [http.Request]. This is used
@@ -170,14 +167,6 @@ func (c *Context) ClientIP() (*net.IPAddr, error) {
 // Params returns an iterator over the matched wildcard parameters for the current route.
 func (c *Context) Params() iter.Seq[Param] {
 	return func(yield func(Param) bool) {
-		if c.tsr {
-			for i, p := range *c.tsrParams {
-				if !yield(Param{Key: (*c.paramsKeys)[i], Value: p}) {
-					return
-				}
-			}
-			return
-		}
 		for i, p := range *c.params {
 			if !yield(Param{Key: (*c.paramsKeys)[i], Value: p}) {
 				return
@@ -188,16 +177,6 @@ func (c *Context) Params() iter.Seq[Param] {
 
 // Param retrieve a matching wildcard segment by name.
 func (c *Context) Param(name string) string {
-	if c.tsr {
-		for i := range *c.tsrParams {
-			key := (*c.paramsKeys)[i]
-			if key == name {
-				return (*c.tsrParams)[i]
-			}
-		}
-		return ""
-	}
-
 	for i := range *c.params {
 		key := (*c.paramsKeys)[i]
 		if key == name {
@@ -304,21 +283,14 @@ func (c *Context) Clone() *Context {
 		fox:   c.fox,
 		route: c.route,
 		scope: c.scope,
-		tsr:   c.tsr,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
 	cp.w = noUnwrap{&cp.rec}
 
-	if !c.tsr {
-		params := make([]string, len(*c.params))
-		copy(params, *c.params)
-		cp.params = &params
-	} else {
-		tsrParams := make([]string, len(*c.tsrParams))
-		copy(tsrParams, *c.tsrParams)
-		cp.tsrParams = &tsrParams
-	}
+	params := make([]string, len(*c.params))
+	copy(params, *c.params)
+	cp.params = &params
 
 	keys := make([]string, len(*c.paramsKeys))
 	copy(keys, *c.paramsKeys)
@@ -338,15 +310,9 @@ func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp.route = c.route
 	cp.scope = c.scope
 	cp.cachedQueries = nil // In case r is a different request than c.req
-	cp.tsr = c.tsr
 
 	copyWithResize(cp.paramsKeys, c.paramsKeys)
-
-	if !c.tsr {
-		copyWithResize(cp.params, c.params)
-	} else {
-		copyWithResize(cp.tsrParams, c.tsrParams)
-	}
+	copyWithResize(cp.params, c.params)
 
 	return cp
 }

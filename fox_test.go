@@ -4177,7 +4177,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 		target     string
 		wantParams Params
 		wantPath   string
-		wantTsr    bool
 	}{
 		{
 			name:   "current not a leaf, with leave on incomplete to end of edge",
@@ -4190,7 +4189,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}",
-			wantTsr:  true,
 		},
 		{
 			name:   "current not a leaf, with leave on end mid-edge",
@@ -4203,7 +4201,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}",
-			wantTsr:  true,
 		},
 		{
 			name:   "current not a leaf, with leave on end mid-edge",
@@ -4216,7 +4213,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}",
-			wantTsr:  true,
 		},
 		{
 			name:   "current not a leaf, with leave on not a leaf",
@@ -4229,19 +4225,13 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}",
-			wantTsr:  true,
 		},
 		{
-			name:   "current not a leaf, with leave on exact match",
-			routes: []string{"/a/foo/", "/a/foobar", "/{a}/foo"},
-			target: "/a/foo",
-			wantParams: Params{
-				{
-					Key:   "a",
-					Value: "a",
-				},
-			},
-			wantPath: "/{a}/foo",
+			name:       "current not a leaf, with most specifc tsr",
+			routes:     []string{"/a/foo/", "/a/foobar", "/{a}/foo"},
+			target:     "/a/foo",
+			wantParams: Params(nil),
+			wantPath:   "/a/foo/",
 		},
 		{
 			name:   "current not a leaf, with child slash match",
@@ -4254,7 +4244,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/{x}/foo/",
-			wantTsr:  true,
 		},
 		{
 			name:     "current not a leaf, with child slash match and backtrack",
@@ -4267,7 +4256,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 					Value: "a",
 				},
 			},
-			wantTsr: true,
 		},
 		{
 			name:   "mid edge key, add an extra ts",
@@ -4280,7 +4268,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}/",
-			wantTsr:  true,
 		},
 		{
 			name:   "mid edge key, remove an extra ts",
@@ -4293,7 +4280,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}",
-			wantTsr:  true,
 		},
 		{
 			name:   "incomplete match end of edge, remove extra ts",
@@ -4306,7 +4292,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/foo/{b}",
-			wantTsr:  true,
 		},
 		{
 			name:       "current not a leaf, should empty params",
@@ -4314,7 +4299,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 			target:     "/foo/",
 			wantParams: Params(nil),
 			wantPath:   "/foo",
-			wantTsr:    true,
 		},
 		{
 			name:   "tsr with empty catch all",
@@ -4327,7 +4311,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/a/foo/+{any}",
-			wantTsr:  true,
 		},
 		{
 			name:   "tsr with empty catch all and param before",
@@ -4344,7 +4327,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 				},
 			},
 			wantPath: "/{a}/foo/+{any}",
-			wantTsr:  true,
 		},
 	}
 
@@ -4356,7 +4338,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 					assert.Equal(t, tc.wantPath, c.Pattern())
 					var params Params = slices.Collect(c.Params())
 					assert.Equal(t, tc.wantParams, params)
-					assert.Equal(t, tc.wantTsr, c.tsr)
 				})))
 			}
 			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
@@ -4371,7 +4352,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 						assert.Equal(t, tc.wantPath, c.Pattern())
 						var params Params = slices.Collect(c.Params())
 						assert.Equal(t, tc.wantParams, params)
-						assert.Equal(t, tc.wantTsr, c.tsr)
 					})))
 				}
 				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
@@ -4387,7 +4367,6 @@ func TestRouterWithTsrParams(t *testing.T) {
 						assert.Equal(t, "example.com"+tc.wantPath, c.Pattern())
 						var params Params = slices.Collect(c.Params())
 						assert.Equal(t, tc.wantParams, params)
-						assert.Equal(t, tc.wantTsr, c.tsr)
 					})))
 				}
 
@@ -4764,7 +4743,7 @@ func TestRouter_Reverse(t *testing.T) {
 	})
 
 	t.Run("reverse with tsr", func(t *testing.T) {
-		f, _ := New()
+		f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 		for _, rte := range staticRoutes {
 			if rte.path == "/" {
 				continue
@@ -5102,7 +5081,7 @@ func TestFoxReverse(t *testing.T) {
 		"/users/uid_{id}",
 	}
 
-	f, _ := New()
+	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 	for _, rte := range routes {
 		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 	}

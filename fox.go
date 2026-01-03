@@ -361,11 +361,11 @@ func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool
 
 	path := c.Path()
 
-	idx, n := tree.lookup(method, r.Host, path, c, true)
+	idx, n, tsr := tree.lookup(method, r.Host, path, c, true)
 	if n != nil {
-		return n.routes[idx], c.tsr
+		return n.routes[idx], tsr
 	}
-	return nil, false
+	return
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -380,16 +380,16 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 
 	path := c.Path()
 
-	idx, n := tree.lookup(r.Method, r.Host, path, c, false)
+	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
 		r.Pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
-		return c.route, c, c.tsr
+		return c.route, c, tsr
 	}
 
 	tree.pool.Put(c)
-	return nil, nil, false
+	return
 }
 
 // NewRoute create a new [Route], configured with the provided options.
@@ -557,6 +557,7 @@ func (fox *Router) NewSubRouter(methods []string, pattern string, r *Router, opt
 				path := c.Path()
 				suffix = path[len(path)-len(suffix)-1:]
 			} else {
+				// TODO there is something better we should be able to do when /api+{any} and sub /, with req /api/ => this should not match unless handle trailing slash
 				// Mount pattern has no trailing slash (e.g., /api*{any}), so suffix
 				// already includes the leading slash. Use precomputed patternWithSlash
 				// to avoid allocation from pattern + "/".
@@ -755,17 +756,14 @@ func internalFixedPathHandler(c *Context) {
 // to the appropriate handler function based on the request's method and path.
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	var n *node
-	var idx int
-
 	tree := fox.getTree()
 	c := tree.pool.Get().(*Context)
 	c.reset(w, r)
 
 	path := c.Path()
 
-	idx, n = tree.lookup(r.Method, r.Host, path, c, false)
-	if !c.tsr && n != nil {
+	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
+	if !tsr && n != nil {
 		c.route = n.routes[idx]
 		r.Pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
@@ -775,7 +773,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" {
-		if c.tsr && n != nil {
+		if tsr && n != nil {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
@@ -788,7 +786,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			if route.handleSlash == RedirectSlash {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
@@ -800,7 +797,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch fox.handlePath {
 		case RelaxedPath:
 			*c.params = (*c.params)[:0]
-			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
 				r.Pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
@@ -809,9 +806,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case RedirectPath:
-			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
@@ -874,7 +870,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// See https://stackoverflow.com/questions/64352697/should-a-server-implementing-cors-always-reply-with-a-2xx-code-for-options-metho
 		if foundOrigin && foundAcrm {
 			c.scope = OptionsHandler
-			c.tsr = false
 			fox.autoOPTIONS(c)
 			tree.pool.Put(c)
 			return
@@ -886,7 +881,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if _, ok := seen[method]; ok {
 				continue
 			}
-			if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				for _, m := range n.routes[idx].methods {
 					seen[m] = struct{}{}
 				}
@@ -903,7 +898,6 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = OptionsHandler
-			c.tsr = false
 			fox.autoOPTIONS(c)
 			tree.pool.Put(c)
 			return
@@ -917,7 +911,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if _, ok := seen[method]; ok {
 				continue
 			}
-			if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				for _, m := range n.routes[idx].methods {
 					seen[m] = struct{}{}
 				}
@@ -947,30 +941,26 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
-			c.tsr = false
 			fox.noMethod(c)
 			tree.pool.Put(c)
 			return
 		}
 	}
 
-	c.tsr = false
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 	tree.pool.Put(c)
 }
 
 func (fox *Router) serveSubRouter(c *Context, path string) {
-	var n *node
-	var idx int
 
 	tree := c.tree
 	r := c.Request()
 	w := c.Writer()
 
 	paramsOffset := len(*c.params)
-	idx, n = tree.lookupByPath(r.Method, path, c, false)
-	if !c.tsr && n != nil {
+	idx, n, tsr := tree.lookupByPath(r.Method, path, c, false)
+	if !tsr && n != nil {
 		c.route = n.routes[idx]
 		*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
 		r.Pattern += c.route.pattern[1:]
@@ -979,7 +969,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 	}
 
 	if r.Method != http.MethodConnect && r.URL.Path != "/" {
-		if c.tsr && n != nil {
+		if tsr && n != nil {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
@@ -991,7 +981,6 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 			if route.handleSlash == RedirectSlash {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
@@ -1002,7 +991,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		switch fox.handlePath {
 		case RelaxedPath:
 			*c.params = (*c.params)[:paramsOffset]
-			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
 				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
 				r.Pattern += c.route.pattern[1:]
@@ -1010,9 +999,8 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 				return
 			}
 		case RedirectPath:
-			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
@@ -1039,7 +1027,6 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		// See https://stackoverflow.com/questions/64352697/should-a-server-implementing-cors-always-reply-with-a-2xx-code-for-options-metho
 		if foundOrigin && foundAcrm {
 			c.scope = OptionsHandler
-			c.tsr = false
 			fox.autoOPTIONS(c)
 			tree.pool.Put(c)
 			return
@@ -1051,7 +1038,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if _, ok := seen[method]; ok {
 				continue
 			}
-			if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookupByPath(method, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				for _, m := range n.routes[idx].methods {
 					seen[m] = struct{}{}
 				}
@@ -1068,7 +1055,6 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			}
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = OptionsHandler
-			c.tsr = false
 			fox.autoOPTIONS(c)
 			tree.pool.Put(c)
 			return
@@ -1082,7 +1068,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if _, ok := seen[method]; ok {
 				continue
 			}
-			if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookupByPath(method, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				for _, m := range n.routes[idx].methods {
 					seen[m] = struct{}{}
 				}
@@ -1112,14 +1098,12 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
-			c.tsr = false
 			fox.noMethod(c)
 			tree.pool.Put(c)
 			return
 		}
 	}
 
-	c.tsr = false
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 }

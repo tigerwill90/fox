@@ -402,8 +402,8 @@ func TestEmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
-			require.False(t, c.tsr)
+			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			require.False(t, tsr)
 			require.Nil(t, n)
 			assert.Equal(t, 0, idx)
 		})
@@ -436,10 +436,10 @@ func TestRouteWithParams(t *testing.T) {
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		idx, n := lookupByPath(tree.patterns, http.MethodGet, rte, c, false, 0)
+		idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, rte, c, false, 0)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.routes[idx], "route: %s", rte)
-		assert.False(t, c.tsr)
+		assert.False(t, tsr)
 		assert.Equal(t, rte, n.routes[idx].pattern)
 	}
 }
@@ -491,11 +491,11 @@ func TestRouteParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			assert.Nil(t, n)
 			assert.Equal(t, 0, idx)
 			assert.Empty(t, slices.Collect(c.Params()))
-			assert.False(t, c.tsr)
+			assert.False(t, tsr)
 		})
 	}
 }
@@ -713,8 +713,8 @@ func TestOverlappingRoute(t *testing.T) {
 			path: "/base/val1/123/new/bar/",
 			routes: []string{
 				"/{base}/val1/{id}",
-				"/{base}/val1/123/{a}/bar",
-				"/{base}/val1/{id}/new/{name}",
+				"/{base}/val1/123/{a}/barr",
+				"/{base}/val1/{id}/new/{name}/y",
 				"/{base}/val*{all}",
 			},
 			wantMatch: "/{base}/val*{all}",
@@ -734,7 +734,7 @@ func TestOverlappingRoute(t *testing.T) {
 			path: "/base/val1/123/new/bar/",
 			routes: []string{
 				"/{base}/val1/{id:[0-9]+}",
-				"/{base}/val1/123/{a:[A-z]+}/bar",
+				"/{base}/val1/123/{a:[A-z]+}/barr",
 				"/{base}/val1/{id:[0-9]+}/new/{name:ba}",
 				"/{base}/val*{all}",
 			},
@@ -1511,10 +1511,10 @@ func TestOverlappingRoute(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
-			assert.False(t, c.tsr)
+			assert.False(t, tsr)
 			assert.Equal(t, tc.wantMatch, n.routes[idx].pattern)
 			c.route = n.routes[idx]
 			*c.paramsKeys = c.route.params
@@ -1527,10 +1527,10 @@ func TestOverlappingRoute(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			idx, n = lookupByPath(tree.patterns, http.MethodGet, tc.path, c, true, 0)
+			idx, n, tsr = lookupByPath(tree.patterns, http.MethodGet, tc.path, c, true, 0)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
-			assert.False(t, c.tsr)
+			assert.False(t, tsr)
 			c.route = n.routes[idx]
 			assert.Empty(t, slices.Collect(c.Params()))
 			assert.Equal(t, tc.wantMatch, n.routes[idx].pattern)
@@ -2159,8 +2159,8 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
-			name:     "overlapping infix suffix wildcard and param match suffix without ts",
-			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/"},
+			name:     "overlapping infix suffix wildcard and param match suffix",
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/y"},
 			path:     "/foo/a",
 			wantPath: "/foo/*{args}",
 			wantTsr:  false,
@@ -2173,7 +2173,7 @@ func TestInfixWildcard(t *testing.T) {
 		},
 		{
 			name:     "overlapping infix suffix wildcard and param match suffix without ts",
-			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}"},
+			routes:   []string{"/foo/*{args}", "/foo/*{args}/bar", "/foo/{ps}/y"},
 			path:     "/foo/a/",
 			wantPath: "/foo/*{args}",
 			wantTsr:  false,
@@ -2525,7 +2525,7 @@ func TestInfixWildcard(t *testing.T) {
 			name: "overlapping static and infix with most specific",
 			routes: []string{
 				"/foo/*{any}/{a}/ddd/",
-				"/foo/*{any}/bbb/{d}",
+				"/foo/*{any}/bbb/{d}/e",
 			},
 			path:     "/foo/a/b/c/bbb/ddd/",
 			wantPath: "/foo/*{any}/{a}/ddd/",
@@ -2575,23 +2575,7 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
-			name: "infix regexp wildcard with trailing slash most specific",
-			routes: []string{
-				"/foo/*{any:.*}",
-				"/foo/*{any:.*}/",
-			},
-			path:     "/foo/x/y/z/",
-			wantPath: "/foo/*{any:.*}/",
-			wantTsr:  false,
-			wantParams: Params{
-				{
-					Key:   "any",
-					Value: "x/y/z",
-				},
-			},
-		},
-		{
-			name: "infix wildcard with trailing slash most specific",
+			name: "infix wildcard with trailing with direct match most specific",
 			routes: []string{
 				"/foo/*{any}",
 				"/foo/*{any}/",
@@ -2611,6 +2595,55 @@ func TestInfixWildcard(t *testing.T) {
 			routes: []string{
 				"/foo/*{any:.*}",
 				"/foo/*{any:.*}/",
+			},
+			path:     "/foo/x/y/z/",
+			wantPath: "/foo/*{any:.*}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "infix regexp wildcard with direct match",
+			routes: []string{
+				"/foo/*{any:.*}",
+				"/foo/*{any:.*}/",
+			},
+			path:     "/foo/x/y/z",
+			wantPath: "/foo/*{any:.*}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with fallback to suffix",
+			routes: []string{
+				"/foo/*{any}",
+				"/foo/*{any}/x",
+			},
+			path:     "/foo/x/y/z",
+			wantPath: "/foo/*{any}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			// infix regexp wildcard with trailing slash most specific
+			name: "infix regexp wildcard with fallback to suffix",
+			routes: []string{
+				"/foo/*{any:.*}",
+				"/foo/*{any:[A-z]}/",
 			},
 			path:     "/foo/x/y/z",
 			wantPath: "/foo/*{any:.*}",
@@ -2632,10 +2665,10 @@ func TestInfixWildcard(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
-			assert.Equal(t, tc.wantTsr, c.tsr)
+			assert.Equal(t, tc.wantTsr, tsr)
 			c.route = n.routes[idx]
 			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -2684,18 +2717,18 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with tsr but skipped node match",
+			name: "infix wildcard with tsr and skipped node match",
 			routes: []string{
 				"/foo/*{any}/",
 				"/{x}/a/b/c",
 			},
 			path:     "/foo/a/b/c",
-			wantPath: "/{x}/a/b/c",
-			wantTsr:  false,
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
-					Key:   "x",
-					Value: "foo",
+					Key:   "any",
+					Value: "a/b/c",
 				},
 			},
 		},
@@ -2753,9 +2786,25 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with sub-node tsr at depth 1 but direct match",
+			name: "infix wildcard with with more specific tsr",
 			routes: []string{
 				"/foo/*{any}/c/bbb/",
+				"/foo/*{any}/bbb",
+			},
+			path:     "/foo/a/b/c/bbb",
+			wantPath: "/foo/*{any}/c/bbb/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with with more specific tsr but regexp don't pass",
+			routes: []string{
+				"/foo/*{any:bar}/c/bbb/",
 				"/foo/*{any}/bbb",
 			},
 			path:     "/foo/a/b/c/bbb",
@@ -2769,19 +2818,19 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "infix wildcard with sub-node tsr at depth 1 and 2 but direct match",
+			name: "infix wildcard with more specific tsr (multi depth)",
 			routes: []string{
 				"/foo/*{any}/b/c/bbb/",
 				"/foo/*{any}/c/bbb/",
 				"/foo/*{any}/bbb",
 			},
 			path:     "/foo/a/b/c/bbb",
-			wantPath: "/foo/*{any}/bbb",
-			wantTsr:  false,
+			wantPath: "/foo/*{any}/b/c/bbb/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
 					Key:   "any",
-					Value: "a/b/c",
+					Value: "a",
 				},
 			},
 		},
@@ -2849,18 +2898,34 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "multi infix wildcard with sub-node tsr at depth 1 but direct match",
+			name: "infix wildcard with trailing slash and suffix regexp catch-all",
+			routes: []string{
+				"/foo/*{any:[A-z]+}",
+				"/foo/*{any}/",
+			},
+			path:     "/foo/a/b/c",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
+				},
+			},
+		},
+		{
+			name: "multi infix with most specific and match",
 			routes: []string{
 				"/foo/*{any1}/b/c/*{any2}/d/",
 				"/foo/*{any1}/c/*{any2}/d",
 			},
 			path:     "/foo/a/b/c/x/y/z/d",
-			wantPath: "/foo/*{any1}/c/*{any2}/d",
-			wantTsr:  false,
+			wantPath: "/foo/*{any1}/b/c/*{any2}/d/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
 					Key:   "any1",
-					Value: "a/b",
+					Value: "a",
 				},
 				{
 					Key:   "any2",
@@ -2937,7 +3002,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 			},
 		},
 		{
-			name: "multi infix wildcard with sub-node tsr and skipped nodes at depth 1 with direct match depth 0",
+			name: "multi infix wildcard with most specific tsr match",
 			routes: []string{
 				"/foo/*{any1}/b/c/*{any2}/{a}/",
 				"/foo/*{any1}/b/c/*{any2}/d{a}/",
@@ -2946,16 +3011,16 @@ func TestInfixWildcardTsr(t *testing.T) {
 				"/{a}/*{any1}/c/x/y/z/dd",
 			},
 			path:     "/foo/a/b/c/x/y/z/dd",
-			wantPath: "/{a}/*{any1}/c/x/y/z/dd",
-			wantTsr:  false,
+			wantPath: "/foo/*{any1}/b/c/*{any2}/dd/",
+			wantTsr:  true,
 			wantParams: Params{
 				{
-					Key:   "a",
-					Value: "foo",
+					Key:   "any1",
+					Value: "a",
 				},
 				{
-					Key:   "any1",
-					Value: "a/b",
+					Key:   "any2",
+					Value: "x/y/z",
 				},
 			},
 		},
@@ -2963,7 +3028,7 @@ func TestInfixWildcardTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
 			}
@@ -2971,10 +3036,10 @@ func TestInfixWildcardTsr(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern)
-			assert.Equal(t, tc.wantTsr, c.tsr)
+			assert.Equal(t, tc.wantTsr, tsr)
 			c.route = n.routes[idx]
 			*c.paramsKeys = c.route.params
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
@@ -3057,14 +3122,14 @@ func TestTree_LookupTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
+			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Handle(MethodGet, path, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n := lookupByPath(tree.patterns, http.MethodGet, tc.key, c, true, 0)
-			assert.Equal(t, tc.want, c.tsr)
+			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.key, c, true, 0)
+			assert.Equal(t, tc.want, tsr)
 			if tc.want {
 				require.NotNil(t, n)
 				require.NotNil(t, n.routes[idx])

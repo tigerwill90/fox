@@ -35,8 +35,8 @@ type RouteConflictError struct {
 	New *Route
 	// Conflicts contains the previously registered routes that conflict with New.
 	Conflicts []*Route
-	// IsShadowed indicate that the New route shadow other routes.
-	IsShadowed bool
+	// isShadowed indicate that the New route shadow other routes.
+	isShadowed bool
 }
 
 func (e *RouteConflictError) Error() string {
@@ -44,8 +44,12 @@ func (e *RouteConflictError) Error() string {
 	sb.WriteString("route conflict: new route\n")
 	routef(sb, e.New, 4)
 
-	if e.IsShadowed {
-		sb.WriteString("\nis shadowed by")
+	if e.isShadowed {
+		if e.New.catchEmpty {
+			sb.WriteString("\nis shadowed by")
+		} else {
+			sb.WriteString("\nwould shadow")
+		}
 	} else {
 		sb.WriteString("\nconflicts with")
 	}
@@ -53,7 +57,6 @@ func (e *RouteConflictError) Error() string {
 	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
 		routef(sb, conflict, 4)
-		// TODO (with redirect slash or with relaxed slash)
 	}
 
 	return sb.String()

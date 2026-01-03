@@ -37,24 +37,21 @@ func (t *iTree) txn() *tXn {
 	}
 }
 
-func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node) {
+func (t *iTree) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node, bool) {
 	return t.patterns.lookup(method, hostPort, path, c, lazy)
 }
 
-func (t *iTree) lookupByPath(method, path string, c *Context, lazy bool) (int, *node) {
-	c.tsr = false
+func (t *iTree) lookupByPath(method, path string, c *Context, lazy bool) (int, *node, bool) {
 	*c.skipStack = (*c.skipStack)[:0]
 	return lookupByPath(t.patterns, method, path, c, lazy, offsetZero)
 }
 
 func (t *iTree) allocateContext() *Context {
 	params := make([]string, 0, t.maxParams)
-	tsrParams := make([]string, 0, t.maxParams)
 	keys := make([]string, 0, t.maxParams)
 	stacks := make(skipStack, 0, t.maxDepth)
 	return &Context{
 		params:     &params,
-		tsrParams:  &tsrParams,
 		skipStack:  &stacks,
 		paramsKeys: &keys,
 		// This is a read only value, no reset. It's always the
@@ -317,7 +314,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{New: route, Conflicts: conflicts, IsShadowed: true}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts, isShadowed: true}
 			}
 
 			for _, wildcard := range n.wildcards {
@@ -328,7 +325,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{New: route, Conflicts: conflicts, IsShadowed: true}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts, isShadowed: true}
 			}
 
 			if route.name != "" {
