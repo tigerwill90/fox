@@ -410,18 +410,11 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		return nil, err
 	}
 
-	prefix := fox.prefix
-	if parsed.endHost > 0 && prefix != "" {
-		// TODO or don't add the prefix so this can still be valid
-		// TODO add this is parseRoute function
-		return nil, fmt.Errorf("%w: unsupported hostname in for subrouter route", ErrInvalidRoute)
-	}
-
 	rte := &Route{
 		clientip:    fox.clientip,
 		hbase:       handler,
-		pattern:     prefix + pattern,
-		prefix:      prefix,
+		pattern:     fox.prefix + pattern,
+		prefix:      fox.prefix,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		hostSplit:   parsed.endHost, // 0 if no host
@@ -773,7 +766,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
+		r.Pattern = c.route.Pattern()
 		*c.paramsKeys = c.route.params
 		c.route.hall(c)
 		tree.pool.Put(c)
@@ -785,7 +778,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
-				r.Pattern = c.route.pattern
+				r.Pattern = c.route.Pattern()
 				*c.paramsKeys = c.route.params
 				route.hall(c)
 				tree.pool.Put(c)
@@ -807,7 +800,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*c.params = (*c.params)[:0]
 			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
-				r.Pattern = c.route.pattern
+				r.Pattern = c.route.Pattern()
 				*c.paramsKeys = c.route.params
 				c.route.hall(c)
 				tree.pool.Put(c)
@@ -1152,6 +1145,10 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 	if endHost == -1 {
 		return parsedRoute{}, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
 	}
+	if endHost > 0 && fox.prefix != "" {
+		return parsedRoute{}, fmt.Errorf("%w: hostname not supported in subrouter route", ErrInvalidRoute)
+	}
+
 	if strings.HasPrefix(url, ".") {
 		return parsedRoute{}, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
 	}
