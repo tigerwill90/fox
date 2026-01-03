@@ -134,8 +134,19 @@ func (r *Route) SubRouter() *Router {
 // match reports whether the request satisfies this route's method constraint (if any)
 // and all attached matchers.
 func (r *Route) match(method string, c RequestContext) bool {
-	if len(r.methods) > 0 && !slices.Contains(r.methods, method) {
-		return false
+	// Fast path for common cases: no methods or single method
+	methods := r.methods
+	switch len(methods) {
+	case 0:
+		// No method constraint
+	case 1:
+		if methods[0] != method {
+			return false
+		}
+	default:
+		if !slices.Contains(methods, method) {
+			return false
+		}
 	}
 
 	for _, m := range r.matchers {

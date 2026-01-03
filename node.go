@@ -332,8 +332,8 @@ Walk:
 			idx := sort.Search(num, func(i int) bool { return matched.statics[i].label >= label })
 			if idx < num && matched.statics[idx].label == label {
 				child := matched.statics[idx]
-				keyLen := len(child.key)
-				if keyLen <= len(search) && search[:keyLen] == child.key {
+				if stringutil.HasPrefixAndLen(search, child.key) {
+					keyLen := len(child.key)
 					if len(matched.params) > 0 || len(matched.wildcards) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
 							node:         matched,
