@@ -544,7 +544,7 @@ Additionally, `fox.WithMiddlewareFor` option provide a more fine-grained control
 only for 404 or 405 handlers. Possible scopes include `fox.RouteHandlers` (regular routes), `fox.NoRouteHandler`, `fox.NoMethodHandler`, 
 `fox.RedirectSlashHandler`, `fox.RedirectPathHandler`, `fox.OptionsHandler` and any combination of these.
 
-````gp
+````go
 f  := fox.MustRouter(
 	fox.WithMiddlewareFor(fox.RouteHandler, Logger),
 	fox.WithMiddlewareFor(fox.NoRouteHandler|fox.NoMethodHandler, SpecialLogger),
