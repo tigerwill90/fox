@@ -64,18 +64,18 @@ func benchRouteParallel(b *testing.B, router http.Handler, rte route) {
 }
 
 func BenchmarkStaticAll(b *testing.B) {
-	r, _ := New()
+	r, _ := NewRouter()
 	for _, route := range staticRoutes {
-		require.NoError(b, onlyError(r.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(r.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 
 	benchRoute(b, r, staticRoutes)
 }
 
 func BenchmarkGithubAll(b *testing.B) {
-	f := MustNew()
+	f := MustRouter()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(f.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 
 	benchRoute(b, f, githubAPI)
@@ -93,9 +93,9 @@ func BenchmarkStaticAllMux(b *testing.B) {
 }
 
 func BenchmarkStaticHostnameAll(b *testing.B) {
-	r, _ := New()
+	r, _ := NewRouter()
 	for _, route := range staticHostnames {
-		require.NoError(b, onlyError(r.Handle([]string{route.method}, route.path+"/", emptyHandler)))
+		require.NoError(b, onlyError(r.Add([]string{route.method}, route.path+"/", emptyHandler)))
 	}
 
 	benchHostname(b, r, staticHostnames)
@@ -113,9 +113,9 @@ func BenchmarkStaticHostnameAllMux(b *testing.B) {
 }
 
 func BenchmarkGithubParamsAll(b *testing.B) {
-	r, _ := New()
+	r, _ := NewRouter()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(r.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(r.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/repos/sylvain/fox/hooks/1500", nil)
@@ -130,9 +130,9 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 }
 
 func BenchmarkGithubParamsHostnameAll(b *testing.B) {
-	r, _ := New()
+	r, _ := NewRouter()
 	for _, route := range wildcardHostnames {
-		require.NoError(b, onlyError(r.Handle([]string{route.method}, route.path+"/", emptyHandler)))
+		require.NoError(b, onlyError(r.Add([]string{route.method}, route.path+"/", emptyHandler)))
 	}
 
 	req, err := http.NewRequest(http.MethodGet, "/", nil)
@@ -149,8 +149,8 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 }
 
 func BenchmarkInfixCatchAll(b *testing.B) {
-	f, _ := New()
-	f.MustHandle(MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", emptyHandler)
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/x/y/z/b/x/y/z/d/x/y/z/f/x/y/z/j", nil)
 	w := new(mockResponseWriter)
@@ -164,8 +164,8 @@ func BenchmarkInfixCatchAll(b *testing.B) {
 }
 
 func BenchmarkLongParam(b *testing.B) {
-	r, _ := New()
-	r.MustHandle(MethodGet, "/foo/{very_very_very_very_very_long_param}", emptyHandler)
+	r, _ := NewRouter()
+	r.MustAdd(MethodGet, "/foo/{very_very_very_very_very_long_param}", emptyHandler)
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
 	w := new(mockResponseWriter)
 
@@ -178,9 +178,9 @@ func BenchmarkLongParam(b *testing.B) {
 }
 
 func BenchmarkOverlappingRoute(b *testing.B) {
-	r, _ := New()
+	r, _ := NewRouter()
 	for _, route := range overlappingRoutes {
-		require.NoError(b, onlyError(r.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(r.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/abc/id:123/xy", nil)
@@ -195,12 +195,12 @@ func BenchmarkOverlappingRoute(b *testing.B) {
 }
 
 func BenchmarkWithIgnoreTrailingSlash(b *testing.B) {
-	f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
-	f.MustHandle(MethodGet, "/{a}/{b}/e", emptyHandler)
-	f.MustHandle(MethodGet, "/{a}/{b}/d", emptyHandler)
-	f.MustHandle(MethodGet, "/foo/{b}", emptyHandler)
-	f.MustHandle(MethodGet, "/foo/bar/x/", emptyHandler)
-	f.MustHandle(MethodGet, "/foo/{b}/y/", emptyHandler)
+	f, _ := NewRouter(WithHandleTrailingSlash(RelaxedSlash))
+	f.MustAdd(MethodGet, "/{a}/{b}/e", emptyHandler)
+	f.MustAdd(MethodGet, "/{a}/{b}/d", emptyHandler)
+	f.MustAdd(MethodGet, "/foo/{b}", emptyHandler)
+	f.MustAdd(MethodGet, "/foo/bar/x/", emptyHandler)
+	f.MustAdd(MethodGet, "/foo/{b}/y/", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/foo/bar/", nil)
 	w := new(mockResponseWriter)
@@ -214,16 +214,16 @@ func BenchmarkWithIgnoreTrailingSlash(b *testing.B) {
 }
 
 func BenchmarkStaticParallel(b *testing.B) {
-	r, _ := New()
+	r, _ := NewRouter()
 	for _, route := range staticRoutes {
-		require.NoError(b, onlyError(r.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(r.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 	benchRouteParallel(b, r, route{http.MethodGet, "/progs/image_package4.out"})
 }
 
 func BenchmarkCatchAll(b *testing.B) {
-	r, _ := New()
-	require.NoError(b, onlyError(r.Handle(MethodGet, "/something/*{args}", emptyHandler)))
+	r, _ := NewRouter()
+	require.NoError(b, onlyError(r.Add(MethodGet, "/something/*{args}", emptyHandler)))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest(http.MethodGet, "/something/awesome", nil)
 
@@ -236,8 +236,8 @@ func BenchmarkCatchAll(b *testing.B) {
 }
 
 func BenchmarkCatchAllParallel(b *testing.B) {
-	r, _ := New()
-	require.NoError(b, onlyError(r.Handle(MethodGet, "/something/*{args}", emptyHandler)))
+	r, _ := NewRouter()
+	require.NoError(b, onlyError(r.Add(MethodGet, "/something/*{args}", emptyHandler)))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -252,8 +252,8 @@ func BenchmarkCatchAllParallel(b *testing.B) {
 }
 
 func BenchmarkCloneWith(b *testing.B) {
-	f, _ := New()
-	f.MustHandle(MethodGet, "/hello/{name}", func(c *Context) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/hello/{name}", func(c *Context) {
 		cp := c.CloneWith(c.Writer(), c.Request())
 		cp.Close()
 	})
@@ -267,18 +267,14 @@ func BenchmarkCloneWith(b *testing.B) {
 }
 
 func BenchmarkSubRouter(b *testing.B) {
-	sub2, _ := New()
-	sub2.MustHandle(MethodGet, "/users/email", emptyHandler)
 
-	sub1, _ := New()
-	r, err := sub1.NewSubRouter(MethodAny, "/{name}/+{any}", sub2)
-	require.NoError(b, err)
-	require.NoError(b, sub1.HandleRoute(r))
+	main := MustRouter()
+	sub1, r1 := main.MustSubRouter(MethodAny, "/{v1}/+{any}")
+	sub2, r2 := sub1.MustSubRouter(MethodAny, "/{name}/+{any}")
+	sub2.MustAdd(MethodGet, "/users/email", emptyHandler)
 
-	main, _ := New()
-	r, err = main.NewSubRouter(MethodAny, "/{v1}/+{any}", sub1)
-	require.NoError(b, err)
-	require.NoError(b, main.HandleRoute(r))
+	require.NoError(b, sub1.AddRoute(r2))
+	require.NoError(b, main.AddRoute(r1))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/john/users/email", nil)
 	w := new(mockResponseWriter)
@@ -288,18 +284,16 @@ func BenchmarkSubRouter(b *testing.B) {
 	for range b.N {
 		main.ServeHTTP(w, req)
 	}
-
 }
 
 func BenchmarkStaticAllSubRouter(b *testing.B) {
-	sub, _ := New()
-	for _, route := range staticRoutes {
-		require.NoError(b, onlyError(sub.Handle([]string{route.method}, route.path, emptyHandler)))
-	}
-	r, _ := New()
-	rte, err := r.NewSubRouter(MethodAny, "/+{any}", sub)
+	f := MustRouter()
+	sub, r, err := f.NewSubRouter(MethodAny, "/+{any}")
 	require.NoError(b, err)
-	require.NoError(b, r.HandleRoute(rte))
+	for _, route := range staticRoutes {
+		require.NoError(b, onlyError(sub.Add([]string{route.method}, route.path, emptyHandler)))
+	}
+	require.NoError(b, f.AddRoute(r))
 
-	benchRoute(b, r, staticRoutes)
+	benchRoute(b, f, staticRoutes)
 }

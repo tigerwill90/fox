@@ -1220,9 +1220,9 @@ func TestDomainLookup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
+			f, _ := NewRouter(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -1488,9 +1488,9 @@ func TestMatchersLookup(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
+			f, _ := NewRouter(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...))))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -1635,9 +1635,9 @@ func TestMatchersLookupWithPriority(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := NewRouter(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...), WithMatcherPriority(rte.priority))))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte.pattern, emptyHandler, WithMatcher(rte.matchers...), WithMatcherPriority(rte.priority))))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)

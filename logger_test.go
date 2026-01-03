@@ -13,7 +13,7 @@ import (
 
 func TestLoggerWithHandler(t *testing.T) {
 	buf := bytes.NewBuffer(nil)
-	f, _ := New(
+	f, _ := NewRouter(
 		WithHandleTrailingSlash(RedirectSlash),
 		WithMiddleware(Logger(slog.NewTextHandler(buf, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
@@ -28,10 +28,10 @@ func TestLoggerWithHandler(t *testing.T) {
 			},
 		}))),
 	)
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/success", func(c *Context) {
+	require.NoError(t, onlyError(f.Add(MethodGet, "/success", func(c *Context) {
 		c.Writer().WriteHeader(http.StatusOK)
 	})))
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/failure", func(c *Context) {
+	require.NoError(t, onlyError(f.Add(MethodGet, "/failure", func(c *Context) {
 		c.Writer().WriteHeader(http.StatusInternalServerError)
 	})))
 

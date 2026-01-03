@@ -396,9 +396,9 @@ func TestEmptyCatchAll(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := NewRouter(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -411,7 +411,7 @@ func TestEmptyCatchAll(t *testing.T) {
 }
 
 func TestRouteWithParams(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	routes := [...]string{
 		"/",
 		"/cmd/{tool}/{sub}",
@@ -430,7 +430,7 @@ func TestRouteWithParams(t *testing.T) {
 		"/info/{user}/filepath/+{any}",
 	}
 	for _, rte := range routes {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 	}
 
 	tree := f.getTree()
@@ -445,7 +445,7 @@ func TestRouteWithParams(t *testing.T) {
 }
 
 func TestRouteParamEmptySegment(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
+	f, _ := NewRouter(AllowRegexpParam(true))
 	cases := []struct {
 		name  string
 		route string
@@ -484,7 +484,7 @@ func TestRouteParamEmptySegment(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, tc.route, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, tc.route, emptyHandler)))
 	}
 
 	for _, tc := range cases {
@@ -1503,9 +1503,9 @@ func TestOverlappingRoute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := NewRouter(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 			}
 
 			tree := f.getTree()
@@ -2659,9 +2659,9 @@ func TestInfixWildcard(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true))
+			f, _ := NewRouter(AllowRegexpParam(true))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -3028,9 +3028,9 @@ func TestInfixWildcardTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
+			f, _ := NewRouter(AllowRegexpParam(true), WithHandleTrailingSlash(RelaxedSlash))
 			for _, rte := range tc.routes {
-				require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 			}
 
 			tree := f.getTree()
@@ -3122,9 +3122,9 @@ func TestTree_LookupTsr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New(WithHandleTrailingSlash(RelaxedSlash))
+			f, _ := NewRouter(WithHandleTrailingSlash(RelaxedSlash))
 			for _, path := range tc.paths {
-				require.NoError(t, onlyError(f.Handle(MethodGet, path, emptyHandler)))
+				require.NoError(t, onlyError(f.Add(MethodGet, path, emptyHandler)))
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
@@ -3140,15 +3140,15 @@ func TestTree_LookupTsr(t *testing.T) {
 }
 
 func TestNode_String(t *testing.T) {
-	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(
+	f, _ := NewRouter()
+	require.NoError(t, onlyError(f.Add(MethodGet, "/foo/{bar}/*{baz}", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(
 		MethodAny, "/foo/bar",
 		emptyHandler,
 		WithQueryMatcher("a", "b"),
 		WithHeaderMatcher("b", "c"),
 	)))
-	require.NoError(t, onlyError(f.Handle(
+	require.NoError(t, onlyError(f.Add(
 		[]string{http.MethodPost, http.MethodDelete}, "/foo/bar",
 		emptyHandler,
 		WithQueryMatcher("a", "b"),

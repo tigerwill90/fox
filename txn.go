@@ -17,7 +17,7 @@ type Txn struct {
 	write   bool
 }
 
-// Handle registers a new route for the given methods, pattern and matchers. On success, it returns the newly registered [Route].
+// Add registers a new route for the given methods, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteConflict]: If the route conflict with others.
 //   - [ErrRouteNameExist]: If the route name is already registered.
@@ -28,7 +28,7 @@ type Txn struct {
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To override an existing handler, use [Txn.Update].
-func (txn *Txn) Handle(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+func (txn *Txn) Add(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
@@ -47,7 +47,7 @@ func (txn *Txn) Handle(methods []string, pattern string, handler HandlerFunc, op
 	return rte, nil
 }
 
-// HandleRoute registers a new [Route]. If an error occurs, it returns one of the following:
+// AddRoute registers a new [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteConflict]: If the route conflict with others.
 //   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
@@ -55,7 +55,7 @@ func (txn *Txn) Handle(methods []string, pattern string, handler HandlerFunc, op
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
 // To override an existing route, use [Txn.UpdateRoute].
-func (txn *Txn) HandleRoute(route *Route) error {
+func (txn *Txn) AddRoute(route *Route) error {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
 	}
@@ -64,6 +64,9 @@ func (txn *Txn) HandleRoute(route *Route) error {
 	}
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
+	}
+	if route.sub != nil && txn.fox == route.sub {
+		panic("cannot mount subrouter route into itself")
 	}
 
 	return txn.rootTxn.insert(route, modeInsert)
@@ -81,7 +84,7 @@ func (txn *Txn) HandleRoute(route *Route) error {
 // Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
 // be removed (or reset to their default value), and the route will fall back to using global configuration (if any).
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
-// To add a new handler, use [Txn.Handle].
+// To add a new handler, use [Txn.Add].
 func (txn *Txn) Update(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
@@ -111,7 +114,7 @@ func (txn *Txn) Update(methods []string, pattern string, handler HandlerFunc, op
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
-// To add a new route, use [Txn.HandleRoute].
+// To add a new route, use [Txn.AddRoute].
 func (txn *Txn) UpdateRoute(route *Route) error {
 	if txn.rootTxn == nil {
 		panic(ErrSettledTxn)
@@ -121,6 +124,9 @@ func (txn *Txn) UpdateRoute(route *Route) error {
 	}
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
+	}
+	if route.sub != nil && txn.fox == route.sub {
+		panic("cannot mount subrouter route into itself")
 	}
 
 	return txn.rootTxn.insert(route, modeUpdate)
@@ -154,7 +160,7 @@ func (txn *Txn) Delete(methods []string, pattern string, opts ...MatcherOption) 
 	}
 
 	rte := &Route{
-		pattern:   pattern,
+		pattern:   txn.fox.prefix + pattern,
 		hostSplit: parsed.endHost,
 		tokens:    parsed.token,
 	}
@@ -250,7 +256,7 @@ func (txn *Txn) Route(methods []string, pattern string, matchers ...Matcher) *Ro
 		return nil
 	}
 	idx := slices.IndexFunc(matched.routes, func(r *Route) bool {
-		return r.pattern == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
+		return r.Pattern() == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
 	})
 	if idx < 0 {
 		return nil

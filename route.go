@@ -15,6 +15,7 @@ type Route struct {
 	sub         *Router
 	pattern     string
 	name        string
+	prefix      string
 	methods     []string
 	mws         []middleware
 	params      []string
@@ -51,17 +52,17 @@ func (r *Route) Methods() iter.Seq[string] {
 
 // Pattern returns the registered route pattern.
 func (r *Route) Pattern() string {
-	return r.pattern
+	return r.pattern[len(r.prefix):]
 }
 
 // Hostname returns the hostname part of the registered pattern if any.
 func (r *Route) Hostname() string {
-	return r.pattern[:r.hostSplit]
+	return r.Pattern()[:r.hostSplit]
 }
 
 // Path returns the path part of the registered pattern.
 func (r *Route) Path() string {
-	return r.pattern[r.hostSplit:]
+	return r.Pattern()[r.hostSplit:]
 }
 
 // Name returns the name of this [Route].

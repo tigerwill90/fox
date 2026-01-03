@@ -12,14 +12,14 @@ import (
 )
 
 func TestTxn_TruncateAll(t *testing.T) {
-	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/foo/bar", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodPost, "/foo/bar", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodDelete, "/foo/bar", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodPut, "/foo/bar", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodConnect, "/foo/bar", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodTrace, "/foo/bar", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle([]string{"BOULOU"}, "/foo/bar", emptyHandler)))
+	f, _ := NewRouter()
+	require.NoError(t, onlyError(f.Add(MethodGet, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodPost, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodDelete, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodPut, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodConnect, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodTrace, "/foo/bar", emptyHandler)))
+	require.NoError(t, onlyError(f.Add([]string{"BOULOU"}, "/foo/bar", emptyHandler)))
 
 	txn := f.Txn(true)
 	defer txn.Abort()
@@ -37,11 +37,11 @@ func TestTxn_TruncateAll(t *testing.T) {
 
 func TestTxn_Isolation(t *testing.T) {
 	t.Run("txn iterator does not observe update once created", func(t *testing.T) {
-		f, _ := New()
+		f, _ := NewRouter()
 		_ = f.Updates(func(txn *Txn) error {
-			assert.NoError(t, onlyError(txn.Handle(MethodGet, "/ab", emptyHandler)))
-			assert.NoError(t, onlyError(txn.Handle(MethodGet, "/ab/cd", emptyHandler)))
-			assert.NoError(t, onlyError(txn.Handle(MethodGet, "/ab/cd/ef", emptyHandler)))
+			assert.NoError(t, onlyError(txn.Add(MethodGet, "/ab", emptyHandler)))
+			assert.NoError(t, onlyError(txn.Add(MethodGet, "/ab/cd", emptyHandler)))
+			assert.NoError(t, onlyError(txn.Add(MethodGet, "/ab/cd/ef", emptyHandler)))
 			iter := iterutil.Map(txn.Iter().All(), func(route *Route) string {
 				return route.Pattern()
 			})
@@ -49,10 +49,10 @@ func TestTxn_Isolation(t *testing.T) {
 			patterns := make([]string, 0, 3)
 			for pattern := range iter {
 				patterns = append(patterns, pattern)
-				_ = onlyError(txn.Handle(MethodGet, "/ab/cd/ef/gh", emptyHandler))
-				_ = onlyError(txn.Handle(MethodGet, "/ab/cd/ef/gh/ij", emptyHandler))
-				_ = onlyError(txn.Handle(MethodGet, "/ab/cd/e", emptyHandler))
-				_ = onlyError(txn.Handle(MethodGet, "/ax", emptyHandler))
+				_ = onlyError(txn.Add(MethodGet, "/ab/cd/ef/gh", emptyHandler))
+				_ = onlyError(txn.Add(MethodGet, "/ab/cd/ef/gh/ij", emptyHandler))
+				_ = onlyError(txn.Add(MethodGet, "/ab/cd/e", emptyHandler))
+				_ = onlyError(txn.Add(MethodGet, "/ax", emptyHandler))
 			}
 			assert.Equal(t, []string{"/ab", "/ab/cd", "/ab/cd/ef"}, patterns)
 
@@ -66,15 +66,15 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("txn snapshot does not observe further write", func(t *testing.T) {
-		f, _ := New()
+		f, _ := NewRouter()
 		_ = f.Updates(func(txn *Txn) error {
 			for _, rte := range staticRoutes {
-				assert.NoError(t, onlyError(txn.Handle([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+				assert.NoError(t, onlyError(txn.Add([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 			}
 			snapshot := txn.Snapshot()
 
 			for _, rte := range githubAPI {
-				assert.NoError(t, onlyError(txn.Handle([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+				assert.NoError(t, onlyError(txn.Add([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 			}
 
 			assert.False(t, snapshot.Has(MethodGet, "/repos/{owner}/{repo}/comments"))
@@ -91,9 +91,9 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("read only transaction are isolated from write", func(t *testing.T) {
-		f, _ := New()
+		f, _ := NewRouter()
 		for _, rte := range staticRoutes {
-			assert.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+			assert.NoError(t, onlyError(f.Add([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 		}
 
 		wantPatterns := 0
@@ -102,7 +102,7 @@ func TestTxn_Isolation(t *testing.T) {
 			wantPatterns = iterutil.Len(txn.Iter().All())
 			wantNames = iterutil.Len(txn.Iter().Names())
 			for _, rte := range githubAPI {
-				assert.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+				assert.NoError(t, onlyError(f.Add([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 			}
 			assert.Equal(t, wantPatterns, iterutil.Len(txn.Iter().All()))
 			assert.Equal(t, wantNames, iterutil.Len(txn.Iter().Names()))
@@ -120,16 +120,16 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("read only transaction can run uncoordinated", func(t *testing.T) {
-		f, _ := New()
+		f, _ := NewRouter()
 		for _, rte := range staticRoutes {
-			assert.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler)))
+			assert.NoError(t, onlyError(f.Add([]string{rte.method}, rte.path, emptyHandler)))
 		}
 
 		txn1 := f.Txn(false)
 		defer txn1.Abort()
 
 		for _, rte := range githubAPI {
-			assert.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler)))
+			assert.NoError(t, onlyError(f.Add([]string{rte.method}, rte.path, emptyHandler)))
 		}
 
 		txn2 := f.Txn(false)
@@ -140,15 +140,15 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("aborted transaction does not write anything", func(t *testing.T) {
-		f, _ := New()
+		f, _ := NewRouter()
 		for _, rte := range staticRoutes {
-			assert.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+			assert.NoError(t, onlyError(f.Add([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 		}
 
 		want := errors.New("aborted")
 		err := f.Updates(func(txn *Txn) error {
 			for _, rte := range githubAPI {
-				assert.NoError(t, onlyError(txn.Handle([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+				assert.NoError(t, onlyError(txn.Add([]string{rte.method}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
 			}
 			assert.Equal(t, len(githubAPI)+len(staticRoutes), iterutil.Len(txn.Iter().All()))
 			assert.Equal(t, len(githubAPI)+len(staticRoutes), iterutil.Len(txn.Iter().Names()))
@@ -160,10 +160,10 @@ func TestTxn_Isolation(t *testing.T) {
 	})
 
 	t.Run("track registered route", func(t *testing.T) {
-		f, _ := New()
+		f, _ := NewRouter()
 		require.NoError(t, f.Updates(func(txn *Txn) error {
 			for _, rte := range staticRoutes {
-				if _, err := txn.Handle([]string{rte.method}, "example.com"+rte.path, emptyHandler); err != nil {
+				if _, err := txn.Add([]string{rte.method}, "example.com"+rte.path, emptyHandler); err != nil {
 					return err
 				}
 			}
@@ -182,10 +182,10 @@ func TestTxn_Isolation(t *testing.T) {
 }
 
 func TestTxn_WriteOnReadTransaction(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	txn := f.Txn(false)
 	defer txn.Abort()
-	assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/foo", emptyHandler)), ErrReadOnlyTxn)
+	assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/foo", emptyHandler)), ErrReadOnlyTxn)
 	assert.ErrorIs(t, onlyError(txn.Update(MethodGet, "/foo", emptyHandler)), ErrReadOnlyTxn)
 	deletedRoute, err := txn.Delete(MethodGet, "/foo")
 	assert.ErrorIs(t, err, ErrReadOnlyTxn)
@@ -195,11 +195,11 @@ func TestTxn_WriteOnReadTransaction(t *testing.T) {
 }
 
 func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	txn := f.Txn(true)
 	txn.Abort()
 	assert.Panics(t, func() {
-		_, _ = txn.Handle(MethodGet, "/foo", emptyHandler)
+		_, _ = txn.Add(MethodGet, "/foo", emptyHandler)
 	})
 	assert.Panics(t, func() {
 		_, _ = txn.Update(MethodGet, "/foo", emptyHandler)
@@ -224,18 +224,18 @@ func TestTxn_WriteOrReadAfterFinalized(t *testing.T) {
 }
 
 func TestInsertConflictWithName(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
-	f.MustHandle(MethodGet, "/users", emptyHandler,
+	f, _ := NewRouter(AllowRegexpParam(true))
+	f.MustAdd(MethodGet, "/users", emptyHandler,
 		WithQueryMatcher("version", "v1"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("users"),
 	)
-	f.MustHandle(MethodGet, "/users/{name}", emptyHandler,
+	f.MustAdd(MethodGet, "/users/{name}", emptyHandler,
 		WithQueryMatcher("version", "v2"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("users_name"),
 	)
-	f.MustHandle(MethodGet, "exemple.com/users/{name}", emptyHandler,
+	f.MustAdd(MethodGet, "exemple.com/users/{name}", emptyHandler,
 		WithQueryMatcher("version", "v2"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("hostname_users_name"),
@@ -244,7 +244,7 @@ func TestInsertConflictWithName(t *testing.T) {
 	t.Run("conflict with matchers", func(t *testing.T) {
 		txn := f.Txn(true)
 		defer txn.Abort()
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/users/{id}", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/users/{id}", emptyHandler,
 			WithQueryMatcher("version", "v2"),
 			WithHeaderMatcher("Authorization", "secret"),
 		)), ErrRouteConflict)
@@ -253,14 +253,14 @@ func TestInsertConflictWithName(t *testing.T) {
 	t.Run("conflict with name", func(t *testing.T) {
 		txn := f.Txn(true)
 		defer txn.Abort()
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/users/{id}", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/users/{id}", emptyHandler,
 			WithQueryMatcher("version", "v1"),
 			WithHeaderMatcher("Authorization", "secret"),
 			WithName("users"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
 
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/users/{id}", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/users/{id}", emptyHandler,
 			WithQueryMatcher("version", "v1"),
 			WithHeaderMatcher("Authorization", "secret"),
 			WithName("users_name"),
@@ -278,32 +278,32 @@ func TestInsertConflictWithName(t *testing.T) {
 	t.Run("conflict with name on split node", func(t *testing.T) {
 		txn := f.Txn(true)
 		defer txn.Abort()
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/use", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/use", emptyHandler,
 			WithName("users_name"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
 
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/usa", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/usa", emptyHandler,
 			WithName("users_name"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
 
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/usa/foo", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/usa/foo", emptyHandler,
 			WithName("users_name"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
 
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/users/{name}/email", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/users/{name}/email", emptyHandler,
 			WithName("users_name"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
 
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "/users/{name:aaa}", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "/users/{name:aaa}", emptyHandler,
 			WithName("users_name"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
 
-		assert.ErrorIs(t, onlyError(txn.Handle(MethodGet, "exemple/use", emptyHandler,
+		assert.ErrorIs(t, onlyError(txn.Add(MethodGet, "exemple/use", emptyHandler,
 			WithName("users"),
 		)), ErrRouteNameExist)
 		assert.Nil(t, txn.rootTxn.writable)
@@ -319,14 +319,14 @@ func TestInsertConflictWithName(t *testing.T) {
 }
 
 func TestUpdateConflictWithName(t *testing.T) {
-	f, _ := New()
-	f.MustHandle(MethodGet, "/users", emptyHandler)
-	f.MustHandle(MethodGet, "/users", emptyHandler,
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/users", emptyHandler)
+	f.MustAdd(MethodGet, "/users", emptyHandler,
 		WithQueryMatcher("version", "v1"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("users"),
 	)
-	f.MustHandle(MethodGet, "/users/{name}", emptyHandler,
+	f.MustAdd(MethodGet, "/users/{name}", emptyHandler,
 		WithQueryMatcher("version", "v2"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("users_name"),
@@ -374,14 +374,14 @@ func TestUpdateConflictWithName(t *testing.T) {
 }
 
 func TestUpdateWithName(t *testing.T) {
-	f, _ := New()
-	f.MustHandle(MethodGet, "/users", emptyHandler)
-	f.MustHandle(MethodGet, "/users", emptyHandler,
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/users", emptyHandler)
+	f.MustAdd(MethodGet, "/users", emptyHandler,
 		WithQueryMatcher("version", "v1"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("users"),
 	)
-	f.MustHandle(MethodGet, "/users/{name}", emptyHandler,
+	f.MustAdd(MethodGet, "/users/{name}", emptyHandler,
 		WithQueryMatcher("version", "v2"),
 		WithHeaderMatcher("Authorization", "secret"),
 		WithName("users_name"),
@@ -453,44 +453,44 @@ func TestUpdateWithName(t *testing.T) {
 }
 
 func TestTxn_HasWithMatchers(t *testing.T) {
-	f, _ := New(AllowRegexpParam(true))
+	f, _ := NewRouter(AllowRegexpParam(true))
 
 	m1, _ := MatchQuery("version", "v1")
 	m2, _ := MatchQuery("version", "v2")
 	m3, _ := MatchHeader("X-Api-Key", "secret")
 
 	require.NoError(t, f.Updates(func(txn *Txn) error {
-		if err := onlyError(txn.Handle(MethodGet, "/api/users", emptyHandler)); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/api/users", emptyHandler)); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/api/users", emptyHandler, WithMatcher(m1))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/api/users", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/api/users", emptyHandler, WithMatcher(m2))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/api/users", emptyHandler, WithMatcher(m2))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/api/users", emptyHandler, WithMatcher(m1, m3))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/api/users", emptyHandler, WithMatcher(m1, m3))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/api/users/{id}", emptyHandler)); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/api/users/{id}", emptyHandler)); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/api/users/{id}", emptyHandler, WithMatcher(m1))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/api/users/{id}", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/files/*{path}", emptyHandler)); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/files/*{path}", emptyHandler)); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/files/*{path}", emptyHandler, WithMatcher(m1))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/files/*{path}", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/items/{id:[0-9]+}", emptyHandler)); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/items/{id:[0-9]+}", emptyHandler)); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/items/{id:[0-9]+}", emptyHandler, WithMatcher(m1))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/items/{id:[0-9]+}", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Handle(MethodGet, "/org/{org}/repo/{repo:[a-z]+}", emptyHandler, WithMatcher(m1))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/org/{org}/repo/{repo:[a-z]+}", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
 		return nil

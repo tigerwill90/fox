@@ -18,11 +18,11 @@ import (
 var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/john/doe/*{args}", "/john/doe"}
 
 func TestIter_Routes(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -41,11 +41,11 @@ func TestIter_Routes(t *testing.T) {
 }
 
 func TestIter_RoutesWithHostname(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, "exemple.com"+rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, "exemple.com"+rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, "exemple.com"+rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, "exemple.com"+rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, "exemple.com"+rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, "exemple.com"+rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -65,11 +65,11 @@ func TestIter_RoutesWithHostname(t *testing.T) {
 }
 
 func TestIter_All(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -88,11 +88,11 @@ func TestIter_All(t *testing.T) {
 }
 
 func TestIter_AllWithHostname(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, "exemple.com"+rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, "exemple.com"+rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, "exemple.com"+rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, "exemple.com"+rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, "exemple.com"+rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, "exemple.com"+rte, emptyHandler)))
 	}
 
 	results := make(map[string][]string)
@@ -115,11 +115,11 @@ func TestIter_AllWithHostname(t *testing.T) {
 }
 
 func TestIter_AllBreak(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler)))
 	}
 
 	it := f.Iter()
@@ -132,11 +132,11 @@ func TestIter_AllBreak(t *testing.T) {
 }
 
 func TestIter_NamesBreak(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler, WithName(http.MethodGet+":"+rte))))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler, WithName(http.MethodPost+":"+rte))))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler, WithName(http.MethodHead+":"+rte))))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler, WithName(http.MethodGet+":"+rte))))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler, WithName(http.MethodPost+":"+rte))))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler, WithName(http.MethodHead+":"+rte))))
 	}
 
 	it := f.Iter()
@@ -149,11 +149,11 @@ func TestIter_NamesBreak(t *testing.T) {
 }
 
 func TestIter_RouteBreak(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler)))
 	}
 
 	it := f.Iter()
@@ -166,11 +166,11 @@ func TestIter_RouteBreak(t *testing.T) {
 }
 
 func TestIter_PatternPrefix(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler)))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler)))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler)))
 	}
 
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}"}
@@ -190,10 +190,10 @@ func TestIter_PatternPrefix(t *testing.T) {
 }
 
 func TestIter_PatternStrictPrefix(t *testing.T) {
-	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/{a}/b/x", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/{a}/b/y", emptyHandler)))
-	require.NoError(t, onlyError(f.Handle(MethodGet, "/{other}/b/z", emptyHandler)))
+	f, _ := NewRouter()
+	require.NoError(t, onlyError(f.Add(MethodGet, "/{a}/b/x", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/{a}/b/y", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/{other}/b/z", emptyHandler)))
 
 	want := []string{"/{a}/b/x", "/{a}/b/y"}
 	results := make(map[string][]string)
@@ -212,11 +212,11 @@ func TestIter_PatternStrictPrefix(t *testing.T) {
 }
 
 func TestIter_NamesPrefix(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range routesCases {
-		require.NoError(t, onlyError(f.Handle(MethodGet, rte, emptyHandler, WithName(http.MethodGet+":"+rte))))
-		require.NoError(t, onlyError(f.Handle(MethodPost, rte, emptyHandler, WithName(http.MethodPost+":"+rte))))
-		require.NoError(t, onlyError(f.Handle(MethodHead, rte, emptyHandler, WithName(http.MethodHead+":"+rte))))
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler, WithName(http.MethodGet+":"+rte))))
+		require.NoError(t, onlyError(f.Add(MethodPost, rte, emptyHandler, WithName(http.MethodPost+":"+rte))))
+		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler, WithName(http.MethodHead+":"+rte))))
 	}
 
 	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/fox/router", "/john/doe", "/john/doe/*{args}"}
@@ -229,7 +229,7 @@ func TestIter_NamesPrefix(t *testing.T) {
 }
 
 func TestIter_NoData(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 
 	assert.Empty(t, slices.Collect(it.PatternPrefix("/")))
@@ -241,9 +241,9 @@ func TestIter_NoData(t *testing.T) {
 }
 
 func BenchmarkIter_Methods(b *testing.B) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, route := range staticRoutes {
-		require.NoError(b, onlyError(f.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -258,9 +258,9 @@ func BenchmarkIter_Methods(b *testing.B) {
 }
 
 func BenchmarkIter_Route(b *testing.B) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(f.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -275,9 +275,9 @@ func BenchmarkIter_Route(b *testing.B) {
 }
 
 func BenchmarkIter_PatternPrefix(b *testing.B) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(f.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -292,9 +292,9 @@ func BenchmarkIter_PatternPrefix(b *testing.B) {
 }
 
 func BenchmarkIter_NamePrefix(b *testing.B) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(f.Handle([]string{route.method}, route.path, emptyHandler, WithName(route.method+":"+route.path))))
+		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler, WithName(route.method+":"+route.path))))
 	}
 
 	it := f.Iter()
@@ -310,9 +310,9 @@ func BenchmarkIter_NamePrefix(b *testing.B) {
 }
 
 func BenchmarkIter_All(b *testing.B) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, route := range githubAPI {
-		require.NoError(b, onlyError(f.Handle([]string{route.method}, route.path, emptyHandler)))
+		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 	it := f.Iter()
 
@@ -327,7 +327,7 @@ func BenchmarkIter_All(b *testing.B) {
 }
 
 func ExampleIter_All() {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 	for route := range it.All() {
 		fmt.Println(slices.Collect(route.Methods()), route.Pattern())
@@ -335,7 +335,7 @@ func ExampleIter_All() {
 }
 
 func ExampleIter_Names() {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 	for route := range it.Names() {
 		fmt.Println(slices.Collect(route.Methods()), route.Pattern())
@@ -343,7 +343,7 @@ func ExampleIter_Names() {
 }
 
 func ExampleIter_Methods() {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 	for method := range it.Methods() {
 		fmt.Println(method)
@@ -351,7 +351,7 @@ func ExampleIter_Methods() {
 }
 
 func ExampleIter_Routes() {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 	for route := range it.Routes("/hello/{name}") {
 		fmt.Println(slices.Collect(route.Methods()), route.Pattern())
@@ -359,7 +359,7 @@ func ExampleIter_Routes() {
 }
 
 func ExampleIter_PatternPrefix() {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 	for route := range it.PatternPrefix("/v1/") {
 		fmt.Println(slices.Collect(route.Methods()), route.Pattern())
@@ -367,7 +367,7 @@ func ExampleIter_PatternPrefix() {
 }
 
 func ExampleIter_NamePrefix() {
-	f, _ := New()
+	f, _ := NewRouter()
 	it := f.Iter()
 	for route := range it.NamePrefix("ns:default/") {
 		fmt.Println(slices.Collect(route.Methods()), route.Name())

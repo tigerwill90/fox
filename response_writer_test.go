@@ -378,8 +378,8 @@ func TestRecorderSuperfluousWriteHeader(t *testing.T) {
 }
 
 func TestRecorderWriteAfterHijack(t *testing.T) {
-	f, _ := New()
-	f.MustHandle(MethodGet, "/foo", func(c *Context) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/foo", func(c *Context) {
 		conn, _, err := c.Writer().Hijack()
 		require.NoError(t, err)
 		defer conn.Close()
@@ -404,8 +404,8 @@ func TestRecorderWriteAfterHijack(t *testing.T) {
 }
 
 func TestInformationalHeader(t *testing.T) {
-	f, _ := New()
-	f.MustHandle(MethodGet, "/foo", func(c *Context) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/foo", func(c *Context) {
 		c.SetHeader("Link", "</style.css>; rel=preload; as=style")
 		c.Writer().WriteHeader(http.StatusEarlyHints)
 		_, err := c.Writer().WriteString("final response")

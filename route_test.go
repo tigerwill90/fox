@@ -11,9 +11,9 @@ import (
 )
 
 func TestRoute_HandleMiddlewareMalloc(t *testing.T) {
-	f, _ := New()
+	f, _ := NewRouter()
 	for _, rte := range githubAPI {
-		require.NoError(t, onlyError(f.Handle([]string{rte.method}, rte.path, emptyHandler)))
+		require.NoError(t, onlyError(f.Add([]string{rte.method}, rte.path, emptyHandler)))
 	}
 
 	for _, rte := range githubAPI {
@@ -67,8 +67,8 @@ func TestRoute_HostnamePath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := New()
-			r, err := f.Handle(MethodGet, tc.pattern, emptyHandler)
+			f, _ := NewRouter()
+			r, err := f.Add(MethodGet, tc.pattern, emptyHandler)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantHost, r.Hostname())
 			assert.Equal(t, tc.wantPath, r.Path())
@@ -77,8 +77,8 @@ func TestRoute_HostnamePath(t *testing.T) {
 }
 
 func TestRoute_Methods(t *testing.T) {
-	f := MustNew()
-	f.MustHandle([]string{http.MethodHead, http.MethodOptions, http.MethodGet}, "/foo/bar", emptyHandler)
+	f := MustRouter()
+	f.MustAdd([]string{http.MethodHead, http.MethodOptions, http.MethodGet}, "/foo/bar", emptyHandler)
 
 	route := f.Route([]string{http.MethodOptions, http.MethodHead, http.MethodGet}, "/foo/bar")
 	assert.Equal(t, []string{http.MethodGet, http.MethodHead, http.MethodOptions}, slices.Collect(route.Methods()))
