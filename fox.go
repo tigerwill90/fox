@@ -505,7 +505,8 @@ func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRou
 
 	rte := &Route{
 		clientip:    fox.clientip,
-		pattern:     pattern,
+		pattern:     fox.prefix + pattern,
+		prefix:      fox.prefix,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		hostSplit:   parsed.endHost, // 0 if no host
