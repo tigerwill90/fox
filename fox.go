@@ -93,6 +93,7 @@ const (
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
+	clientip               ClientIPResolver
 	noRouteBase            HandlerFunc
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
@@ -100,13 +101,12 @@ type Router struct {
 	pathRedirect           HandlerFunc
 	autoOPTIONS            HandlerFunc
 	tree                   atomic.Pointer[iTree]
-	clientip               ClientIPResolver
-	mws                    []middleware
 	prefix                 string
-	mu                     sync.Mutex
+	mws                    []middleware
 	maxParams              int
 	maxParamKeyBytes       int
 	maxMatchers            int
+	mu                     sync.Mutex
 	handleSlash            TrailingSlashOption
 	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
@@ -199,6 +199,8 @@ func (fox *Router) Add(methods []string, pattern string, handler HandlerFunc, op
 	return rte, nil
 }
 
+// MustAddRoute registers a new [Route]. On success, the route is added to the router.
+// This function is a convenience wrapper for the [Router.AddRoute] function and panics on error.
 func (fox *Router) MustAddRoute(route *Route) {
 	if err := fox.AddRoute(route); err != nil {
 		panic(err)
@@ -208,7 +210,7 @@ func (fox *Router) MustAddRoute(route *Route) {
 // AddRoute registers a new [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteConflict]: If the route conflict with others.
 //   - [ErrRouteNameExist]: If the route name is already registered.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //
 // It's safe to add a new route while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.UpdateRoute].
@@ -249,7 +251,7 @@ func (fox *Router) Update(methods []string, pattern string, handler HandlerFunc,
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrRouteNameExist]: If the route name is already registered.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To add new route, use [Router.AddRoute] method.
@@ -284,7 +286,7 @@ func (fox *Router) Delete(methods []string, pattern string, opts ...MatcherOptio
 // DeleteRoute deletes an existing route that match the provided [Route] pattern and matchers. On success, it returns
 // the deleted [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
@@ -462,6 +464,9 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 	return rte, nil
 }
 
+// MustSubRouter creates a new sub-router for the given methods and pattern. On success, it returns the newly created
+// [Router] (sub-router) along with a [Route] that must be registered in the parent router.
+// This function is a convenience wrapper for the [Router.NewSubRouter] function and panics on error.
 func (fox *Router) MustSubRouter(methods []string, pattern string, opts ...SubRouterOption) (*Router, *Route) {
 	f, r, err := fox.NewSubRouter(methods, pattern, opts...)
 	if err != nil {
@@ -470,7 +475,9 @@ func (fox *Router) MustSubRouter(methods []string, pattern string, opts ...SubRo
 	return f, r
 }
 
-// NewSubRouter ...
+// NewSubRouter creates a new sub-router for the given methods and pattern. On success, it returns the newly created
+// [Router] (sub-router) along with a [Route] that must be registered in the parent router using [Router.AddRoute].
+// The pattern must end with a catch-all wildcard (*{param} or +{param}).
 // If an error occurs, it returns one of the following:
 //   - [ErrInvalidRoute]: If the provided pattern is invalid or does not end with a catch-all wildcard.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.

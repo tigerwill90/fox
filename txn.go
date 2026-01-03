@@ -50,7 +50,7 @@ func (txn *Txn) Add(methods []string, pattern string, handler HandlerFunc, opts 
 // AddRoute registers a new [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteConflict]: If the route conflict with others.
 //   - [ErrRouteNameExist]: If the route name is already registered.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
@@ -110,7 +110,7 @@ func (txn *Txn) Update(methods []string, pattern string, handler HandlerFunc, op
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrRouteNameExist]: If the route name is already registered.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
@@ -195,7 +195,7 @@ func (txn *Txn) Delete(methods []string, pattern string, opts ...MatcherOption) 
 // DeleteRoute deletes an existing route that match the provided [Route] pattern and matchers. On success, it returns
 // the deleted [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //   - [ErrReadOnlyTxn]: On write in a read-only transaction.
 //
 // This function is NOT thread-safe and should be run serially, along with all other [Txn] APIs.
