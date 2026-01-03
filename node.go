@@ -384,8 +384,9 @@ Walk:
 				end = len(search)
 			}
 
+			hasWildcards := len(matched.wildcards) > 0
 			if end == 0 {
-				if len(matched.wildcards) > 0 {
+				if hasWildcards {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						parent:        parent,
@@ -404,7 +405,7 @@ Walk:
 				}
 
 				nextChildIx := i + 1
-				if nextChildIx < len(params) || len(matched.wildcards) > 0 {
+				if nextChildIx < len(params) || hasWildcards {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						parent:        parent,
