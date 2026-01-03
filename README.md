@@ -602,16 +602,15 @@ f := fox.MustRouter(
 ````
 
 ## Handling OPTIONS Requests and CORS Automatically
-The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to OPTIONS requests. 
-This feature can be particularly useful in the context of Cross-Origin Resource Sharing (CORS).
+The `WithAutoOptions` setting or the `WithOptionsHandler` registration enable automatic responses to [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/OPTIONS).
+This feature is particularly useful for handling Cross-Origin Resource Sharing (CORS) preflight requests.
 
-An OPTIONS request is a type of HTTP request that is used to determine the communication options available for a given resource 
-or API endpoint. These requests are commonly used as "preflight" requests in CORS to check if the CORS protocol is understood 
-and to get permission to access data based on origin.
+When automatic OPTIONS responses is enabled, Fox distinguishes between regular OPTIONS requests and CORS preflight requests:
+- **Regular OPTIONS requests:** The router responds with the `Allow` header populated with all HTTP methods registered for the matched resource. If no route matches, the `NoRoute` handler is called.
+- **CORS preflight requests:** The router responds to every preflight request by calling the OPTIONS handler, regardless of whether the resource exists.
 
-When automatic OPTIONS responses is enabled, the router will automatically respond to [OPTIONS requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/OPTIONS).
-To customize how OPTIONS requests are handled (e.g. adding CORS headers using a middleware), you may register a middleware 
-for the `fox.OptionsHandler` scope or override the default handler.
+To customize how OPTIONS requests are handled (e.g. adding CORS headers), you may register a middleware for the `fox.OptionsHandler` scope
+or provide a custom handler via `WithOptionsHandler`. Note that custom OPTIONS handlers always take priority over automatic replies.
 
 ````go
 package main
@@ -641,8 +640,54 @@ func main() {
 		fox.WithMiddlewareFor(fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 	)
 
-	f.MustAdd(fox.MethodGet, "/api/users", getHandler)
-	f.MustAdd(fox.MethodPost, "/api/users", postHandler)
+	f.MustAdd(fox.MethodGet, "/api/users", ListUsers)
+	f.MustAdd(fox.MethodPost, "/api/users", CreateUsers)
+
+	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+````
+
+Alternatively, you can use a sub-router to apply CORS only to a specific section of your API. This approach is useful when
+you want to serve static files or other routes without CORS handling, while enabling it exclusively for API endpoints.
+
+````go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+
+	"github.com/jub0bs/cors"
+	"github.com/tigerwill90/fox"
+)
+
+func main() {
+	corsMw, err := cors.NewMiddleware(cors.Config{
+		Origins:        []string{"https://example.com"},
+		Methods:        []string{http.MethodGet, http.MethodGet, http.MethodPost},
+		RequestHeaders: []string{"Authorization"},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	corsMw.SetDebug(true) // turn debug mode on (optional)
+
+	f := fox.MustRouter()
+	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/+{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
+
+	sub, r := f.MustSubRouter(
+		fox.MethodAny, "/api/*{any}",
+		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
+		fox.WithMiddlewareFor(fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
+	)
+	sub.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
+	sub.MustAdd(fox.MethodPost, "/users", CreateUser)
+
+	f.MustAddRoute(r)
 
 	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
