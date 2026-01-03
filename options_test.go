@@ -295,7 +295,7 @@ func TestDeveloppementOptions(t *testing.T) {
 			next(c)
 		}
 	})
-	r, err := NewRouter(WithMiddleware(m), DevelopmentOptions())
+	r, err := NewRouter(WithMiddleware(m), WithPrettyLogs())
 	require.NoError(t, err)
 	assert.Equal(t, reflect.ValueOf(m).Pointer(), reflect.ValueOf(r.mws[2].m).Pointer())
 }
@@ -333,7 +333,7 @@ func TestInvalidMiddleware(t *testing.T) {
 }
 
 func TestMiddlewareLength(t *testing.T) {
-	f, _ := NewRouter(DevelopmentOptions())
+	f, _ := NewRouter(WithPrettyLogs())
 	r := f.MustAdd(MethodGet, "/", emptyHandler, WithMiddleware(Recovery(slog.DiscardHandler), Logger(slog.DiscardHandler)))
 	assert.Len(t, f.mws, 2)
 	assert.Len(t, r.mws, 4)

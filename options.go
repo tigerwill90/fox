@@ -525,6 +525,24 @@ func WithMatcher(matchers ...Matcher) interface {
 	})
 }
 
+// WithPrettyLogs configures the router with human-readable, colorized logging optimized for terminal output.
+// It registers the following middleware at the front of the chain:
+//   - [Recovery] middleware for the [RouteHandler] scope, which catches panics and logs stack traces
+//   - [Logger] middleware for [AllHandlers] scope, which logs request details
+//
+// This option prioritizes readability over performance and is not recommended for high-throughput applications.
+// For production workloads, prefer structured logging with a performance-oriented [slog.Handler] such as
+// zerolog or zap.
+func WithPrettyLogs() GlobalOption {
+	return optionFunc(func(s sealedOption) error {
+		s.router.mws = append([]middleware{
+			{Recovery(slogpretty.DefaultHandler), RouteHandler, true},
+			{Logger(slogpretty.DefaultHandler), AllHandlers, true},
+		}, s.router.mws...)
+		return nil
+	})
+}
+
 // DefaultOptions configures the router with sensible production defaults:
 //   - Enables automatic OPTIONS responses ([WithAutoOptions])
 //   - Enables 405 Method Not Allowed responses ([WithNoMethod])
@@ -532,7 +550,7 @@ func WithMatcher(matchers ...Matcher) interface {
 //   - Enables redirect-based path correction for trailing slashes ([WithHandleTrailingSlash] with [RedirectSlash])
 //   - Enables redirect-based path correction for non-canonical paths ([WithHandleFixedPath] with [RedirectPath])
 //
-// For development, consider combining this with [DevelopmentOptions] to add debugging middleware.
+// For development, consider combining this with [WithPrettyLogs] to add debugging middleware.
 func DefaultOptions() interface {
 	GlobalOption
 	SubRouterOption
@@ -543,24 +561,6 @@ func DefaultOptions() interface {
 		s.router.allowRegexp = true
 		s.router.handlePath = RedirectPath
 		s.router.handleSlash = RedirectSlash
-		return nil
-	})
-}
-
-// DevelopmentOptions configures the router with middleware useful for local development and debugging.
-// It registers the following middleware at the front of the chain:
-//   - [Recovery] middleware for the [RouteHandler] scope, which catches panics and logs stack traces
-//   - [Logger] middleware for [AllHandlers] scope, which logs request details
-//
-// Both middleware use a human-readable, colorized slog handler optimized for terminal output.
-// This option is intended for development only and should not be used in production, where structured
-// logging with a proper [slog.Handler] is typically preferred.
-func DevelopmentOptions() GlobalOption {
-	return optionFunc(func(s sealedOption) error {
-		s.router.mws = append([]middleware{
-			{Recovery(slogpretty.DefaultHandler), RouteHandler, true},
-			{Logger(slogpretty.DefaultHandler), AllHandlers, true},
-		}, s.router.mws...)
 		return nil
 	})
 }

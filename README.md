@@ -257,7 +257,6 @@ Fox supports mounting a router as a regular route, enabling modular route manage
 ```go
 f := fox.MustRouter(
 	fox.DefaultOptions(),
-	fox.DevelopmentOptions(),
 )
 f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/+{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
 
