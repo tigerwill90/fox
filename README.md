@@ -40,8 +40,6 @@ the canonical path, or enforcing strict matching based on your needs.
 
 **Rich middleware ecosystem:** Fox offers a robust ecosystem of prebuilt, high-quality middlewares, ready to integrate into your application.
 
-Of course, you can also register custom `NotFound` and `MethodNotAllowed` handlers.
-
 ---
 * [Getting started](#getting-started)
   * [Install](#install)
