@@ -28,14 +28,6 @@ var (
 	ErrInvalidMatcher          = errors.New("invalid matcher")
 )
 
-type conflictKind uint8
-
-const (
-	directMatchKind conflictKind = iota
-	isShadowedKind
-	wouldShadowKind
-)
-
 // RouteConflictError represents a conflict that occurred during route registration.
 // It contains the route being registered, and the existing routes that caused the conflict.
 type RouteConflictError struct {
@@ -43,8 +35,8 @@ type RouteConflictError struct {
 	New *Route
 	// Conflicts contains the previously registered routes that conflict with New.
 	Conflicts []*Route
-	kind      conflictKind
-	ts        bool
+	// isShadowed indicate that the New route shadow other routes.
+	isShadowed bool
 }
 
 func (e *RouteConflictError) Error() string {
@@ -52,37 +44,19 @@ func (e *RouteConflictError) Error() string {
 	sb.WriteString("route conflict: new route\n")
 	routef(sb, e.New, 4)
 
-	switch e.kind {
-	case directMatchKind:
-		sb.WriteString("\nconflicts with")
-	case isShadowedKind:
-		if e.ts {
-			switch e.New.handleSlash {
-			case RelaxedSlash:
-				sb.WriteString(" (with relaxed slash)")
-			case RedirectSlash:
-				sb.WriteString(" (with redirect slash)")
-			default:
-			}
+	if e.isShadowed {
+		if e.New.catchEmpty {
+			sb.WriteString("\nis shadowed by")
+		} else {
+			sb.WriteString("\nwould shadow")
 		}
-		sb.WriteString("\nis shadowed by")
-	default:
-		sb.WriteString("\nwould shadow")
+	} else {
+		sb.WriteString("\nconflicts with")
 	}
 
 	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
 		routef(sb, conflict, 4)
-		if e.kind == wouldShadowKind && e.ts {
-			switch conflict.handleSlash {
-			case RelaxedSlash:
-				sb.WriteString(" (with relaxed slash)")
-			case RedirectSlash:
-				sb.WriteString(" (with redirect slash)")
-			default:
-			}
-		}
-		// TODO (with redirect slash or with relaxed slash)
 	}
 
 	return sb.String()

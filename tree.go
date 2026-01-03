@@ -314,7 +314,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: isShadowedKind}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts, isShadowed: true}
 			}
 
 			for _, wildcard := range n.wildcards {
@@ -325,7 +325,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 				}
 			}
 			if len(conflicts) > 0 {
-				return nil, &RouteConflictError{New: route, Conflicts: conflicts, kind: wouldShadowKind}
+				return nil, &RouteConflictError{New: route, Conflicts: conflicts, isShadowed: true}
 			}
 
 			if route.name != "" {
