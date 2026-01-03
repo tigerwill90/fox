@@ -429,7 +429,7 @@ Walk:
 
 		wildcards := matched.wildcards[childWildcardIdx:]
 		if len(wildcards) > 0 {
-			offset := charsMatched // TODO we can probably remove that offset and use charsMatched directly
+			offset := charsMatched
 
 		WalkWildcard:
 			// Try infix wildcards first
@@ -450,7 +450,7 @@ Walk:
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/*{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
-								if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(path[charsMatched:]) {
+								if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(path[offset:]) {
 									break
 								}
 								for j, route := range child.routes {
@@ -550,7 +550,7 @@ Walk:
 			// fallback to tsr if any recorded
 			if tsr {
 				if !lazy {
-					*c.params = append(*c.params, path[charsMatched:])
+					*c.params = append(*c.params, path[offset:])
 				}
 				return
 			}
