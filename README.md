@@ -91,12 +91,14 @@ import (
 	"github.com/tigerwill90/fox"
 )
 
+func HelloServer(c *fox.Context) {
+	_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
+}
+
 func main() {
 	f := fox.MustRouter(fox.DefaultOptions())
 
-	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/hello/{name}", func(c *fox.Context) {
-		_ = c.String(http.StatusOK, fmt.Sprintf("Hello %s\n", c.Param("name")))
-	})
+	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/hello/{name}", HelloServer)
 
 	if err := http.ListenAndServe(":8080", f); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalln(err)
