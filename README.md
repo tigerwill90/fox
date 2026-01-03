@@ -637,7 +637,7 @@ func main() {
 
 	f := fox.MustRouter(
 		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
-		fox.WithMiddlewareFor(fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
+		fox.WithMiddlewareFor(fox.RouteHandler|fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 	)
 
 	f.MustAdd(fox.MethodGet, "/api/users", ListUsers)
@@ -682,7 +682,7 @@ func main() {
 	sub, r := f.MustSubRouter(
 		fox.MethodAny, "/api/*{any}",
 		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
-		fox.WithMiddlewareFor(fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
+		fox.WithMiddlewareFor(fox.RouteHandler|fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 	)
 	sub.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
 	sub.MustAdd(fox.MethodPost, "/users", CreateUser)
