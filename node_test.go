@@ -2575,6 +2575,22 @@ func TestInfixWildcard(t *testing.T) {
 			},
 		},
 		{
+			name: "infix wildcard with trailing with direct match most specific",
+			routes: []string{
+				"/foo/*{any}",
+				"/foo/*{any}/",
+			},
+			path:     "/foo/x/y/z",
+			wantPath: "/foo/*{any}",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
 			name: "infix regexp wildcard with trailing slash most specific",
 			routes: []string{
 				"/foo/*{any:.*}",
@@ -2582,6 +2598,22 @@ func TestInfixWildcard(t *testing.T) {
 			},
 			path:     "/foo/x/y/z/",
 			wantPath: "/foo/*{any:.*}/",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "x/y/z",
+				},
+			},
+		},
+		{
+			name: "infix regexp wildcard with direct match",
+			routes: []string{
+				"/foo/*{any:.*}",
+				"/foo/*{any:.*}/",
+			},
+			path:     "/foo/x/y/z",
+			wantPath: "/foo/*{any:.*}",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -2862,6 +2894,22 @@ func TestInfixWildcardTsr(t *testing.T) {
 				{
 					Key:   "first",
 					Value: "a",
+				},
+			},
+		},
+		{
+			name: "infix wildcard with trailing slash and suffix regexp catch-all",
+			routes: []string{
+				"/foo/*{any:[A-z]+}",
+				"/foo/*{any}/",
+			},
+			path:     "/foo/a/b/c",
+			wantPath: "/foo/*{any}/",
+			wantTsr:  true,
+			wantParams: Params{
+				{
+					Key:   "any",
+					Value: "a/b/c",
 				},
 			},
 		},

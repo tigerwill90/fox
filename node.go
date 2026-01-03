@@ -430,6 +430,8 @@ Walk:
 		wildcards := matched.wildcards[childWildcardIdx:]
 		if len(wildcards) > 0 {
 			offset := charsMatched // TODO we can probably remove that offset and use charsMatched directly
+
+		WalkWildcard:
 			// Try infix wildcards first
 			for i, wildcardNode := range wildcards {
 				if len(wildcardNode.statics) == 0 {
@@ -453,10 +455,15 @@ Walk:
 								}
 								for j, route := range child.routes {
 									if route.handleSlash != StrictSlash && route.match(method, c) {
-										if !lazy {
-											*c.params = append(*c.params, path[charsMatched:])
-										}
-										return j, child, true
+										// This is the only case where we don't return a TSR match immediately. Routes like
+										// /*{args}/ (with TSR enabled) and /*{args} can coexist. For a request like /a/b/c,
+										// the infix /*{args}/ would match with TSR (adding a trailing slash), but we must
+										// first check whether a suffix catch-all directly matches. We capture the node here
+										// but defer parameter recording as a fallback.
+										n = child
+										tsr = true
+										index = j
+										break WalkWildcard
 									}
 								}
 							}
@@ -538,6 +545,14 @@ Walk:
 						return i, wildcardNode, false
 					}
 				}
+			}
+
+			// fallback to tsr if any recorded
+			if tsr {
+				if !lazy {
+					*c.params = append(*c.params, path[charsMatched:])
+				}
+				return
 			}
 		}
 
