@@ -273,14 +273,14 @@ The subrouter pattern must end with a catch-all parameter (`*{param}` or `+{para
 to the mounted router with the remaining path.
 
 Use cases include:
-- Applying middleware or global router option to a route subtree
+- Applying middleware, global router or/and matchers to a pattern prefix
 - Managing entire route subtree at runtime (e.g. insert, update, or delete via the parent router)
 - Organizing routes into groups with shared configuration
 
 #### Hostname validation & restrictions
 
 Hostnames are validated to conform to the [LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2)
-(lowercase only) and SRV-like "underscore labels". Wildcard segments within hostnames, such as {sub}.example.com/, are exempt from LDH validation
+(lowercase only) and SRV-like "underscore labels". Wildcard segments within hostnames, such as `{sub}.example.com/`, are exempt from LDH validation
 since they act as placeholders rather than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label,
 nor the 255-character limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
 (Punycode) representation.
