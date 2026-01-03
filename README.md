@@ -213,7 +213,7 @@ Pattern /src/*{filepath:[A-Za-z/]+\.json}
 Route matchers enable routing decisions based on request properties beyond methods, hostname and path. Multiple routes can share
 the same pattern and methods and be differentiated by query parameters, headers, client IP, or custom criteria.
 
-````
+````go
 f.MustAdd(fox.MethodGet, "/api/users", PremiumHandler,
 	fox.WithQueryMatcher("tier", "premium"),
 )
