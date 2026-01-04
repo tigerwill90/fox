@@ -1,26 +1,5 @@
 package stringutil
 
-// HasPrefixAndLen checks if s has prefix p and len(s) >= len(p).
-// It is equivalent to len(s) >= len(p) && s[:len(p)] == p but avoids
-// creating a substring, which can be faster for prefix matching.
-func HasPrefixAndLen(s, p string) bool {
-	if len(s) < len(p) {
-		return false
-	}
-	// Compare last byte first for faster rejection on non-matches.
-	// This is beneficial when comparing paths with common prefixes.
-	pLen := len(p)
-	if pLen > 0 && s[pLen-1] != p[pLen-1] {
-		return false
-	}
-	for i := 0; i < pLen-1; i++ {
-		if s[i] != p[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // EqualStringsASCIIIgnoreCase performs case-insensitive comparison of two strings
 // containing ASCII characters. Only supports ASCII letters (A-Z, a-z), digits (0-9), hyphen (-) and underscore (_).
 // Used for hostname matching where registered routes follow LDH standard.

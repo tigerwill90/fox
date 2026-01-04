@@ -297,3 +297,18 @@ func BenchmarkStaticAllSubRouter(b *testing.B) {
 
 	benchRoute(b, f, staticRoutes)
 }
+
+// BenchmarkVeryLongPattern-16    	21443257	        55.72 ns/op	       0 B/op	       0 allocs/op
+func BenchmarkVeryLongPattern(b *testing.B) {
+	f := MustRouter()
+	f.MustAdd(MethodGet, "/hello/very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/hello/very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very", nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		f.ServeHTTP(w, req)
+	}
+}

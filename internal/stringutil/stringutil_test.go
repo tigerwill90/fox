@@ -6,46 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHasPrefixAndLen(t *testing.T) {
-	cases := []struct {
-		name string
-		s    string
-		p    string
-		want bool
-	}{
-		// Empty strings
-		{"both empty", "", "", true},
-		{"empty prefix", "hello", "", true},
-		{"empty string non-empty prefix", "", "hello", false},
-
-		// Exact matches
-		{"exact match single char", "a", "a", true},
-		{"exact match", "hello", "hello", true},
-
-		// Prefix matches
-		{"prefix match", "hello world", "hello", true},
-		{"single char prefix", "hello", "h", true},
-
-		// Non-matches
-		{"no match different content", "hello", "world", false},
-		{"no match prefix longer", "hi", "hello", false},
-		{"last byte mismatch", "hellx", "hello", false},
-		{"first byte mismatch", "xello", "hello", false},
-		{"middle byte mismatch", "hexlo", "hello", false},
-
-		// Edge cases
-		{"single char no match", "a", "b", false},
-		{"similar prefix different end", "/api/v1", "/api/v2", false},
-		{"common path prefix", "/users/123", "/users", true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, HasPrefixAndLen(tc.s, tc.p))
-		})
-	}
-}
-
 func TestEqualASCIIIgnoreCase(t *testing.T) {
 	cases := []struct {
 		name string
