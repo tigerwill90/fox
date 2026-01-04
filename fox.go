@@ -101,7 +101,7 @@ type Router struct {
 	pathRedirect           HandlerFunc
 	autoOPTIONS            HandlerFunc
 	tree                   atomic.Pointer[iTree]
-	prefix                 string
+	prefix                 string // Sub-router prefix
 	mws                    []middleware
 	maxParams              int
 	maxParamKeyBytes       int
@@ -389,6 +389,16 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	return
 }
 
+// MustRoute creates a new [Route], configured with the provided options. On success, it returns the newly created [Route].
+// This function is a convenience wrapper for the [Router.NewRoute] function and panics on error.
+func (fox *Router) MustRoute(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
+	r, err := fox.NewRoute(methods, pattern, handler, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
 // NewRoute create a new [Route], configured with the provided options.
 // If an error occurs, it returns one of the following:
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -418,8 +428,8 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		handleSlash: fox.handleSlash,
 		hostEnd:     parsed.endHost,
 		prefixEnd:   len(fox.prefix),
-		priority:    0,
 		tokens:      parsed.token,
+		owner:       fox,
 		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == plusDelim,
 	}
 
@@ -503,9 +513,8 @@ func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRou
 		handleSlash: fox.handleSlash,
 		hostEnd:     parsed.endHost,
 		prefixEnd:   len(fox.prefix),
-		priority:    0,
 		tokens:      parsed.token,
-		sub:         router,
+		owner:       fox,
 		catchEmpty:  pattern[parsed.startCatchAll] == plusDelim,
 	}
 

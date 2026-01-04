@@ -12,7 +12,7 @@ type Route struct {
 	hself       HandlerFunc
 	hall        HandlerFunc
 	annots      map[any]any
-	sub         *Router
+	owner       *Router
 	pattern     string
 	name        string
 	methods     []string
@@ -20,8 +20,8 @@ type Route struct {
 	params      []string
 	tokens      []token
 	matchers    []Matcher
-	hostEnd     int // 0 if no host
-	prefixEnd   int // 0 if no prefix
+	hostEnd     int
+	prefixEnd   int
 	priority    uint
 	handleSlash TrailingSlashOption
 	catchEmpty  bool
@@ -124,12 +124,6 @@ func (r *Route) Matchers() iter.Seq[Matcher] {
 // Priority returns the matchers priority for this [Route].
 func (r *Route) Priority() uint {
 	return r.priority
-}
-
-// SubRouter returns the [Router] mounted at this route, or nil if this route
-// was not created with [Router.NewSubRouter].
-func (r *Route) SubRouter() *Router {
-	return r.sub
 }
 
 // match reports whether the request satisfies this route's method constraint (if any)

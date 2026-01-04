@@ -105,7 +105,13 @@ func routef(sb *strings.Builder, route *Route, pad int) {
 	}
 
 	sb.WriteString(" pattern:")
-	sb.WriteString(route.pattern)
+	sb.WriteString(route.Pattern())
+
+	if route.prefixEnd > 0 {
+		sb.WriteString(" (at ")
+		sb.WriteString(route.pattern)
+		sb.WriteByte(')')
+	}
 
 	if route.name != "" {
 		sb.WriteString(" name:")
@@ -130,8 +136,9 @@ func routef(sb *strings.Builder, route *Route, pad int) {
 }
 
 func newRouteNotFoundError(route *Route) error {
-	if len(route.methods) > 0 {
-		return fmt.Errorf("%w: route [%s] %s is not registered", ErrRouteNotFound, strings.Join(route.methods, ", "), route.pattern)
-	}
-	return fmt.Errorf("%w: route %s is not registered", ErrRouteNotFound, route.pattern)
+	sb := new(strings.Builder)
+	sb.WriteString("route\n")
+	routef(sb, route, 4)
+	sb.WriteString("\nis not registered")
+	return fmt.Errorf("%w: %s", ErrRouteNotFound, sb.String())
 }

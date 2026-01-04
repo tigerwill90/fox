@@ -65,8 +65,8 @@ func (txn *Txn) AddRoute(route *Route) error {
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
 	}
-	if route.sub != nil && txn.fox == route.sub {
-		panic("cannot mount subrouter route into itself")
+	if route.owner != txn.fox {
+		panic("route belongs to a different router")
 	}
 
 	return txn.rootTxn.insert(route, modeInsert)
@@ -125,8 +125,8 @@ func (txn *Txn) UpdateRoute(route *Route) error {
 	if route == nil {
 		return fmt.Errorf("%w: nil route", ErrInvalidRoute)
 	}
-	if route.sub != nil && txn.fox == route.sub {
-		panic("cannot mount subrouter route into itself")
+	if route.owner != txn.fox {
+		panic("route belongs to a different router")
 	}
 
 	return txn.rootTxn.insert(route, modeUpdate)
@@ -210,6 +210,10 @@ func (txn *Txn) DeleteRoute(route *Route) (*Route, error) {
 
 	if route == nil {
 		return nil, fmt.Errorf("%w: nil route", ErrInvalidRoute)
+	}
+
+	if route.owner != txn.fox {
+		panic("route belongs to a different router")
 	}
 
 	rte, deleted := txn.rootTxn.delete(route)

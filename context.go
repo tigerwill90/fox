@@ -269,8 +269,8 @@ func (c *Context) Stream(code int, contentType string, r io.Reader) (err error) 
 	return
 }
 
-// Fox returns the [Router] instance.
-func (c *Context) Fox() *Router {
+// Router returns the [Router] instance.
+func (c *Context) Router() *Router {
 	return c.fox
 }
 

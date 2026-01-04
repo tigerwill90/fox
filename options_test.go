@@ -342,22 +342,25 @@ func TestMiddlewareLength(t *testing.T) {
 func TestRouterWithAllowedMethod(t *testing.T) {
 	f := MustRouter(WithNoMethod(true))
 
-	failOn := valueOrFail[*Route](t)
+	type route struct {
+		methods []string
+		pattern string
+	}
 
 	cases := []struct {
 		name   string
 		method string
 		target string
-		routes []*Route
+		routes []route
 		want   []string
 	}{
 		{
 			name: "all route except the last one",
-			routes: []*Route{
-				failOn(f.NewRoute([]string{http.MethodGet, http.MethodPost}, "/foo/bar", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodPut, http.MethodDelete}, "/foo/bar", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodPatch, http.MethodConnect, http.MethodOptions}, "/foo/bar", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodHead}, "/foo/bar", emptyHandler)),
+			routes: []route{
+				{[]string{http.MethodGet, http.MethodPost}, "/foo/bar"},
+				{[]string{http.MethodPut, http.MethodDelete}, "/foo/bar"},
+				{[]string{http.MethodPatch, http.MethodConnect, http.MethodOptions}, "/foo/bar"},
+				{[]string{http.MethodHead}, "/foo/bar"},
 			},
 			target: "/foo/bar",
 			method: http.MethodTrace,
@@ -365,11 +368,11 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 		{
 			name: "all route except the first one",
-			routes: []*Route{
-				failOn(f.NewRoute([]string{http.MethodPost, http.MethodPut}, "/foo/baz", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodDelete, http.MethodPatch}, "/foo/baz", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodConnect, http.MethodOptions, http.MethodHead}, "/foo/baz", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodTrace}, "/foo/baz", emptyHandler)),
+			routes: []route{
+				{[]string{http.MethodPost, http.MethodPut}, "/foo/baz"},
+				{[]string{http.MethodDelete, http.MethodPatch}, "/foo/baz"},
+				{[]string{http.MethodConnect, http.MethodOptions, http.MethodHead}, "/foo/baz"},
+				{[]string{http.MethodTrace}, "/foo/baz"},
 			},
 			target: "/foo/baz",
 			method: http.MethodGet,
@@ -377,11 +380,11 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 		{
 			name: "all route except patch and delete",
-			routes: []*Route{
-				failOn(f.NewRoute([]string{http.MethodGet, http.MethodPost}, "/test", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodPut}, "/test", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodConnect, http.MethodOptions}, "/test", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodHead, http.MethodTrace}, "/test", emptyHandler)),
+			routes: []route{
+				{[]string{http.MethodGet, http.MethodPost}, "/test"},
+				{[]string{http.MethodPut}, "/test"},
+				{[]string{http.MethodConnect, http.MethodOptions}, "/test"},
+				{[]string{http.MethodHead, http.MethodTrace}, "/test"},
 			},
 			target: "/test",
 			method: http.MethodPatch,
@@ -389,10 +392,10 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 		{
 			name: "no auto OPTIONS request with other matching methods",
-			routes: []*Route{
-				failOn(f.NewRoute([]string{http.MethodGet}, "/buzz", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodPost}, "/buzz", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodPut}, "/buzz", emptyHandler)),
+			routes: []route{
+				{[]string{http.MethodGet}, "/buzz"},
+				{[]string{http.MethodPost}, "/buzz"},
+				{[]string{http.MethodPut}, "/buzz"},
 			},
 			target: "/buzz",
 			method: http.MethodOptions,
@@ -400,10 +403,10 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 		},
 		{
 			name: "route with method overlapping",
-			routes: []*Route{
-				failOn(f.NewRoute([]string{http.MethodGet, http.MethodPost, http.MethodPut}, "/users/123", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodGet, http.MethodPut, http.MethodConnect, http.MethodHead}, "/users/{id}", emptyHandler)),
-				failOn(f.NewRoute([]string{http.MethodOptions}, "/users/{id}", emptyHandler)),
+			routes: []route{
+				{[]string{http.MethodGet, http.MethodPost, http.MethodPut}, "/users/123"},
+				{[]string{http.MethodGet, http.MethodPut, http.MethodConnect, http.MethodHead}, "/users/{id}"},
+				{[]string{http.MethodOptions}, "/users/{id}"},
 			},
 			target: "/users/123",
 			method: http.MethodTrace,
@@ -423,8 +426,8 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 	require.True(t, rf.MethodNotAllowed)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, route := range tc.routes {
-				require.NoError(t, f.AddRoute(route))
+			for _, r := range tc.routes {
+				f.MustAdd(r.methods, r.pattern, emptyHandler)
 			}
 			req := httptest.NewRequest(tc.method, tc.target, nil)
 			w := httptest.NewRecorder()
@@ -435,7 +438,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			t.Run("with sub router", func(t *testing.T) {
 				sub, r := f.MustSubRouter(MethodAny, "example.com/+{any}", WithNoMethod(true))
 				for _, route := range tc.routes {
-					require.NoError(t, sub.AddRoute(route))
+					sub.MustAdd(route.methods, route.pattern, emptyHandler)
 				}
 				require.NoError(t, f.AddRoute(r))
 

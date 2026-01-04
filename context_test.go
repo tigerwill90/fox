@@ -187,7 +187,7 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Pattern(), cp.Pattern())
-	assert.Equal(t, c.Fox(), cp.Fox())
+	assert.Equal(t, c.Router(), cp.Router())
 	assert.Nil(t, cp.cachedQueries)
 }
 
@@ -306,7 +306,7 @@ func TestContext_Fox(t *testing.T) {
 
 	f, _ := NewRouter()
 	require.NoError(t, onlyError(f.Add(MethodGet, "/foo", func(c *Context) {
-		assert.NotNil(t, c.Fox())
+		assert.NotNil(t, c.Router())
 	})))
 
 	f.ServeHTTP(w, req)

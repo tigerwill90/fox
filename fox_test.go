@@ -4533,7 +4533,7 @@ func TestRouterHandleNoRoute(t *testing.T) {
 	f, err := NewRouter(WithMiddleware(m))
 	require.NoError(t, err)
 	require.NoError(t, onlyError(f.Add(MethodGet, "/foo", func(c *Context) {
-		c.Fox().HandleNoRoute(c)
+		c.Router().HandleNoRoute(c)
 	})))
 
 	w := httptest.NewRecorder()
@@ -5712,4 +5712,40 @@ func valueOrFail[T any](t testing.TB) func(v T, err error) T {
 		}
 		return v
 	}
+}
+
+func TestX(t *testing.T) {
+
+	mw := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c *Context) {
+
+			fmt.Println(c.Pattern(), slices.Collect(c.Params()), c.Route().Pattern())
+			next(c)
+		}
+	})
+
+	f := MustRouter(WithMiddleware(mw))
+	sub1, r1 := f.MustSubRouter(MethodAny, "/api/+{any}", WithMiddleware(mw))
+	f.MustAddRoute(r1)
+
+	sub2, r2 := sub1.MustSubRouter(MethodAny, "/users/+{any}")
+	sub2.MustAdd(MethodGet, "/{id}", func(c *Context) {
+		fmt.Println(c.Pattern(), slices.Collect(c.Params()), c.Route().Pattern())
+	})
+	sub2.MustAdd(MethodGet, "/bar", func(c *Context) {
+		fmt.Println(c.Pattern(), slices.Collect(c.Params()), c.Route().Pattern())
+	})
+	sub1.MustAddRoute(r2)
+
+	/*	rx := sub2.MustRoute(MethodGet, "/baz", func(c *Context) {
+			fmt.Println("yolo")
+			fmt.Println(c.Pattern(), slices.Collect(c.Params()), c.Route().Pattern())
+		})
+		fmt.Println(rx.pattern)
+		sub1.MustAddRoute(rx)
+		fmt.Println(sub1.DeleteRoute(rx))*/
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users/123", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
 }
