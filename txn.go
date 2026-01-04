@@ -161,7 +161,8 @@ func (txn *Txn) Delete(methods []string, pattern string, opts ...MatcherOption) 
 
 	rte := &Route{
 		pattern:   txn.fox.prefix + pattern,
-		hostSplit: parsed.endHost,
+		hostEnd:   parsed.endHost,
+		prefixEnd: len(txn.fox.prefix),
 		tokens:    parsed.token,
 	}
 

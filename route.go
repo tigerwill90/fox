@@ -15,13 +15,13 @@ type Route struct {
 	sub         *Router
 	pattern     string
 	name        string
-	prefix      string
 	methods     []string
 	mws         []middleware
 	params      []string
 	tokens      []token
 	matchers    []Matcher
-	hostSplit   int // 0 if no host
+	hostEnd     int // 0 if no host
+	prefixEnd   int // 0 if no prefix
 	priority    uint
 	handleSlash TrailingSlashOption
 	catchEmpty  bool
@@ -52,17 +52,17 @@ func (r *Route) Methods() iter.Seq[string] {
 
 // Pattern returns the registered route pattern.
 func (r *Route) Pattern() string {
-	return r.pattern[len(r.prefix):]
+	return r.pattern[r.prefixEnd:]
 }
 
 // Hostname returns the hostname part of the registered pattern if any.
 func (r *Route) Hostname() string {
-	return r.Pattern()[:r.hostSplit]
+	return r.Pattern()[:r.hostEnd]
 }
 
 // Path returns the path part of the registered pattern.
 func (r *Route) Path() string {
-	return r.Pattern()[r.hostSplit:]
+	return r.Pattern()[r.hostEnd:]
 }
 
 // Name returns the name of this [Route].

@@ -414,10 +414,10 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		clientip:    fox.clientip,
 		hbase:       handler,
 		pattern:     fox.prefix + pattern,
-		prefix:      fox.prefix,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
-		hostSplit:   parsed.endHost, // 0 if no host
+		hostEnd:     parsed.endHost,
+		prefixEnd:   len(fox.prefix),
 		priority:    0,
 		tokens:      parsed.token,
 		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == plusDelim,
@@ -499,10 +499,10 @@ func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRou
 	rte := &Route{
 		clientip:    fox.clientip,
 		pattern:     fox.prefix + pattern,
-		prefix:      fox.prefix,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
-		hostSplit:   parsed.endHost, // 0 if no host
+		hostEnd:     parsed.endHost,
+		prefixEnd:   len(fox.prefix),
 		priority:    0,
 		tokens:      parsed.token,
 		sub:         router,
