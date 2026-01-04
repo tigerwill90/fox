@@ -7,9 +7,11 @@ package fox
 import (
 	"cmp"
 	"fmt"
+	"log"
 	"math"
 	"net"
 	"net/http"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -83,9 +85,6 @@ const (
 	RedirectPathHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
-)
-
-const (
 	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
 	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectSlashHandler | RedirectPathHandler | OptionsHandler
 )
@@ -113,6 +112,23 @@ type Router struct {
 	handleOPTIONS          bool
 	systemWideOPTIONS      bool
 	allowRegexp            bool
+}
+
+func initRouter() *Router {
+	r := new(Router)
+	r.noRouteBase = DefaultNotFoundHandler
+	r.noMethod = DefaultMethodNotAllowedHandler
+	r.autoOPTIONS = DefaultOptionsHandler
+	r.tsrRedirect = internalTrailingSlashHandler
+	r.pathRedirect = internalFixedPathHandler
+	r.clientip = noClientIPResolver{}
+	r.maxParams = math.MaxUint8
+	r.maxParamKeyBytes = math.MaxUint8
+	r.maxMatchers = math.MaxUint8
+	r.handleSlash = StrictSlash
+	r.handlePath = StrictPath
+	r.systemWideOPTIONS = true
+	return r
 }
 
 // RouterInfo hold information on the configured global options.
@@ -149,8 +165,7 @@ func MustRouter(opts ...GlobalOption) *Router {
 
 // NewRouter returns a ready to use instance of Fox router.
 func NewRouter(opts ...GlobalOption) (*Router, error) {
-	router := new(Router)
-	router.initDefault()
+	router := initRouter()
 
 	for _, opt := range opts {
 		if err := opt.applyGlob(sealedOption{router: router}); err != nil {
@@ -482,8 +497,8 @@ func (fox *Router) MustSubRouter(methods []string, pattern string, opts ...SubRo
 // [Router] (sub-router) along with a [Route] that must be registered in the parent router using [Router.AddRoute].
 // The pattern must end with a catch-all wildcard (*{param} or +{param}).
 // If an error occurs, it returns one of the following:
-//   - [ErrInvalidRoute]: If the provided pattern is invalid or does not end with a catch-all wildcard.
-//   - [ErrInvalidConfig]: If the provided route options are invalid.
+//   - [ErrInvalidRoute]: If the provided methods or pattern is invalid, or if the pattern does not end with a catch-all wildcard.
+//   - [ErrInvalidConfig]: If the provided sub-router options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRouterOption) (*Router, *Route, error) {
 	for _, method := range methods {
@@ -501,8 +516,7 @@ func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRou
 		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "subrouter pattern must end with a suffix wildcard")
 	}
 
-	router := new(Router)
-	router.initDefault()
+	router := initRouter()
 
 	router.prefix = fox.prefix + strings.TrimSuffix(pattern[:parsed.startCatchAll], "/")
 
@@ -596,6 +610,11 @@ func mountHandler(router *Router) HandlerFunc {
 // HandleNoRoute calls the no route handler with the provided [Context].
 // Note that this bypasses any middleware attached to the no route handler.
 func (fox *Router) HandleNoRoute(c *Context) {
+	if c.scope == NoRouteHandler {
+		caller := relevantCaller()
+		log.Printf("fox: recursive call to router.HandleNoRoute from %s (%s:%d)", caller.Function, path.Base(caller.File), caller.Line)
+		return
+	}
 	fox.noRouteBase(c)
 }
 
@@ -1116,21 +1135,6 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
-}
-
-func (fox *Router) initDefault() {
-	fox.noRouteBase = DefaultNotFoundHandler
-	fox.noMethod = DefaultMethodNotAllowedHandler
-	fox.autoOPTIONS = DefaultOptionsHandler
-	fox.tsrRedirect = internalTrailingSlashHandler
-	fox.pathRedirect = internalFixedPathHandler
-	fox.clientip = noClientIPResolver{}
-	fox.maxParams = math.MaxUint8
-	fox.maxParamKeyBytes = math.MaxUint8
-	fox.maxMatchers = math.MaxUint8
-	fox.handleSlash = StrictSlash
-	fox.handlePath = StrictPath
-	fox.systemWideOPTIONS = true
 }
 
 const (
