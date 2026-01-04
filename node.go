@@ -133,8 +133,9 @@ Walk:
 				end = len(search)
 			}
 
+			hasWildcards := len(matched.wildcards) > 0
 			if end == 0 {
-				if len(matched.wildcards) > 0 {
+				if hasWildcards {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						charsMatched:  charsMatched,
@@ -146,14 +147,13 @@ Walk:
 			}
 
 			segment := search[:end]
-
 			for i, paramNode := range params {
 				if paramNode.regexp != nil && !paramNode.regexp.MatchString(segment) {
 					continue
 				}
 
 				nextChildIx := i + 1
-				if nextChildIx < len(params) || len(matched.wildcards) > 0 {
+				if nextChildIx < len(params) || hasWildcards {
 					*c.skipStack = append(*c.skipStack, skipNode{
 						node:          matched,
 						charsMatched:  charsMatched,

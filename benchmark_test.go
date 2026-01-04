@@ -129,6 +129,7 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	}
 }
 
+// BenchmarkGithubParamsHostnameAll-16    	19940634	        61.47 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 	r, _ := NewRouter()
 	for _, route := range wildcardHostnames {
@@ -298,10 +299,11 @@ func BenchmarkStaticAllSubRouter(b *testing.B) {
 	benchRoute(b, f, staticRoutes)
 }
 
-// BenchmarkVeryLongPattern-16    	21443257	        55.72 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkVeryLongPattern(b *testing.B) {
 	f := MustRouter()
 	f.MustAdd(MethodGet, "/hello/very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very", emptyHandler)
+	f.MustAdd(MethodGet, "/hello/add", emptyHandler)
+	f.MustAdd(MethodGet, "/help", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/hello/very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very_very", nil)
 	w := new(mockResponseWriter)
