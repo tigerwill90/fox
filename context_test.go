@@ -550,7 +550,7 @@ func TestWrapM(t *testing.T) {
 	}
 
 	f, _ := NewRouter(WithMiddleware(WrapM(mw1), WrapM(mw2)))
-	f.MustAdd(MethodGet, "/foo", func(c *Context) {
+	f.MustAdd(MethodGet, "/foo/{bar}", func(c *Context) {
 		w := c.Writer()
 		inner := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
 		assert.IsType(t, &recorder{}, w)
@@ -559,7 +559,7 @@ func TestWrapM(t *testing.T) {
 		require.NoError(t, c.String(http.StatusOK, "OK"))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
 
