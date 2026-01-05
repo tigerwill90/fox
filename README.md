@@ -214,14 +214,8 @@ Route matchers enable routing decisions based on request properties beyond metho
 the same pattern and methods and be differentiated by query parameters, headers, client IP, or custom criteria.
 
 ````go
-f.MustAdd(fox.MethodGet, "/api/users", PremiumHandler,
-	fox.WithQueryMatcher("tier", "premium"),
-)
-
-f.MustAdd(fox.MethodGet, "/api/users", StandardHandler,
-	fox.WithHeaderMatcher("X-API-Version", "v2"),
-)
-
+f.MustAdd(fox.MethodGet, "/api/users", PremiumHandler, fox.WithQueryMatcher("tier", "premium"))
+f.MustAdd(fox.MethodGet, "/api/users", StandardHandler, fox.WithHeaderMatcher("X-API-Version", "v2"))
 f.MustAdd(fox.MethodGet, "/api/users", DefaultHandler) // Fallback route
 ````
 
@@ -252,7 +246,7 @@ f.MustAdd(fox.MethodAny, "/resource", FallbackHandler)
 ````
 
 #### Sub-Routers
-Fox supports mounting a router as a regular route, enabling modular route management and isolated configuration.
+Fox provides a composable routing API where routers can be mounted as regular routes, each with its own middleware and configuration.
 
 ```go
 api := fox.MustRouter(fox.WithMiddleware(AuthMiddleware()))
@@ -266,11 +260,10 @@ f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(h
 f.MustAdd(fox.MethodAny, "/api*{mount}", api.Mount())
 ```
 
-The subrouter pattern must end with a catch-all parameter (`*{param}` or `+{param}`). Requests matching the prefix are delegated
-to the mounted router with the remaining path.
+Requests matching the prefix are delegated to the mounted router with the remaining path.
 
 Use cases include:
-- Applying middleware, global router or/and matchers to a pattern prefix
+- Applying middleware, matchers or other configuration to a routing prefix
 - Managing entire route subtree at runtime (e.g. insert, update, or delete via the parent router)
 - Organizing routes into groups with shared configuration
 
