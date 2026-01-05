@@ -59,10 +59,6 @@ func (o optionFunc) applyRoute(s sealedOption) error {
 	return o(s)
 }
 
-func (o optionFunc) applySubRouter(s sealedOption) error {
-	return o(s)
-}
-
 func (o optionFunc) applyMatcher(s sealedOption) error {
 	return o(s)
 }

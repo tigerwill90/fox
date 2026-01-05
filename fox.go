@@ -424,7 +424,6 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		handleSlash: fox.handleSlash,
 		hostEnd:     parsed.endHost,
 		tokens:      parsed.token,
-		owner:       fox,
 		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == starDelim,
 	}
 
@@ -465,12 +464,12 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 // len(+{any}) == len(any)+3 == len(*{any})
 const wildcardExtraChar = 3
 
-// SubRouter returns a [HandlerFunc] for mounting this [Router] as a sub-router. Requests matching the parent
+// Mount returns a [HandlerFunc] for mounting this [Router] as a sub-router. Requests matching the parent
 // route prefix are delegated to the sub-router which handles the remaining path. The parent route pattern
 // should end with a catch-all. Parameters captured by the parent route are preserved and accessible alongside
 // any parameters matched by the sub-router. Similarly, [http.Request.Pattern] is the concatenation of the
 // parent and sub-router patterns. See also [Router.Add] for registering the handler.
-func (fox *Router) SubRouter() HandlerFunc {
+func (fox *Router) Mount() HandlerFunc {
 	return func(c *Context) {
 		tree := fox.getTree()
 		subCtx := tree.pool.Get().(*Context)

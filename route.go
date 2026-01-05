@@ -12,7 +12,6 @@ type Route struct {
 	hself       HandlerFunc
 	hall        HandlerFunc
 	annots      map[any]any
-	owner       *Router
 	pattern     string
 	name        string
 	methods     []string

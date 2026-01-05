@@ -263,7 +263,7 @@ api.MustAdd(fox.MethodPost, "/users", CreateUser)
 
 f := fox.MustRouter(fox.DefaultOptions())
 f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
-f.MustAdd(fox.MethodAny, "/api*{mount}", api.SubRouter())
+f.MustAdd(fox.MethodAny, "/api*{mount}", api.Mount())
 ```
 
 The subrouter pattern must end with a catch-all parameter (`*{param}` or `+{param}`). Requests matching the prefix are delegated
@@ -681,7 +681,7 @@ func main() {
 	api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
 	api.MustAdd(fox.MethodPost, "/users", CreateUser)
 
-	f.MustAdd(fox.MethodAny, "/api*{any}", api.SubRouter()) // Method-less route
+	f.MustAdd(fox.MethodAny, "/api*{any}", api.Mount()) // Method-less route
 }
 ````
 

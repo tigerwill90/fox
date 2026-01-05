@@ -636,7 +636,7 @@ func TestX(t *testing.T) {
 	})
 
 	f := MustRouter()
-	f.MustAdd(MethodAny, "/api{any}", sub.SubRouter())
+	f.MustAdd(MethodAny, "/api{any}", sub.Mount())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
 	w := httptest.NewRecorder()

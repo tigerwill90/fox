@@ -868,7 +868,7 @@ func TestStaticRouteSubRouter(t *testing.T) {
 		require.NoError(t, onlyError(sub.Add([]string{route.method}, route.path, pathHandler)))
 	}
 
-	require.NoError(t, onlyError(f.Add(MethodAny, "/*{args}", sub.SubRouter())))
+	require.NoError(t, onlyError(f.Add(MethodAny, "/*{args}", sub.Mount())))
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
@@ -891,7 +891,7 @@ func TestStaticRouteSubRouterWithAny(t *testing.T) {
 		require.NoError(t, onlyError(sub.Add(MethodAny, route.path, pathHandler)))
 	}
 
-	require.NoError(t, onlyError(f.Add(MethodAny, "/*{args}", sub.SubRouter())))
+	require.NoError(t, onlyError(f.Add(MethodAny, "/*{args}", sub.Mount())))
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
@@ -946,7 +946,7 @@ func TestStaticHostnameRouteSubRouter(t *testing.T) {
 	for _, route := range staticHostnames {
 		sub := MustRouter()
 		require.NoError(t, onlyError(sub.Add([]string{route.method}, "/foo", patternHandler)))
-		require.NoError(t, onlyError(f.Add(MethodAny, route.path+"/*{args}", sub.SubRouter())))
+		require.NoError(t, onlyError(f.Add(MethodAny, route.path+"/*{args}", sub.Mount())))
 	}
 
 	t.Run("same case", func(t *testing.T) {
@@ -1357,7 +1357,7 @@ func TestHandleSubRouter(t *testing.T) {
 		sub := MustRouter()
 		sub.MustAdd(MethodGet, "/", patternHandler)
 		sub.MustAdd(MethodGet, "/users", patternHandler)
-		assert.NoError(t, onlyError(f.Add(MethodGet, "/v1/api/*{sub}", sub.SubRouter())))
+		assert.NoError(t, onlyError(f.Add(MethodGet, "/v1/api/*{sub}", sub.Mount())))
 
 		req := httptest.NewRequest(http.MethodGet, "/v1/api", nil)
 		w := httptest.NewRecorder()
@@ -1379,7 +1379,7 @@ func TestHandleSubRouter(t *testing.T) {
 		sub := MustRouter()
 		sub.MustAdd(MethodGet, "/", patternHandler)
 		sub.MustAdd(MethodGet, "/users", patternHandler)
-		assert.NoError(t, onlyError(f.Add(MethodGet, "/v2/api*{sub}", sub.SubRouter())))
+		assert.NoError(t, onlyError(f.Add(MethodGet, "/v2/api*{sub}", sub.Mount())))
 
 		req := httptest.NewRequest(http.MethodGet, "/v2/api", nil)
 		w := httptest.NewRecorder()
@@ -3764,7 +3764,7 @@ func TestRedirectTrailingSlash(t *testing.T) {
 				for _, path := range tc.paths {
 					require.NoError(t, onlyError(sub.Add([]string{tc.method}, path, emptyHandler)))
 				}
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
 				req.Host = "example.com"
@@ -3908,7 +3908,7 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 				f := MustRouter()
 				sub := MustRouter(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 				require.NoError(t, onlyError(sub.Add([]string{tc.method}, tc.path, emptyHandler)))
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
 				req.Host = "example.com"
@@ -3924,7 +3924,7 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 				f := MustRouter()
 				sub := MustRouter(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 				require.NoError(t, onlyError(sub.Add(MethodAny, tc.path, emptyHandler)))
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
 				req.Host = "example.com"
@@ -4032,7 +4032,7 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 				require.NoError(t, onlyError(sub.Add(MethodGet, tc.path, func(c *Context) {
 					c.Writer().WriteHeader(tc.wantCode)
 				})))
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
 
 				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
 				req.Host = "example.com"
@@ -4047,7 +4047,7 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 				require.NoError(t, onlyError(sub.Add(MethodAny, tc.path, func(c *Context) {
 					c.Writer().WriteHeader(tc.wantCode)
 				})))
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
 
 				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
 				req.Host = "example.com"
@@ -4312,7 +4312,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 						assert.Equal(t, tc.wantParams, params)
 					})))
 				}
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
 
 				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
 				req.Host = "example.com"
