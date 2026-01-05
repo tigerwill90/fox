@@ -122,8 +122,8 @@ func (r *Route) Matchers() iter.Seq[Matcher] {
 	}
 }
 
-// Priority returns the matchers priority for this [Route].
-func (r *Route) Priority() uint {
+// MatchersPriority returns the matchers priority for this [Route].
+func (r *Route) MatchersPriority() uint {
 	return r.priority
 }
 
