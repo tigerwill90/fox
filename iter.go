@@ -75,7 +75,7 @@ func (it Iter) NamePrefix(prefix string) iter.Seq[*Route] {
 		if it.maxDepth < stackSizeThreshold {
 			stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
 		} else {
-			stacks = make([]stack, 0, it.maxDepth) // heap allocation TODO this inaccruate now (this is currently the max skipStack)
+			stacks = make([]stack, 0, it.maxDepth) // heap allocation
 		}
 
 		matched := it.names.searchName(prefix)
@@ -121,7 +121,7 @@ func (it Iter) PatternPrefix(prefix string) iter.Seq[*Route] {
 		if it.maxDepth < stackSizeThreshold {
 			stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
 		} else {
-			stacks = make([]stack, 0, it.maxDepth) // heap allocation TODO this inaccruate now (this is currently the max skipStack)
+			stacks = make([]stack, 0, it.maxDepth) // heap allocation
 		}
 
 		matched := it.patterns.searchPattern(prefix)
