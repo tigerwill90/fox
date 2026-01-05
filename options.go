@@ -36,10 +36,6 @@ type GlobalOption interface {
 	applyGlob(sealedOption) error
 }
 
-type SubRouterOption interface {
-	applySubRouter(sealedOption) error
-}
-
 type RouteOption interface {
 	applyRoute(sealedOption) error
 }
@@ -73,10 +69,7 @@ func (o optionFunc) applyMatcher(s sealedOption) error {
 
 // WithNoRouteHandler register an [HandlerFunc] which is called when no matching route is found.
 // By default, the [DefaultNotFoundHandler] is used.
-func WithNoRouteHandler(handler HandlerFunc) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithNoRouteHandler(handler HandlerFunc) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: no route handler cannot be nil", ErrInvalidConfig)
@@ -90,10 +83,7 @@ func WithNoRouteHandler(handler HandlerFunc) interface {
 // but the same route exist for other methods. The "Allow" header it automatically set before calling the
 // handler. By default, the [DefaultMethodNotAllowedHandler] is used. Note that this option automatically
 // enable [WithNoMethod].
-func WithNoMethodHandler(handler HandlerFunc) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithNoMethodHandler(handler HandlerFunc) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: no method handler cannot be nil", ErrInvalidConfig)
@@ -108,10 +98,7 @@ func WithNoMethodHandler(handler HandlerFunc) interface {
 // respond with a 204 status code. The "Allow" header it automatically set before calling the handler (except for CORS preflight request).
 // Note that custom OPTIONS handler take priority over automatic replies. By default, [DefaultOptionsHandler] is used. Note that this option
 // automatically enable [WithAutoOptions].
-func WithOptionsHandler(handler HandlerFunc) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithOptionsHandler(handler HandlerFunc) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		if handler == nil {
 			return fmt.Errorf("%w: options handler cannot be nil", ErrInvalidConfig)
@@ -140,7 +127,6 @@ func WithOptionsHandler(handler HandlerFunc) interface {
 // possible by adding or removing a trailing slash.
 func WithHandleTrailingSlash(opt TrailingSlashOption) interface {
 	GlobalOption
-	SubRouterOption
 	RouteOption
 } {
 	return optionFunc(func(s sealedOption) error {
@@ -171,10 +157,7 @@ func WithHandleTrailingSlash(opt TrailingSlashOption) interface {
 //
 // This option applies globally to all routes and cannot be configured per-route. See [CleanPath] for details on how
 // paths are cleaned.
-func WithHandleFixedPath(opt FixedPathOption) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithHandleFixedPath(opt FixedPathOption) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		if opt >= pathOptionSentinel {
 			return fmt.Errorf("%w: invalid fixed path option", ErrInvalidConfig)
@@ -186,10 +169,7 @@ func WithHandleFixedPath(opt FixedPathOption) interface {
 
 // WithMaxRouteParams set the maximum number of parameters allowed in a route. The default max is math.MaxUint8.
 // Routes exceeding this limit will fail with an error that is ErrInvalidRoute and ErrTooManyParams.
-func WithMaxRouteParams(max int) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithMaxRouteParams(max int) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.maxParams = max
 		return nil
@@ -199,10 +179,7 @@ func WithMaxRouteParams(max int) interface {
 // WithMaxRouteParamKeyBytes set the maximum number of bytes allowed per parameter key in a route. The default max is
 // math.MaxUint8. Routes with parameter keys exceeding this limit will fail with an error that Is ErrInvalidRoute and
 // ErrParamKeyTooLarge.
-func WithMaxRouteParamKeyBytes(max int) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithMaxRouteParamKeyBytes(max int) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.maxParamKeyBytes = max
 		return nil
@@ -211,10 +188,7 @@ func WithMaxRouteParamKeyBytes(max int) interface {
 
 // WithMaxRouteMatchers set the maximum number of matchers allowed in a route. The default max is math.MaxUint8.
 // Routes exceeding this limit will fail with an error that Is ErrInvalidRoute and ErrTooManyMatchers.
-func WithMaxRouteMatchers(max int) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithMaxRouteMatchers(max int) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.maxMatchers = max
 		return nil
@@ -224,10 +198,7 @@ func WithMaxRouteMatchers(max int) interface {
 // AllowRegexpParam enables support for regular expressions in route parameters. When enabled, parameters can include
 // regex patterns (e.g., {id:[0-9]+}). When disabled, routes containing regex patterns will fail with and error that
 // Is ErrInvalidRoute and ErrRegexpNotAllowed.
-func AllowRegexpParam(enable bool) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func AllowRegexpParam(enable bool) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.allowRegexp = enable
 		return nil
@@ -243,7 +214,6 @@ func AllowRegexpParam(enable bool) interface {
 // - If applied to a specific route, the middleware will only apply to that route and will be chained after any global middleware.
 func WithMiddleware(m ...MiddlewareFunc) interface {
 	GlobalOption
-	SubRouterOption
 	RouteOption
 } {
 	return optionFunc(func(s sealedOption) error {
@@ -273,10 +243,7 @@ func WithMiddleware(m ...MiddlewareFunc) interface {
 // Possible scopes include [RouteHandler] (regular routes), [NoRouteHandler], [NoMethodHandler], [RedirectSlashHandler],
 // [RedirectPathHandler], [OptionsHandler], and any combination of these. Use this option when you need fine-grained control
 // over where the middleware is applied.
-func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		for i := range m {
 			if m[i] == nil {
@@ -292,10 +259,7 @@ func WithMiddlewareFor(scope HandlerScope, m ...MiddlewareFunc) interface {
 // when the route exist for another http verb. The "Allow" header it automatically set before calling the
 // handler. Note that this option is automatically enabled when providing a custom handler with the
 // option [WithNoMethodHandler].
-func WithNoMethod(enable bool) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithNoMethod(enable bool) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.handleMethodNotAllowed = enable
 		return nil
@@ -307,10 +271,7 @@ func WithNoMethod(enable bool) interface {
 // no route matches. For CORS preflight requests, the router always responds to all request by calling the OPTIONS handler.
 // Note that custom OPTIONS handler take priority over automatic replies. This option is automatically enabled when providing
 // a custom handler with the option [WithOptionsHandler].
-func WithAutoOptions(enable bool) interface {
-	GlobalOption
-	SubRouterOption
-} {
+func WithAutoOptions(enable bool) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.handleOPTIONS = enable
 		return nil
@@ -339,7 +300,6 @@ func WithSystemWideOptions(enable bool) GlobalOption {
 //   - Setting the resolver to nil is equivalent to no resolver configured.
 func WithClientIPResolver(resolver ClientIPResolver) interface {
 	GlobalOption
-	SubRouterOption
 	RouteOption
 } {
 	return optionFunc(func(s sealedOption) error {
@@ -364,10 +324,7 @@ func WithClientIPResolver(resolver ClientIPResolver) interface {
 // the request lifetime, annotations are bound to the route's lifetime and remain static across all requests for that route.
 // The provided key must be comparable and should not be of type string or any other built-in type to avoid collisions between
 // packages that use route annotation. See also [WithAnnotationFunc]
-func WithAnnotation(key, value any) interface {
-	SubRouterOption
-	RouteOption
-} {
+func WithAnnotation(key, value any) RouteOption {
 	return optionFunc(func(s sealedOption) error {
 		if !reflect.TypeOf(key).Comparable() {
 			return fmt.Errorf("%w: annotation key is not comparable", ErrInvalidConfig)
@@ -382,10 +339,7 @@ func WithAnnotation(key, value any) interface {
 
 // WithName assigns a name to a route for identification and lookup purposes.
 // The name must be unique among all other routes registered.
-func WithName(name string) interface {
-	SubRouterOption
-	RouteOption
-} {
+func WithName(name string) RouteOption {
 	return optionFunc(func(s sealedOption) error {
 		if name == "" {
 			return fmt.Errorf("%w: empty route name", ErrInvalidConfig)
@@ -400,10 +354,7 @@ func WithName(name string) interface {
 // Routes with equal priority may be evaluated in any order. Routes without matchers are always evaluated last.
 // If unset or 0, the priority defaults to the number of matchers. Note that routes with specific methods are
 // always evaluated before method-less routes, regardless of priority.
-func WithMatcherPriority(priority uint) interface {
-	SubRouterOption
-	RouteOption
-} {
+func WithMatcherPriority(priority uint) RouteOption {
 	return optionFunc(func(s sealedOption) error {
 		s.route.priority = priority
 		return nil
@@ -414,7 +365,6 @@ func WithMatcherPriority(priority uint) interface {
 // are only routed to the handler if the specified query parameter matches the given value. Multiple
 // matchers can be attached to the same route. All matchers must match for the route to be eligible.
 func WithQueryMatcher(key, value string) interface {
-	SubRouterOption
 	RouteOption
 	MatcherOption
 } {
@@ -434,7 +384,6 @@ func WithQueryMatcher(key, value string) interface {
 // full match of the parameter value. Multiple matchers can be attached to the same route. All matchers
 // must match for the route to be eligible.
 func WithQueryRegexpMatcher(key, expr string) interface {
-	SubRouterOption
 	RouteOption
 	MatcherOption
 } {
@@ -452,7 +401,6 @@ func WithQueryRegexpMatcher(key, expr string) interface {
 // are only routed to the handler if the specified header matches the given value. Multiple matchers
 // can be attached to the same route. All matchers must match for the route to be eligible.
 func WithHeaderMatcher(key, value string) interface {
-	SubRouterOption
 	RouteOption
 	MatcherOption
 } {
@@ -472,7 +420,6 @@ func WithHeaderMatcher(key, value string) interface {
 // a full match of the header value. Multiple matchers can be attached to the same route. All matchers
 // must match for the route to be eligible.
 func WithHeaderRegexpMatcher(key, expr string) interface {
-	SubRouterOption
 	RouteOption
 	MatcherOption
 } {
@@ -492,7 +439,6 @@ func WithHeaderRegexpMatcher(key, expr string) interface {
 // Multiple matchers can be attached to the same route. All matchers must match for the route to be eligible.
 // See WithClientIPResolver to configure a resolver for obtaining the "real" client IP.
 func WithClientIPMatcher(ip string) interface {
-	SubRouterOption
 	RouteOption
 	MatcherOption
 } {
@@ -510,7 +456,6 @@ func WithClientIPMatcher(ip string) interface {
 // on conditions beyond the request host, path and method. Multiple matchers can be attached to the same route.
 // All matchers must match for the route to be eligible.
 func WithMatcher(matchers ...Matcher) interface {
-	SubRouterOption
 	RouteOption
 	MatcherOption
 } {
@@ -551,10 +496,7 @@ func WithPrettyLogs() GlobalOption {
 //   - Enables redirect-based path correction for non-canonical paths ([WithHandleFixedPath] with [RedirectPath])
 //
 // For development, consider combining this with [WithPrettyLogs] to add debugging middleware.
-func DefaultOptions() interface {
-	GlobalOption
-	SubRouterOption
-} {
+func DefaultOptions() GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.handleOPTIONS = true
 		s.router.handleMethodNotAllowed = true

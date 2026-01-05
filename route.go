@@ -21,7 +21,6 @@ type Route struct {
 	tokens      []token
 	matchers    []Matcher
 	hostEnd     int
-	prefixEnd   int
 	priority    uint
 	handleSlash TrailingSlashOption
 	catchEmpty  bool
@@ -52,17 +51,17 @@ func (r *Route) Methods() iter.Seq[string] {
 
 // Pattern returns the registered route pattern.
 func (r *Route) Pattern() string {
-	return r.pattern[r.prefixEnd:]
+	return r.pattern
 }
 
 // Hostname returns the hostname part of the registered pattern if any.
 func (r *Route) Hostname() string {
-	return r.Pattern()[:r.hostEnd]
+	return r.pattern[:r.hostEnd]
 }
 
 // Path returns the path part of the registered pattern.
 func (r *Route) Path() string {
-	return r.Pattern()[r.hostEnd:]
+	return r.pattern[r.hostEnd:]
 }
 
 // Name returns the name of this [Route].

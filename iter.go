@@ -57,7 +57,7 @@ func (it Iter) Routes(pattern string) iter.Seq[*Route] {
 		}
 
 		for _, route := range matched.routes {
-			if route.Pattern() == pattern {
+			if route.pattern == pattern {
 				if !yield(route) {
 					return
 				}
@@ -156,7 +156,7 @@ func (it Iter) PatternPrefix(prefix string) iter.Seq[*Route] {
 
 			if elem.isLeaf() {
 				for _, route := range elem.routes {
-					if len(route.params) > 0 && !strings.HasPrefix(route.Pattern(), prefix) {
+					if len(route.params) > 0 && !strings.HasPrefix(route.pattern, prefix) {
 						continue
 					}
 

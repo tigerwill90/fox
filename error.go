@@ -105,13 +105,7 @@ func routef(sb *strings.Builder, route *Route, pad int) {
 	}
 
 	sb.WriteString(" pattern:")
-	sb.WriteString(route.Pattern())
-
-	if route.prefixEnd > 0 {
-		sb.WriteString(" (at ")
-		sb.WriteString(route.pattern)
-		sb.WriteByte(')')
-	}
+	sb.WriteString(route.pattern)
 
 	if route.name != "" {
 		sb.WriteString(" name:")

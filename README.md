@@ -255,17 +255,15 @@ f.MustAdd(fox.MethodAny, "/resource", FallbackHandler)
 Fox supports mounting a router as a regular route, enabling modular route management and isolated configuration.
 
 ```go
-f := fox.MustRouter(
-	fox.DefaultOptions(),
-)
-f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
-
-api, r := f.MustSubRouter(fox.MethodAny, "/api*{mount}", fox.WithMiddleware(AuthMiddleware()))
+api := fox.MustRouter(fox.WithMiddleware(AuthMiddleware()))
 api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/", HelloHandler)
 api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUser)
 api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users/{id}", GetUser)
 api.MustAdd(fox.MethodPost, "/users", CreateUser)
-f.MustAddRoute(r)
+
+f := fox.MustRouter(fox.DefaultOptions())
+f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
+f.MustAdd(fox.MethodAny, "/api*{mount}", api.SubRouter())
 ```
 
 The subrouter pattern must end with a catch-all parameter (`*{param}` or `+{param}`). Requests matching the prefix are delegated
@@ -655,7 +653,6 @@ you want to serve static files or other routes without CORS handling, while enab
 package main
 
 import (
-	"errors"
 	"log"
 	"net/http"
 
@@ -677,19 +674,14 @@ func main() {
 	f := fox.MustRouter()
 	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
 
-	sub, r := f.MustSubRouter(
-		fox.MethodAny, "/api*{any}",
+	api := fox.MustRouter(
 		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
 		fox.WithMiddlewareFor(fox.RouteHandler|fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 	)
-	sub.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
-	sub.MustAdd(fox.MethodPost, "/users", CreateUser)
+	api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
+	api.MustAdd(fox.MethodPost, "/users", CreateUser)
 
-	f.MustAddRoute(r)
-
-	if err := http.ListenAndServe(":8080", f); !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
-	}
+	f.MustAdd(fox.MethodAny, "/api*{any}", api.SubRouter()) // Method-less route
 }
 ````
 

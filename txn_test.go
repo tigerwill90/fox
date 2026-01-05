@@ -2,6 +2,7 @@ package fox
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -625,4 +626,19 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+func TestX(t *testing.T) {
+	sub := MustRouter()
+	sub.MustAdd(MethodGet, "/", emptyHandler)
+	sub.MustAdd(MethodGet, "/users", func(c *Context) {
+		fmt.Println(c.Pattern())
+	})
+
+	f := MustRouter()
+	f.MustAdd(MethodAny, "/api{any}", sub.SubRouter())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
 }

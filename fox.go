@@ -100,7 +100,6 @@ type Router struct {
 	pathRedirect           HandlerFunc
 	autoOPTIONS            HandlerFunc
 	tree                   atomic.Pointer[iTree]
-	prefix                 string // Sub-router prefix
 	mws                    []middleware
 	maxParams              int
 	maxParamKeyBytes       int
@@ -212,14 +211,6 @@ func (fox *Router) Add(methods []string, pattern string, handler HandlerFunc, op
 	}
 	txn.Commit()
 	return rte, nil
-}
-
-// MustAddRoute registers a new [Route]. On success, the route is added to the router.
-// This function is a convenience wrapper for the [Router.AddRoute] function and panics on error.
-func (fox *Router) MustAddRoute(route *Route) {
-	if err := fox.AddRoute(route); err != nil {
-		panic(err)
-	}
 }
 
 // AddRoute registers a new [Route]. If an error occurs, it returns one of the following:
@@ -334,7 +325,7 @@ func (fox *Router) Route(methods []string, pattern string, matchers ...Matcher) 
 		return nil
 	}
 	idx := slices.IndexFunc(matched.routes, func(r *Route) bool {
-		return r.Pattern() == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
+		return r.pattern == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
 	})
 	if idx < 0 {
 		return nil
@@ -404,16 +395,6 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	return
 }
 
-// MustRoute creates a new [Route], configured with the provided options. On success, it returns the newly created [Route].
-// This function is a convenience wrapper for the [Router.NewRoute] function and panics on error.
-func (fox *Router) MustRoute(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
-	r, err := fox.NewRoute(methods, pattern, handler, opts...)
-	if err != nil {
-		panic(err)
-	}
-	return r
-}
-
 // NewRoute create a new [Route], configured with the provided options.
 // If an error occurs, it returns one of the following:
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
@@ -438,11 +419,10 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 	rte := &Route{
 		clientip:    fox.clientip,
 		hbase:       handler,
-		pattern:     fox.prefix + pattern,
+		pattern:     pattern,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		hostEnd:     parsed.endHost,
-		prefixEnd:   len(fox.prefix),
 		tokens:      parsed.token,
 		owner:       fox,
 		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == starDelim,
@@ -482,109 +462,25 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 	return rte, nil
 }
 
-// MustSubRouter creates a new sub-router for the given methods and pattern. On success, it returns the newly created
-// [Router] (sub-router) along with a [Route] that must be registered in the parent router.
-// This function is a convenience wrapper for the [Router.NewSubRouter] function and panics on error.
-func (fox *Router) MustSubRouter(methods []string, pattern string, opts ...SubRouterOption) (*Router, *Route) {
-	f, r, err := fox.NewSubRouter(methods, pattern, opts...)
-	if err != nil {
-		panic(err)
-	}
-	return f, r
-}
+// len(+{any}) == len(any)+3 == len(*{any})
+const wildcardExtraChar = 3
 
-// NewSubRouter creates a new sub-router for the given methods and pattern. On success, it returns the newly created
-// [Router] (sub-router) along with a [Route] that must be registered in the parent router using [Router.AddRoute].
-// The pattern must end with a catch-all wildcard (*{param} or +{param}).
-// If an error occurs, it returns one of the following:
-//   - [ErrInvalidRoute]: If the provided methods or pattern is invalid, or if the pattern does not end with a catch-all wildcard.
-//   - [ErrInvalidConfig]: If the provided sub-router options are invalid.
-//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
-func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRouterOption) (*Router, *Route, error) {
-	for _, method := range methods {
-		if !validMethod(method) {
-			return nil, nil, fmt.Errorf("%w: invalid method '%s'", ErrInvalidRoute, method)
-		}
-	}
-
-	parsed, err := fox.parseRoute(pattern)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if parsed.startCatchAll <= 0 {
-		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "subrouter pattern must end with a suffix wildcard")
-	}
-
-	router := initRouter()
-
-	router.prefix = fox.prefix + strings.TrimSuffix(pattern[:parsed.startCatchAll], "/")
-
-	rte := &Route{
-		clientip:    fox.clientip,
-		pattern:     fox.prefix + pattern,
-		mws:         fox.mws,
-		handleSlash: fox.handleSlash,
-		hostEnd:     parsed.endHost,
-		prefixEnd:   len(fox.prefix),
-		tokens:      parsed.token,
-		owner:       fox,
-		catchEmpty:  pattern[parsed.startCatchAll] == starDelim,
-	}
-
-	rte.params = make([]string, 0, parsed.paramCnt)
-	for _, tk := range parsed.token {
-		if tk.typ != nodeStatic {
-			rte.params = append(rte.params, tk.value)
-		}
-	}
-
-	for _, opt := range opts {
-		if err = opt.applySubRouter(sealedOption{router: router, route: rte}); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if len(rte.matchers) > fox.maxMatchers {
-		return nil, nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
-	}
-	if len(rte.matchers) == 0 && rte.priority > 0 {
-		return nil, nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matchers")
-	}
-	rte.priority = cmp.Or(rte.priority, uint(len(rte.matchers)))
-
-	if len(methods) > 0 {
-		// As a defensive mesure, keep our own copy of the provided slice.
-		rte.methods = make([]string, len(methods))
-		copy(rte.methods, methods)
-		slices.Sort(rte.methods)
-		rte.methods = slices.Compact(rte.methods)
-	}
-
-	rte.hbase = mountHandler(router)
-
-	// Apply router middleware
-	router.noRoute = applyMiddleware(NoRouteHandler, router.mws, router.noRouteBase)
-	router.noMethod = applyMiddleware(NoMethodHandler, router.mws, router.noMethod)
-	router.tsrRedirect = applyMiddleware(RedirectSlashHandler, router.mws, router.tsrRedirect)
-	router.pathRedirect = applyMiddleware(RedirectPathHandler, router.mws, router.pathRedirect)
-	router.autoOPTIONS = applyMiddleware(OptionsHandler, router.mws, router.autoOPTIONS)
-
-	// Apply route middleware based on the parent router
-	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, rte.hbase)
-
-	router.tree.Store(router.newTree())
-
-	return router, rte, nil
-}
-
-func mountHandler(router *Router) HandlerFunc {
+// SubRouter returns a [HandlerFunc] for mounting this [Router] as a sub-router. Requests matching the parent
+// route prefix are delegated to the sub-router which handles the remaining path. The parent route pattern
+// should end with a catch-all. Parameters captured by the parent route are preserved and accessible alongside
+// any parameters matched by the sub-router. Similarly, [http.Request.Pattern] is the concatenation of the
+// parent and sub-router patterns. See also [Router.Add] for registering the handler.
+func (fox *Router) SubRouter() HandlerFunc {
 	return func(c *Context) {
-		tree := router.getTree()
+		tree := fox.getTree()
 		subCtx := tree.pool.Get().(*Context)
 		subCtx.resetWithWriter(c.Writer(), c.Request())
 		// Any recovery middleware would probably be before the mounted route, so let's defer this one.
 		defer tree.pool.Put(subCtx)
+
+		req := c.Request()
+		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
+		req.Pattern = strings.TrimSuffix(req.Pattern[:len(req.Pattern)-(len(key)+wildcardExtraChar)], "/")
 
 		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
 		// wildcard such as /foo+{args}. In that case we need to we reslice from the original path to include it,
@@ -603,7 +499,7 @@ func mountHandler(router *Router) HandlerFunc {
 		*subCtx.paramsKeys = append((*subCtx.paramsKeys)[:0], (*c.paramsKeys)[:len(*c.paramsKeys)-1]...)
 
 		// Serve the sub router
-		router.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
+		fox.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
 	}
 }
 
@@ -794,7 +690,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.Pattern()
+		r.Pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
 		c.route.hall(c)
 		tree.pool.Put(c)
@@ -806,7 +702,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
-				r.Pattern = c.route.Pattern()
+				r.Pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
 				route.hall(c)
 				tree.pool.Put(c)
@@ -828,7 +724,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*c.params = (*c.params)[:0]
 			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
-				r.Pattern = c.route.Pattern()
+				r.Pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
 				c.route.hall(c)
 				tree.pool.Put(c)
@@ -992,7 +888,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 	if !tsr && n != nil {
 		c.route = n.routes[idx]
 		*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-		r.Pattern = c.route.pattern
+		r.Pattern += c.route.pattern
 		c.route.hall(c)
 		return
 	}
@@ -1003,7 +899,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
 				*c.paramsKeys = append(*c.paramsKeys, route.params...)
-				r.Pattern = c.route.pattern
+				r.Pattern += c.route.pattern
 				route.hall(c)
 				return
 			}
@@ -1023,7 +919,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
 				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-				r.Pattern = c.route.pattern
+				r.Pattern += c.route.pattern
 				c.route.hall(c)
 				return
 			}
@@ -1041,6 +937,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 	*c.params = (*c.params)[:0]
 	c.route = nil
+	r.Pattern = ""
 
 	isOPTIONS := r.Method == http.MethodOptions
 
@@ -1153,15 +1050,10 @@ type parsedRoute struct {
 
 // parseRoute parse and validate the route in a single pass.
 func (fox *Router) parseRoute(url string) (parsedRoute, error) {
-
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {
 		return parsedRoute{}, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
 	}
-	if endHost > 0 && fox.prefix != "" {
-		return parsedRoute{}, fmt.Errorf("%w: hostname not supported in subrouter route", ErrInvalidRoute)
-	}
-
 	if strings.HasPrefix(url, ".") {
 		return parsedRoute{}, fmt.Errorf("%w: illegal leading '.' in hostname label", ErrInvalidRoute)
 	}

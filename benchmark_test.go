@@ -17,7 +17,7 @@ func benchRoute(b *testing.B, router http.Handler, routes []route) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		for _, route := range routes {
 			r.Method = route.method
 			r.RequestURI = route.path
@@ -37,7 +37,7 @@ func benchHostname(b *testing.B, router http.Handler, routes []route) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		for _, route := range routes {
 			r.Method = route.method
 			r.Host = route.path
@@ -270,12 +270,12 @@ func BenchmarkCloneWith(b *testing.B) {
 func BenchmarkSubRouter(b *testing.B) {
 
 	main := MustRouter()
-	sub1, r1 := main.MustSubRouter(MethodAny, "/{v1}/*{any}")
-	sub2, r2 := sub1.MustSubRouter(MethodAny, "/{name}/*{any}")
-	sub2.MustAdd(MethodGet, "/users/email", emptyHandler)
+	sub1 := MustRouter()
+	sub2 := MustRouter()
 
-	require.NoError(b, sub1.AddRoute(r2))
-	require.NoError(b, main.AddRoute(r1))
+	sub2.MustAdd(MethodGet, "/users/email", emptyHandler)
+	sub1.MustAdd(MethodAny, "/{name}/*{any}", sub2.SubRouter())
+	main.MustAdd(MethodAny, "/{v1}/*{any}", sub1.SubRouter())
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/john/users/email", nil)
 	w := new(mockResponseWriter)
@@ -289,12 +289,11 @@ func BenchmarkSubRouter(b *testing.B) {
 
 func BenchmarkStaticAllSubRouter(b *testing.B) {
 	f := MustRouter()
-	sub, r, err := f.NewSubRouter(MethodAny, "/*{any}")
-	require.NoError(b, err)
+	sub := MustRouter()
 	for _, route := range staticRoutes {
 		require.NoError(b, onlyError(sub.Add([]string{route.method}, route.path, emptyHandler)))
 	}
-	require.NoError(b, f.AddRoute(r))
+	f.MustAdd(MethodAny, "example.com/*{any}", sub.SubRouter())
 
 	benchRoute(b, f, staticRoutes)
 }

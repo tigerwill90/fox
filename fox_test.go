@@ -862,13 +862,13 @@ func TestStaticRoute(t *testing.T) {
 
 func TestStaticRouteSubRouter(t *testing.T) {
 	f := MustRouter()
-	sub, r := f.MustSubRouter(MethodAny, "/*{args}")
+	sub := MustRouter()
 
 	for _, route := range staticRoutes {
 		require.NoError(t, onlyError(sub.Add([]string{route.method}, route.path, pathHandler)))
 	}
 
-	require.NoError(t, f.AddRoute(r))
+	require.NoError(t, onlyError(f.Add(MethodAny, "/*{args}", sub.SubRouter())))
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
@@ -885,13 +885,13 @@ func TestStaticRouteSubRouter(t *testing.T) {
 
 func TestStaticRouteSubRouterWithAny(t *testing.T) {
 	f := MustRouter()
-	sub, r := f.MustSubRouter(MethodAny, "/*{args}")
+	sub := MustRouter()
 
 	for _, route := range staticRoutes {
 		require.NoError(t, onlyError(sub.Add(MethodAny, route.path, pathHandler)))
 	}
 
-	require.NoError(t, f.AddRoute(r))
+	require.NoError(t, onlyError(f.Add(MethodAny, "/*{args}", sub.SubRouter())))
 
 	for _, route := range staticRoutes {
 		req := httptest.NewRequest(route.method, route.path, nil)
@@ -944,9 +944,9 @@ func TestStaticHostnameRouteSubRouter(t *testing.T) {
 	f := MustRouter()
 
 	for _, route := range staticHostnames {
-		sub, r := f.MustSubRouter(MethodAny, route.path+"/*{args}")
+		sub := MustRouter()
 		require.NoError(t, onlyError(sub.Add([]string{route.method}, "/foo", patternHandler)))
-		require.NoError(t, f.AddRoute(r))
+		require.NoError(t, onlyError(f.Add(MethodAny, route.path+"/*{args}", sub.SubRouter())))
 	}
 
 	t.Run("same case", func(t *testing.T) {
@@ -1344,13 +1344,6 @@ func TestHandleRoute(t *testing.T) {
 		assert.Nil(t, rte)
 	})
 
-	t.Run("sub router with invalid method", func(t *testing.T) {
-		sub, r, err := f.NewSubRouter([]string{""}, "/bar")
-		assert.ErrorIs(t, err, ErrInvalidRoute)
-		assert.Nil(t, r)
-		assert.Nil(t, sub)
-	})
-
 	t.Run("handle and update route with nil route", func(t *testing.T) {
 		assert.ErrorIs(t, f.AddRoute(nil), ErrInvalidRoute)
 		assert.ErrorIs(t, f.UpdateRoute(nil), ErrInvalidRoute)
@@ -1360,33 +1353,11 @@ func TestHandleRoute(t *testing.T) {
 func TestHandleSubRouter(t *testing.T) {
 	f := MustRouter()
 
-	t.Run("panic when mounting itself", func(t *testing.T) {
-		assert.Panics(t, func() {
-			sub, r, err := f.NewSubRouter(MethodGet, "/foo/*{any}")
-			require.NoError(t, err)
-			_ = sub.AddRoute(r)
-		})
-	})
-
-	t.Run("not a catch all", func(t *testing.T) {
-		_, _, err := f.NewSubRouter(MethodGet, "/foo")
-		assert.ErrorIs(t, err, ErrInvalidRoute)
-
-		_, _, err = f.NewSubRouter(MethodGet, "/foo/")
-		assert.ErrorIs(t, err, ErrInvalidRoute)
-
-		_, _, err = f.NewSubRouter(MethodGet, "/foo{ps}")
-		assert.ErrorIs(t, err, ErrInvalidRoute)
-
-		_, _, err = f.NewSubRouter(MethodGet, "/foo/{ps}")
-		assert.ErrorIs(t, err, ErrInvalidRoute)
-	})
-
 	t.Run("route with slash", func(t *testing.T) {
-		sub, r := f.MustSubRouter(MethodGet, "/v1/api/*{sub}")
+		sub := MustRouter()
 		sub.MustAdd(MethodGet, "/", patternHandler)
 		sub.MustAdd(MethodGet, "/users", patternHandler)
-		assert.NoError(t, f.AddRoute(r))
+		assert.NoError(t, onlyError(f.Add(MethodGet, "/v1/api/*{sub}", sub.SubRouter())))
 
 		req := httptest.NewRequest(http.MethodGet, "/v1/api", nil)
 		w := httptest.NewRecorder()
@@ -1405,10 +1376,10 @@ func TestHandleSubRouter(t *testing.T) {
 	})
 
 	t.Run("route with and without slash when inflight", func(t *testing.T) {
-		sub, r := f.MustSubRouter(MethodGet, "/v2/api*{sub}")
+		sub := MustRouter()
 		sub.MustAdd(MethodGet, "/", patternHandler)
 		sub.MustAdd(MethodGet, "/users", patternHandler)
-		assert.NoError(t, f.AddRoute(r))
+		assert.NoError(t, onlyError(f.Add(MethodGet, "/v2/api*{sub}", sub.SubRouter())))
 
 		req := httptest.NewRequest(http.MethodGet, "/v2/api", nil)
 		w := httptest.NewRecorder()
@@ -3789,11 +3760,11 @@ func TestRedirectTrailingSlash(t *testing.T) {
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
 
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithHandleTrailingSlash(RedirectSlash))
+				sub := MustRouter(WithHandleTrailingSlash(RedirectSlash))
 				for _, path := range tc.paths {
 					require.NoError(t, onlyError(sub.Add([]string{tc.method}, path, emptyHandler)))
 				}
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
 				req.Host = "example.com"
@@ -3935,9 +3906,9 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+				sub := MustRouter(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 				require.NoError(t, onlyError(sub.Add([]string{tc.method}, tc.path, emptyHandler)))
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
 				req.Host = "example.com"
@@ -3951,9 +3922,9 @@ func TestHandleRedirectFixedPath(t *testing.T) {
 
 			t.Run("with sub router and any", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
+				sub := MustRouter(WithHandleFixedPath(RedirectPath), WithHandleTrailingSlash(tc.slashMode))
 				require.NoError(t, onlyError(sub.Add(MethodAny, tc.path, emptyHandler)))
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
 				req.Host = "example.com"
@@ -4057,11 +4028,11 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+				sub := MustRouter(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
 				require.NoError(t, onlyError(sub.Add(MethodGet, tc.path, func(c *Context) {
 					c.Writer().WriteHeader(tc.wantCode)
 				})))
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
 				req.Host = "example.com"
@@ -4072,11 +4043,11 @@ func TestHandleRelaxedFixedPath(t *testing.T) {
 
 			t.Run("with sub router and any", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
+				sub := MustRouter(WithHandleFixedPath(RelaxedPath), WithHandleTrailingSlash(tc.slashMode))
 				require.NoError(t, onlyError(sub.Add(MethodAny, tc.path, func(c *Context) {
 					c.Writer().WriteHeader(tc.wantCode)
 				})))
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(http.MethodGet, tc.req, nil)
 				req.Host = "example.com"
@@ -4333,7 +4304,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithHandleTrailingSlash(RelaxedSlash))
+				sub := MustRouter(WithHandleTrailingSlash(RelaxedSlash))
 				for _, rte := range tc.routes {
 					require.NoError(t, onlyError(sub.Add(MethodGet, rte, func(c *Context) {
 						assert.Equal(t, "example.com"+tc.wantPath, c.Pattern())
@@ -4341,7 +4312,7 @@ func TestRouterWithTsrParams(t *testing.T) {
 						assert.Equal(t, tc.wantParams, params)
 					})))
 				}
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
 				req.Host = "example.com"

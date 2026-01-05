@@ -160,10 +160,9 @@ func (txn *Txn) Delete(methods []string, pattern string, opts ...MatcherOption) 
 	}
 
 	rte := &Route{
-		pattern:   txn.fox.prefix + pattern,
-		hostEnd:   parsed.endHost,
-		prefixEnd: len(txn.fox.prefix),
-		tokens:    parsed.token,
+		pattern: pattern,
+		hostEnd: parsed.endHost,
+		tokens:  parsed.token,
 	}
 
 	for _, opt := range opts {
@@ -261,7 +260,7 @@ func (txn *Txn) Route(methods []string, pattern string, matchers ...Matcher) *Ro
 		return nil
 	}
 	idx := slices.IndexFunc(matched.routes, func(r *Route) bool {
-		return r.Pattern() == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
+		return r.pattern == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
 	})
 	if idx < 0 {
 		return nil

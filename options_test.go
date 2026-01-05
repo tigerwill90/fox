@@ -267,7 +267,8 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
+				sub := MustRouter(WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
+
 				for _, method := range tc.methods {
 					require.NoError(t, onlyError(sub.Add([]string{method}, tc.path, func(c *Context) {
 						req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
@@ -276,7 +277,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 						c.Writer().WriteHeader(http.StatusNoContent)
 					})))
 				}
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 				req.Host = "example.com"
@@ -436,11 +437,13 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 
 			t.Run("with sub router", func(t *testing.T) {
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithNoMethod(true))
+				sub := MustRouter(WithNoMethod(true))
 				for _, route := range tc.routes {
 					sub.MustAdd(route.methods, route.pattern, emptyHandler)
 				}
-				require.NoError(t, f.AddRoute(r))
+
+				r, err := f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())
+				require.NoError(t, err)
 
 				defer func() {
 					require.NoError(t, onlyError(f.DeleteRoute(r)))
@@ -693,11 +696,11 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithAutoOptions(true), WithNoMethod(true))
+				sub := MustRouter(WithAutoOptions(true), WithNoMethod(true))
 				for _, method := range tc.methods {
 					require.NoError(t, onlyError(sub.Add([]string{method}, tc.path, emptyHandler)))
 				}
-				require.NoError(t, f.AddRoute(r))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.SubRouter())))
 
 				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 				req.Host = "example.com"
