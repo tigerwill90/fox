@@ -31,9 +31,12 @@ func (r *Route) Handle(c *Context) {
 }
 
 // HandleMiddleware calls the handler with route-specific middleware applied, using the provided [Context].
+// This method is not intended to be used as the handler for another route, as the middleware chain would
+// be duplicated when registered. To reuse a route's handler, use [Route.Handle] directly or register
+// a new route via [Router.AddRoute] or [Router.UpdateRoute].
 func (r *Route) HandleMiddleware(c *Context, _ ...struct{}) {
-	// The variadic parameter is intentionally added to prevent this method from having the same signature as HandlerFunc.
-	// This avoids accidental use of HandleMiddleware where a HandlerFunc is required.
+	// The variadic parameter is intentionally added to prevent this method from having the same signature
+	// as HandlerFunc, avoiding accidental misuse where a HandlerFunc is required.
 	r.hself(c)
 }
 
