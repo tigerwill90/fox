@@ -24,7 +24,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "static hostname with complex overlapping route with static priority",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
-				"exemple.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.com/foo/+{any}/baz/{$1}/jo",
 				"exemple.com/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "exemple.com",
@@ -41,11 +41,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "infix hostname wildcard with consecutive capturing single dot",
 			routes: []string{
-				"a.*{any}.com/bar",
+				"a.+{any}.com/bar",
 			},
 			host:     "a...com",
 			path:     "/bar",
-			wantPath: "a.*{any}.com/bar",
+			wantPath: "a.+{any}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -57,11 +57,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "sufix hostname wildcard with hostname ending with single dot",
 			routes: []string{
-				"*{any}/bar",
+				"+{any}/bar",
 			},
 			host:     "a.com.",
 			path:     "/bar",
-			wantPath: "*{any}/bar",
+			wantPath: "+{any}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -74,7 +74,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "static hostname with complex overlapping route with static priority and regexp",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1:[0-9]}/jo",
-				"exemple.com/foo/*{any:.*}/baz/{$1:.*}/jo",
+				"exemple.com/foo/+{any:.*}/baz/{$1:.*}/jo",
 				"exemple.com/foo/{ps:.*}/baz/{$1:.*}/jo",
 			},
 			host:     "exemple.com",
@@ -92,7 +92,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "static hostname with complex overlapping route with param priority",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
-				"exemple.com/foo/*{any}/baz/{$1}/jo",
+				"exemple.com/foo/+{any}/baz/{$1}/jo",
 				"exemple.com/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "exemple.com",
@@ -114,7 +114,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "static hostname with complex overlapping route with param priority and regexp",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1:[0-9]}/jo",
-				"exemple.com/foo/*{any:.*}/baz/{$1:.*}/jo",
+				"exemple.com/foo/+{any:.*}/baz/{$1:.*}/jo",
 				"exemple.com/foo/{ps:.*}/baz/{$1:.*}/jo",
 			},
 			host:     "exemple.com",
@@ -136,7 +136,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "wildcard hostname with complex overlapping route with static priority",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
-				"{any}.com/foo/*{any}/baz/{$1}/jo",
+				"{any}.com/foo/+{any}/baz/{$1}/jo",
 				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "exemple.com",
@@ -154,7 +154,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "wildcard hostname with complex overlapping route with static priority an regexp",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
-				"{any:.*}.com/foo/*{any}/baz/{$1}/jo",
+				"{any:.*}.com/foo/+{any}/baz/{$1}/jo",
 				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "exemple.com",
@@ -172,7 +172,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "wildcard hostname with complex overlapping route with static priority (case-insensitive)",
 			routes: []string{
 				"exemple.com/foo/bar/baz/{$1}/jo",
-				"{any}.com/foo/*{any}/baz/{$1}/jo",
+				"{any}.com/foo/+{any}/baz/{$1}/jo",
 				"exemple.{tld}/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "EXEMPLE.COM",
@@ -190,7 +190,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "wildcard hostname with complex overlapping route with param priority",
 			routes: []string{
 				"{sub}.com/foo/bar/baz/{$1}/jo",
-				"exemple.{tld}/foo/*{any}/baz/{$1}/jo",
+				"exemple.{tld}/foo/+{any}/baz/{$1}/jo",
 				"exemple.com/foo/{ps}/baz/{$1}/jo",
 			},
 			host:     "exemple.com",
@@ -768,11 +768,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "simple hostname suffix wildcard",
 			routes: []string{
-				"*{any}/bar",
+				"+{any}/bar",
 			},
 			host:     "foo.com",
 			path:     "/bar",
-			wantPath: "*{any}/bar",
+			wantPath: "+{any}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -784,11 +784,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "simple hostname suffix wildcard with regexp",
 			routes: []string{
-				"*{any:[A-Z.]+}/bar",
+				"+{any:[A-Z.]+}/bar",
 			},
 			host:     "FOO.COM",
 			path:     "/bar",
-			wantPath: "*{any:[A-Z.]+}/bar",
+			wantPath: "+{any:[A-Z.]+}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -800,11 +800,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "simple prefix wildcard",
 			routes: []string{
-				"*{any}.com/bar",
+				"+{any}.com/bar",
 			},
 			host:     "a.b.com",
 			path:     "/bar",
-			wantPath: "*{any}.com/bar",
+			wantPath: "+{any}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -817,7 +817,7 @@ func TestDomainLookup(t *testing.T) {
 			name: "simple prefix wildcard overlap static",
 			routes: []string{
 				"a.b.com/bar",
-				"*{any}.com/bar",
+				"+{any}.com/bar",
 			},
 			host:       "a.b.com",
 			path:       "/bar",
@@ -829,11 +829,11 @@ func TestDomainLookup(t *testing.T) {
 			name: "simple prefix wildcard overlap static with fallback",
 			routes: []string{
 				"a.b.com/barr",
-				"*{any}.com/bar",
+				"+{any}.com/bar",
 			},
 			host:     "a.b.com",
 			path:     "/bar",
-			wantPath: "*{any}.com/bar",
+			wantPath: "+{any}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -845,11 +845,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "simple prefix wildcard with regexp",
 			routes: []string{
-				"*{any:[A-Z.]+}.com/bar",
+				"+{any:[A-Z.]+}.com/bar",
 			},
 			host:     "A.B.com",
 			path:     "/bar",
-			wantPath: "*{any:[A-Z.]+}.com/bar",
+			wantPath: "+{any:[A-Z.]+}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -861,11 +861,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "simple infix wildcard",
 			routes: []string{
-				"example.*{any}.com/bar",
+				"example.+{any}.com/bar",
 			},
 			host:     "example.foo.bar.com",
 			path:     "/bar",
-			wantPath: "example.*{any}.com/bar",
+			wantPath: "example.+{any}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -877,11 +877,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "simple infix wildcard with regexp",
 			routes: []string{
-				"example.*{any:[A-Z.]+}.com/bar",
+				"example.+{any:[A-Z.]+}.com/bar",
 			},
 			host:     "example.FOO.BAR.com",
 			path:     "/bar",
-			wantPath: "example.*{any:[A-Z.]+}.com/bar",
+			wantPath: "example.+{any:[A-Z.]+}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -893,11 +893,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "prefix wildcard with params",
 			routes: []string{
-				"*{any}.{tld}/bar",
+				"+{any}.{tld}/bar",
 			},
 			host:     "a.b.com",
 			path:     "/bar",
-			wantPath: "*{any}.{tld}/bar",
+			wantPath: "+{any}.{tld}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -913,11 +913,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "infix wildcard with params",
 			routes: []string{
-				"{first}.*{any}.{tld}/bar",
+				"{first}.+{any}.{tld}/bar",
 			},
 			host:     "foo.s1.s2.s3.com",
 			path:     "/bar",
-			wantPath: "{first}.*{any}.{tld}/bar",
+			wantPath: "{first}.+{any}.{tld}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -937,11 +937,11 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "suffix wildcard with params",
 			routes: []string{
-				"{first}.{second}.*{any}/bar",
+				"{first}.{second}.+{any}/bar",
 			},
 			host:     "first.second.third.com",
 			path:     "/bar",
-			wantPath: "{first}.{second}.*{any}/bar",
+			wantPath: "{first}.{second}.+{any}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -961,7 +961,7 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "priority to params",
 			routes: []string{
-				"*{any}.b.com/bar",
+				"+{any}.b.com/bar",
 				"{ps}.b.com/bar",
 			},
 			host:     "a.b.com",
@@ -978,12 +978,12 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "fallback to catch-all with leading dot",
 			routes: []string{
-				"*{any}/bar",
+				"+{any}/bar",
 				"{ps}/bar",
 			},
 			host:     ".com",
 			path:     "/bar",
-			wantPath: "*{any}/bar",
+			wantPath: "+{any}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -995,12 +995,12 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "eval param with wildcard fallback",
 			routes: []string{
-				"*{any}.b.com/bar",
+				"+{any}.b.com/bar",
 				"{ps}.b.com/bar",
 			},
 			host:     "foo.b.b.com",
 			path:     "/bar",
-			wantPath: "*{any}.b.com/bar",
+			wantPath: "+{any}.b.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1012,12 +1012,12 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "priority to infix wildcard",
 			routes: []string{
-				"a.*{any}.com/bar",
-				"a.*{any}/bar",
+				"a.+{any}.com/bar",
+				"a.+{any}/bar",
 			},
 			host:     "a.bar.baz.com",
 			path:     "/bar",
-			wantPath: "a.*{any}.com/bar",
+			wantPath: "a.+{any}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1029,12 +1029,12 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "eval infix with suffix fallback",
 			routes: []string{
-				"a.*{any}.com/bar",
-				"a.*{any}/bar",
+				"a.+{any}.com/bar",
+				"a.+{any}/bar",
 			},
 			host:     "a.bar.baz.ch",
 			path:     "/bar",
-			wantPath: "a.*{any}/bar",
+			wantPath: "a.+{any}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1046,13 +1046,13 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "priority to regexp wildcard",
 			routes: []string{
-				"a.*{3}.com/bar",
-				"a.*{1:[A-z.]+}.com/bar",
-				"a.*{2:[0-9.]+}.com/bar",
+				"a.+{3}.com/bar",
+				"a.+{1:[A-z.]+}.com/bar",
+				"a.+{2:[0-9.]+}.com/bar",
 			},
 			host:     "a.b.c.com",
 			path:     "/bar",
-			wantPath: "a.*{1:[A-z.]+}.com/bar",
+			wantPath: "a.+{1:[A-z.]+}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1064,13 +1064,13 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "priority to next regexp wildcard",
 			routes: []string{
-				"a.*{3}.com/bar",
-				"a.*{1:[A-z.]+}.com/bar",
-				"a.*{2:[0-9.]+}.com/bar",
+				"a.+{3}.com/bar",
+				"a.+{1:[A-z.]+}.com/bar",
+				"a.+{2:[0-9.]+}.com/bar",
 			},
 			host:     "a.1.2.com",
 			path:     "/bar",
-			wantPath: "a.*{2:[0-9.]+}.com/bar",
+			wantPath: "a.+{2:[0-9.]+}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1082,13 +1082,13 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "fallback to non-regexp infix wildcard",
 			routes: []string{
-				"a.*{3}.com/bar",
-				"a.*{1:[A-z.]+}.com/bar",
-				"a.*{2:[0-9.]+}.com/bar",
+				"a.+{3}.com/bar",
+				"a.+{1:[A-z.]+}.com/bar",
+				"a.+{2:[0-9.]+}.com/bar",
 			},
 			host:     "a.b.2.com",
 			path:     "/bar",
-			wantPath: "a.*{3}.com/bar",
+			wantPath: "a.+{3}.com/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1100,14 +1100,14 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "fallback to tsr with hostname priority and prefix wildcard",
 			routes: []string{
-				"*{a}.{b}.{c}/{d}",
-				"*{a}.{b}.c/{d}",
-				"*{a}.b.c/{path}/bar/",
+				"+{a}.{b}.{c}/{d}",
+				"+{a}.{b}.c/{d}",
+				"+{a}.b.c/{path}/bar/",
 				"/{a}/barr",
 			},
 			host:     "foo.b.c",
 			path:     "/john/bar",
-			wantPath: "*{a}.b.c/{path}/bar/",
+			wantPath: "+{a}.b.c/{path}/bar/",
 			wantTsr:  true,
 			wantParams: Params{
 				{
@@ -1123,9 +1123,9 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "fallback to path priority with prefix wildcard",
 			routes: []string{
-				"*{a}.{b}.{c}/{d}",
-				"*{a}.{b}.c/{d}",
-				"*{a}.b.c/{path}/bar/x",
+				"+{a}.{b}.{c}/{d}",
+				"+{a}.{b}.c/{d}",
+				"+{a}.b.c/{path}/bar/x",
 				"/{path}/bar",
 			},
 			host:     "foo.b.c",
@@ -1142,14 +1142,14 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "fallback to must specific hostname with path param, wildcard and regexp",
 			routes: []string{
-				"{a:.*}.{b:.*}.*{c:nomatch}/john/bar",
-				"*{a:nomatch}.{b}.c/{d}",
-				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"{a:.*}.{b:.*}.+{c:nomatch}/john/bar",
+				"+{a:nomatch}.{b}.c/{d}",
+				"+{a:[A-z]+}.b.c/{path}/bar/",
 				"/{a:^$}/bar",
 			},
 			host:     "foo.b.c",
 			path:     "/john/bar",
-			wantPath: "*{a:[A-z]+}.b.c/{path}/bar/",
+			wantPath: "+{a:[A-z]+}.b.c/{path}/bar/",
 			wantTsr:  true,
 			wantParams: Params{
 				{
@@ -1165,14 +1165,14 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "fallback to must specific hostname with wildcard and regexp priority",
 			routes: []string{
-				"{a:.*}.{b:.*}.*{c:nomatch}/john/bar",
-				"*{a:foo}.{b}.c/{d}/bar",
-				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"{a:.*}.{b:.*}.+{c:nomatch}/john/bar",
+				"+{a:foo}.{b}.c/{d}/bar",
+				"+{a:[A-z]+}.b.c/{path}/bar/",
 				"/{a:^$}/bar",
 			},
 			host:     "foo.b.c",
 			path:     "/john/bar",
-			wantPath: "*{a:foo}.{b}.c/{d}/bar",
+			wantPath: "+{a:foo}.{b}.c/{d}/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1192,14 +1192,14 @@ func TestDomainLookup(t *testing.T) {
 		{
 			name: "direct to must specific with wildcard and regexp",
 			routes: []string{
-				"{a:.*}.{b:.*}.*{c:.*}/john/bar",
-				"*{a:foo}.{b}.c/{d}/bar",
-				"*{a:[A-z]+}.b.c/{path}/bar/",
+				"{a:.*}.{b:.*}.+{c:.*}/john/bar",
+				"+{a:foo}.{b}.c/{d}/bar",
+				"+{a:[A-z]+}.b.c/{path}/bar/",
 				"/{a:^$}/bar",
 			},
 			host:     "foo.b.c.com",
 			path:     "/john/bar",
-			wantPath: "{a:.*}.{b:.*}.*{c:.*}/john/bar",
+			wantPath: "{a:.*}.{b:.*}.+{c:.*}/john/bar",
 			wantTsr:  false,
 			wantParams: Params{
 				{
@@ -1278,11 +1278,11 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "tsr on catch-all+matcher route after failing all query match",
 			routes: []route{
-				{pattern: "/foo/*{any}/", matchers: []Matcher{QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/+{any}/", matchers: []Matcher{QueryMatcher{"c", "d"}}},
 				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
 			},
 			path:        "/foo/bar?c=d",
-			wantPattern: "/foo/*{any}/",
+			wantPattern: "/foo/+{any}/",
 			wantTsr:     true,
 			wantParams: []Param{
 				{
@@ -1294,11 +1294,11 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "fallback on catch-all+matcher route after failing all query match",
 			routes: []route{
-				{pattern: "/foo/*{any}", matchers: []Matcher{QueryMatcher{"c", "d"}}},
+				{pattern: "/foo/+{any}", matchers: []Matcher{QueryMatcher{"c", "d"}}},
 				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
 			},
 			path:        "/foo/bar?c=d",
-			wantPattern: "/foo/*{any}",
+			wantPattern: "/foo/+{any}",
 			wantParams: []Param{
 				{
 					Key:   "any",
@@ -1327,10 +1327,10 @@ func TestMatchersLookup(t *testing.T) {
 				{pattern: "/foo/{name}/baz", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
 				{pattern: "/foo/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"c", "d"}}},
 				{pattern: "/foo/{id}/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"e", "f"}}},
-				{pattern: "/foo/*{any}", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "/foo/+{any}", matchers: []Matcher{QueryMatcher{"a", "b"}}},
 			},
 			path:        "/foo/bar/baz?a=b",
-			wantPattern: "/foo/*{any}",
+			wantPattern: "/foo/+{any}",
 			wantParams: []Param{
 				{
 					Key:   "any",
@@ -1418,14 +1418,14 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "fallback to must specific hostname with wildcard, regexp priority and matchers",
 			routes: []route{
-				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
-				{pattern: "*{a:[A-z]+}.b.c/{path}/bar/", matchers: []Matcher{QueryMatcher{"d", "e"}}},
-				{pattern: "*{a:foo}.{b}.c/{d}/bar"},
+				{pattern: "{a:.*}.{b:.*}.+{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "+{a:[A-z]+}.b.c/{path}/bar/", matchers: []Matcher{QueryMatcher{"d", "e"}}},
+				{pattern: "+{a:foo}.{b}.c/{d}/bar"},
 				{pattern: "/{a:^$}/bar"},
 			},
 			host:        "foo.b.c",
 			path:        "/john/bar?b=c",
-			wantPattern: "*{a:foo}.{b}.c/{d}/bar",
+			wantPattern: "+{a:foo}.{b}.c/{d}/bar",
 			wantTsr:     false,
 			wantParams: Params{
 				{
@@ -1445,14 +1445,14 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "match must specific hostname with wildcard, regexp priority and matchers",
 			routes: []route{
-				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
-				{pattern: "*{a:foo}.{b}.c/{d}/bar/baz"},
-				{pattern: "*{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"b", "c"}}},
+				{pattern: "{a:.*}.{b:.*}.+{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "+{a:foo}.{b}.c/{d}/bar/baz"},
+				{pattern: "+{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"b", "c"}}},
 				{pattern: "/{a:^$}/bar"},
 			},
 			host:        "foo.b.c",
 			path:        "/john/bar?b=c",
-			wantPattern: "*{a:[A-z]+}.b.c/{path}/bar",
+			wantPattern: "+{a:[A-z]+}.b.c/{path}/bar",
 			wantTsr:     false,
 			wantParams: Params{
 				{
@@ -1468,9 +1468,9 @@ func TestMatchersLookup(t *testing.T) {
 		{
 			name: "fallback must specific path with wildcard, regexp priority and matchers",
 			routes: []route{
-				{pattern: "{a:.*}.{b:.*}.*{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
-				{pattern: "*{a:foo}.{b}.c/{d}/bar/", matchers: []Matcher{QueryMatcher{"d", "f"}}},
-				{pattern: "*{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"e", "f"}}},
+				{pattern: "{a:.*}.{b:.*}.+{c:.*}/john/bar", matchers: []Matcher{QueryMatcher{"a", "b"}}},
+				{pattern: "+{a:foo}.{b}.c/{d}/bar/", matchers: []Matcher{QueryMatcher{"d", "f"}}},
+				{pattern: "+{a:[A-z]+}.b.c/{path}/bar", matchers: []Matcher{QueryMatcher{"e", "f"}}},
 				{pattern: "/{a:.*}/bar"},
 			},
 			host:        "foo.b.c",

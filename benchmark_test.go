@@ -151,7 +151,7 @@ func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 
 func BenchmarkInfixCatchAll(b *testing.B) {
 	f, _ := NewRouter()
-	f.MustAdd(MethodGet, "/*{a}/b/*{c}/d/*{e}/f/*{g}/j", emptyHandler)
+	f.MustAdd(MethodGet, "/+{a}/b/+{c}/d/+{e}/f/+{g}/j", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/x/y/z/b/x/y/z/d/x/y/z/f/x/y/z/j", nil)
 	w := new(mockResponseWriter)
@@ -224,7 +224,7 @@ func BenchmarkStaticParallel(b *testing.B) {
 
 func BenchmarkCatchAll(b *testing.B) {
 	r, _ := NewRouter()
-	require.NoError(b, onlyError(r.Add(MethodGet, "/something/*{args}", emptyHandler)))
+	require.NoError(b, onlyError(r.Add(MethodGet, "/something/+{args}", emptyHandler)))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest(http.MethodGet, "/something/awesome", nil)
 
@@ -238,7 +238,7 @@ func BenchmarkCatchAll(b *testing.B) {
 
 func BenchmarkCatchAllParallel(b *testing.B) {
 	r, _ := NewRouter()
-	require.NoError(b, onlyError(r.Add(MethodGet, "/something/*{args}", emptyHandler)))
+	require.NoError(b, onlyError(r.Add(MethodGet, "/something/+{args}", emptyHandler)))
 	w := new(mockResponseWriter)
 	req := httptest.NewRequest("GET", "/something/awesome", nil)
 
@@ -270,8 +270,8 @@ func BenchmarkCloneWith(b *testing.B) {
 func BenchmarkSubRouter(b *testing.B) {
 
 	main := MustRouter()
-	sub1, r1 := main.MustSubRouter(MethodAny, "/{v1}/+{any}")
-	sub2, r2 := sub1.MustSubRouter(MethodAny, "/{name}/+{any}")
+	sub1, r1 := main.MustSubRouter(MethodAny, "/{v1}/*{any}")
+	sub2, r2 := sub1.MustSubRouter(MethodAny, "/{name}/*{any}")
 	sub2.MustAdd(MethodGet, "/users/email", emptyHandler)
 
 	require.NoError(b, sub1.AddRoute(r2))
@@ -289,7 +289,7 @@ func BenchmarkSubRouter(b *testing.B) {
 
 func BenchmarkStaticAllSubRouter(b *testing.B) {
 	f := MustRouter()
-	sub, r, err := f.NewSubRouter(MethodAny, "/+{any}")
+	sub, r, err := f.NewSubRouter(MethodAny, "/*{any}")
 	require.NoError(b, err)
 	for _, route := range staticRoutes {
 		require.NoError(b, onlyError(sub.Add([]string{route.method}, route.path, emptyHandler)))

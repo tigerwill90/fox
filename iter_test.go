@@ -15,7 +15,7 @@ import (
 	"github.com/tigerwill90/fox/internal/iterutil"
 )
 
-var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/john/doe/*{args}", "/john/doe"}
+var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/john/doe/+{args}", "/john/doe"}
 
 func TestIter_Routes(t *testing.T) {
 	f, _ := NewRouter()
@@ -158,7 +158,7 @@ func TestIter_RouteBreak(t *testing.T) {
 
 	it := f.Iter()
 	iteration := 0
-	for range it.Routes("/john/doe/*{args}") {
+	for range it.Routes("/john/doe/+{args}") {
 		iteration++
 		break
 	}
@@ -219,7 +219,7 @@ func TestIter_NamesPrefix(t *testing.T) {
 		require.NoError(t, onlyError(f.Add(MethodHead, rte, emptyHandler, WithName(http.MethodHead+":"+rte))))
 	}
 
-	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/fox/router", "/john/doe", "/john/doe/*{args}"}
+	want := []string{"/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/fox/router", "/john/doe", "/john/doe/+{args}"}
 
 	it := f.Iter()
 	result := slices.Collect(iterutil.Map(it.NamePrefix("GET"), func(a *Route) string {

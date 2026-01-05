@@ -293,15 +293,15 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 			}
 
 			// Catch-all with empty capture conflict detection.
-			// Routes like /foo/ and /foo/+{any} conflict because a request to /foo/ always matches the exact route,
-			// making /foo/+{any} unreachable. The correct semantic is to use /foo/*{any} which doesn't capture empty segments.
+			// Routes like /foo/ and /foo/*{any} conflict because a request to /foo/ always matches the exact route,
+			// making /foo/*{any} unreachable. The correct semantic is to use /foo/+{any} which doesn't capture empty segments.
 			//
 			// We handle both insertion orders:
-			//   1. /foo/ then /foo/+{any}: check parent for existing exact match
-			//   2. /foo/+{any} then /foo/: check child wildcards with catchEmpty flag
+			//   1. /foo/ then /foo/*{any}: check parent for existing exact match
+			//   2. /foo/*{any} then /foo/: check child wildcards with catchEmpty flag
 			//
-			// Conflicts are method-aware: GET /foo/ and POST /foo/+{any} don't conflict since they route to different method sets.
-			// Conflicts are matcher-aware: /foo/?x=y and /foo/+{any}?a=b don't conflict because the exact path's matcher
+			// Conflicts are method-aware: GET /foo/ and POST /foo/*{any} don't conflict since they route to different method sets.
+			// Conflicts are matcher-aware: /foo/?x=y and /foo/*{any}?a=b don't conflict because the exact path's matcher
 			// creates a gap, such as request with ?a=b (but not ?x=y) fail the exact match and fall through to the catch-empty.
 			// Since pattern matching precedes matcher evaluation, a conflict occurs when the exact path has no matchers (shadows all requests
 			// to that pattern) or matchers equal to the catch-empty's (both match the same request).

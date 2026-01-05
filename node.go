@@ -361,7 +361,7 @@ Walk:
 							}
 						}
 					}
-					// Since /foo/ and /foo/+{any} are permitted with different set of matchers and methods, we still need
+					// Since /foo/ and /foo/*{any} are permitted with different set of matchers and methods, we still need
 					// to search for match empty catch-all.
 					for _, wildcardNode := range child.wildcards {
 						for i, route := range wildcardNode.routes {
@@ -451,7 +451,7 @@ Walk:
 					if idx < 0 {
 						if len(path[searchStart:]) > 0 {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
-								// We have the path /foo/x/y/z for the route /foo/*{any:[A-z]}/ that may be matched with a ts,
+								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
 								if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(path[offset:]) {
 									break
@@ -459,8 +459,8 @@ Walk:
 								for j, route := range child.routes {
 									if route.handleSlash != StrictSlash && route.match(method, c) {
 										// This is the only case where we don't return a TSR match immediately. Routes like
-										// /*{args}/ (with TSR enabled) and /*{args} can coexist. For a request like /a/b/c,
-										// the infix /*{args}/ would match with TSR (adding a trailing slash), but we must
+										// /+{args}/ (with TSR enabled) and /+{args} can coexist. For a request like /a/b/c,
+										// the infix /+{args}/ would match with TSR (adding a trailing slash), but we must
 										// first check whether a suffix catch-all directly matches. We capture the node here
 										// but defer parameter recording as a fallback.
 										n = child

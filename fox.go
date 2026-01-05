@@ -445,7 +445,7 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		prefixEnd:   len(fox.prefix),
 		tokens:      parsed.token,
 		owner:       fox,
-		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == plusDelim,
+		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == starDelim,
 	}
 
 	rte.params = make([]string, 0, parsed.paramCnt)
@@ -529,7 +529,7 @@ func (fox *Router) NewSubRouter(methods []string, pattern string, opts ...SubRou
 		prefixEnd:   len(fox.prefix),
 		tokens:      parsed.token,
 		owner:       fox,
-		catchEmpty:  pattern[parsed.startCatchAll] == plusDelim,
+		catchEmpty:  pattern[parsed.startCatchAll] == starDelim,
 	}
 
 	rte.params = make([]string, 0, parsed.paramCnt)
@@ -1254,8 +1254,8 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 				}
 
 				if i < len(url)-1 {
-					if url[startCatchAll] == '+' {
-						return parsedRoute{}, fmt.Errorf("%w: '+{param}' allowed only as suffix", ErrInvalidRoute)
+					if url[startCatchAll] == '*' {
+						return parsedRoute{}, fmt.Errorf("%w: '*{param}' allowed only as suffix", ErrInvalidRoute)
 					}
 					// reset
 					startCatchAll = 0

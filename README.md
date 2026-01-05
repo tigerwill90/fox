@@ -148,32 +148,32 @@ Pattern /products/{name:[A-Za-z]+}
 ````
 
 #### Named Wildcards (Catch-all)
-Named wildcard start with an asterisk `*` followed by a name `{param}` and match any sequence of characters
+Named wildcard start with a plus sign `+` followed by a name `{param}` and match any sequence of characters
 including slashes, but cannot match an empty string. The matching segment are also accessible via
-[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Catch-all parameters are supported anywhere in the route, 
-but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment. 
+[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Catch-all parameters are supported anywhere in the route,
+but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 Consecutive catch-all parameter are not allowed.
 
 ````
-Pattern /src/*{filepath}
+Pattern /src/+{filepath}
 
 /src/conf.txt                      matches
 /src/dir/config.txt                 matches
 /src/                              no matches
 
-Pattern /src/file=*{path}
+Pattern /src/file=+{path}
 
 /src/file=config.txt                 matches
 /src/file=/dir/config.txt            matches
 /src/file=                          no matches
 
-Pattern: /assets/*{path}/thumbnail
+Pattern: /assets/+{path}/thumbnail
 
 /assets/images/thumbnail           matches
 /assets/photos/2021/thumbnail      matches
 /assets//thumbnail                 no matches
 
-Pattern *{sub}.example.com/avengers
+Pattern +{sub}.example.com/avengers
 
 first.example.com/avengers          matches
 first.second.example.com/avengers   matches
@@ -181,28 +181,28 @@ example.com/avengers               no matches
 ````
 
 #### Optional Named Wildcards (Catch-all)
-Optional named wildcard start with a plus sign `+` followed by a name `{param}` and match any sequence of characters
-**including empty** strings. Unlike `*{param}`, optional wildcards can only be used as a suffix.
+Optional named wildcard start with an asterisk `*` followed by a name `{param}` and match any sequence of characters
+**including empty** strings. Unlike `+{param}`, optional wildcards can only be used as a suffix.
 
 ````
-Pattern /src/+{filepath}
+Pattern /src/*{filepath}
 
 /src/conf.txt                      matches
 /src/dir/config.txt                 matches
 /src/                              matches
 
-Pattern /src/file=+{path}
+Pattern /src/file=*{path}
 
 /src/file=config.txt                 matches
 /src/file=/dir/config.txt            matches
 /src/file=                          matches
 ````
 
-Named wildcard can include regular expression using the syntax `*{name:regexp}` or `+{name:regexp}`. Regular expressions cannot
+Named wildcard can include regular expression using the syntax `+{name:regexp}` or `*{name:regexp}`. Regular expressions cannot
 contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via `fox.AllowRegexpParam(true)` option.
 
 ````
-Pattern /src/*{filepath:[A-Za-z/]+\.json}
+Pattern /src/+{filepath:[A-Za-z/]+\.json}
 
 /src/dir/config.json            matches
 /src/dir/config.txt             no matches
@@ -239,7 +239,7 @@ a convenience placeholder equivalent to an empty method set (nil or empty slice)
 // Handle any method on /health
 f.MustAdd(fox.MethodAny, "/health", HealthHandler)
 // Forward all requests to a backend service
-f.MustAdd(fox.MethodAny, "/api/+{any}", ProxyHandler)
+f.MustAdd(fox.MethodAny, "/api/*{any}", ProxyHandler)
 ````
 
 Routes registered with a specific HTTP method always take precedence over method-less routes. This allows defining method-specific
@@ -258,9 +258,9 @@ Fox supports mounting a router as a regular route, enabling modular route manage
 f := fox.MustRouter(
 	fox.DefaultOptions(),
 )
-f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/+{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
+f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
 
-api, r := f.MustSubRouter(fox.MethodAny, "/api+{mount}", fox.WithMiddleware(AuthMiddleware()))
+api, r := f.MustSubRouter(fox.MethodAny, "/api*{mount}", fox.WithMiddleware(AuthMiddleware()))
 api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/", HelloHandler)
 api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUser)
 api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users/{id}", GetUser)
@@ -304,7 +304,7 @@ store routes efficiently. When a request arrives, Fox evaluates routes in the fo
     - Named parameters without constraints
     - Catch-all parameters with regex constraints
     - Catch-all parameters without constraints
-    - Infix catch-all are evaluated before suffix catch-all (e.g., `/bucket/*{path}/meta` before `/bucket/*{path}`)
+    - Infix catch-all are evaluated before suffix catch-all (e.g., `/bucket/+{path}/meta` before `/bucket/+{path}`)
     - At the same level, multiple regex-constrained parameters are evaluated in registration order
 
 3. **Method matching**
@@ -398,15 +398,15 @@ func Action(c *fox.Context) {
 	action := c.Param("action")
 	switch action {
 	case "add":
-		_, err = c.Fox().Add(data.Methods, data.Pattern, func(c *fox.Context) {
+		_, err = c.Router().Add(data.Methods, data.Pattern, func(c *fox.Context) {
 			_ = c.String(http.StatusOK, data.Text)
 		})
 	case "update":
-		_, err = c.Fox().Update(data.Methods, data.Pattern, func(c *fox.Context) {
+		_, err = c.Router().Update(data.Methods, data.Pattern, func(c *fox.Context) {
 			_ = c.String(http.StatusOK, data.Text)
 		})
 	case "delete":
-		_, err = c.Fox().Delete(data.Methods, data.Pattern)
+		_, err = c.Router().Delete(data.Methods, data.Pattern)
 	default:
 		http.Error(c.Writer(), fmt.Sprintf("action %q is not allowed", action), http.StatusBadRequest)
 		return
@@ -675,10 +675,10 @@ func main() {
 	corsMw.SetDebug(true) // turn debug mode on (optional)
 
 	f := fox.MustRouter()
-	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/+{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
+	f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
 
 	sub, r := f.MustSubRouter(
-		fox.MethodAny, "/api/*{any}",
+		fox.MethodAny, "/api*{any}",
 		fox.WithAutoOptions(true), // let Fox automatically handle OPTIONS requests
 		fox.WithMiddlewareFor(fox.RouteHandler|fox.OptionsHandler, fox.WrapM(corsMw.Wrap)),
 	)

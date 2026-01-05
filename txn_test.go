@@ -478,10 +478,10 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 		if err := onlyError(txn.Add(MethodGet, "/api/users/{id}", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Add(MethodGet, "/files/*{path}", emptyHandler)); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/files/+{path}", emptyHandler)); err != nil {
 			return err
 		}
-		if err := onlyError(txn.Add(MethodGet, "/files/*{path}", emptyHandler, WithMatcher(m1))); err != nil {
+		if err := onlyError(txn.Add(MethodGet, "/files/+{path}", emptyHandler, WithMatcher(m1))); err != nil {
 			return err
 		}
 		if err := onlyError(txn.Add(MethodGet, "/items/{id:[0-9]+}", emptyHandler)); err != nil {
@@ -562,12 +562,12 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 		},
 		{
 			name: "wildcard route without matcher",
-			path: "/files/*{path}",
+			path: "/files/+{path}",
 			want: true,
 		},
 		{
 			name:     "wildcard route with matcher",
-			path:     "/files/*{path}",
+			path:     "/files/+{path}",
 			matchers: []Matcher{m1},
 			want:     true,
 		},

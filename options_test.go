@@ -267,7 +267,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/+{any}", WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
+				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithAutoOptions(true), WithHandleTrailingSlash(RelaxedSlash))
 				for _, method := range tc.methods {
 					require.NoError(t, onlyError(sub.Add([]string{method}, tc.path, func(c *Context) {
 						req := httptest.NewRequest(http.MethodGet, c.Path(), nil)
@@ -436,7 +436,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
 
 			t.Run("with sub router", func(t *testing.T) {
-				sub, r := f.MustSubRouter(MethodAny, "example.com/+{any}", WithNoMethod(true))
+				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithNoMethod(true))
 				for _, route := range tc.routes {
 					sub.MustAdd(route.methods, route.pattern, emptyHandler)
 				}
@@ -693,7 +693,7 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 
 			t.Run("with sub router", func(t *testing.T) {
 				f := MustRouter()
-				sub, r := f.MustSubRouter(MethodAny, "example.com/+{any}", WithAutoOptions(true), WithNoMethod(true))
+				sub, r := f.MustSubRouter(MethodAny, "example.com/*{any}", WithAutoOptions(true), WithNoMethod(true))
 				for _, method := range tc.methods {
 					require.NoError(t, onlyError(sub.Add([]string{method}, tc.path, emptyHandler)))
 				}
