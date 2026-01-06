@@ -399,22 +399,22 @@ func WrapF(f http.HandlerFunc) HandlerFunc {
 // WrapH is an adapter for wrapping http.Handler and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
-	return handlerWrapper{h: h}.handle
+	return wrapH{h: h}.handle
 }
 
 // WrapM is an adapter for wrapping http.Handler middleware and returns a [MiddlewareFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapM(m func(http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return middlewareWrapper{next: next, m: m}.handle
+		return wrapM{next: next, m: m}.handle
 	}
 }
 
-type handlerWrapper struct {
+type wrapH struct {
 	h http.Handler
 }
 
-func (hw handlerWrapper) handle(c *Context) {
+func (hw wrapH) handle(c *Context) {
 	req := c.Request()
 
 	p := req.Pattern
@@ -431,12 +431,12 @@ func (hw handlerWrapper) handle(c *Context) {
 	hw.h.ServeHTTP(c.Writer(), req)
 }
 
-type middlewareWrapper struct {
+type wrapM struct {
 	next HandlerFunc
 	m    func(http.Handler) http.Handler
 }
 
-func (mw middlewareWrapper) handle(c *Context) {
+func (mw wrapM) handle(c *Context) {
 	req := c.Request()
 
 	p := req.Pattern
