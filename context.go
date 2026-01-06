@@ -52,7 +52,9 @@ type RequestContext interface {
 	Header(key string) string
 }
 
-// Context holds request-related information and allows interaction with the [ResponseWriter].
+// Context represents the context of the current HTTP request. It provides methods to access request data and
+// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
+// duration of the [HandlerFunc] execution, as the Context may be reused as soon as the handler returns.
 type Context struct {
 	w             ResponseWriter
 	req           *http.Request
@@ -300,9 +302,10 @@ func (c *Context) Clone() *Context {
 }
 
 // CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request] with the
-// provided ones. The method is designed for zero allocation during the copy process. The returned [Context] must
-// be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
-// their custom [ResponseWriter] while preserving the state of the original [Context].
+// provided ones. The method is designed for zero allocation during the copy process. The caller is responsible for
+// closing the returned [Context] by calling [Context.Close] when it is no longer needed. This functionality is particularly
+// beneficial for middlewares that need to wrap their custom [ResponseWriter] while preserving the state of the original
+// [Context].
 func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp := c.tree.pool.Get().(*Context)
 	cp.req = r
@@ -334,7 +337,9 @@ func (c *Context) Scope() HandlerScope {
 	return c.scope
 }
 
-// Close releases the context to be reused later.
+// Close releases the context to be reused later. This method must be called for contexts obtained via
+// [Context.CloneWith], [Router.Lookup], or [Txn.Lookup]. Contexts passed to a [HandlerFunc] are managed
+// automatically by the router and should not be closed manually. See also [Context] for more details.
 func (c *Context) Close() {
 	c.tree.pool.Put(c)
 }
