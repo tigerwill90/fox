@@ -62,7 +62,7 @@ func TestContext_QueryParams(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	f, _ := New()
+	f, _ := NewRouter()
 	c := newTestContext(f)
 	c.req = req
 	values := c.QueryParams()
@@ -79,7 +79,7 @@ func TestContext_QueryParam(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	f, _ := New()
+	f, _ := NewRouter()
 	c := newTestContext(f)
 	c.req = req
 	assert.Equal(t, "b", c.QueryParam("a"))
@@ -89,8 +89,8 @@ func TestContext_QueryParam(t *testing.T) {
 
 func TestContext_Route(t *testing.T) {
 	t.Parallel()
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/foo", func(c *Context) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/foo", func(c *Context) {
 		require.NotNil(t, c.Route())
 		_, _ = io.WriteString(c.Writer(), c.Route().Pattern())
 	})
@@ -103,8 +103,8 @@ func TestContext_Route(t *testing.T) {
 
 func TestContext_Path(t *testing.T) {
 	t.Parallel()
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/{a}", func(c *Context) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/{a}", func(c *Context) {
 		_, _ = io.WriteString(c.Writer(), c.Path())
 	})
 
@@ -116,8 +116,8 @@ func TestContext_Path(t *testing.T) {
 
 func TestContext_Host(t *testing.T) {
 	t.Parallel()
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/{a}", func(c *Context) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/{a}", func(c *Context) {
 		_, _ = io.WriteString(c.Writer(), c.Host())
 	})
 
@@ -129,15 +129,15 @@ func TestContext_Host(t *testing.T) {
 
 func TestContext_Annotations(t *testing.T) {
 	t.Parallel()
-	f, _ := New()
-	f.MustHandle(
-		http.MethodGet,
+	f, _ := NewRouter()
+	f.MustAdd(
+		MethodGet,
 		"/foo",
 		emptyHandler,
 		WithAnnotation("foo", "bar"),
 		WithAnnotation("john", 1),
 	)
-	rte := f.Route(http.MethodGet, "/foo")
+	rte := f.Route(MethodGet, "/foo")
 	require.NotNil(t, rte)
 	assert.Equal(t, "bar", rte.Annotation("foo").(string))
 	assert.Equal(t, 1, rte.Annotation("john").(int))
@@ -152,7 +152,7 @@ func TestContext_Clone(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
 	req.URL.RawQuery = wantValues.Encode()
 
-	f, _ := New()
+	f, _ := NewRouter()
 	c := newTextContextOnly(f, httptest.NewRecorder(), req)
 	c.route = &Route{params: []string{"a"}}
 	*c.params = []string{"a"}
@@ -170,18 +170,13 @@ func TestContext_Clone(t *testing.T) {
 	assert.Panics(t, func() {
 		_, _ = cc.Writer().Write([]byte("invalid"))
 	})
-
-	c.tsr = true
-	*c.tsrParams = []string{"b"}
-	cc = c.Clone()
-	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cc.Params()))
 }
 
 func TestContext_CloneWith(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/foo", nil)
-	f, _ := New()
+	f, _ := NewRouter()
 	c := newTextContextOnly(f, w, req)
 	c.route = &Route{params: []string{"a"}}
 	*c.params = []string{"a"}
@@ -192,13 +187,8 @@ func TestContext_CloneWith(t *testing.T) {
 	assert.Equal(t, c.Request(), cp.Request())
 	assert.Equal(t, c.Writer(), cp.Writer())
 	assert.Equal(t, c.Pattern(), cp.Pattern())
-	assert.Equal(t, c.Fox(), cp.Fox())
+	assert.Equal(t, c.Router(), cp.Router())
 	assert.Nil(t, cp.cachedQueries)
-
-	c.tsr = true
-	*c.tsrParams = []string{"b"}
-	cp = c.CloneWith(c.Writer(), c.Request())
-	assert.Equal(t, slices.Collect(c.Params()), slices.Collect(cp.Params()))
 }
 
 func TestContext_Blob(t *testing.T) {
@@ -314,9 +304,9 @@ func TestContext_Fox(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
 
-	f, _ := New()
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c *Context) {
-		assert.NotNil(t, c.Fox())
+	f, _ := NewRouter()
+	require.NoError(t, onlyError(f.Add(MethodGet, "/foo", func(c *Context) {
+		assert.NotNil(t, c.Router())
 	})))
 
 	f.ServeHTTP(w, req)
@@ -325,7 +315,7 @@ func TestContext_Fox(t *testing.T) {
 func TestContext_Scope(t *testing.T) {
 	t.Parallel()
 
-	f, _ := New(
+	f, _ := NewRouter(
 		WithHandleTrailingSlash(RedirectSlash),
 		WithMiddlewareFor(RedirectSlashHandler, func(next HandlerFunc) HandlerFunc {
 			return func(c *Context) {
@@ -351,7 +341,7 @@ func TestContext_Scope(t *testing.T) {
 		}),
 	)
 
-	_, err := f.Handle(http.MethodGet, "/foo", func(c *Context) {
+	_, err := f.Add(MethodGet, "/foo", func(c *Context) {
 		assert.Equal(t, RouteHandler, c.Scope())
 	})
 	require.NoError(t, err)
@@ -450,7 +440,7 @@ func TestWrapF(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "https://example.com/{foo}", nil)
 			f, c := NewTestContext(w, r)
-			rte, err := f.NewRoute("/{foo}", emptyHandler)
+			rte, err := f.NewRoute(MethodGet, "/{foo}", emptyHandler)
 			require.NoError(t, err)
 			c.route = rte
 			*c.paramsKeys = rte.params
@@ -519,7 +509,7 @@ func TestWrapH(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "https://example.com/{foo}", nil)
 			f, c := NewTestContext(w, r)
-			rte, err := f.NewRoute("/{foo}", emptyHandler)
+			rte, err := f.NewRoute(MethodGet, "/{foo}", emptyHandler)
 			require.NoError(t, err)
 			c.route = rte
 			*c.paramsKeys = rte.params
@@ -559,8 +549,8 @@ func TestWrapM(t *testing.T) {
 		})
 	}
 
-	f, _ := New(WithMiddleware(WrapM(mw1), WrapM(mw2)))
-	f.MustHandle(http.MethodGet, "/foo", func(c *Context) {
+	f, _ := NewRouter(WithMiddleware(WrapM(mw1), WrapM(mw2)))
+	f.MustAdd(MethodGet, "/foo/{bar}", func(c *Context) {
 		w := c.Writer()
 		inner := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
 		assert.IsType(t, &recorder{}, w)
@@ -569,21 +559,19 @@ func TestWrapM(t *testing.T) {
 		require.NoError(t, c.String(http.StatusOK, "OK"))
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/foo", nil)
+	req := httptest.NewRequest(http.MethodGet, "/foo/bar", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
 
 	assert.Equal(t, "OK", w.Body.String())
 }
 
-func BenchmarkWrapF(b *testing.B) {
+func BenchmarkWrapH(b *testing.B) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
 	w := httptest.NewRecorder()
 
-	f, _ := New()
-	f.MustHandle(http.MethodGet, "/{a}/{b}/{c}", WrapF(func(w http.ResponseWriter, r *http.Request) {
-
-	}))
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/{a}/{b}/{c}", WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -591,7 +579,21 @@ func BenchmarkWrapF(b *testing.B) {
 	for range b.N {
 		f.ServeHTTP(w, req)
 	}
+}
 
+func BenchmarkWrapF(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
+	w := httptest.NewRecorder()
+
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/{a}/{b}/{c}", WrapF(func(w http.ResponseWriter, r *http.Request) {}))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		f.ServeHTTP(w, req)
+	}
 }
 
 func BenchmarkWrapM(b *testing.B) {
@@ -602,9 +604,8 @@ func BenchmarkWrapM(b *testing.B) {
 		})
 	}
 
-	f := MustNew(WithMiddleware(WrapM(m)))
-	f.MustHandle(http.MethodGet, "/a/b/c", func(c *Context) {
-	})
+	f := MustRouter(WithMiddleware(WrapM(m)))
+	f.MustAdd(MethodGet, "/{a}/{b}/{c}", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/a/b/c", nil)
 	w := httptest.NewRecorder()

@@ -403,7 +403,7 @@ func TestClientIpMatcher_Match(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/path", nil)
 			w := httptest.NewRecorder()
 			f, c := NewTestContext(w, req, WithClientIPResolver(resolver))
-			rte, _ := f.NewRoute("/path", emptyHandler)
+			rte, _ := f.NewRoute(MethodGet, "/path", emptyHandler)
 			c.route = rte
 			assert.Equal(t, tc.want, m.Match(c))
 		})

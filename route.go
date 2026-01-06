@@ -2,6 +2,7 @@ package fox
 
 import (
 	"iter"
+	"slices"
 )
 
 // Route represents an immutable HTTP route with associated handlers and settings.
@@ -11,14 +12,14 @@ type Route struct {
 	hself       HandlerFunc
 	hall        HandlerFunc
 	annots      map[any]any
-	sub         *Router
 	pattern     string
 	name        string
+	methods     []string
 	mws         []middleware
 	params      []string
 	tokens      []token
 	matchers    []Matcher
-	hostSplit   int // 0 if no host
+	hostEnd     int
 	priority    uint
 	handleSlash TrailingSlashOption
 	catchEmpty  bool
@@ -30,10 +31,24 @@ func (r *Route) Handle(c *Context) {
 }
 
 // HandleMiddleware calls the handler with route-specific middleware applied, using the provided [Context].
+// This method is not intended to be used as the handler for another route, as the middleware chain would
+// be duplicated when registered. To reuse a route's handler, use [Route.Handle] directly or register
+// a new route via [Router.AddRoute] or [Router.UpdateRoute].
 func (r *Route) HandleMiddleware(c *Context, _ ...struct{}) {
-	// The variadic parameter is intentionally added to prevent this method from having the same signature as HandlerFunc.
-	// This avoids accidental use of HandleMiddleware where a HandlerFunc is required.
+	// The variadic parameter is intentionally added to prevent this method from having the same signature
+	// as HandlerFunc, avoiding accidental misuse where a HandlerFunc is required.
 	r.hself(c)
+}
+
+// Methods returns an iterator over all HTTP methods this route responds to (if any), in lexicographical order.
+func (r *Route) Methods() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, m := range r.methods {
+			if !yield(m) {
+				return
+			}
+		}
+	}
 }
 
 // Pattern returns the registered route pattern.
@@ -43,12 +58,12 @@ func (r *Route) Pattern() string {
 
 // Hostname returns the hostname part of the registered pattern if any.
 func (r *Route) Hostname() string {
-	return r.pattern[:r.hostSplit]
+	return r.pattern[:r.hostEnd]
 }
 
 // Path returns the path part of the registered pattern.
 func (r *Route) Path() string {
-	return r.pattern[r.hostSplit:]
+	return r.pattern[r.hostEnd:]
 }
 
 // Name returns the name of this [Route].
@@ -107,19 +122,29 @@ func (r *Route) Matchers() iter.Seq[Matcher] {
 	}
 }
 
-// Priority returns the matchers priority for this [Route].
-func (r *Route) Priority() uint {
+// MatchersPriority returns the matchers priority for this [Route].
+func (r *Route) MatchersPriority() uint {
 	return r.priority
 }
 
-// SubRouter returns the [Router] mounted at this route, or nil if this route
-// was not created with [Router.NewSubRouter].
-func (r *Route) SubRouter() *Router {
-	return r.sub
-}
+// match reports whether the request satisfies this route's method constraint (if any)
+// and all attached matchers.
+func (r *Route) match(method string, c RequestContext) bool {
+	// Fast path for common cases: no methods or single method
+	methods := r.methods
+	switch len(methods) {
+	case 0:
+		// No method constraint
+	case 1:
+		if methods[0] != method {
+			return false
+		}
+	default:
+		if !slices.Contains(methods, method) {
+			return false
+		}
+	}
 
-// match returns true if all matchers attached to this [Route] match the request.
-func (r *Route) match(c RequestContext) bool {
 	for _, m := range r.matchers {
 		if !m.Match(c) {
 			return false
@@ -134,12 +159,10 @@ func (r *Route) matchersEqual(matchers []Matcher) bool {
 		return false
 	}
 
-	// O(n²) in the worst case, but the matched slice should be stack-allocated in most cases.
+	// Runs in O(n²) time, but the matched slice should be stack-allocated in most cases.
 	// A hash-based O(n) approach was considered, but for small arrays the cost of populating
 	// a map outweighs the quadratic comparison cost. Additionally, maps with more than 8 elements
-	// are heap-allocated, which adds to the cost. Also, for typical use cases such as a reverse proxy
-	// that read configuration from events, database or file, matchers are likely in the same order as when the
-	// route was registered, which gives performance closer to O(n) in practice.
+	// are heap-allocated, which adds to the cost.
 	matched := make([]bool, len(matchers))
 
 outer:

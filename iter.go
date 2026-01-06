@@ -6,8 +6,6 @@ package fox
 
 import (
 	"iter"
-	"net/http"
-	"slices"
 	"strings"
 )
 
@@ -29,8 +27,9 @@ type RouteMatch struct {
 // router or on the transaction from which the Iter is created.
 type Iter struct {
 	tree     *iTree
-	patterns root
-	names    root
+	patterns *node
+	names    *node
+	methods  map[string]uint
 	maxDepth int // tree or txn maxDepth
 }
 
@@ -39,7 +38,7 @@ type Iter struct {
 // while mutation on routes are ongoing.
 func (it Iter) Methods() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		for k := range it.patterns {
+		for k := range it.methods {
 			if !yield(k) {
 				return
 			}
@@ -48,50 +47,18 @@ func (it Iter) Methods() iter.Seq[string] {
 }
 
 // Routes returns a range iterator over all registered routes in the routing tree that exactly match the provided route
-// pattern for the given HTTP methods. The iterator reflect a snapshot of the routing tree at the time [Iter] is created.
-// This function is safe for concurrent use by multiple goroutine and while mutation on routes are ongoing.
-func (it Iter) Routes(methods iter.Seq[string], pattern string) iter.Seq2[string, *Route] {
-	return func(yield func(string, *Route) bool) {
-
-		for method := range methods {
-			root := it.patterns[method]
-			if root == nil {
-				continue
-			}
-
-			matched := root.searchPattern(pattern)
-			if matched == nil || !matched.isLeaf() {
-				continue
-			}
-
-			for _, route := range matched.routes {
-				if route.pattern == pattern {
-					if !yield(method, route) {
-						return
-					}
-				}
-			}
+// pattern. The iterator reflect a snapshot of the routing tree at the time [Iter] is created. This function is safe for
+// concurrent use by multiple goroutine and while mutation on routes are ongoing.
+func (it Iter) Routes(pattern string) iter.Seq[*Route] {
+	return func(yield func(*Route) bool) {
+		matched := it.patterns.searchPattern(pattern)
+		if matched == nil || !matched.isLeaf() {
+			return
 		}
-	}
-}
 
-// Matches returns a range iterator over all registered [Route] that match the given [http.Request] for the
-// provided HTTP methods. Unlike [Iter.Routes], which matches an exact route, Matches is used to match a URL
-// (e.g., a path from an incoming request) to registered routes in the tree. Each match is returned as a [RouteMatch],
-// which includes a Tsr flag indicating whether the route was matched by adding or removing a trailing slash. The iterator
-// reflects a snapshot of the routing tree at the time [Iter] is created.
-// This function is safe for concurrent use by multiple goroutines and while mutations on routes are ongoing.
-func (it Iter) Matches(methods iter.Seq[string], r *http.Request) iter.Seq2[string, RouteMatch] {
-	return func(yield func(string, RouteMatch) bool) {
-		c := it.tree.pool.Get().(*Context)
-		defer c.Close()
-
-		c.resetWithRequest(r)
-		for method := range methods {
-			path := c.Path()
-			idx, n := it.tree.lookup(method, r.Host, path, c, true)
-			if n != nil {
-				if !yield(method, RouteMatch{n.routes[idx], c.tsr}) {
+		for _, route := range matched.routes {
+			if route.pattern == pattern {
+				if !yield(route) {
 					return
 				}
 			}
@@ -99,116 +66,102 @@ func (it Iter) Matches(methods iter.Seq[string], r *http.Request) iter.Seq2[stri
 	}
 }
 
-// NamePrefix returns a range iterator over all routes in the routing tree that match a given name prefix and HTTP methods.
-// The iterator reflect a snapshot of the routing tree at the time [Iter] is created. This function is safe for
-// concurrent use by multiple goroutine and while mutation on routes are ongoing.
-func (it Iter) NamePrefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
-	return func(yield func(string, *Route) bool) {
+// NamePrefix returns a range iterator over all routes in the routing tree that match a given name prefix. The iterator
+// reflect a snapshot of the routing tree at the time [Iter] is created. This function is safe for concurrent use by
+// multiple goroutine and while mutation on routes are ongoing.
+func (it Iter) NamePrefix(prefix string) iter.Seq[*Route] {
+	return func(yield func(*Route) bool) {
 		var stacks []stack
 		if it.maxDepth < stackSizeThreshold {
 			stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
 		} else {
-			stacks = make([]stack, 0, it.maxDepth) // heap allocation TODO this inaccruate now (this is currently the max skipStack)
+			stacks = make([]stack, 0, it.maxDepth) // heap allocation
 		}
 
-		for method := range methods {
-			root := it.names[method]
-			if root == nil {
-				continue
+		matched := it.names.searchName(prefix)
+		if matched == nil {
+			return
+		}
+
+		stacks = append(stacks, stack{
+			edges: []*node{matched},
+		})
+
+		for len(stacks) > 0 {
+			n := len(stacks)
+			last := stacks[n-1]
+			elem := last.edges[0]
+
+			if len(last.edges) > 1 {
+				stacks[n-1].edges = last.edges[1:]
+			} else {
+				stacks = stacks[:n-1]
 			}
 
-			matched := root.searchName(prefix)
-			if matched == nil {
-				continue
+			if len(elem.statics) > 0 {
+				stacks = append(stacks, stack{edges: elem.statics})
 			}
 
-			stacks = append(stacks, stack{
-				edges: []*node{matched},
-			})
-
-			for len(stacks) > 0 {
-				n := len(stacks)
-				last := stacks[n-1]
-				elem := last.edges[0]
-
-				if len(last.edges) > 1 {
-					stacks[n-1].edges = last.edges[1:]
-				} else {
-					stacks = stacks[:n-1]
-				}
-
-				if len(elem.statics) > 0 {
-					stacks = append(stacks, stack{edges: elem.statics})
-				}
-
-				if elem.isLeaf() {
-					if !yield(method, elem.routes[0]) {
-						return
-					}
+			if elem.isLeaf() {
+				if !yield(elem.routes[0]) {
+					return
 				}
 			}
 		}
 	}
 }
 
-// PatternPrefix returns a range iterator over all routes in the routing tree that match a given pattern prefix and HTTP methods.
+// PatternPrefix returns a range iterator over all routes in the routing tree that match a given pattern prefix.
 // The iterator reflect a snapshot of the routing tree at the time [Iter] is created. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing.
 // Note: Partial parameter syntax (e.g., /users/{name:) is not supported and will not match any routes.
-func (it Iter) PatternPrefix(methods iter.Seq[string], prefix string) iter.Seq2[string, *Route] {
-	return func(yield func(string, *Route) bool) {
+func (it Iter) PatternPrefix(prefix string) iter.Seq[*Route] {
+	return func(yield func(*Route) bool) {
 		var stacks []stack
 		if it.maxDepth < stackSizeThreshold {
 			stacks = make([]stack, 0, stackSizeThreshold) // stack allocation
 		} else {
-			stacks = make([]stack, 0, it.maxDepth) // heap allocation TODO this inaccruate now (this is currently the max skipStack)
+			stacks = make([]stack, 0, it.maxDepth) // heap allocation
 		}
 
-		for method := range methods {
-			root := it.patterns[method]
-			if root == nil {
-				continue
+		matched := it.patterns.searchPattern(prefix)
+		if matched == nil {
+			return
+		}
+
+		stacks = append(stacks, stack{
+			edges: []*node{matched},
+		})
+
+		for len(stacks) > 0 {
+			n := len(stacks)
+			last := stacks[n-1]
+			elem := last.edges[0]
+
+			if len(last.edges) > 1 {
+				stacks[n-1].edges = last.edges[1:]
+			} else {
+				stacks = stacks[:n-1]
 			}
 
-			matched := root.searchPattern(prefix)
-			if matched == nil {
-				continue
+			if len(elem.statics) > 0 {
+				stacks = append(stacks, stack{edges: elem.statics})
+			}
+			if len(elem.params) > 0 {
+				stacks = append(stacks, stack{edges: elem.params})
+			}
+			if len(elem.wildcards) > 0 {
+				stacks = append(stacks, stack{edges: elem.wildcards})
 			}
 
-			stacks = append(stacks, stack{
-				edges: []*node{matched},
-			})
+			if elem.isLeaf() {
+				for _, route := range elem.routes {
+					if len(route.params) > 0 && !strings.HasPrefix(route.pattern, prefix) {
+						continue
+					}
 
-			for len(stacks) > 0 {
-				n := len(stacks)
-				last := stacks[n-1]
-				elem := last.edges[0]
-
-				if len(last.edges) > 1 {
-					stacks[n-1].edges = last.edges[1:]
-				} else {
-					stacks = stacks[:n-1]
-				}
-
-				if len(elem.statics) > 0 {
-					stacks = append(stacks, stack{edges: elem.statics})
-				}
-				if len(elem.params) > 0 {
-					stacks = append(stacks, stack{edges: elem.params})
-				}
-				if len(elem.wildcards) > 0 {
-					stacks = append(stacks, stack{edges: elem.wildcards})
-				}
-
-				if elem.isLeaf() {
-					for _, route := range elem.routes {
-						if len(route.params) > 0 && !strings.HasPrefix(route.pattern, prefix) {
-							continue
-						}
-
-						if !yield(method, route) {
-							return
-						}
+					if !yield(route) {
+						return
 					}
 				}
 			}
@@ -219,15 +172,10 @@ func (it Iter) PatternPrefix(methods iter.Seq[string], prefix string) iter.Seq2[
 // All returns a range iterator over all routes registered in the routing tree. The iterator reflect a snapshot
 // of the routing tree at the time [Iter] is created. This function is safe for concurrent use by multiple goroutine
 // and while mutation on routes are ongoing. See also [Iter.PatternPrefix] as an alternative.
-func (it Iter) All() iter.Seq2[string, *Route] {
-	return func(yield func(string, *Route) bool) {
-		methods := make([]string, 0, len(it.patterns))
-		for k := range it.patterns {
-			methods = append(methods, k)
-		}
-		slices.Sort(methods)
-		for method, route := range it.PatternPrefix(slices.Values(methods), "") {
-			if !yield(method, route) {
+func (it Iter) All() iter.Seq[*Route] {
+	return func(yield func(*Route) bool) {
+		for route := range it.PatternPrefix("") {
+			if !yield(route) {
 				return
 			}
 		}
@@ -237,15 +185,10 @@ func (it Iter) All() iter.Seq2[string, *Route] {
 // Names returns a range iterator over all routes registered in the routing tree with a name. The iterator reflect a snapshot
 // of the routing tree at the time [Iter] is created. This function is safe for concurrent use by multiple goroutine
 // and while mutation on routes are ongoing. See also [Iter.NamePrefix] as an alternative.
-func (it Iter) Names() iter.Seq2[string, *Route] {
-	return func(yield func(string, *Route) bool) {
-		methods := make([]string, 0, len(it.names))
-		for k := range it.names {
-			methods = append(methods, k)
-		}
-		slices.Sort(methods)
-		for method, route := range it.NamePrefix(slices.Values(methods), "") {
-			if !yield(method, route) {
+func (it Iter) Names() iter.Seq[*Route] {
+	return func(yield func(*Route) bool) {
+		for route := range it.NamePrefix("") {
+			if !yield(route) {
 				return
 			}
 		}

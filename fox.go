@@ -7,14 +7,18 @@ package fox
 import (
 	"cmp"
 	"fmt"
+	"log"
 	"math"
 	"net"
 	"net/http"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/tigerwill90/fox/internal/slicesutil"
 )
 
 const (
@@ -81,9 +85,6 @@ const (
 	RedirectPathHandler
 	// OptionsHandler scope applies to the automatic OPTIONS handler, which handles pre-flight or cross-origin requests.
 	OptionsHandler
-)
-
-const (
 	// AllHandlers is a combination of all the above scopes, which can be used to apply middlewares to all types of handlers.
 	AllHandlers = RouteHandler | NoRouteHandler | NoMethodHandler | RedirectSlashHandler | RedirectPathHandler | OptionsHandler
 )
@@ -91,6 +92,7 @@ const (
 // Router is a lightweight high performance HTTP request router that support mutation on its routing tree
 // while handling request concurrently.
 type Router struct {
+	clientip               ClientIPResolver
 	noRouteBase            HandlerFunc
 	noRoute                HandlerFunc
 	noMethod               HandlerFunc
@@ -98,18 +100,34 @@ type Router struct {
 	pathRedirect           HandlerFunc
 	autoOPTIONS            HandlerFunc
 	tree                   atomic.Pointer[iTree]
-	clientip               ClientIPResolver
 	mws                    []middleware
-	mu                     sync.Mutex
 	maxParams              int
 	maxParamKeyBytes       int
 	maxMatchers            int
+	mu                     sync.Mutex
 	handleSlash            TrailingSlashOption
 	handlePath             FixedPathOption
 	handleMethodNotAllowed bool
 	handleOPTIONS          bool
 	systemWideOPTIONS      bool
 	allowRegexp            bool
+}
+
+func initRouter() *Router {
+	r := new(Router)
+	r.noRouteBase = DefaultNotFoundHandler
+	r.noMethod = DefaultMethodNotAllowedHandler
+	r.autoOPTIONS = DefaultOptionsHandler
+	r.tsrRedirect = internalTrailingSlashHandler
+	r.pathRedirect = internalFixedPathHandler
+	r.clientip = noClientIPResolver{}
+	r.maxParams = math.MaxUint8
+	r.maxParamKeyBytes = math.MaxUint8
+	r.maxMatchers = math.MaxUint8
+	r.handleSlash = StrictSlash
+	r.handlePath = StrictPath
+	r.systemWideOPTIONS = true
+	return r
 }
 
 // RouterInfo hold information on the configured global options.
@@ -134,62 +152,49 @@ type middleware struct {
 
 var _ http.Handler = (*Router)(nil)
 
-// MustNew returns a ready to use instance of Fox router.
-// This function is a convenience wrapper for [New] and panics on error.
-func MustNew(opts ...GlobalOption) *Router {
-	f, err := New(opts...)
+// MustRouter returns a ready to use instance of Fox router.
+// This function is a convenience wrapper for [NewRouter] and panics on error.
+func MustRouter(opts ...GlobalOption) *Router {
+	f, err := NewRouter(opts...)
 	if err != nil {
 		panic(err)
 	}
 	return f
 }
 
-// New returns a ready to use instance of Fox router.
-func New(opts ...GlobalOption) (*Router, error) {
-	r := new(Router)
-
-	r.noRouteBase = DefaultNotFoundHandler
-	r.noMethod = DefaultMethodNotAllowedHandler
-	r.autoOPTIONS = DefaultOptionsHandler
-	r.tsrRedirect = internalTrailingSlashHandler
-	r.pathRedirect = internalFixedPathHandler
-	r.clientip = noClientIPResolver{}
-	r.maxParams = math.MaxUint8
-	r.maxParamKeyBytes = math.MaxUint8
-	r.maxMatchers = math.MaxUint8
-	r.handleSlash = StrictSlash
-	r.handlePath = StrictPath
-	r.systemWideOPTIONS = true
+// NewRouter returns a ready to use instance of Fox router.
+func NewRouter(opts ...GlobalOption) (*Router, error) {
+	router := initRouter()
 
 	for _, opt := range opts {
-		if err := opt.applyGlob(sealedOption{router: r}); err != nil {
+		if err := opt.applyGlob(sealedOption{router: router}); err != nil {
 			return nil, err
 		}
 	}
 
-	r.noRoute = applyMiddleware(NoRouteHandler, r.mws, r.noRouteBase)
-	r.noMethod = applyMiddleware(NoMethodHandler, r.mws, r.noMethod)
-	r.tsrRedirect = applyMiddleware(RedirectSlashHandler, r.mws, r.tsrRedirect)
-	r.pathRedirect = applyMiddleware(RedirectPathHandler, r.mws, r.pathRedirect)
-	r.autoOPTIONS = applyMiddleware(OptionsHandler, r.mws, r.autoOPTIONS)
+	router.noRoute = applyMiddleware(NoRouteHandler, router.mws, router.noRouteBase)
+	router.noMethod = applyMiddleware(NoMethodHandler, router.mws, router.noMethod)
+	router.tsrRedirect = applyMiddleware(RedirectSlashHandler, router.mws, router.tsrRedirect)
+	router.pathRedirect = applyMiddleware(RedirectPathHandler, router.mws, router.pathRedirect)
+	router.autoOPTIONS = applyMiddleware(OptionsHandler, router.mws, router.autoOPTIONS)
 
-	r.tree.Store(r.newTree())
-	return r, nil
+	router.tree.Store(router.newTree())
+	return router, nil
 }
 
-// MustHandle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
-// This function is a convenience wrapper for the [Router.Handle] function and panics on error.
-func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
-	rte, err := fox.Handle(method, pattern, handler, opts...)
+// MustAdd registers a new route for the given methods, pattern and matchers. On success, it returns the newly registered [Route].
+// This function is a convenience wrapper for the [Router.Add] function and panics on error.
+func (fox *Router) MustAdd(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) *Route {
+	rte, err := fox.Add(methods, pattern, handler, opts...)
 	if err != nil {
 		panic(err)
 	}
 	return rte
 }
 
-// Handle registers a new route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
+// Add registers a new route for the given methods, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
-//   - [ErrRouteExist]: If the route is already registered.
+//   - [ErrRouteConflict]: If the route conflict with others.
 //   - [ErrRouteNameExist]: If the route name is already registered.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
@@ -197,10 +202,10 @@ func (fox *Router) MustHandle(method, pattern string, handler HandlerFunc, opts 
 //
 // It's safe to add a new handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing handler, use [Router.Update].
-func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+func (fox *Router) Add(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	rte, err := txn.Handle(method, pattern, handler, opts...)
+	rte, err := txn.Add(methods, pattern, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,24 +213,24 @@ func (fox *Router) Handle(method, pattern string, handler HandlerFunc, opts ...R
 	return rte, nil
 }
 
-// HandleRoute registers a new [Route] for the given method. If an error occurs, it returns one of the following:
-//   - [ErrRouteExist]: If the route is already registered.
+// AddRoute registers a new [Route]. If an error occurs, it returns one of the following:
+//   - [ErrRouteConflict]: If the route conflict with others.
 //   - [ErrRouteNameExist]: If the route name is already registered.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //
 // It's safe to add a new route while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine. To override an existing route, use [Router.UpdateRoute].
-func (fox *Router) HandleRoute(method string, route *Route) error {
+func (fox *Router) AddRoute(route *Route) error {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	if err := txn.HandleRoute(method, route); err != nil {
+	if err := txn.AddRoute(route); err != nil {
 		return err
 	}
 	txn.Commit()
 	return nil
 }
 
-// Update override an existing route for the given method, pattern and matchers. On success, it returns the newly registered [Route].
+// Update override an existing route for the given methods, pattern and matchers. On success, it returns the newly registered [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrRouteNameExist]: If the route name is already registered.
@@ -236,11 +241,11 @@ func (fox *Router) HandleRoute(method string, route *Route) error {
 // Route-specific option and middleware must be reapplied when updating a route. if not, any middleware and option will
 // be removed (or reset to their default value), and the route will fall back to using global configuration (if any).
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
-// multiple goroutine. To add new handler, use [Router.Handle] method.
-func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+// multiple goroutine. To add new handler, use [Router.Add] method.
+func (fox *Router) Update(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	rte, err := txn.Update(method, pattern, handler, opts...)
+	rte, err := txn.Update(methods, pattern, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -248,35 +253,35 @@ func (fox *Router) Update(method, pattern string, handler HandlerFunc, opts ...R
 	return rte, nil
 }
 
-// UpdateRoute override an existing [Route] for the given method and new [Route].
+// UpdateRoute override an existing [Route] for the given new [Route].
 // If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrRouteNameExist]: If the route name is already registered.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //
 // It's safe to update a handler while the router is serving requests. This function is safe for concurrent use by
-// multiple goroutine. To add new route, use [Router.HandleRoute] method.
-func (fox *Router) UpdateRoute(method string, route *Route) error {
+// multiple goroutine. To add new route, use [Router.AddRoute] method.
+func (fox *Router) UpdateRoute(route *Route) error {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	if err := txn.UpdateRoute(method, route); err != nil {
+	if err := txn.UpdateRoute(route); err != nil {
 		return err
 	}
 	txn.Commit()
 	return nil
 }
 
-// Delete deletes an existing route for the given method, pattern and matchers. On success, it returns the deleted [Route].
+// Delete deletes an existing route for the given methods, pattern and matchers. On success, it returns the deleted [Route].
 //   - [ErrRouteNotFound]: If the route does not exist.
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
 //
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
-func (fox *Router) Delete(method, pattern string, opts ...MatcherOption) (*Route, error) {
+func (fox *Router) Delete(methods []string, pattern string, opts ...MatcherOption) (*Route, error) {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	route, err := txn.Delete(method, pattern, opts...)
+	route, err := txn.Delete(methods, pattern, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -287,14 +292,14 @@ func (fox *Router) Delete(method, pattern string, opts ...MatcherOption) (*Route
 // DeleteRoute deletes an existing route that match the provided [Route] pattern and matchers. On success, it returns
 // the deleted [Route]. If an error occurs, it returns one of the following:
 //   - [ErrRouteNotFound]: If the route does not exist.
-//   - [ErrInvalidRoute]: If the provided method is invalid or the route is missing.
+//   - [ErrInvalidRoute]: If the route is missing.
 //
 // It's safe to delete a handler while the router is serving requests. This function is safe for concurrent use by
 // multiple goroutine.
-func (fox *Router) DeleteRoute(method string, route *Route) (*Route, error) {
+func (fox *Router) DeleteRoute(route *Route) (*Route, error) {
 	txn := fox.Txn(true)
 	defer txn.Abort()
-	route, err := txn.DeleteRoute(method, route)
+	route, err := txn.DeleteRoute(route)
 	if err != nil {
 		return nil, err
 	}
@@ -302,28 +307,26 @@ func (fox *Router) DeleteRoute(method string, route *Route) (*Route, error) {
 	return route, nil
 }
 
-// Has allows to check if the given method, pattern and matchers exactly match a registered route. This function is safe for
+// Has allows to check if the given methods, pattern and matchers exactly match a registered route. This function is safe for
 // concurrent use by multiple goroutine and while mutation on routes are ongoing. See also [Router.Route] as an alternative.
-func (fox *Router) Has(method, pattern string, matchers ...Matcher) bool {
-	return fox.Route(method, pattern, matchers...) != nil
+func (fox *Router) Has(methods []string, pattern string, matchers ...Matcher) bool {
+	return fox.Route(methods, pattern, matchers...) != nil
 }
 
-// Route performs a lookup for a registered route matching the given method, pattern and matchers. It returns the [Route] if a
+// Route performs a lookup for a registered route matching the given methods, pattern and matchers. It returns the [Route] if a
 // match is found or nil otherwise. This function is safe for concurrent use by multiple goroutine and while
 // mutation on route are ongoing. See also [Router.Has] or [Iter.Routes] as an alternative.
-func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
+func (fox *Router) Route(methods []string, pattern string, matchers ...Matcher) *Route {
 	tree := fox.getTree()
 
-	root := tree.patterns[method]
-	if root == nil {
-		return nil
-	}
-
+	root := tree.patterns
 	matched := root.searchPattern(pattern)
 	if matched == nil || !matched.isLeaf() {
 		return nil
 	}
-	idx := slices.IndexFunc(matched.routes, func(r *Route) bool { return r.pattern == pattern && r.matchersEqual(matchers) })
+	idx := slices.IndexFunc(matched.routes, func(r *Route) bool {
+		return r.pattern == pattern && slicesutil.EqualUnsorted(r.methods, methods) && r.matchersEqual(matchers)
+	})
 	if idx < 0 {
 		return nil
 	}
@@ -333,10 +336,10 @@ func (fox *Router) Route(method, pattern string, matchers ...Matcher) *Route {
 // Name performs a lookup for a registered route matching the given method and route name. It returns
 // the [Route] if a match is found or nil otherwise. This function is safe for concurrent use by multiple
 // goroutines and while mutations on routes are ongoing. See also [Router.Route] as an alternative.
-func (fox *Router) Name(method, name string) *Route {
+func (fox *Router) Name(name string) *Route {
 	tree := fox.getTree()
 
-	root := tree.names[method]
+	root := tree.names
 	if root == nil {
 		return nil
 	}
@@ -361,11 +364,11 @@ func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool
 
 	path := c.Path()
 
-	idx, n := tree.lookup(method, r.Host, path, c, true)
+	idx, n, tsr := tree.lookup(method, r.Host, path, c, true)
 	if n != nil {
-		return n.routes[idx], c.tsr
+		return n.routes[idx], tsr
 	}
-	return nil, false
+	return
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -380,25 +383,16 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 
 	path := c.Path()
 
-	idx, n := tree.lookup(r.Method, r.Host, path, c, false)
+	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
+		c.pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
-		return c.route, c, c.tsr
-	}
-
-	*c.params = (*c.params)[:0]
-	idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
-	if n != nil {
-		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
-		*c.paramsKeys = c.route.params
-		return c.route, c, c.tsr
+		return c.route, c, tsr
 	}
 
 	tree.pool.Put(c)
-	return nil, nil, false
+	return
 }
 
 // NewRoute create a new [Route], configured with the provided options.
@@ -406,7 +400,17 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 //   - [ErrInvalidRoute]: If the provided method or pattern is invalid.
 //   - [ErrInvalidConfig]: If the provided route options are invalid.
 //   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
-func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFunc, opts ...RouteOption) (*Route, error) {
+	if handler == nil {
+		return nil, fmt.Errorf("%w: nil handler", ErrInvalidRoute)
+	}
+
+	for _, method := range methods {
+		if !validMethod(method) {
+			return nil, fmt.Errorf("%w: invalid method '%s'", ErrInvalidRoute, method)
+		}
+	}
+
 	parsed, err := fox.parseRoute(pattern)
 	if err != nil {
 		return nil, err
@@ -418,10 +422,9 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		pattern:     pattern,
 		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
-		hostSplit:   parsed.endHost, // 0 if no host
-		priority:    0,
+		hostEnd:     parsed.endHost,
 		tokens:      parsed.token,
-		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == plusDelim,
+		catchEmpty:  parsed.startCatchAll > 0 && pattern[parsed.startCatchAll] == starDelim,
 	}
 
 	rte.params = make([]string, 0, parsed.paramCnt)
@@ -441,97 +444,51 @@ func (fox *Router) NewRoute(pattern string, handler HandlerFunc, opts ...RouteOp
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
 	}
 	if len(rte.matchers) == 0 && rte.priority > 0 {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matcher")
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matchers")
 	}
 
 	rte.priority = cmp.Or(rte.priority, uint(len(rte.matchers)))
 	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
 
+	if len(methods) > 0 {
+		// As a defensive mesure, keep our own copy of the provided slice.
+		rte.methods = make([]string, len(methods))
+		copy(rte.methods, methods)
+		slices.Sort(rte.methods)
+		rte.methods = slices.Compact(rte.methods)
+	}
+
 	return rte, nil
 }
 
-// NewSubRouter creates a new [Route] that mounts the provided [Router] at the given pattern.
-// The pattern must end with a catch-all wildcard (e.g., /api/*{path} or /api/+{path}).
-// The returned route can be used like any other route created with [Router.NewRoute].
-// The mounted router can be retrieved using [Route.SubRouter].
-// If an error occurs, it returns one of the following:
-//   - [ErrInvalidRoute]: If the provided pattern is invalid or does not end with a catch-all wildcard.
-//   - [ErrInvalidConfig]: If the provided route options are invalid.
-//   - [ErrInvalidMatcher]: If the provided matcher options are invalid.
-func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...RouteOption) (*Route, error) {
-	if fox == r {
-		panic("cannot mount router onto itself")
-	}
+// len(+{any}) == len(any)+3 == len(*{any})
+const wildcardExtraChar = 3
 
-	parsed, err := fox.parseRoute(pattern)
-	if err != nil {
-		return nil, err
-	}
-
-	if parsed.startCatchAll <= 0 {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "subrouter pattern must end with a suffix wildcard")
-	}
-
-	rte := &Route{
-		clientip:    fox.clientip,
-		pattern:     pattern,
-		mws:         fox.mws,
-		handleSlash: fox.handleSlash,
-		hostSplit:   parsed.endHost, // 0 if no host
-		priority:    0,
-		tokens:      parsed.token,
-		sub:         r,
-		catchEmpty:  pattern[parsed.startCatchAll] == plusDelim,
-	}
-
-	rte.params = make([]string, 0, parsed.paramCnt)
-	for _, tk := range parsed.token {
-		if tk.typ != nodeStatic {
-			rte.params = append(rte.params, tk.value)
-		}
-	}
-
-	for _, opt := range opts {
-		if err = opt.applyRoute(sealedOption{route: rte}); err != nil {
-			return nil, err
-		}
-	}
-
-	if len(rte.matchers) > fox.maxMatchers {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
-	}
-	if len(rte.matchers) == 0 && rte.priority > 0 {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matcher")
-	}
-
-	patternPrefix := pattern[:parsed.startCatchAll]
-	// Precomputed to avoid alloc in the hot path.
-	patternWithSlash := patternPrefix + "/"
-	rte.hbase = func(c *Context) {
-		tree := r.getTree()
+// Mount returns a [HandlerFunc] for mounting this [Router] as a sub-router. Requests matching the parent
+// route prefix are delegated to the sub-router which handles the remaining path. The parent route pattern
+// should end with a catch-all. Parameters captured by the parent route are preserved and accessible alongside
+// any parameters matched by the sub-router. Similarly, [http.Request.Pattern] is the concatenation of the
+// parent and sub-router patterns. See also [Router.Add] for registering the handler.
+func (fox *Router) Mount() HandlerFunc {
+	return func(c *Context) {
+		tree := fox.getTree()
 		subCtx := tree.pool.Get().(*Context)
 		subCtx.resetWithWriter(c.Writer(), c.Request())
+		// Any recovery middleware would probably be before the mounted route, so let's defer this one for safety.
+		defer tree.pool.Put(subCtx)
 
-		req := subCtx.Request()
-		req.Pattern = patternPrefix
+		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
+		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
+		p := strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+wildcardExtraChar)], "/")
+		*subCtx.subPatterns = append(*subCtx.subPatterns, p)
 
-		// Extract the path suffix to be routed by the subrouter. The suffix value may be empty,
-		// but there is always at least a catch-all param recorded since we enforce suffix catch-all.
+		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
+		// wildcard such as /foo+{args}. In that case we need to we reslice from the original path to include it,
+		// avoiding allocation from "/" + suffix
 		suffix := (*c.params)[len(*c.params)-1]
-		last := len(req.Pattern) - 1
-		if suffix != "" {
-			if req.Pattern[last] == '/' {
-				// Mount pattern ends with slash (e.g., /api/*{any}), so suffix lacks the
-				// leading slash (e.g., "users" instead of "/users"). Reslice from the
-				// original path to include it, avoiding allocation from "/" + suffix.
-				path := c.Path()
-				suffix = path[len(path)-len(suffix)-1:]
-			} else {
-				// Mount pattern has no trailing slash (e.g., /api*{any}), so suffix
-				// already includes the leading slash. Use precomputed patternWithSlash
-				// to avoid allocation from pattern + "/".
-				req.Pattern = patternWithSlash
-			}
+		if suffix != "" && !strings.HasPrefix(suffix, "/") {
+			path := c.Path()
+			suffix = path[len(path)-len(suffix)-1:]
 		}
 
 		// Copy parent params and paramsKeys to the subrouter context, excluding the last
@@ -542,20 +499,18 @@ func (fox *Router) NewSubRouter(pattern string, r *Router, opts ...RouteOption) 
 		*subCtx.paramsKeys = append((*subCtx.paramsKeys)[:0], (*c.paramsKeys)[:len(*c.paramsKeys)-1]...)
 
 		// Serve the sub router
-		r.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
-
-		tree.pool.Put(subCtx)
+		fox.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
 	}
-
-	rte.priority = cmp.Or(rte.priority, uint(len(rte.matchers)))
-	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, rte.hbase)
-
-	return rte, nil
 }
 
 // HandleNoRoute calls the no route handler with the provided [Context].
 // Note that this bypasses any middleware attached to the no route handler.
 func (fox *Router) HandleNoRoute(c *Context) {
+	if c.scope == NoRouteHandler {
+		caller := relevantCaller()
+		log.Printf("fox: recursive call to router.HandleNoRoute from %s (%s:%d)", caller.Function, path.Base(caller.File), caller.Line)
+		return
+	}
 	fox.noRouteBase(c)
 }
 
@@ -575,6 +530,7 @@ func (fox *Router) Iter() Iter {
 		tree:     tree,
 		patterns: tree.patterns,
 		names:    tree.names,
+		methods:  tree.methods,
 		maxDepth: tree.maxDepth,
 	}
 }
@@ -650,11 +606,12 @@ func (fox *Router) Txn(write bool) *Txn {
 }
 
 func (fox *Router) newTree() *iTree {
-	tree := new(iTree)
-	tree.fox = fox
-
-	tree.patterns = make(root)
-	tree.names = make(root)
+	tree := &iTree{
+		fox:      fox,
+		patterns: new(node),
+		names:    new(node),
+		methods:  make(map[string]uint),
+	}
 	tree.pool = sync.Pool{
 		New: func() any {
 			return tree.allocateContext()
@@ -724,44 +681,28 @@ func internalFixedPathHandler(c *Context) {
 // to the appropriate handler function based on the request's method and path.
 func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	var n *node
-	var idx int
-
 	tree := fox.getTree()
 	c := tree.pool.Get().(*Context)
 	c.reset(w, r)
 
 	path := c.Path()
 
-	idx, n = tree.lookup(r.Method, r.Host, path, c, false)
-	if !c.tsr && n != nil {
+	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
+	if !tsr && n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
+		c.pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
 		c.route.hall(c)
 		tree.pool.Put(c)
 		return
 	}
 
-	if n == nil {
-		*c.params = (*c.params)[:0]
-		idx, n = tree.lookup(MethodAny, r.Host, path, c, false)
-		if !c.tsr && n != nil {
-			c.route = n.routes[idx]
-			r.Pattern = c.route.pattern
-			*c.paramsKeys = c.route.params
-			c.route.hall(c)
-			tree.pool.Put(c)
-			return
-		}
-	}
-
 	if r.Method != http.MethodConnect && r.URL.Path != "/" {
-		if c.tsr && n != nil {
+		if tsr && n != nil {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
-				r.Pattern = c.route.pattern
+				c.pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
 				route.hall(c)
 				tree.pool.Put(c)
@@ -770,8 +711,8 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			if route.handleSlash == RedirectSlash {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				tree.pool.Put(c)
@@ -782,37 +723,19 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch fox.handlePath {
 		case RelaxedPath:
 			*c.params = (*c.params)[:0]
-			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
-				r.Pattern = c.route.pattern
-				*c.paramsKeys = c.route.params
-				c.route.hall(c)
-				tree.pool.Put(c)
-				return
-			}
-			*c.params = (*c.params)[:0]
-			if idx, n := tree.lookup(MethodAny, r.Host, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-				c.route = n.routes[idx]
-				r.Pattern = c.route.pattern
+				c.pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
 				c.route.hall(c)
 				tree.pool.Put(c)
 				return
 			}
 		case RedirectPath:
-			if idx, n := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
-				c.scope = RedirectPathHandler
-				fox.pathRedirect(c)
-				tree.pool.Put(c)
-				return
-			}
-			if idx, n := tree.lookup(MethodAny, r.Host, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				*c.params = (*c.params)[:0]
-				c.tsr = false
-				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
 				tree.pool.Put(c)
@@ -824,20 +747,21 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	*c.params = (*c.params)[:0]
 	c.route = nil
+	c.pattern = ""
 
 	isOPTIONS := r.Method == http.MethodOptions
 
-	// Handle system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
+	// Add system-wide OPTIONS, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS.
 	// Note that http.Server.DisableGeneralOptionsHandler should be disabled.
 	if fox.systemWideOPTIONS && isOPTIONS && path == "*" {
 		var sb strings.Builder
 		sb.Grow(150)
 
-		_, hasOPTIONS := tree.patterns[http.MethodOptions]
-		mayHandleOPTIONS := fox.handleOPTIONS && len(tree.patterns) > 0
+		_, hasOPTIONS := tree.methods[http.MethodOptions]
+		mayHandleOPTIONS := fox.handleOPTIONS && len(tree.methods) > 0
 
-		for method := range tree.patterns {
-			if method == http.MethodOptions || method == MethodAny {
+		for method := range tree.methods {
+			if method == http.MethodOptions {
 				continue
 			}
 			if sb.Len() > 0 {
@@ -866,145 +790,127 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// A CORS request is an HTTP request that includes an `Origin` header: https://fetch.spec.whatwg.org/#cors-request
 		// A CORS preflight request contains at most one ACRM header: https://fetch.spec.whatwg.org/#cors-preflight-fetch
 		_, foundOrigin := firstHeader(r.Header, HeaderOrigin)
-		acrm, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
-		if !foundOrigin || !foundAcrm {
+		_, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
+
+		// A CORS-preflight request is a CORS request that checks to see if the CORS protocol is understood. Preflight should not enforce resource
+		// validation (e.g., 404 or 405). The best practice is to let the actual request fail later. Note that if CORS is only enabled
+		// for specific API segments, user can use a sub-router to apply CORS middleware to the relevant subtree.
+		// See https://stackoverflow.com/questions/64352697/should-a-server-implementing-cors-always-reply-with-a-2xx-code-for-options-metho
+		if foundOrigin && foundAcrm {
+			c.scope = OptionsHandler
+			fox.autoOPTIONS(c)
+			tree.pool.Put(c)
+			return
+		}
+
+		// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
+		seen := make(map[string]struct{})
+		for method := range tree.methods {
+			if _, ok := seen[method]; ok {
+				continue
+			}
+			if idx, n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				for _, m := range n.routes[idx].methods {
+					seen[m] = struct{}{}
+				}
+			}
+		}
+
+		if len(seen) > 0 {
 			var sb strings.Builder
 			sb.Grow(150)
-			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-			for method := range tree.patterns {
-				if method == MethodAny {
-					continue
-				}
-				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(method)
-				}
-			}
-
-			if sb.Len() > 0 {
+			sb.WriteString(http.MethodOptions)
+			for method := range seen {
 				sb.WriteString(", ")
-				sb.WriteString(http.MethodOptions)
-				w.Header().Set(HeaderAllow, sb.String())
-				c.scope = OptionsHandler
-				c.tsr = false
-				fox.autoOPTIONS(c)
-				tree.pool.Put(c)
-				return
-			}
-		} else {
-			// For CORS preflight, we only need to verify that the request match at least one route registered for any methods.
-			// Unlike regular OPTIONS, we don't include an Allow header since it provides no functional benefit for the
-			// preflight's purpose, and building it would require a full lookup across all registered methods.
-			// The fast-path is to lookup directly for the ACRM, since in most case a preflight request should target an existing resource,
-			// which avoid unnecessary lookup on method which does have a matching route registered.
-			if idx, n := tree.lookup(acrm, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-				c.scope = OptionsHandler
-				c.tsr = false
-				fox.autoOPTIONS(c)
-				tree.pool.Put(c)
-				return
-			}
-
-			// Else we search for a matching route for any method, but unlike regular OPTIONS, we stop at the first match.
-			for method := range tree.patterns {
-				if method == acrm || method == MethodAny {
-					continue
-				}
-				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					c.scope = OptionsHandler
-					c.tsr = false
-					fox.autoOPTIONS(c)
-					tree.pool.Put(c)
-					return
-				}
-			}
-		}
-	} else if fox.handleMethodNotAllowed {
-		var sb strings.Builder
-		// Grow sb to a reasonable size that should prevent new allocation in most case.
-		sb.Grow(150)
-		hasOptions := false
-		for method := range tree.patterns {
-			if method != r.Method {
-				if idx, n := tree.lookup(method, r.Host, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
-					}
-					if method == http.MethodOptions {
-						hasOptions = true
-					}
-					sb.WriteString(method)
-				}
-			}
-		}
-		if sb.Len() > 0 {
-			if fox.handleOPTIONS && !hasOptions {
-				sb.WriteString(", ")
-				sb.WriteString(http.MethodOptions)
+				sb.WriteString(method)
 			}
 			w.Header().Set(HeaderAllow, sb.String())
+			c.scope = OptionsHandler
+			fox.autoOPTIONS(c)
+			tree.pool.Put(c)
+			return
+		}
+	} else if fox.handleMethodNotAllowed {
+
+		seen := make(map[string]struct{})
+		seen[r.Method] = struct{}{}
+
+		for method := range tree.methods {
+			if _, ok := seen[method]; ok {
+				continue
+			}
+			if idx, n, tsr := tree.lookup(method, r.Host, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				for _, m := range n.routes[idx].methods {
+					seen[m] = struct{}{}
+				}
+			}
+		}
+
+		if len(seen) > 1 {
+			var sb strings.Builder
+			sb.Grow(150)
+
+			for method := range seen {
+				if method == r.Method {
+					continue
+				}
+				if sb.Len() > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(method)
+			}
+
+			if _, ok := seen[http.MethodOptions]; !ok && fox.handleOPTIONS {
+				if sb.Len() > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(http.MethodOptions)
+			}
+
+			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
-			c.tsr = false
 			fox.noMethod(c)
 			tree.pool.Put(c)
 			return
 		}
 	}
 
-	c.tsr = false
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 	tree.pool.Put(c)
 }
 
 func (fox *Router) serveSubRouter(c *Context, path string) {
-	var n *node
-	var idx int
 
 	tree := c.tree
 	r := c.Request()
 	w := c.Writer()
 
 	paramsOffset := len(*c.params)
-	idx, n = tree.lookupByPath(r.Method, path, c, false)
-	if !c.tsr && n != nil {
+	idx, n, tsr := tree.lookupByPath(r.Method, path, c, false)
+	if !tsr && n != nil {
 		c.route = n.routes[idx]
 		*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-		r.Pattern += c.route.pattern[1:]
+		c.pattern = c.route.pattern
 		c.route.hall(c)
 		return
 	}
 
-	if n == nil {
-		*c.params = (*c.params)[:paramsOffset]
-		// Since we are already in a SubRouter, there is no point to lookup for a regular hostname.
-		idx, n = tree.lookupByPath(MethodAny, path, c, false)
-		if !c.tsr && n != nil {
-			c.route = n.routes[idx]
-			*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-			r.Pattern += c.route.pattern[1:]
-			c.route.hall(c)
-			return
-		}
-	}
-
 	if r.Method != http.MethodConnect && r.URL.Path != "/" {
-		if c.tsr && n != nil {
+		if tsr && n != nil {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
 				*c.paramsKeys = append(*c.paramsKeys, route.params...)
-				r.Pattern += c.route.pattern[1:]
+				c.pattern = c.route.pattern
 				route.hall(c)
 				return
 			}
 
 			if route.handleSlash == RedirectSlash {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				return
@@ -1014,34 +920,18 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		switch fox.handlePath {
 		case RelaxedPath:
 			*c.params = (*c.params)[:paramsOffset]
-			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
 				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-				r.Pattern += c.route.pattern[1:]
-				c.route.hall(c)
-				return
-			}
-			*c.params = (*c.params)[:paramsOffset]
-			if idx, n := tree.lookupByPath(MethodAny, CleanPath(path), c, false); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-				c.route = n.routes[idx]
-				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-				r.Pattern += c.route.pattern[1:]
+				c.pattern = c.route.pattern
 				c.route.hall(c)
 				return
 			}
 		case RedirectPath:
-			if idx, n := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
+			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
-				c.tsr = false
 				c.route = nil
-				c.scope = RedirectPathHandler
-				fox.pathRedirect(c)
-				return
-			}
-			if idx, n := tree.lookupByPath(MethodAny, CleanPath(path), c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash != StrictSlash) {
-				*c.params = (*c.params)[:0]
-				c.tsr = false
-				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
 				return
@@ -1052,6 +942,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 	*c.params = (*c.params)[:0]
 	c.route = nil
+	c.pattern = ""
 
 	isOPTIONS := r.Method == http.MethodOptions
 
@@ -1059,90 +950,91 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 		// A CORS request is an HTTP request that includes an `Origin` header: https://fetch.spec.whatwg.org/#cors-request
 		// A CORS preflight request contains at most one ACRM header: https://fetch.spec.whatwg.org/#cors-preflight-fetch
 		_, foundOrigin := firstHeader(r.Header, HeaderOrigin)
-		acrm, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
-		if !foundOrigin || !foundAcrm {
+		_, foundAcrm := firstHeader(r.Header, HeaderAccessControlRequestMethod)
+
+		// A CORS-preflight request is a CORS request that checks to see if the CORS protocol is understood. Preflight should not enforce resource
+		// validation (e.g., 404 or 405). The best practice is to let the actual request fail later. Note that if CORS is only enabled
+		// for specific API segments, user can use a sub-router to apply CORS middleware to the relevant subtree.
+		// See https://stackoverflow.com/questions/64352697/should-a-server-implementing-cors-always-reply-with-a-2xx-code-for-options-metho
+		if foundOrigin && foundAcrm {
+			c.scope = OptionsHandler
+			fox.autoOPTIONS(c)
+			tree.pool.Put(c)
+			return
+		}
+
+		// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
+		seen := make(map[string]struct{})
+		for method := range tree.methods {
+			if _, ok := seen[method]; ok {
+				continue
+			}
+			if idx, n, tsr := tree.lookupByPath(method, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				for _, m := range n.routes[idx].methods {
+					seen[m] = struct{}{}
+				}
+			}
+		}
+
+		if len(seen) > 0 {
 			var sb strings.Builder
 			sb.Grow(150)
-			// Since different method and route may match (e.g. GET /foo/bar & POST /foo/{name}), we cannot set the path and params.
-			for method := range tree.patterns {
-				if method == MethodAny {
-					continue
-				}
-				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(method)
-				}
-			}
-
-			if sb.Len() > 0 {
+			sb.WriteString(http.MethodOptions)
+			for method := range seen {
 				sb.WriteString(", ")
-				sb.WriteString(http.MethodOptions)
-				w.Header().Set(HeaderAllow, sb.String())
-				c.scope = OptionsHandler
-				c.tsr = false
-				fox.autoOPTIONS(c)
-				return
-			}
-		} else {
-			// For CORS preflight, we only need to verify that the request match at least one route registered for any methods.
-			// Unlike regular OPTIONS, we don't include an Allow header since it provides no functional benefit for the
-			// preflight's purpose, and building it would require a full lookup across all registered methods.
-			// The fast-path is to lookup directly for the ACRM, since in most case a preflight request should target an existing resource,
-			// which avoid unnecessary lookup on method which does have a matching route registered.
-			if idx, n := tree.lookupByPath(acrm, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-				c.scope = OptionsHandler
-				c.tsr = false
-				fox.autoOPTIONS(c)
-				return
-			}
-
-			// Else we search for a matching route for any method, but unlike regular OPTIONS, we stop at the first match.
-			for method := range tree.patterns {
-				if method == acrm || method == MethodAny {
-					continue
-				}
-				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					c.scope = OptionsHandler
-					c.tsr = false
-					fox.autoOPTIONS(c)
-					return
-				}
-			}
-		}
-	} else if fox.handleMethodNotAllowed {
-		var sb strings.Builder
-		// Grow sb to a reasonable size that should prevent new allocation in most case.
-		sb.Grow(150)
-		hasOptions := false
-		for method := range tree.patterns {
-			if method != r.Method {
-				if idx, n := tree.lookupByPath(method, path, c, true); n != nil && (!c.tsr || n.routes[idx].handleSlash == RelaxedSlash) {
-					if sb.Len() > 0 {
-						sb.WriteString(", ")
-					}
-					if method == http.MethodOptions {
-						hasOptions = true
-					}
-					sb.WriteString(method)
-				}
-			}
-		}
-		if sb.Len() > 0 {
-			if fox.handleOPTIONS && !hasOptions {
-				sb.WriteString(", ")
-				sb.WriteString(http.MethodOptions)
+				sb.WriteString(method)
 			}
 			w.Header().Set(HeaderAllow, sb.String())
+			c.scope = OptionsHandler
+			fox.autoOPTIONS(c)
+			tree.pool.Put(c)
+			return
+		}
+	} else if fox.handleMethodNotAllowed {
+
+		seen := make(map[string]struct{})
+		seen[r.Method] = struct{}{}
+
+		for method := range tree.methods {
+			if _, ok := seen[method]; ok {
+				continue
+			}
+			if idx, n, tsr := tree.lookupByPath(method, path, c, true); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
+				for _, m := range n.routes[idx].methods {
+					seen[m] = struct{}{}
+				}
+			}
+		}
+
+		if len(seen) > 1 {
+			var sb strings.Builder
+			sb.Grow(150)
+
+			for method := range seen {
+				if method == r.Method {
+					continue
+				}
+				if sb.Len() > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(method)
+			}
+
+			if _, ok := seen[http.MethodOptions]; !ok && fox.handleOPTIONS {
+				if sb.Len() > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(http.MethodOptions)
+			}
+
+			w.Header().Set(HeaderAllow, sb.String())
 			c.scope = NoMethodHandler
-			c.tsr = false
 			fox.noMethod(c)
+			tree.pool.Put(c)
 			return
 		}
 	}
 
-	c.tsr = false
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
 }
@@ -1163,7 +1055,6 @@ type parsedRoute struct {
 
 // parseRoute parse and validate the route in a single pass.
 func (fox *Router) parseRoute(url string) (parsedRoute, error) {
-
 	endHost := strings.IndexByte(url, '/')
 	if endHost == -1 {
 		return parsedRoute{}, fmt.Errorf("%w: missing trailing '/' after hostname", ErrInvalidRoute)
@@ -1260,8 +1151,8 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 				}
 
 				if i < len(url)-1 {
-					if url[startCatchAll] == '+' {
-						return parsedRoute{}, fmt.Errorf("%w: '+{param}' allowed only as suffix", ErrInvalidRoute)
+					if url[startCatchAll] == '*' {
+						return parsedRoute{}, fmt.Errorf("%w: '*{param}' allowed only as suffix", ErrInvalidRoute)
 					}
 					// reset
 					startCatchAll = 0

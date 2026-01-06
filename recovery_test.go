@@ -21,14 +21,14 @@ func TestAbortHandler(t *testing.T) {
 		_, _ = c.Writer().Write([]byte(err.(error).Error()))
 	})
 
-	f, _ := New(WithMiddleware(m))
+	f, _ := NewRouter(WithMiddleware(m))
 
 	h := func(c *Context) {
 		func() { panic(http.ErrAbortHandler) }()
 		_ = c.String(200, "foo")
 	}
 
-	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/{foo}", h)))
+	require.NoError(t, onlyError(f.Add(MethodPost, "/{foo}", h)))
 	req := httptest.NewRequest(http.MethodPost, "/foo", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
 	w := httptest.NewRecorder()
@@ -56,7 +56,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		_, _ = c.Writer().Write([]byte(err.(string)))
 	})
 
-	f, _ := New(WithMiddleware(m))
+	f, _ := NewRouter(WithMiddleware(m))
 
 	const errMsg = "unexpected error"
 	h := func(c *Context) {
@@ -64,7 +64,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 		_ = c.String(200, "foo")
 	}
 
-	require.NoError(t, onlyError(f.Handle(http.MethodPost, "/", h)))
+	require.NoError(t, onlyError(f.Add(MethodPost, "/", h)))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
 	w := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 		}
 	})
 
-	f, _ := New(
+	f, _ := NewRouter(
 		WithHandleTrailingSlash(RedirectSlash),
 		WithHandleFixedPath(RedirectPath),
 		WithMiddleware(m),
@@ -117,7 +117,7 @@ func TestRecoveryMiddlewareOtherScope(t *testing.T) {
 		}),
 	)
 
-	require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/foo", emptyHandler)))
 
 	t.Run("no route handler", func(t *testing.T) {
 		reset()
@@ -182,7 +182,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 	for errno, expectMsg := range expectMsgs {
 		t.Run(expectMsg, func(t *testing.T) {
-			f, _ := New(WithMiddleware(RecoveryWithFunc(&slogpretty.Handler{
+			f, _ := NewRouter(WithMiddleware(RecoveryWithFunc(&slogpretty.Handler{
 				We:  weBuf,
 				Wo:  woBuf,
 				Lvl: slog.LevelDebug,
@@ -191,7 +191,7 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 					http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				}
 			})))
-			require.NoError(t, onlyError(f.Handle(http.MethodGet, "/foo", func(c *Context) {
+			require.NoError(t, onlyError(f.Add(MethodGet, "/foo", func(c *Context) {
 				e := &net.OpError{Err: &os.SyscallError{Err: errno}}
 				panic(e)
 			})))
@@ -210,8 +210,8 @@ func TestRecoveryMiddlewareWithBrokenPipe(t *testing.T) {
 
 func BenchmarkRecoveryMiddleware(b *testing.B) {
 
-	f, _ := New(WithMiddleware(RecoveryWithFunc(slog.DiscardHandler, DefaultHandleRecovery)))
-	f.MustHandle(http.MethodGet, "/{1}/{2}/{3}", func(c *Context) {
+	f, _ := NewRouter(WithMiddleware(RecoveryWithFunc(slog.DiscardHandler, DefaultHandleRecovery)))
+	f.MustAdd(MethodGet, "/{1}/{2}/{3}", func(c *Context) {
 		panic("yolo")
 	})
 

@@ -1,12 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
 // at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
-//
-// This implementation is influenced by the work done by goji and chi libraries,
-// with additional optimizations to avoid unnecessary memory allocations.
-// See their respective licenses for more information:
-// https://github.com/zenazn/goji/blob/master/LICENSE
-// https://github.com/go-chi/chi/blob/master/LICENSE
 
 package fox
 

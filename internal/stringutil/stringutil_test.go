@@ -1,9 +1,13 @@
 package stringutil
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestEqualASCIIIgnoreCase(t *testing.T) {
-	tests := []struct {
+	cases := []struct {
 		name string
 		s    uint8
 		t    uint8
@@ -74,18 +78,15 @@ func TestEqualASCIIIgnoreCase(t *testing.T) {
 		{"z+1 and Z", 'z' + 1, 'Z', false},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := EqualASCIIIgnoreCase(tt.s, tt.t); got != tt.want {
-				t.Errorf("equalASCIIIgnoreCase(%c=%d, %c=%d) = %v, want %v",
-					tt.s, tt.s, tt.t, tt.t, got, tt.want)
-			}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, EqualASCIIIgnoreCase(tc.s, tc.t))
 		})
 	}
 }
 
 func TestEqualStringsASCIIIgnoreCase(t *testing.T) {
-	tests := []struct {
+	cases := []struct {
 		name string
 		s1   string
 		s2   string
@@ -123,18 +124,15 @@ func TestEqualStringsASCIIIgnoreCase(t *testing.T) {
 		{"subdomain", "api-v2.example.com", "API-V2.EXAMPLE.COM", true},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := EqualStringsASCIIIgnoreCase(tt.s1, tt.s2); got != tt.want {
-				t.Errorf("EqualStringsASCIIIgnoreCase(%q, %q) = %v, want %v",
-					tt.s1, tt.s2, got, tt.want)
-			}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, EqualStringsASCIIIgnoreCase(tc.s1, tc.s2))
 		})
 	}
 }
 
 func TestToLowerASCII(t *testing.T) {
-	tests := []struct {
+	cases := []struct {
 		name string
 		b    byte
 		want byte
@@ -167,12 +165,9 @@ func TestToLowerASCII(t *testing.T) {
 		{"after z", 'z' + 1, 'z' + 1},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ToLowerASCII(tt.b); got != tt.want {
-				t.Errorf("ToLowerASCII(%c=%d) = %c=%d, want %c=%d",
-					tt.b, tt.b, got, got, tt.want, tt.want)
-			}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, ToLowerASCII(tc.b))
 		})
 	}
 }

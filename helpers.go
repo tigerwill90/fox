@@ -10,7 +10,7 @@ import (
 
 // NewTestContext returns a new [Router] and its associated [Context], designed only for testing purpose.
 func NewTestContext(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) (*Router, *Context) {
-	f, err := New(opts...)
+	f, err := NewRouter(opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -20,7 +20,7 @@ func NewTestContext(w http.ResponseWriter, r *http.Request, opts ...GlobalOption
 
 // NewTestContextOnly returns a new [Context] designed only for testing purpose.
 func NewTestContextOnly(w http.ResponseWriter, r *http.Request, opts ...GlobalOption) *Context {
-	f, err := New(opts...)
+	f, err := NewRouter(opts...)
 	if err != nil {
 		panic(err)
 	}

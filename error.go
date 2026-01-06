@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrRouteNotFound           = errors.New("route not found")
-	ErrRouteExist              = errors.New("route already registered")
+	ErrRouteConflict           = errors.New("route conflict")
 	ErrRouteNameExist          = errors.New("route name already registered")
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
@@ -29,31 +29,34 @@ var (
 )
 
 // RouteConflictError represents a conflict that occurred during route registration.
-// It contains the HTTP method, the route being registered, and the existing route
-// that caused the conflict.
+// It contains the route being registered, and the existing routes that caused the conflict.
 type RouteConflictError struct {
 	// New is the route that was being registered when the conflict was detected.
 	New *Route
-	// Method is the HTTP method for which the conflict occurred.
-	Method string
 	// Conflicts contains the previously registered routes that conflict with New.
 	Conflicts []*Route
+	// isShadowed indicate that the New route shadow other routes.
+	isShadowed bool
 }
 
 func (e *RouteConflictError) Error() string {
-	var sb strings.Builder
-	sb.WriteString("route already registered: new route ")
-	sb.WriteString(e.Method)
-	sb.WriteByte(' ')
-	sb.WriteString(e.New.pattern)
-	sb.WriteString(" conflicts with ")
+	sb := new(strings.Builder)
+	sb.WriteString("route conflict: new route\n")
+	routef(sb, e.New, 4)
 
-	// A RouteConflictError as always at least one conflicting route.
-	first := e.Conflicts[0].pattern
-	sb.WriteString(first)
-	for _, route := range e.Conflicts[1:] {
-		sb.WriteString("; ")
-		sb.WriteString(route.pattern)
+	if e.isShadowed {
+		if e.New.catchEmpty {
+			sb.WriteString("\nis shadowed by")
+		} else {
+			sb.WriteString("\nwould shadow")
+		}
+	} else {
+		sb.WriteString("\nconflicts with")
+	}
+
+	for _, conflict := range e.Conflicts {
+		sb.WriteByte('\n')
+		routef(sb, conflict, 4)
 	}
 
 	return sb.String()
@@ -61,19 +64,75 @@ func (e *RouteConflictError) Error() string {
 
 // Unwrap returns the sentinel value [ErrRouteConflict].
 func (e *RouteConflictError) Unwrap() error {
-	return ErrRouteExist
+	return ErrRouteConflict
 }
 
+// RouteNameConflictError represents a conflict that occurred during route name registration.
+// It contains the route being registered, and the existing route that caused the conflict.
 type RouteNameConflictError struct {
-	New      *Route
+	// New is the route that was being registered when the conflict was detected.
+	New *Route
+	// Conflict is the previously registered route that conflict with New.
 	Conflict *Route
-	Method   string
 }
 
 func (e *RouteNameConflictError) Error() string {
-	return fmt.Sprintf("%s: new route name '%s' conflict with route at %s %s", ErrRouteNameExist, e.New.name, e.Method, e.Conflict.pattern)
+	sb := new(strings.Builder)
+	sb.WriteString("route name already registered: new route\n")
+	routef(sb, e.New, 4)
+	sb.WriteString("\nconflicts with\n")
+	routef(sb, e.Conflict, 4)
+	return sb.String()
 }
 
+// Unwrap returns the sentinel value [ErrRouteNameExist].
 func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
+}
+
+func routef(sb *strings.Builder, route *Route, pad int) {
+	sb.WriteString(strings.Repeat(" ", pad))
+	sb.WriteString("method:")
+	if len(route.methods) > 0 {
+		first := route.methods[0]
+		sb.WriteString(first)
+		for _, method := range route.methods[1:] {
+			sb.WriteByte(',')
+			sb.WriteString(method)
+		}
+	} else {
+		sb.WriteString("*")
+	}
+
+	sb.WriteString(" pattern:")
+	sb.WriteString(route.pattern)
+
+	if route.name != "" {
+		sb.WriteString(" name:")
+		sb.WriteString(route.name)
+	}
+
+	size := sb.Len()
+	for _, matcher := range route.matchers {
+		if m, ok := matcher.(fmt.Stringer); ok {
+			if sb.Len() > size {
+				sb.WriteByte(',')
+			}
+			if size == sb.Len() {
+				sb.WriteString(" matchers:{")
+			}
+			sb.WriteString(m.String())
+		}
+	}
+	if sb.Len() > size {
+		sb.WriteByte('}')
+	}
+}
+
+func newRouteNotFoundError(route *Route) error {
+	sb := new(strings.Builder)
+	sb.WriteString("route\n")
+	routef(sb, route, 4)
+	sb.WriteString("\nis not registered")
+	return fmt.Errorf("%w: %s", ErrRouteNotFound, sb.String())
 }

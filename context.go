@@ -12,13 +12,19 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/tigerwill90/fox/internal/bytesconv"
 	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 // RequestContext provides read-only access to incoming HTTP request data, including request properties,
-// headers, query parameters, and client IP information.
+// headers, query parameters, and client IP information. It is implemented by [Context].
+//
+// The RequestContext API is not thread-safe. Its lifetime is limited to the scope of its caller:
+// within a [Matcher], it is valid only for the duration of the [Matcher.Match] call; within a [HandlerFunc],
+// it is valid only for the duration of the handler execution. The underlying context may be reused after
+// the call returns.
 type RequestContext interface {
 	// Request returns the current [http.Request].
 	Request() *http.Request
@@ -50,23 +56,27 @@ type RequestContext interface {
 	QueryParam(name string) string
 	// Header retrieves the value of the request header for the given key.
 	Header(key string) string
+	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+	Pattern() string
 }
 
-// Context holds request-related information and allows interaction with the [ResponseWriter].
+// Context represents the context of the current HTTP request. It provides methods to access request data and
+// to write a response. Be aware that the Context API is not thread-safe and its lifetime should be limited to the
+// duration of the [HandlerFunc] execution, as the Context may be reused as soon as the handler returns.
 type Context struct {
 	w             ResponseWriter
 	req           *http.Request
 	params        *[]string
-	tsrParams     *[]string
 	paramsKeys    *[]string
+	subPatterns   *[]string
 	skipStack     *skipStack
 	route         *Route
 	tree          *iTree  // no reset
 	fox           *Router // no reset
+	pattern       string
 	cachedQueries url.Values
 	rec           recorder
 	scope         HandlerScope
-	tsr           bool
 }
 
 // reset resets the [Context] to its initial state, attaching the provided [http.ResponseWriter] and [http.Request].
@@ -80,6 +90,7 @@ func (c *Context) reset(w http.ResponseWriter, r *http.Request) {
 	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+	*c.subPatterns = (*c.subPatterns)[:0]
 }
 
 func (c *Context) resetNil() {
@@ -88,7 +99,7 @@ func (c *Context) resetNil() {
 	c.cachedQueries = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
-	c.tsr = false
+	*c.subPatterns = (*c.subPatterns)[:0]
 }
 
 // resetWithRequest resets the [Context] to its initial state, with the provided [http.Request]. This is used
@@ -109,6 +120,7 @@ func (c *Context) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+	*c.subPatterns = (*c.subPatterns)[:0]
 }
 
 // Request returns the [http.Request].
@@ -170,14 +182,6 @@ func (c *Context) ClientIP() (*net.IPAddr, error) {
 // Params returns an iterator over the matched wildcard parameters for the current route.
 func (c *Context) Params() iter.Seq[Param] {
 	return func(yield func(Param) bool) {
-		if c.tsr {
-			for i, p := range *c.tsrParams {
-				if !yield(Param{Key: (*c.paramsKeys)[i], Value: p}) {
-					return
-				}
-			}
-			return
-		}
 		for i, p := range *c.params {
 			if !yield(Param{Key: (*c.paramsKeys)[i], Value: p}) {
 				return
@@ -188,16 +192,6 @@ func (c *Context) Params() iter.Seq[Param] {
 
 // Param retrieve a matching wildcard segment by name.
 func (c *Context) Param(name string) string {
-	if c.tsr {
-		for i := range *c.tsrParams {
-			key := (*c.paramsKeys)[i]
-			if key == name {
-				return (*c.tsrParams)[i]
-			}
-		}
-		return ""
-	}
-
 	for i := range *c.params {
 		key := (*c.paramsKeys)[i]
 		if key == name {
@@ -256,7 +250,20 @@ func (c *Context) Header(key string) string {
 
 // Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
 func (c *Context) Pattern() string {
-	return c.req.Pattern
+	switch len(*c.subPatterns) {
+	case 0:
+		return c.pattern
+	case 1:
+		return (*c.subPatterns)[0] + c.pattern
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(c.pattern) + sumLen(*c.subPatterns))
+	for _, p := range *c.subPatterns {
+		sb.WriteString(p)
+	}
+	sb.WriteString(c.pattern)
+	return sb.String()
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
@@ -290,8 +297,8 @@ func (c *Context) Stream(code int, contentType string, r io.Reader) (err error) 
 	return
 }
 
-// Fox returns the [Router] instance.
-func (c *Context) Fox() *Router {
+// Router returns the [Router] instance.
+func (c *Context) Router() *Router {
 	return c.fox
 }
 
@@ -299,26 +306,24 @@ func (c *Context) Fox() *Router {
 // Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
 func (c *Context) Clone() *Context {
 	cp := Context{
-		rec:   c.rec,
-		req:   c.req.Clone(c.req.Context()),
-		fox:   c.fox,
-		route: c.route,
-		scope: c.scope,
-		tsr:   c.tsr,
+		rec:     c.rec,
+		req:     c.req.Clone(c.req.Context()),
+		fox:     c.fox, // Note: no tree here so Context.Close is noop.
+		route:   c.route,
+		scope:   c.scope,
+		pattern: c.pattern,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
 	cp.w = noUnwrap{&cp.rec}
 
-	if !c.tsr {
-		params := make([]string, len(*c.params))
-		copy(params, *c.params)
-		cp.params = &params
-	} else {
-		tsrParams := make([]string, len(*c.tsrParams))
-		copy(tsrParams, *c.tsrParams)
-		cp.tsrParams = &tsrParams
-	}
+	subPatterns := make([]string, len(*c.subPatterns))
+	copy(subPatterns, *c.subPatterns)
+	cp.subPatterns = &subPatterns
+
+	params := make([]string, len(*c.params))
+	copy(params, *c.params)
+	cp.params = &params
 
 	keys := make([]string, len(*c.paramsKeys))
 	copy(keys, *c.paramsKeys)
@@ -328,25 +333,22 @@ func (c *Context) Clone() *Context {
 }
 
 // CloneWith returns a shallow copy of the current [Context], substituting its [ResponseWriter] and [http.Request] with the
-// provided ones. The method is designed for zero allocation during the copy process. The returned [Context] must
-// be closed once no longer needed. This functionality is particularly beneficial for middlewares that need to wrap
-// their custom [ResponseWriter] while preserving the state of the original [Context].
+// provided ones. The method is designed for zero allocation during the copy process. The caller is responsible for
+// closing the returned [Context] by calling [Context.Close] when it is no longer needed. This functionality is particularly
+// beneficial for middlewares that need to wrap their custom [ResponseWriter] while preserving the state of the original
+// [Context].
 func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp := c.tree.pool.Get().(*Context)
 	cp.req = r
 	cp.w = w
 	cp.route = c.route
 	cp.scope = c.scope
-	cp.cachedQueries = nil // In case r is a different request than c.req
-	cp.tsr = c.tsr
+	cp.pattern = c.pattern
+	cp.cachedQueries = nil // For safety, in case r is a different request than c.req
 
+	copyWithResize(cp.subPatterns, c.subPatterns)
 	copyWithResize(cp.paramsKeys, c.paramsKeys)
-
-	if !c.tsr {
-		copyWithResize(cp.params, c.params)
-	} else {
-		copyWithResize(cp.tsrParams, c.tsrParams)
-	}
+	copyWithResize(cp.params, c.params)
 
 	return cp
 }
@@ -368,9 +370,13 @@ func (c *Context) Scope() HandlerScope {
 	return c.scope
 }
 
-// Close releases the context to be reused later.
+// Close releases the context to be reused later. This method must be called for contexts obtained via
+// [Context.CloneWith], [Router.Lookup], or [Txn.Lookup]. Contexts passed to a [HandlerFunc] are managed
+// automatically by the router and should not be closed manually. See also [Context] for more details.
 func (c *Context) Close() {
-	c.tree.pool.Put(c)
+	if c.tree != nil {
+		c.tree.pool.Put(c)
+	}
 }
 
 func (c *Context) getQueries() url.Values {
@@ -387,48 +393,56 @@ func (c *Context) getQueries() url.Values {
 // WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
-	return func(c *Context) {
-		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
-			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
-			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
-			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
-			return
-		}
-
-		f.ServeHTTP(c.Writer(), c.Request())
-	}
+	return WrapH(f)
 }
 
 // WrapH is an adapter for wrapping http.Handler and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
-	return func(c *Context) {
-		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
-			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
-			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
-			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
-			return
-		}
-
-		h.ServeHTTP(c.Writer(), c.Request())
-	}
+	return wrapH{h: h}.handle
 }
 
 // WrapM is an adapter for wrapping http.Handler middleware and returns a [MiddlewareFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapM(m func(http.Handler) http.Handler) MiddlewareFunc {
 	return func(next HandlerFunc) HandlerFunc {
-		return middlewareWrapper{next: next, m: m}.handle
+		return wrapM{next: next, m: m}.handle
 	}
 }
 
-type middlewareWrapper struct {
+type wrapH struct {
+	h http.Handler
+}
+
+func (hw wrapH) handle(c *Context) {
+	req := c.Request()
+
+	p := req.Pattern
+	defer func() { req.Pattern = p }()
+
+	req.Pattern = c.Pattern()
+	if route := c.Route(); route != nil && route.ParamsLen() > 0 {
+		params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
+		ctx := context.WithValue(req.Context(), paramsKey, params)
+		hw.h.ServeHTTP(c.Writer(), req.WithContext(ctx))
+		return
+	}
+
+	hw.h.ServeHTTP(c.Writer(), req)
+}
+
+type wrapM struct {
 	next HandlerFunc
 	m    func(http.Handler) http.Handler
 }
 
-func (mw middlewareWrapper) handle(c *Context) {
+func (mw wrapM) handle(c *Context) {
 	req := c.Request()
+
+	p := req.Pattern
+	defer func() { req.Pattern = p }()
+
+	req.Pattern = c.Pattern()
 	if route := c.Route(); route != nil && route.ParamsLen() > 0 {
 		params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
 		ctx := context.WithValue(c.Request().Context(), paramsKey, params)
@@ -446,4 +460,12 @@ func (mw middlewareWrapper) handle(c *Context) {
 		defer cc.Close()
 		mw.next(cc)
 	})).ServeHTTP(c.Writer(), req)
+}
+
+func sumLen(s []string) int {
+	var n int
+	for _, v := range s {
+		n += len(v)
+	}
+	return n
 }
