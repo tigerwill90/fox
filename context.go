@@ -19,7 +19,12 @@ import (
 )
 
 // RequestContext provides read-only access to incoming HTTP request data, including request properties,
-// headers, query parameters, and client IP information.
+// headers, query parameters, and client IP information. It is implemented by [Context].
+//
+// The RequestContext API is not thread-safe. Its lifetime is limited to the scope of its caller:
+// within a [Matcher], it is valid only for the duration of the [Matcher.Match] call; within a [HandlerFunc],
+// it is valid only for the duration of the handler execution. The underlying context may be reused after
+// the call returns.
 type RequestContext interface {
 	// Request returns the current [http.Request].
 	Request() *http.Request
@@ -301,15 +306,20 @@ func (c *Context) Router() *Router {
 // Any attempt to write on the [ResponseWriter] will panic with the error [ErrDiscardedResponseWriter].
 func (c *Context) Clone() *Context {
 	cp := Context{
-		rec:   c.rec,
-		req:   c.req.Clone(c.req.Context()),
-		fox:   c.fox,
-		route: c.route,
-		scope: c.scope,
+		rec:     c.rec,
+		req:     c.req.Clone(c.req.Context()),
+		fox:     c.fox, // Note: no tree here so Context.Close is noop.
+		route:   c.route,
+		scope:   c.scope,
+		pattern: c.pattern,
 	}
 
 	cp.rec.ResponseWriter = noopWriter{c.rec.Header().Clone()}
 	cp.w = noUnwrap{&cp.rec}
+
+	subPatterns := make([]string, len(*c.subPatterns))
+	copy(subPatterns, *c.subPatterns)
+	cp.subPatterns = &subPatterns
 
 	params := make([]string, len(*c.params))
 	copy(params, *c.params)
@@ -333,8 +343,10 @@ func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp.w = w
 	cp.route = c.route
 	cp.scope = c.scope
+	cp.pattern = c.pattern
 	cp.cachedQueries = nil // For safety, in case r is a different request than c.req
 
+	copyWithResize(cp.subPatterns, c.subPatterns)
 	copyWithResize(cp.paramsKeys, c.paramsKeys)
 	copyWithResize(cp.params, c.params)
 
@@ -362,7 +374,9 @@ func (c *Context) Scope() HandlerScope {
 // [Context.CloneWith], [Router.Lookup], or [Txn.Lookup]. Contexts passed to a [HandlerFunc] are managed
 // automatically by the router and should not be closed manually. See also [Context] for more details.
 func (c *Context) Close() {
-	c.tree.pool.Put(c)
+	if c.tree != nil {
+		c.tree.pool.Put(c)
+	}
 }
 
 func (c *Context) getQueries() url.Values {

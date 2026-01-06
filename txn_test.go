@@ -626,3 +626,15 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 		return nil
 	}))
 }
+
+func TestX(t *testing.T) {
+	f := MustRouter()
+	f.MustAdd(MethodGet, "/foo", func(c *Context) {
+		cc := c.Clone()
+		cc.Close()
+	})
+
+	req := httptest.NewRequest("GET", "/foo", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+}
