@@ -474,7 +474,7 @@ func (fox *Router) Mount() HandlerFunc {
 		tree := fox.getTree()
 		subCtx := tree.pool.Get().(*Context)
 		subCtx.resetWithWriter(c.Writer(), c.Request())
-		// Any recovery middleware would probably be before the mounted route, so let's defer this one.
+		// Any recovery middleware would probably be before the mounted route, so let's defer this one for safety.
 		defer tree.pool.Put(subCtx)
 
 		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
