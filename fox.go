@@ -477,11 +477,9 @@ func (fox *Router) Mount() HandlerFunc {
 		// Any recovery middleware would probably be before the mounted route, so let's defer this one.
 		defer tree.pool.Put(subCtx)
 
-		pattern := c.pattern
-
 		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
 		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
-		p := strings.TrimSuffix(pattern[:len(pattern)-(len(key)+wildcardExtraChar)], "/")
+		p := strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+wildcardExtraChar)], "/")
 		*subCtx.subPatterns = append(*subCtx.subPatterns, p)
 
 		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
@@ -502,7 +500,6 @@ func (fox *Router) Mount() HandlerFunc {
 
 		// Serve the sub router
 		fox.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
-		// c.pattern = pattern // Restore parent pattern // TODO should we ?
 	}
 }
 
