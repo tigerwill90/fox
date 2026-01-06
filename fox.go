@@ -386,7 +386,7 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
+		c.pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
 		return c.route, c, tsr
 	}
@@ -477,9 +477,12 @@ func (fox *Router) Mount() HandlerFunc {
 		// Any recovery middleware would probably be before the mounted route, so let's defer this one.
 		defer tree.pool.Put(subCtx)
 
-		req := c.Request()
+		pattern := c.pattern
+
+		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
 		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
-		req.Pattern = strings.TrimSuffix(req.Pattern[:len(req.Pattern)-(len(key)+wildcardExtraChar)], "/")
+		p := strings.TrimSuffix(pattern[:len(pattern)-(len(key)+wildcardExtraChar)], "/")
+		*subCtx.subPatterns = append(*subCtx.subPatterns, p)
 
 		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
 		// wildcard such as /foo+{args}. In that case we need to we reslice from the original path to include it,
@@ -499,6 +502,7 @@ func (fox *Router) Mount() HandlerFunc {
 
 		// Serve the sub router
 		fox.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
+		// c.pattern = pattern // Restore parent pattern // TODO should we ?
 	}
 }
 
@@ -689,7 +693,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if !tsr && n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
+		c.pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
 		c.route.hall(c)
 		tree.pool.Put(c)
@@ -701,7 +705,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			route := n.routes[idx]
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
-				r.Pattern = c.route.pattern
+				c.pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
 				route.hall(c)
 				tree.pool.Put(c)
@@ -711,6 +715,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if route.handleSlash == RedirectSlash {
 				*c.params = (*c.params)[:0]
 				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				tree.pool.Put(c)
@@ -723,7 +728,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*c.params = (*c.params)[:0]
 			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
-				r.Pattern = c.route.pattern
+				c.pattern = c.route.pattern
 				*c.paramsKeys = c.route.params
 				c.route.hall(c)
 				tree.pool.Put(c)
@@ -733,6 +738,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if idx, n, tsr := tree.lookup(r.Method, r.Host, CleanPath(path), c, true); n != nil && (!tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
 				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
 				tree.pool.Put(c)
@@ -744,6 +750,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	*c.params = (*c.params)[:0]
 	c.route = nil
+	c.pattern = ""
 
 	isOPTIONS := r.Method == http.MethodOptions
 
@@ -887,7 +894,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 	if !tsr && n != nil {
 		c.route = n.routes[idx]
 		*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-		r.Pattern += c.route.pattern
+		c.pattern = c.route.pattern
 		c.route.hall(c)
 		return
 	}
@@ -898,7 +905,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if route.handleSlash == RelaxedSlash {
 				c.route = route
 				*c.paramsKeys = append(*c.paramsKeys, route.params...)
-				r.Pattern += c.route.pattern
+				c.pattern = c.route.pattern
 				route.hall(c)
 				return
 			}
@@ -906,6 +913,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if route.handleSlash == RedirectSlash {
 				*c.params = (*c.params)[:0]
 				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectSlashHandler
 				fox.tsrRedirect(c)
 				return
@@ -918,7 +926,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, false); n != nil && (!tsr || n.routes[idx].handleSlash == RelaxedSlash) {
 				c.route = n.routes[idx]
 				*c.paramsKeys = append(*c.paramsKeys, c.route.params...)
-				r.Pattern += c.route.pattern
+				c.pattern = c.route.pattern
 				c.route.hall(c)
 				return
 			}
@@ -926,6 +934,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 			if idx, n, tsr := tree.lookupByPath(r.Method, CleanPath(path), c, true); n != nil && (!tsr || n.routes[idx].handleSlash != StrictSlash) {
 				*c.params = (*c.params)[:0]
 				c.route = nil
+				c.pattern = ""
 				c.scope = RedirectPathHandler
 				fox.pathRedirect(c)
 				return
@@ -936,7 +945,7 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 	*c.params = (*c.params)[:0]
 	c.route = nil
-	r.Pattern = ""
+	c.pattern = ""
 
 	isOPTIONS := r.Method == http.MethodOptions
 

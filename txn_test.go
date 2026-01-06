@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -629,16 +630,32 @@ func TestTxn_HasWithMatchers(t *testing.T) {
 }
 
 func TestX(t *testing.T) {
-	sub := MustRouter()
-	sub.MustAdd(MethodGet, "/", emptyHandler)
-	sub.MustAdd(MethodGet, "/users", func(c *Context) {
-		fmt.Println(c.Pattern())
+	mw := MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+		return func(c *Context) {
+			fmt.Println("before", c.Pattern(), slices.Collect(c.Params()))
+			next(c)
+			fmt.Println("after", c.Pattern(), slices.Collect(c.Params()))
+		}
 	})
 
-	f := MustRouter()
-	f.MustAdd(MethodAny, "/api{any}", sub.Mount())
+	sub := MustRouter()
+	sub.MustAdd(MethodGet, "/", emptyHandler)
+	sub.MustAdd(MethodGet, "/{name}", func(c *Context) {
+		fmt.Println("handler", c.Pattern(), slices.Collect(c.Params()))
+	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	sub2 := MustRouter(WithNoRouteHandler(func(c *Context) {
+		fmt.Println("no route", c.Pattern(), slices.Collect(c.Params()))
+	}))
+	sub2.MustAdd(MethodGet, "/bar/{id}", func(c *Context) {
+		fmt.Println("handler", c.Pattern(), slices.Collect(c.Params()))
+	})
+	sub.MustAdd(MethodAny, "/boulou/*{any}", sub2.Mount(), WithMiddleware(mw))
+
+	f := MustRouter()
+	f.MustAdd(MethodAny, "/{prefix}/*{any}", sub.Mount(), WithMiddleware(mw))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/boulou/bar/123/yolo", nil)
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
 }

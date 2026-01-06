@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/tigerwill90/fox/internal/bytesconv"
 	"github.com/tigerwill90/fox/internal/netutil"
@@ -50,6 +51,8 @@ type RequestContext interface {
 	QueryParam(name string) string
 	// Header retrieves the value of the request header for the given key.
 	Header(key string) string
+	// Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
+	Pattern() string
 }
 
 // Context represents the context of the current HTTP request. It provides methods to access request data and
@@ -60,10 +63,12 @@ type Context struct {
 	req           *http.Request
 	params        *[]string
 	paramsKeys    *[]string
+	subPatterns   *[]string
 	skipStack     *skipStack
 	route         *Route
 	tree          *iTree  // no reset
 	fox           *Router // no reset
+	pattern       string
 	cachedQueries url.Values
 	rec           recorder
 	scope         HandlerScope
@@ -80,6 +85,7 @@ func (c *Context) reset(w http.ResponseWriter, r *http.Request) {
 	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+	*c.subPatterns = (*c.subPatterns)[:0]
 }
 
 func (c *Context) resetNil() {
@@ -88,6 +94,7 @@ func (c *Context) resetNil() {
 	c.cachedQueries = nil
 	c.route = nil
 	*c.params = (*c.params)[:0]
+	*c.subPatterns = (*c.subPatterns)[:0]
 }
 
 // resetWithRequest resets the [Context] to its initial state, with the provided [http.Request]. This is used
@@ -108,6 +115,7 @@ func (c *Context) resetWithWriter(w ResponseWriter, r *http.Request) {
 	c.cachedQueries = nil
 	c.scope = RouteHandler
 	*c.params = (*c.params)[:0]
+	*c.subPatterns = (*c.subPatterns)[:0]
 }
 
 // Request returns the [http.Request].
@@ -237,7 +245,20 @@ func (c *Context) Header(key string) string {
 
 // Pattern returns the registered route pattern or an empty string if the handler is called in a scope other than [RouteHandler].
 func (c *Context) Pattern() string {
-	return c.req.Pattern
+	switch len(*c.subPatterns) {
+	case 0:
+		return c.pattern
+	case 1:
+		return (*c.subPatterns)[0] + c.pattern
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(c.pattern) + sumLen(*c.subPatterns))
+	for _, p := range *c.subPatterns {
+		sb.WriteString(p)
+	}
+	sb.WriteString(c.pattern)
+	return sb.String()
 }
 
 // Route returns the registered [Route] or nil if the handler is called in a scope other than [RouteHandler].
@@ -312,7 +333,7 @@ func (c *Context) CloneWith(w ResponseWriter, r *http.Request) *Context {
 	cp.w = w
 	cp.route = c.route
 	cp.scope = c.scope
-	cp.cachedQueries = nil // In case r is a different request than c.req
+	cp.cachedQueries = nil // For safety, in case r is a different request than c.req
 
 	copyWithResize(cp.paramsKeys, c.paramsKeys)
 	copyWithResize(cp.params, c.params)
@@ -358,31 +379,13 @@ func (c *Context) getQueries() url.Values {
 // WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapF(f http.HandlerFunc) HandlerFunc {
-	return func(c *Context) {
-		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
-			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
-			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
-			f.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
-			return
-		}
-
-		f.ServeHTTP(c.Writer(), c.Request())
-	}
+	return WrapH(f)
 }
 
 // WrapH is an adapter for wrapping http.Handler and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
 func WrapH(h http.Handler) HandlerFunc {
-	return func(c *Context) {
-		if route := c.Route(); route != nil && route.ParamsLen() > 0 {
-			params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
-			ctx := context.WithValue(c.Request().Context(), paramsKey, params)
-			h.ServeHTTP(c.Writer(), c.Request().WithContext(ctx))
-			return
-		}
-
-		h.ServeHTTP(c.Writer(), c.Request())
-	}
+	return handlerWrapper{h: h}.handle
 }
 
 // WrapM is an adapter for wrapping http.Handler middleware and returns a [MiddlewareFunc] function.
@@ -393,6 +396,27 @@ func WrapM(m func(http.Handler) http.Handler) MiddlewareFunc {
 	}
 }
 
+type handlerWrapper struct {
+	h http.Handler
+}
+
+func (hw handlerWrapper) handle(c *Context) {
+	req := c.Request()
+
+	p := req.Pattern
+	defer func() { req.Pattern = p }()
+
+	req.Pattern = c.Pattern()
+	if route := c.Route(); route != nil && route.ParamsLen() > 0 {
+		params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
+		ctx := context.WithValue(req.Context(), paramsKey, params)
+		hw.h.ServeHTTP(c.Writer(), req.WithContext(ctx))
+		return
+	}
+
+	hw.h.ServeHTTP(c.Writer(), req)
+}
+
 type middlewareWrapper struct {
 	next HandlerFunc
 	m    func(http.Handler) http.Handler
@@ -400,6 +424,11 @@ type middlewareWrapper struct {
 
 func (mw middlewareWrapper) handle(c *Context) {
 	req := c.Request()
+
+	p := req.Pattern
+	defer func() { req.Pattern = p }()
+
+	req.Pattern = c.Pattern()
 	if route := c.Route(); route != nil && route.ParamsLen() > 0 {
 		params := slices.AppendSeq(make(Params, 0, route.ParamsLen()), c.Params())
 		ctx := context.WithValue(c.Request().Context(), paramsKey, params)
@@ -417,4 +446,12 @@ func (mw middlewareWrapper) handle(c *Context) {
 		defer cc.Close()
 		mw.next(cc)
 	})).ServeHTTP(c.Writer(), req)
+}
+
+func sumLen(s []string) int {
+	var n int
+	for _, v := range s {
+		n += len(v)
+	}
+	return n
 }

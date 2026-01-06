@@ -61,8 +61,6 @@ type node struct {
 }
 
 func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node, bool) {
-	paramOffset := len(*c.params)
-
 	*c.skipStack = (*c.skipStack)[:0]
 	// The tree for this method, we only have path registered
 	if len(n.params) == 0 && len(n.wildcards) == 0 && len(n.statics) == 1 && n.statics[0].label == slashDelim {
@@ -78,7 +76,7 @@ func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int
 	if nd == nil {
 		// No match with hostname, fallback to path-only.
 		*c.skipStack = (*c.skipStack)[:0]
-		*c.params = (*c.params)[:paramOffset]
+		*c.params = (*c.params)[:0]
 		if i, pathNode, pathTsr := lookupByPath(n, method, path, c, lazy, offsetZero); pathNode != nil {
 			return i, pathNode, pathTsr
 		}

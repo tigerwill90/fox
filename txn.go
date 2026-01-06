@@ -317,7 +317,7 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Con
 	idx, n, tsr := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
 		c.route = n.routes[idx]
-		r.Pattern = c.route.pattern
+		c.pattern = c.route.pattern
 		*c.paramsKeys = c.route.params
 		return c.route, c, tsr
 	}

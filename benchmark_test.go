@@ -129,7 +129,6 @@ func BenchmarkGithubParamsAll(b *testing.B) {
 	}
 }
 
-// BenchmarkGithubParamsHostnameAll-16    	19940634	        61.47 ns/op	       0 B/op	       0 allocs/op
 func BenchmarkGithubParamsHostnameAll(b *testing.B) {
 	r, _ := NewRouter()
 	for _, route := range wildcardHostnames {

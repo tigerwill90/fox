@@ -566,14 +566,12 @@ func TestWrapM(t *testing.T) {
 	assert.Equal(t, "OK", w.Body.String())
 }
 
-func BenchmarkWrapF(b *testing.B) {
+func BenchmarkWrapH(b *testing.B) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
 	w := httptest.NewRecorder()
 
 	f, _ := NewRouter()
-	f.MustAdd(MethodGet, "/{a}/{b}/{c}", WrapF(func(w http.ResponseWriter, r *http.Request) {
-
-	}))
+	f.MustAdd(MethodGet, "/{a}/{b}/{c}", WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -581,7 +579,21 @@ func BenchmarkWrapF(b *testing.B) {
 	for range b.N {
 		f.ServeHTTP(w, req)
 	}
+}
 
+func BenchmarkWrapF(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
+	w := httptest.NewRecorder()
+
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/{a}/{b}/{c}", WrapF(func(w http.ResponseWriter, r *http.Request) {}))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for range b.N {
+		f.ServeHTTP(w, req)
+	}
 }
 
 func BenchmarkWrapM(b *testing.B) {
@@ -593,8 +605,7 @@ func BenchmarkWrapM(b *testing.B) {
 	}
 
 	f := MustRouter(WithMiddleware(WrapM(m)))
-	f.MustAdd(MethodGet, "/a/b/c", func(c *Context) {
-	})
+	f.MustAdd(MethodGet, "/{a}/{b}/{c}", emptyHandler)
 
 	req := httptest.NewRequest(http.MethodGet, "/a/b/c", nil)
 	w := httptest.NewRecorder()

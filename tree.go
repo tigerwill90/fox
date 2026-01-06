@@ -47,13 +47,15 @@ func (t *iTree) lookupByPath(method, path string, c *Context, lazy bool) (int, *
 }
 
 func (t *iTree) allocateContext() *Context {
+	patterns := make([]string, 0)
 	params := make([]string, 0, t.maxParams)
 	keys := make([]string, 0, t.maxParams)
 	stacks := make(skipStack, 0, t.maxDepth)
 	return &Context{
-		params:     &params,
-		skipStack:  &stacks,
-		paramsKeys: &keys,
+		params:      &params,
+		skipStack:   &stacks,
+		paramsKeys:  &keys,
+		subPatterns: &patterns,
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree: t,
