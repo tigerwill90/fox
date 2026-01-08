@@ -16,7 +16,6 @@ var (
 	ErrRouteNameExist          = errors.New("route name already registered")
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
-	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 	ErrNoClientIPResolver      = errors.New("no client ip resolver")
 	ErrReadOnlyTxn             = errors.New("write on read-only transaction")
 	ErrSettledTxn              = errors.New("transaction settled")
