@@ -131,7 +131,7 @@ func (r *Route) MatchersPriority() uint {
 
 func (r *Route) String() string {
 	sb := new(strings.Builder)
-	routef(sb, r, 0)
+	routef(sb, r, 0, true)
 	return sb.String()
 }
 
@@ -186,7 +186,7 @@ outer:
 	return true
 }
 
-func routef(sb *strings.Builder, route *Route, pad int) {
+func routef(sb *strings.Builder, route *Route, pad int, showName bool) {
 	sb.WriteString(strings.Repeat(" ", pad))
 	sb.WriteString("method:")
 	if len(route.methods) > 0 {
@@ -203,7 +203,7 @@ func routef(sb *strings.Builder, route *Route, pad int) {
 	sb.WriteString(" pattern:")
 	sb.WriteString(route.pattern)
 
-	if route.name != "" {
+	if route.name != "" && showName {
 		sb.WriteString(" name:")
 		sb.WriteString(route.name)
 	}

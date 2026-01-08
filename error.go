@@ -42,7 +42,7 @@ type RouteConflictError struct {
 func (e *RouteConflictError) Error() string {
 	sb := new(strings.Builder)
 	sb.WriteString("route conflict: new route\n")
-	routef(sb, e.New, 4)
+	routef(sb, e.New, 4, true)
 
 	if e.isShadowed {
 		if e.New.catchEmpty {
@@ -56,7 +56,7 @@ func (e *RouteConflictError) Error() string {
 
 	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
-		routef(sb, conflict, 4)
+		routef(sb, conflict, 4, true)
 	}
 
 	return sb.String()
@@ -79,9 +79,9 @@ type RouteNameConflictError struct {
 func (e *RouteNameConflictError) Error() string {
 	sb := new(strings.Builder)
 	sb.WriteString("route name already registered: new route\n")
-	routef(sb, e.New, 4)
+	routef(sb, e.New, 4, true)
 	sb.WriteString("\nconflicts with\n")
-	routef(sb, e.Conflict, 4)
+	routef(sb, e.Conflict, 4, true)
 	return sb.String()
 }
 
@@ -93,7 +93,7 @@ func (e *RouteNameConflictError) Unwrap() error {
 func newRouteNotFoundError(route *Route) error {
 	sb := new(strings.Builder)
 	sb.WriteString("route\n")
-	routef(sb, route, 4)
+	routef(sb, route, 4, false)
 	sb.WriteString("\nis not registered")
 	return fmt.Errorf("%w: %s", ErrRouteNotFound, sb.String())
 }
