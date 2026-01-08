@@ -90,45 +90,6 @@ func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
 }
 
-func routef(sb *strings.Builder, route *Route, pad int) {
-	sb.WriteString(strings.Repeat(" ", pad))
-	sb.WriteString("method:")
-	if len(route.methods) > 0 {
-		first := route.methods[0]
-		sb.WriteString(first)
-		for _, method := range route.methods[1:] {
-			sb.WriteByte(',')
-			sb.WriteString(method)
-		}
-	} else {
-		sb.WriteString("*")
-	}
-
-	sb.WriteString(" pattern:")
-	sb.WriteString(route.pattern)
-
-	if route.name != "" {
-		sb.WriteString(" name:")
-		sb.WriteString(route.name)
-	}
-
-	size := sb.Len()
-	for _, matcher := range route.matchers {
-		if m, ok := matcher.(fmt.Stringer); ok {
-			if sb.Len() > size {
-				sb.WriteByte(',')
-			}
-			if size == sb.Len() {
-				sb.WriteString(" matchers:{")
-			}
-			sb.WriteString(m.String())
-		}
-	}
-	if sb.Len() > size {
-		sb.WriteByte('}')
-	}
-}
-
 func newRouteNotFoundError(route *Route) error {
 	sb := new(strings.Builder)
 	sb.WriteString("route\n")

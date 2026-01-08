@@ -83,3 +83,35 @@ func TestRoute_Methods(t *testing.T) {
 	route := f.Route([]string{http.MethodOptions, http.MethodHead, http.MethodGet}, "/foo/bar")
 	assert.Equal(t, []string{http.MethodGet, http.MethodHead, http.MethodOptions}, slices.Collect(route.Methods()))
 }
+
+func TestRoute_Static(t *testing.T) {
+	t.Run("many methods + name + many matchers", func(t *testing.T) {
+		f := MustRouter()
+		r := f.MustAdd(
+			[]string{http.MethodGet, http.MethodHead}, "/foo/bar",
+			emptyHandler,
+			WithName("foo"),
+			WithQueryMatcher("a", "b"),
+			WithHeaderMatcher("a", "b"),
+		)
+		assert.Equal(t, "method:GET,HEAD pattern:/foo/bar name:foo matchers:{q:a=b,h:A=b}", r.String())
+	})
+	t.Run("single method + name + single matchers", func(t *testing.T) {
+		f := MustRouter()
+		r := f.MustAdd(
+			[]string{http.MethodGet}, "/foo/bar",
+			emptyHandler,
+			WithName("foo"),
+			WithQueryMatcher("a", "b"),
+		)
+		assert.Equal(t, "method:GET pattern:/foo/bar name:foo matchers:{q:a=b}", r.String())
+	})
+	t.Run("no method + pattern", func(t *testing.T) {
+		f := MustRouter()
+		r := f.MustAdd(
+			MethodAny, "/foo/bar",
+			emptyHandler,
+		)
+		assert.Equal(t, "method:* pattern:/foo/bar", r.String())
+	})
+}

@@ -420,7 +420,6 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		clientip:    fox.clientip,
 		hbase:       handler,
 		pattern:     pattern,
-		mws:         fox.mws,
 		handleSlash: fox.handleSlash,
 		hostEnd:     parsed.endHost,
 		tokens:      parsed.token,
@@ -448,7 +447,7 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 	}
 
 	rte.priority = cmp.Or(rte.priority, uint(len(rte.matchers)))
-	rte.hself, rte.hall = applyRouteMiddleware(rte.mws, handler)
+	rte.hself, rte.hall = applyRouteMiddleware(append(fox.mws, rte.mws...), handler)
 
 	if len(methods) > 0 {
 		// As a defensive mesure, keep our own copy of the provided slice.

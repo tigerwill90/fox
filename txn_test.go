@@ -119,6 +119,42 @@ func TestTxn_Isolation(t *testing.T) {
 		assert.Equal(t, wantNames+len(githubAPI), iterutil.Len(f.Iter().Names()))
 	})
 
+	t.Run("txn truncate does not reflect on read before commit", func(t *testing.T) {
+		f := MustRouter()
+		for _, rte := range staticRoutes {
+			assert.NoError(t, onlyError(f.Add([]string{rte.method, http.MethodPost}, rte.path, emptyHandler, WithName(rte.method+":"+rte.path))))
+		}
+
+		txn := f.Txn(true)
+		defer txn.Abort()
+
+		require.NoError(t, txn.Truncate())
+
+		tree := f.getTree()
+		assert.Equal(t, map[string]uint{http.MethodGet: 157, http.MethodPost: 157}, tree.methods)
+		assert.Equal(t, len(staticRoutes), iterutil.Len(f.Iter().All()))
+		assert.Equal(t, len(staticRoutes), iterutil.Len(f.Iter().Names()))
+		assert.Equal(t, len(staticRoutes), f.Len())
+
+		readTxn := f.Txn(false)
+		defer readTxn.Abort()
+
+		txn.Commit()
+
+		// Reflect after commited
+		tree = f.getTree()
+		assert.Empty(t, tree.methods)
+		assert.Equal(t, 0, iterutil.Len(f.Iter().All()))
+		assert.Equal(t, 0, iterutil.Len(f.Iter().Names()))
+		assert.Equal(t, 0, f.Len())
+
+		// Read txn created before commit
+		assert.Equal(t, map[string]uint{http.MethodGet: 157, http.MethodPost: 157}, readTxn.rootTxn.methods)
+		assert.Equal(t, len(staticRoutes), iterutil.Len(readTxn.Iter().All()))
+		assert.Equal(t, len(staticRoutes), iterutil.Len(readTxn.Iter().Names()))
+		assert.Equal(t, len(staticRoutes), readTxn.Len())
+	})
+
 	t.Run("read only transaction can run uncoordinated", func(t *testing.T) {
 		f, _ := NewRouter()
 		for _, rte := range staticRoutes {
