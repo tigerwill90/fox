@@ -16,7 +16,6 @@ var (
 	ErrRouteNameExist          = errors.New("route name already registered")
 	ErrInvalidRoute            = errors.New("invalid route")
 	ErrDiscardedResponseWriter = errors.New("discarded response writer")
-	ErrInvalidRedirectCode     = errors.New("invalid redirect code")
 	ErrNoClientIPResolver      = errors.New("no client ip resolver")
 	ErrReadOnlyTxn             = errors.New("write on read-only transaction")
 	ErrSettledTxn              = errors.New("transaction settled")
@@ -42,7 +41,7 @@ type RouteConflictError struct {
 func (e *RouteConflictError) Error() string {
 	sb := new(strings.Builder)
 	sb.WriteString("route conflict: new route\n")
-	routef(sb, e.New, 4)
+	routef(sb, e.New, 4, true)
 
 	if e.isShadowed {
 		if e.New.catchEmpty {
@@ -56,7 +55,7 @@ func (e *RouteConflictError) Error() string {
 
 	for _, conflict := range e.Conflicts {
 		sb.WriteByte('\n')
-		routef(sb, conflict, 4)
+		routef(sb, conflict, 4, true)
 	}
 
 	return sb.String()
@@ -79,9 +78,9 @@ type RouteNameConflictError struct {
 func (e *RouteNameConflictError) Error() string {
 	sb := new(strings.Builder)
 	sb.WriteString("route name already registered: new route\n")
-	routef(sb, e.New, 4)
+	routef(sb, e.New, 4, true)
 	sb.WriteString("\nconflicts with\n")
-	routef(sb, e.Conflict, 4)
+	routef(sb, e.Conflict, 4, true)
 	return sb.String()
 }
 
@@ -90,49 +89,10 @@ func (e *RouteNameConflictError) Unwrap() error {
 	return ErrRouteNameExist
 }
 
-func routef(sb *strings.Builder, route *Route, pad int) {
-	sb.WriteString(strings.Repeat(" ", pad))
-	sb.WriteString("method:")
-	if len(route.methods) > 0 {
-		first := route.methods[0]
-		sb.WriteString(first)
-		for _, method := range route.methods[1:] {
-			sb.WriteByte(',')
-			sb.WriteString(method)
-		}
-	} else {
-		sb.WriteString("*")
-	}
-
-	sb.WriteString(" pattern:")
-	sb.WriteString(route.pattern)
-
-	if route.name != "" {
-		sb.WriteString(" name:")
-		sb.WriteString(route.name)
-	}
-
-	size := sb.Len()
-	for _, matcher := range route.matchers {
-		if m, ok := matcher.(fmt.Stringer); ok {
-			if sb.Len() > size {
-				sb.WriteByte(',')
-			}
-			if size == sb.Len() {
-				sb.WriteString(" matchers:{")
-			}
-			sb.WriteString(m.String())
-		}
-	}
-	if sb.Len() > size {
-		sb.WriteByte('}')
-	}
-}
-
 func newRouteNotFoundError(route *Route) error {
 	sb := new(strings.Builder)
 	sb.WriteString("route\n")
-	routef(sb, route, 4)
+	routef(sb, route, 4, false)
 	sb.WriteString("\nis not registered")
 	return fmt.Errorf("%w: %s", ErrRouteNotFound, sb.String())
 }

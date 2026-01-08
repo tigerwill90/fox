@@ -337,7 +337,7 @@ func TestMiddlewareLength(t *testing.T) {
 	f, _ := NewRouter(WithPrettyLogs())
 	r := f.MustAdd(MethodGet, "/", emptyHandler, WithMiddleware(Recovery(slog.DiscardHandler), Logger(slog.DiscardHandler)))
 	assert.Len(t, f.mws, 2)
-	assert.Len(t, r.mws, 4)
+	assert.Len(t, r.mws, 2)
 }
 
 func TestRouterWithAllowedMethod(t *testing.T) {

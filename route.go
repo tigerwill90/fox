@@ -1,8 +1,10 @@
 package fox
 
 import (
+	"fmt"
 	"iter"
 	"slices"
+	"strings"
 )
 
 // Route represents an immutable HTTP route with associated handlers and settings.
@@ -127,6 +129,12 @@ func (r *Route) MatchersPriority() uint {
 	return r.priority
 }
 
+func (r *Route) String() string {
+	sb := new(strings.Builder)
+	routef(sb, r, 0, true)
+	return sb.String()
+}
+
 // match reports whether the request satisfies this route's method constraint (if any)
 // and all attached matchers.
 func (r *Route) match(method string, c RequestContext) bool {
@@ -176,4 +184,43 @@ outer:
 		return false
 	}
 	return true
+}
+
+func routef(sb *strings.Builder, route *Route, pad int, showName bool) {
+	sb.WriteString(strings.Repeat(" ", pad))
+	sb.WriteString("method:")
+	if len(route.methods) > 0 {
+		first := route.methods[0]
+		sb.WriteString(first)
+		for _, method := range route.methods[1:] {
+			sb.WriteByte(',')
+			sb.WriteString(method)
+		}
+	} else {
+		sb.WriteString("*")
+	}
+
+	sb.WriteString(" pattern:")
+	sb.WriteString(route.pattern)
+
+	if route.name != "" && showName {
+		sb.WriteString(" name:")
+		sb.WriteString(route.name)
+	}
+
+	size := sb.Len()
+	for _, matcher := range route.matchers {
+		if m, ok := matcher.(fmt.Stringer); ok {
+			if sb.Len() > size {
+				sb.WriteByte(',')
+			}
+			if size == sb.Len() {
+				sb.WriteString(" matchers:{")
+			}
+			sb.WriteString(m.String())
+		}
+	}
+	if sb.Len() > size {
+		sb.WriteByte('}')
+	}
 }
