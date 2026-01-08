@@ -84,7 +84,7 @@ func TestRoute_Methods(t *testing.T) {
 	assert.Equal(t, []string{http.MethodGet, http.MethodHead, http.MethodOptions}, slices.Collect(route.Methods()))
 }
 
-func TestRoute_Static(t *testing.T) {
+func TestRoute_String(t *testing.T) {
 	t.Run("many methods + name + many matchers", func(t *testing.T) {
 		f := MustRouter()
 		r := f.MustAdd(
