@@ -460,48 +460,6 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 	return rte, nil
 }
 
-// len(+{any}) == len(any)+3 == len(*{any})
-const wildcardExtraChar = 3
-
-// Mount returns a [HandlerFunc] for mounting this [Router] as a sub-router. Requests matching the parent
-// route prefix are delegated to the sub-router which handles the remaining path. The parent route pattern
-// should end with a catch-all. Parameters captured by the parent route are preserved and accessible alongside
-// any parameters matched by the sub-router. Similarly, [http.Request.Pattern] is the concatenation of the
-// parent and sub-router patterns. See also [Router.Add] for registering the handler.
-func (fox *Router) Mount() HandlerFunc {
-	return func(c *Context) {
-		tree := fox.getTree()
-		subCtx := tree.pool.Get().(*Context)
-		subCtx.resetWithWriter(c.Writer(), c.Request())
-		// Any recovery middleware would probably be before the mounted route, so let's defer this one for safety.
-		defer tree.pool.Put(subCtx)
-
-		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
-		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
-		p := strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+wildcardExtraChar)], "/")
-		*subCtx.subPatterns = append(*subCtx.subPatterns, p)
-
-		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
-		// wildcard such as /foo+{args}. In that case we need to we reslice from the original path to include it,
-		// avoiding allocation from "/" + suffix
-		suffix := (*c.params)[len(*c.params)-1]
-		if suffix != "" && !strings.HasPrefix(suffix, "/") {
-			path := c.Path()
-			suffix = path[len(path)-len(suffix)-1:]
-		}
-
-		// Copy parent params and paramsKeys to the subrouter context, excluding the last
-		// entry which is the catch-all wildcard used to mount the subrouter.
-		// Subrouters are never evaluated in lazy lookup mode, so params are always
-		// captured. If parent has no params beyond the catch-all, this is a no-op.
-		*subCtx.params = append(*subCtx.params, (*c.params)[:len(*c.params)-1]...)
-		*subCtx.paramsKeys = append((*subCtx.paramsKeys)[:0], (*c.paramsKeys)[:len(*c.paramsKeys)-1]...)
-
-		// Serve the sub router
-		fox.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
-	}
-}
-
 // HandleNoRoute calls the no route handler with the provided [Context].
 // Note that this bypasses any middleware attached to the no route handler.
 func (fox *Router) HandleNoRoute(c *Context) {
@@ -623,57 +581,6 @@ func (fox *Router) newTree() *iTree {
 func (fox *Router) getTree() *iTree {
 	r := fox.tree.Load()
 	return r
-}
-
-// DefaultNotFoundHandler is a simple [HandlerFunc] that replies to each request
-// with a “404 page not found” reply.
-func DefaultNotFoundHandler(c *Context) {
-	http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
-}
-
-// DefaultMethodNotAllowedHandler is a simple [HandlerFunc] that replies to each request
-// with a “405 Method Not Allowed” reply.
-func DefaultMethodNotAllowedHandler(c *Context) {
-	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-}
-
-// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
-func DefaultOptionsHandler(c *Context) {
-	c.Writer().WriteHeader(http.StatusNoContent)
-}
-
-func internalTrailingSlashHandler(c *Context) {
-	req := c.Request()
-
-	code := http.StatusMovedPermanently
-	if req.Method != http.MethodGet {
-		// Will be redirected only with the same method (SEO friendly)
-		code = http.StatusPermanentRedirect
-	}
-
-	path := escapeLeadingSlashes(fixTrailingSlash(c.Path()))
-	if q := req.URL.RawQuery; q != "" {
-		path += "?" + q
-	}
-
-	http.Redirect(c.Writer(), req, path, code)
-}
-
-func internalFixedPathHandler(c *Context) {
-	req := c.Request()
-
-	code := http.StatusMovedPermanently
-	if req.Method != http.MethodGet {
-		// Will be redirected only with the same method (SEO friendly)
-		code = http.StatusPermanentRedirect
-	}
-
-	cleanedPath := escapeLeadingSlashes(CleanPath(c.Path()))
-	if q := req.URL.RawQuery; q != "" {
-		cleanedPath += "?" + q
-	}
-
-	http.Redirect(c.Writer(), req, cleanedPath, code)
 }
 
 // ServeHTTP is the main entry point to serve a request. It handles all incoming HTTP requests and dispatches them
@@ -1036,6 +943,99 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 
 	c.scope = NoRouteHandler
 	fox.noRoute(c)
+}
+
+// len(+{any}) == len(any)+3 == len(*{any})
+const wildcardExtraChar = 3
+
+// Sub returns a [HandlerFunc] that mounts the provided [Router] as a sub-router. Requests matching the parent
+// route prefix are delegated to the sub-router which handles the remaining path. The parent route pattern
+// should end with a catch-all. Parameters captured by the parent route are preserved and accessible alongside
+// any parameters matched by the sub-router. Similarly, [http.Request.Pattern] is the concatenation of the
+// parent and sub-router patterns. See also [Router.Add] for registering the handler.
+func Sub(router *Router) HandlerFunc {
+	return func(c *Context) {
+		tree := router.getTree()
+		subCtx := tree.pool.Get().(*Context)
+		subCtx.resetWithWriter(c.Writer(), c.Request())
+		// Any recovery middleware would probably be before the mounted route, so let's defer this one for safety.
+		defer tree.pool.Put(subCtx)
+
+		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
+		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
+		p := strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+wildcardExtraChar)], "/")
+		*subCtx.subPatterns = append(*subCtx.subPatterns, p)
+
+		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
+		// wildcard such as /foo+{args}. In that case we need to we reslice from the original path to include it,
+		// avoiding allocation from "/" + suffix
+		suffix := (*c.params)[len(*c.params)-1]
+		if suffix != "" && !strings.HasPrefix(suffix, "/") {
+			path := c.Path()
+			suffix = path[len(path)-len(suffix)-1:]
+		}
+
+		// Copy parent params and paramsKeys to the subrouter context, excluding the last
+		// entry which is the catch-all wildcard used to mount the subrouter.
+		// Subrouters are never evaluated in lazy lookup mode, so params are always
+		// captured. If parent has no params beyond the catch-all, this is a no-op.
+		*subCtx.params = append(*subCtx.params, (*c.params)[:len(*c.params)-1]...)
+		*subCtx.paramsKeys = append((*subCtx.paramsKeys)[:0], (*c.paramsKeys)[:len(*c.paramsKeys)-1]...)
+
+		// Serve the sub router
+		router.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
+	}
+}
+
+// DefaultNotFoundHandler is a simple [HandlerFunc] that replies to each request
+// with a “404 page not found” reply.
+func DefaultNotFoundHandler(c *Context) {
+	http.Error(c.Writer(), "404 page not found", http.StatusNotFound)
+}
+
+// DefaultMethodNotAllowedHandler is a simple [HandlerFunc] that replies to each request
+// with a “405 Method Not Allowed” reply.
+func DefaultMethodNotAllowedHandler(c *Context) {
+	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+}
+
+// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
+func DefaultOptionsHandler(c *Context) {
+	c.Writer().WriteHeader(http.StatusNoContent)
+}
+
+func internalTrailingSlashHandler(c *Context) {
+	req := c.Request()
+
+	code := http.StatusMovedPermanently
+	if req.Method != http.MethodGet {
+		// Will be redirected only with the same method (SEO friendly)
+		code = http.StatusPermanentRedirect
+	}
+
+	path := escapeLeadingSlashes(fixTrailingSlash(c.Path()))
+	if q := req.URL.RawQuery; q != "" {
+		path += "?" + q
+	}
+
+	http.Redirect(c.Writer(), req, path, code)
+}
+
+func internalFixedPathHandler(c *Context) {
+	req := c.Request()
+
+	code := http.StatusMovedPermanently
+	if req.Method != http.MethodGet {
+		// Will be redirected only with the same method (SEO friendly)
+		code = http.StatusPermanentRedirect
+	}
+
+	cleanedPath := escapeLeadingSlashes(CleanPath(c.Path()))
+	if q := req.URL.RawQuery; q != "" {
+		cleanedPath += "?" + q
+	}
+
+	http.Redirect(c.Writer(), req, cleanedPath, code)
 }
 
 const (

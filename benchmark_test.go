@@ -273,8 +273,8 @@ func BenchmarkSubRouter(b *testing.B) {
 	sub2 := MustRouter()
 
 	sub2.MustAdd(MethodGet, "/users/email", emptyHandler)
-	sub1.MustAdd(MethodAny, "/{name}/*{any}", sub2.Mount())
-	main.MustAdd(MethodAny, "/{v1}/*{any}", sub1.Mount())
+	sub1.MustAdd(MethodAny, "/{name}/*{any}", Sub(sub2))
+	main.MustAdd(MethodAny, "/{v1}/*{any}", Sub(sub1))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/john/users/email", nil)
 	w := new(mockResponseWriter)
@@ -292,7 +292,7 @@ func BenchmarkStaticAllSubRouter(b *testing.B) {
 	for _, route := range staticRoutes {
 		require.NoError(b, onlyError(sub.Add([]string{route.method}, route.path, emptyHandler)))
 	}
-	f.MustAdd(MethodAny, "example.com/*{any}", sub.Mount())
+	f.MustAdd(MethodAny, "example.com/*{any}", Sub(sub))
 
 	benchRoute(b, f, staticRoutes)
 }
