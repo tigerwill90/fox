@@ -945,8 +945,12 @@ func (fox *Router) serveSubRouter(c *Context, path string) {
 	fox.noRoute(c)
 }
 
-// len(+{any}) == len(any)+3 == len(*{any})
-const wildcardExtraChar = 3
+const (
+	// len(+{any}) == len(any)+3 == len(*{any})
+	wildcardExtraChar = 3
+	// len({foo}) == len(foo)+2
+	paramExtraChar = 2
+)
 
 // Sub returns a [HandlerFunc] that mounts the provided [Router] as a sub-router. Requests matching the parent
 // route prefix are delegated to the sub-router which handles the remaining path. The parent route pattern
@@ -955,6 +959,11 @@ const wildcardExtraChar = 3
 // parent and sub-router patterns. See also [Router.Add] for registering the handler.
 func Sub(router *Router) HandlerFunc {
 	return func(c *Context) {
+		route := c.Route()
+		if route == nil {
+			panic("fox: invalid use of Sub in non-RouteHandler scope")
+		}
+
 		tree := router.getTree()
 		subCtx := tree.pool.Get().(*Context)
 		subCtx.resetWithWriter(c.Writer(), c.Request())
@@ -962,17 +971,40 @@ func Sub(router *Router) HandlerFunc {
 		defer tree.pool.Put(subCtx)
 
 		*subCtx.subPatterns = append(*subCtx.subPatterns, *c.subPatterns...)
-		key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
-		p := strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+wildcardExtraChar)], "/")
+
+		lastTkType := route.tokens[len(route.tokens)-1].typ
+		var p string
+		switch lastTkType {
+		case nodeWildcard:
+			key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
+			p = strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+wildcardExtraChar)], "/")
+		case nodeParam:
+			key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
+			p = strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+paramExtraChar)], "/")
+		default:
+			*subCtx.subPatterns = append(*subCtx.subPatterns, strings.TrimSuffix(c.pattern, "/"))
+			router.serveSubRouter(subCtx, "/")
+			return
+		}
+
 		*subCtx.subPatterns = append(*subCtx.subPatterns, p)
 
-		// If the suffix is empty, and it does not start with slash, that mean we matched an inflight
-		// wildcard such as /foo+{args}. In that case we need to we reslice from the original path to include it,
-		// avoiding allocation from "/" + suffix
-		suffix := (*c.params)[len(*c.params)-1]
-		if suffix != "" && !strings.HasPrefix(suffix, "/") {
+		// If the suffix is non-empty and does not start with a slash, it means we matched a suffix param or
+		// wildcard such as /foo/+{args}, where the captured value excludes the leading "/". In that case, we
+		// reslice from the original path to include it, avoiding an allocation from "/" + suffix.
+		suffix := cmp.Or((*c.params)[len(*c.params)-1], "/")
+		if !strings.HasPrefix(suffix, "/") {
 			path := c.Path()
-			suffix = path[len(path)-len(suffix)-1:]
+			slashPos := len(path) - len(suffix) - 1
+			if path[slashPos] == slashDelim {
+				suffix = path[slashPos:]
+			} else {
+				// For a route like /api*{any} with a request path of /apifoobar/, we end up with the suffix
+				// "ifoobar/", which could be problematic if "ifoobar/" is registered as a route (with hostname).
+				// While this would likely constitute an abuse of the sub-router API, we clear the suffix as a
+				// defensive measure to prevent any match in the sub-router.
+				suffix = ""
+			}
 		}
 
 		// Copy parent params and paramsKeys to the subrouter context, excluding the last
@@ -983,7 +1015,7 @@ func Sub(router *Router) HandlerFunc {
 		*subCtx.paramsKeys = append((*subCtx.paramsKeys)[:0], (*c.paramsKeys)[:len(*c.paramsKeys)-1]...)
 
 		// Serve the sub router
-		router.serveSubRouter(subCtx, cmp.Or(suffix, "/"))
+		router.serveSubRouter(subCtx, suffix)
 	}
 }
 
