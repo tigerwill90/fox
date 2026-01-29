@@ -982,6 +982,10 @@ func Sub(router *Router) HandlerFunc {
 			key := (*c.paramsKeys)[len(*c.paramsKeys)-1]
 			p = strings.TrimSuffix(c.pattern[:len(c.pattern)-(len(key)+paramExtraChar)], "/")
 		default:
+			// Reaching this case means the parent route does not end with a catch-all parameter (e.g., /api/
+			// instead of /api/+{rest}). This is technically a misuse of the sub-router API, but we handle it
+			// gracefully as a defensive measure: if the parent registers /api and the sub-router registers /,
+			// we treat it similarly to /api*{any} (optional wildcard), matching /api with the pattern /api/.
 			*subCtx.subPatterns = append(*subCtx.subPatterns, strings.TrimSuffix(c.pattern, "/"))
 			router.serveSubRouter(subCtx, "/")
 			return
@@ -999,7 +1003,7 @@ func Sub(router *Router) HandlerFunc {
 			if path[slashPos] == slashDelim {
 				suffix = path[slashPos:]
 			} else {
-				// For a route like /api*{any} with a request path of /apifoobar/, we end up with the suffix
+				// For a route like /api*{any} with a request path of /apifoobar/, we would end up with the suffix
 				// "ifoobar/", which could be problematic if "ifoobar/" is registered as a route (with hostname).
 				// While this would likely constitute an abuse of the sub-router API, we clear the suffix as a
 				// defensive measure to prevent any match in the sub-router.

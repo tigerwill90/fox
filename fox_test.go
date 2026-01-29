@@ -1396,6 +1396,75 @@ func TestHandleSubRouter(t *testing.T) {
 		f.ServeHTTP(w, req)
 		assert.Equal(t, "/v2/api/users", w.Body.String())
 	})
+
+	t.Run("sub-router registered with static suffix", func(t *testing.T) {
+		sub := MustRouter()
+		sub.MustAdd(MethodGet, "/", patternHandler)
+		sub.MustAdd(MethodGet, "/users", patternHandler)
+
+		fx := MustRouter()
+		assert.NoError(t, onlyError(fx.Add(MethodGet, "/api", Sub(sub))))
+		assert.NoError(t, onlyError(fx.Add(MethodGet, "/api/", Sub(sub))))
+
+		req := httptest.NewRequest(http.MethodGet, "/api", nil)
+		w := httptest.NewRecorder()
+		fx.ServeHTTP(w, req)
+		assert.Equal(t, "/api/", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/api/", nil)
+		w = httptest.NewRecorder()
+		fx.ServeHTTP(w, req)
+		assert.Equal(t, "/api/", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/api/users", nil)
+		w = httptest.NewRecorder()
+		fx.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("sub-router registered in non route handler", func(t *testing.T) {
+		sub := MustRouter()
+		sub.MustAdd(MethodGet, "/users", patternHandler)
+		fx := MustRouter(WithNoRouteHandler(Sub(sub)))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+		w := httptest.NewRecorder()
+		assert.Panics(t, func() {
+			fx.ServeHTTP(w, req)
+		})
+	})
+
+	t.Run("path share a common prefix without slash", func(t *testing.T) {
+		sub := MustRouter()
+		sub.MustAdd(MethodGet, "iusers/", patternHandler)
+
+		fx := MustRouter()
+		assert.NoError(t, onlyError(fx.Add(MethodGet, "/api*{any}", Sub(sub))))
+
+		req := httptest.NewRequest(http.MethodGet, "/apiusers/", nil)
+		w := httptest.NewRecorder()
+		fx.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("sub-router registered with params", func(t *testing.T) {
+		sub := MustRouter()
+		sub.MustAdd(MethodGet, "/users", patternHandler)
+		sub.MustAdd(MethodGet, "/v1/users", patternHandler)
+
+		fx := MustRouter()
+		assert.NoError(t, onlyError(fx.Add(MethodGet, "/api/{param}", Sub(sub))))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+		w := httptest.NewRecorder()
+		fx.ServeHTTP(w, req)
+		assert.Equal(t, "/api/users", w.Body.String())
+
+		req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+		w = httptest.NewRecorder()
+		fx.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
 }
 
 func TestParamsRouteWithDomainMalloc(t *testing.T) {
