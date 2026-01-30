@@ -275,8 +275,9 @@ func WithAutoOptions(enable bool) GlobalOption {
 }
 
 // WithSystemWideOptions enable automatic response for system-wide OPTIONS request (OPTIONS *). When this option is enabled,
-// the router return a 200 OK status code with the "Allow" header containing all registered HTTP methods. This option is enabled
-// by default.
+// the router responds with a 200 OK status code and the "Allow" header listing all HTTP methods used across registered routes.
+// Note that to let Fox handle system-wide OPTIONS requests, http.Server.DisableGeneralOptionsHandler must be set to true.
+// This option is enabled by default.
 func WithSystemWideOptions(enable bool) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.systemWideOPTIONS = enable

@@ -257,7 +257,7 @@ api.MustAdd(fox.MethodPost, "/users", CreateUser)
 
 f := fox.MustRouter(fox.DefaultOptions())
 f.MustAdd([]string{http.MethodHead, http.MethodGet}, "/*{filepath}", fox.WrapH(http.FileServer(http.Dir("./public/"))))
-f.MustAdd(fox.MethodAny, "/api*{mount}", api.Mount())
+f.MustAdd(fox.MethodAny, "/api*{mount}", fox.Sub(api))
 ```
 
 Requests matching the prefix are delegated to the mounted router with the remaining path.
@@ -674,7 +674,7 @@ func main() {
 	api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
 	api.MustAdd(fox.MethodPost, "/users", CreateUser)
 
-	f.MustAdd(fox.MethodAny, "/api*{any}", api.Mount()) // Method-less route
+	f.MustAdd(fox.MethodAny, "/api*{any}", fox.Sub(api)) // Method-less route
 }
 ````
 

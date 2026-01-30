@@ -277,7 +277,7 @@ func TestRouterWithAutomaticOptionsAndIgnoreTsOptionEnable(t *testing.T) {
 						c.Writer().WriteHeader(http.StatusNoContent)
 					})))
 				}
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", Sub(sub))))
 
 				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 				req.Host = "example.com"
@@ -442,7 +442,7 @@ func TestRouterWithAllowedMethod(t *testing.T) {
 					sub.MustAdd(route.methods, route.pattern, emptyHandler)
 				}
 
-				r, err := f.Add(MethodAny, "example.com/*{any}", sub.Mount())
+				r, err := f.Add(MethodAny, "example.com/*{any}", Sub(sub))
 				require.NoError(t, err)
 
 				defer func() {
@@ -700,7 +700,7 @@ func TestRouterWithAutomaticCORSPreflightOptions(t *testing.T) {
 				for _, method := range tc.methods {
 					require.NoError(t, onlyError(sub.Add([]string{method}, tc.path, emptyHandler)))
 				}
-				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", sub.Mount())))
+				require.NoError(t, onlyError(f.Add(MethodAny, "example.com/*{any}", Sub(sub))))
 
 				req := httptest.NewRequest(http.MethodOptions, tc.target, nil)
 				req.Host = "example.com"
