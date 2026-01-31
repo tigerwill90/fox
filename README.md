@@ -22,8 +22,7 @@ The router supports complex routing patterns, enforces clear priority rules, and
 The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
-**Runtime updates:** Register, update and delete route handler safely at any time without impact on performance. Fox never block while serving
-request!
+**Runtime updates:** Register, update and delete route handler safely at any time without impact on performance.
 
 **Flexible routing:** Fox strikes a balance between routing flexibility, performance and clarity by enforcing clear priority rules, ensuring that
 there are no unintended matches and maintaining high performance even for complex routing patterns. Supported features include named parameters,
