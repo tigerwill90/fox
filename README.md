@@ -763,10 +763,10 @@ functionality provided by different web frameworks and routers when making your 
 
 ### Config
 ```
-GOOS:   Linux
-GOARCH: amd64
-GO:     1.20
-CPU:    Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz
+GOOS:   Darwin
+GOARCH: arm64
+GO:     1.25
+CPU:    Apple M4 Max
 ```
 ### Static Routes
 It is just a collection of random static paths inspired by the structure of the Go directory. It might not be a realistic URL-structure.
