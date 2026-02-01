@@ -9,6 +9,10 @@
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/fox-toolkit/fox)
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/fox-toolkit/fox)
 
+> [!NOTE]
+> This repository has been transferred from `github.com/tigerwill90/fox` to `github.com/fox-toolkit/fox`.
+> Existing users should update their imports and `go.mod` accordingly.
+
 Fox is a lightweight and high performance HTTP request router for [Go](https://go.dev/), designed for building reverse proxies,
 API gateways, or other applications that require managing routes at runtime based on configuration changes or external events.
 It is also well-suited for general use cases such as microservices and REST APIs, though it focuses on routing and does not include 
