@@ -5,7 +5,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/fox-toolkit/fox.svg)](https://pkg.go.dev/github.com/fox-toolkit/fox)
 [![tests](https://github.com/fox-toolkit/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/fox-toolkit/fox/actions?query=workflow%3Atests)
 [![Go Report Card](https://goreportcard.com/badge/github.com/fox-toolkit/fox)](https://goreportcard.com/report/github.com/fox-toolkit/fox)
-[![codecov](https://codecov.io/gh/fox-toolkit/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/fox-toolkit/fox)
+[![codecov](https://codecov.io/gh/fox-toolkit/fox/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/fox-toolkit/fox)
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/fox-toolkit/fox)
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/fox-toolkit/fox)
 
