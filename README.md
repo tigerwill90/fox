@@ -554,9 +554,9 @@ f.MustAdd(fox.MethodGet, "/foo", SomeOtherHandler)
 ````
 
 ### Official middlewares
-* [fox-toolkit/otelfox](https://github.com/fox-toolkit/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
-* [fox-toolkit/foxtimeout](https://github.com/fox-toolkit/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
-* [fox-toolkit/foxwaf](https://github.com/fox-toolkit/foxwaf): Coraza WAF middleware (experimental).
+* [fox-toolkit/oteltracing](https://github.com/fox-toolkit/oteltracing): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
+* [fox-toolkit/timeout](https://github.com/fox-toolkit/timeout): Better `http.TimeoutHandler` middleware.
+* [fox-toolkit/waf](https://github.com/fox-toolkit/waf): Coraza WAF middleware (experimental).
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
