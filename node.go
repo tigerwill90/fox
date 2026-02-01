@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tigerwill90/fox/internal/netutil"
-	"github.com/tigerwill90/fox/internal/stringutil"
+	"github.com/fox-toolkit/fox/internal/netutil"
+	"github.com/fox-toolkit/fox/internal/stringutil"
 )
 
 const offsetZero = 0

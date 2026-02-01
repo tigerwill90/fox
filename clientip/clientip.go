@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tigerwill90/fox"
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/netutil"
+	"github.com/fox-toolkit/fox"
+	"github.com/fox-toolkit/fox/internal/iterutil"
+	"github.com/fox-toolkit/fox/internal/netutil"
 )
 
 const (

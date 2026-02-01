@@ -1,4 +1,4 @@
-module github.com/tigerwill90/fox
+module github.com/fox-toolkit/fox
 
 go 1.24.0
 

@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/fox-toolkit/fox/internal/iterutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox/internal/iterutil"
 )
 
 func TestTxn_TruncateAll(t *testing.T) {

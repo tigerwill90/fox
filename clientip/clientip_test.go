@@ -12,9 +12,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/fox-toolkit/fox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox"
 )
 
 func TestRemoteAddr_ClientIP(t *testing.T) {

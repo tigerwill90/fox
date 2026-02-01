@@ -1,6 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+// at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
 package fox
 
@@ -10,9 +10,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/fox-toolkit/fox/internal/iterutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox/internal/iterutil"
 )
 
 var routesCases = []string{"/fox/router", "/foo/bar/{baz}", "/foo/bar/{baz}/{name}", "/john/doe/+{args}", "/john/doe"}

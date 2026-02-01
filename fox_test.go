@@ -1,6 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+// at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
 package fox
 
@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fox-toolkit/fox/internal/iterutil"
+	"github.com/fox-toolkit/fox/internal/netutil"
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox/internal/iterutil"
-	"github.com/tigerwill90/fox/internal/netutil"
 )
 
 var (

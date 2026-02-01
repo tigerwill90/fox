@@ -1,6 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+// at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
 package fox
 
@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/tigerwill90/fox/internal/slogpretty"
+	"github.com/fox-toolkit/fox/internal/slogpretty"
 )
 
 type TrailingSlashOption uint8

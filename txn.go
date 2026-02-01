@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tigerwill90/fox/internal/slicesutil"
+	"github.com/fox-toolkit/fox/internal/slicesutil"
 	"golang.org/x/net/http/httpguts"
 )
 

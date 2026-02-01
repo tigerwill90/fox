@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tigerwill90/fox/internal/ansi"
+	"github.com/fox-toolkit/fox/internal/ansi"
 )
 
 const (

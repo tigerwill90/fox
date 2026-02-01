@@ -1,6 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+// at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
 package fox
 
@@ -14,8 +14,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tigerwill90/fox/internal/bytesconv"
-	"github.com/tigerwill90/fox/internal/netutil"
+	"github.com/fox-toolkit/fox/internal/bytesconv"
+	"github.com/fox-toolkit/fox/internal/netutil"
 )
 
 // RequestContext provides read-only access to incoming HTTP request data, including request properties,

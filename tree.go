@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tigerwill90/fox/internal/simplelru"
-	"github.com/tigerwill90/fox/internal/slicesutil"
+	"github.com/fox-toolkit/fox/internal/simplelru"
+	"github.com/fox-toolkit/fox/internal/slicesutil"
 )
 
 const defaultModifiedCache = 4096

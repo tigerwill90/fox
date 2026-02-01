@@ -1,6 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+// at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
 package fox
 
@@ -312,7 +312,7 @@ func relevantCaller() runtime.Frame {
 	var frame runtime.Frame
 	for {
 		f, more := frames.Next()
-		if !strings.HasPrefix(f.Function, "github.com/tigerwill90/fox.") {
+		if !strings.HasPrefix(f.Function, "github.com/fox-toolkit/fox.") {
 			return f
 		}
 		if !more {

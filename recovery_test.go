@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/fox-toolkit/fox/internal/slogpretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tigerwill90/fox/internal/slogpretty"
 )
 
 func TestAbortHandler(t *testing.T) {

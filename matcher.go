@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/tigerwill90/fox/internal/netutil"
+	"github.com/fox-toolkit/fox/internal/netutil"
 )
 
 // Matcher evaluates if an HTTP request satisfies specific conditions. Matchers are evaluated after hostname and path

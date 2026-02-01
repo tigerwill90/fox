@@ -1,13 +1,13 @@
 # Fox
 
-<img align="right" width="159px" src="https://raw.githubusercontent.com/tigerwill90/fox/refs/heads/static/fox_logo.png">
+<img align="right" width="159px" src="https://raw.githubusercontent.com/fox-toolkit/fox/refs/heads/static/fox_logo.png">
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/tigerwill90/fox.svg)](https://pkg.go.dev/github.com/tigerwill90/fox)
-[![tests](https://github.com/tigerwill90/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/tigerwill90/fox/actions?query=workflow%3Atests)
-[![Go Report Card](https://goreportcard.com/badge/github.com/tigerwill90/fox)](https://goreportcard.com/report/github.com/tigerwill90/fox)
-[![codecov](https://codecov.io/gh/tigerwill90/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/fox)
-![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tigerwill90/fox)
-![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/fox)
+[![Go Reference](https://pkg.go.dev/badge/github.com/fox-toolkit/fox.svg)](https://pkg.go.dev/github.com/fox-toolkit/fox)
+[![tests](https://github.com/fox-toolkit/fox/actions/workflows/tests.yaml/badge.svg)](https://github.com/fox-toolkit/fox/actions?query=workflow%3Atests)
+[![Go Report Card](https://goreportcard.com/badge/github.com/fox-toolkit/fox)](https://goreportcard.com/report/github.com/fox-toolkit/fox)
+[![codecov](https://codecov.io/gh/fox-toolkit/fox/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/fox-toolkit/fox)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/fox-toolkit/fox)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/fox-toolkit/fox)
 
 Fox is a lightweight and high performance HTTP request router for [Go](https://go.dev/), designed for building reverse proxies,
 API gateways, or other applications that require managing routes at runtime based on configuration changes or external events.
@@ -37,7 +37,7 @@ the canonical path, or enforcing strict matching based on your needs.
 
 **Client IP Derivation:** Accurately determine the "real" client IP address using best practices tailored to your network topology.
 
-**Rich middleware ecosystem:** Fox offers a robust ecosystem of prebuilt, high-quality middlewares, ready to integrate into your application.
+**Growing middleware ecosystem:** Fox's middleware ecosystem is still limited, but standard `http.Handler` middleware are fully compatible. Contributions are welcome!
 
 ---
 * [Getting started](#getting-started)
@@ -74,7 +74,7 @@ the canonical path, or enforcing strict matching based on your needs.
 #### Install
 With a [correctly configured](https://go.dev/doc/install#testing) Go toolchain:
 ```shell
-go get -u github.com/tigerwill90/fox
+go get -u github.com/fox-toolkit/fox
 ```
 
 #### Basic example
@@ -87,7 +87,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/tigerwill90/fox"
+	"github.com/fox-toolkit/fox"
 )
 
 func HelloServer(c *fox.Context) {
@@ -107,8 +107,8 @@ func main() {
 
 #### Named parameters
 Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching 
-segment are recorder as [Param](https://pkg.go.dev/github.com/tigerwill90/fox#Param) and accessible via the 
-[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Named parameters are supported anywhere in 
+segment are recorder as [Param](https://pkg.go.dev/github.com/fox-toolkit/fox#Param) and accessible via the 
+[Context](https://pkg.go.dev/github.com/fox-toolkit/fox#Context). Named parameters are supported anywhere in 
 the route, but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 
 ````
@@ -149,7 +149,7 @@ Pattern /products/{name:[A-Za-z]+}
 #### Named Wildcards (Catch-all)
 Named wildcard start with a plus sign `+` followed by a name `{param}` and match any sequence of characters
 including slashes, but cannot match an empty string. The matching segment are also accessible via
-[Context](https://pkg.go.dev/github.com/tigerwill90/fox#Context). Catch-all parameters are supported anywhere in the route,
+[Context](https://pkg.go.dev/github.com/fox-toolkit/fox#Context). Catch-all parameters are supported anywhere in the route,
 but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 Consecutive catch-all parameter are not allowed.
 
@@ -368,7 +368,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tigerwill90/fox"
+	"github.com/fox-toolkit/fox"
 )
 
 type Data struct {
@@ -502,7 +502,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tigerwill90/fox"
+	"github.com/fox-toolkit/fox"
 )
 
 func Logger(next fox.HandlerFunc) fox.HandlerFunc {
@@ -552,11 +552,9 @@ f.MustAdd(fox.MethodGet, "/foo", SomeOtherHandler)
 ````
 
 ### Official middlewares
-* [tigerwill90/otelfox](https://github.com/tigerwill90/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
-* [tigerwill90/foxdump](https://github.com/tigerwill90/foxdump): Body dump middleware for capturing requests and responses payload.
-* [tigerwill90/foxtimeout](https://github.com/tigerwill90/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
-* [tigerwill90/foxwaf](https://github.com/tigerwill90/foxwaf): Coraza WAF middleware (experimental).
-* [tigerwill90/foxgeoip](https://github.com/tigerwill90/foxgeoip): Block requests using GeoIP data based on client IP (experimental).
+* [fox-toolkit/otelfox](https://github.com/fox-toolkit/otelfox): Distributed tracing with [OpenTelemetry](https://opentelemetry.io/)
+* [fox-toolkit/foxtimeout](https://github.com/fox-toolkit/foxtimeout): `http.TimeoutHandler` middleware optimized for Fox.
+* [fox-toolkit/foxwaf](https://github.com/fox-toolkit/foxwaf): Coraza WAF middleware (experimental).
 
 ## Working with http.Handler
 Fox itself implements the `http.Handler` interface which make easy to chain any compatible middleware before the router. Moreover, the router
@@ -610,7 +608,7 @@ import (
 	"net/http"
 
 	"github.com/jub0bs/cors"
-	"github.com/tigerwill90/fox"
+	"github.com/fox-toolkit/fox"
 )
 
 func main() {
@@ -649,7 +647,7 @@ import (
 	"net/http"
 
 	"github.com/jub0bs/cors"
-	"github.com/tigerwill90/fox"
+	"github.com/fox-toolkit/fox"
 )
 
 func main() {
@@ -691,7 +689,7 @@ The resolver used must be chosen and tuned for your network configuration. This 
 an error and if it does, it should be treated as an application issue or a misconfiguration, rather than defaulting to an 
 untrustworthy IP.
 
-The sub-package `github.com/tigerwill90/fox/clientip` provides a set of best practices resolvers that should cover most use cases.
+The sub-package `github.com/fox-toolkit/fox/clientip` provides a set of best practices resolvers that should cover most use cases.
 
 ````go
 package main
@@ -699,8 +697,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/tigerwill90/fox"
-	"github.com/tigerwill90/fox/clientip"
+	"github.com/fox-toolkit/fox"
+	"github.com/fox-toolkit/fox/clientip"
 )
 
 func main() {
@@ -886,13 +884,13 @@ BenchmarkPat_GithubAll               424           2899405 ns/op         1843501
 ```
 
 ## Road to v1
-- [x] [Update route syntax](https://github.com/tigerwill90/fox/pull/10#issue-1643728309) @v0.6.0
-- [x] [Route overlapping](https://github.com/tigerwill90/fox/pull/9#issue-1642887919) @v0.7.0
-- [x] [Route overlapping (catch-all and params)](https://github.com/tigerwill90/fox/pull/24#issue-1784686061) @v0.10.0
-- [x] [Ignore trailing slash](https://github.com/tigerwill90/fox/pull/32), [Builtin Logger Middleware](https://github.com/tigerwill90/fox/pull/33), [Client IP Derivation](https://github.com/tigerwill90/fox/pull/33) @v0.14.0
-- [x] [Support infix wildcard](https://github.com/tigerwill90/fox/pull/46), [Support hostname routing](https://github.com/tigerwill90/fox/pull/48), [Support ACID transaction](https://github.com/tigerwill90/fox/pull/49) @v0.18.0
-- [x] [Support regexp params](https://github.com/tigerwill90/fox/pull/68) @v0.25.0
-- [x] [Support route matchers](https://github.com/tigerwill90/fox/pull/69), [Support SubRouter](https://github.com/tigerwill90/fox/pull/70), [Method-less tree](https://github.com/tigerwill90/fox/pull/71) @v0.26.0
+- [x] [Update route syntax](https://github.com/fox-toolkit/fox/pull/10#issue-1643728309) @v0.6.0
+- [x] [Route overlapping](https://github.com/fox-toolkit/fox/pull/9#issue-1642887919) @v0.7.0
+- [x] [Route overlapping (catch-all and params)](https://github.com/fox-toolkit/fox/pull/24#issue-1784686061) @v0.10.0
+- [x] [Ignore trailing slash](https://github.com/fox-toolkit/fox/pull/32), [Builtin Logger Middleware](https://github.com/fox-toolkit/fox/pull/33), [Client IP Derivation](https://github.com/fox-toolkit/fox/pull/33) @v0.14.0
+- [x] [Support infix wildcard](https://github.com/fox-toolkit/fox/pull/46), [Support hostname routing](https://github.com/fox-toolkit/fox/pull/48), [Support ACID transaction](https://github.com/fox-toolkit/fox/pull/49) @v0.18.0
+- [x] [Support regexp params](https://github.com/fox-toolkit/fox/pull/68) @v0.25.0
+- [x] [Support route matchers](https://github.com/fox-toolkit/fox/pull/69), [Support SubRouter](https://github.com/fox-toolkit/fox/pull/70), [Method-less tree](https://github.com/fox-toolkit/fox/pull/71) @v0.26.0
 - [ ] Programmatic error handling
 - [ ] Improving performance and polishing
 - [ ] Stabilizing API
@@ -906,8 +904,8 @@ allowing it to serve as a building block for implementing your own "batteries in
 
 Fox is licensed under the **Apache License 2.0**. See [`LICENSE.txt`](./LICENSE.txt) for details.
 
-The [**Fox logo**](https://github.com/tigerwill90/fox/blob/static/fox_logo.png) is licensed separately under [**CC BY-NC-ND 4.0**](https://creativecommons.org/licenses/by-nc-nd/4.0/?ref=chooser-v1). 
-See [`LICENSE-fox-logo.txt`](https://github.com/tigerwill90/fox/blob/static/LICENSE-fox-logo.txt) for details.
+The [**Fox logo**](https://github.com/fox-toolkit/fox/blob/static/fox_logo.png) is licensed separately under [**CC BY-NC-ND 4.0**](https://creativecommons.org/licenses/by-nc-nd/4.0/?ref=chooser-v1). 
+See [`LICENSE-fox-logo.txt`](https://github.com/fox-toolkit/fox/blob/static/LICENSE-fox-logo.txt) for details.
 
 ## Acknowledgements
 - [hashicorp/go-immutable-radix](https://github.com/hashicorp/go-immutable-radix): Fox Tree design is inspired by Hashicorp's Immutable Radix Tree.

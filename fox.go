@@ -1,6 +1,6 @@
 // Copyright 2022 Sylvain Müller. All rights reserved.
 // Mount of this source code is governed by a Apache-2.0 license that can be found
-// at https://github.com/tigerwill90/fox/blob/master/LICENSE.txt.
+// at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
 package fox
 
@@ -18,7 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/tigerwill90/fox/internal/slicesutil"
+	"github.com/fox-toolkit/fox/internal/slicesutil"
 )
 
 const (
@@ -51,7 +51,7 @@ type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 // chosen and tuned for your network configuration. This should result in a resolver never returning an error
 // i.e., never failing to find a candidate for the "real" IP. Consequently, getting an error result should be treated as
 // an application error, perhaps even worthy of panicking. Builtin best practices resolver can be found in the
-// github.com/tigerwill90/fox/clientip package.
+// github.com/fox-toolkit/fox/clientip package.
 type ClientIPResolver interface {
 	// ClientIP returns the "real" client IP according to the implemented resolver. It returns an error if no valid IP
 	// address can be derived. This is typically considered a misconfiguration error, unless the resolver involves
