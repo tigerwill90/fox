@@ -894,8 +894,7 @@ BenchmarkPat_GithubAll               636           1721062 ns/op         1853068
 - [x] [Support regexp params](https://github.com/fox-toolkit/fox/pull/68) @v0.25.0
 - [x] [Support route matchers](https://github.com/fox-toolkit/fox/pull/69), [Support SubRouter](https://github.com/fox-toolkit/fox/pull/70), [Method-less tree](https://github.com/fox-toolkit/fox/pull/71) @v0.26.0
 - [ ] Programmatic error handling
-- [ ] Improving performance and polishing
-- [ ] Stabilizing API
+- [ ] Improving performance and stabilizing API
 
 ## Contributions
 This project aims to provide a lightweight, high-performance router that is easy to use and hard to misuse, designed for building API gateways and reverse proxies.
