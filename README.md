@@ -599,7 +599,7 @@ When automatic OPTIONS responses is enabled, Fox distinguishes between regular O
 - **CORS preflight requests:** The router responds to every preflight request by calling the OPTIONS handler, regardless of whether the resource exists.
 
 To customize how OPTIONS requests are handled (e.g. adding CORS headers), you may register a middleware for the `fox.OptionsHandler` scope
-or provide a custom handler via `WithOptionsHandler`. Note that custom OPTIONS handlers always take priority over automatic replies.
+or provide a custom handler via `WithOptionsHandler`. Note that registered routes with the OPTIONS method always take precedence over automatic replies.
 
 ````go
 package main
