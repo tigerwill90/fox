@@ -638,8 +638,7 @@ func main() {
 }
 ````
 
-Alternatively, you can use a sub-router to apply CORS only to a specific section of your API. This approach is useful when
-you want to serve static files or other routes without CORS handling, while enabling it exclusively for API endpoints.
+Alternatively, you can use a sub-router to apply CORS only to a specific section of your API.
 
 ````go
 package main
