@@ -672,7 +672,7 @@ func main() {
 	api.MustAdd([]string{http.MethodHead, http.MethodGet}, "/users", ListUsers)
 	api.MustAdd(fox.MethodPost, "/users", CreateUser)
 
-	f.MustAdd(fox.MethodAny, "/api*{any}", fox.Sub(api)) // Method-less route
+	f.MustAdd(fox.MethodAny, "/api*{any}", fox.Sub(api)) // note: Method-less route
 }
 ````
 
