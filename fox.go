@@ -1410,8 +1410,8 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 		if partlen > 63 {
 			return parsedRoute{}, fmt.Errorf("%w: hostname label exceed 63 characters", ErrInvalidRoute)
 		}
-		if totallen > 255 {
-			return parsedRoute{}, fmt.Errorf("%w: hostname exceed 255 characters", ErrInvalidRoute)
+		if totallen > 253 {
+			return parsedRoute{}, fmt.Errorf("%w: hostname exceed 253 characters", ErrInvalidRoute)
 		}
 	}
 
