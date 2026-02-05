@@ -215,9 +215,9 @@ Route matchers enable routing decisions based on request properties beyond metho
 the same pattern and methods and be differentiated by query parameters, headers, client IP, or custom criteria.
 
 ````go
-f.MustAdd(fox.MethodGet, "/api/users", PremiumHandler, fox.WithQueryMatcher("tier", "premium"))
-f.MustAdd(fox.MethodGet, "/api/users", StandardHandler, fox.WithHeaderMatcher("X-API-Version", "v2"))
-f.MustAdd(fox.MethodGet, "/api/users", DefaultHandler) // Fallback route
+f.MustAdd(fox.MethodGet, "/api/users", V1Handler, fox.WithHeaderMatcher("X-API-Version", "v1"))
+f.MustAdd(fox.MethodGet, "/api/users", V2Handler, fox.WithHeaderMatcher("X-API-Version", "v2"))
+f.MustAdd(fox.MethodGet, "/api/users", V1Handler) // Fallback route
 ````
 
 Built-in matchers include `fox.WithQueryMatcher`, `fox.WithQueryRegexpMatcher`, `fox.WithHeaderMatcher`, `fox.WithHeaderRegexpMatcher`,
@@ -264,7 +264,7 @@ f.MustAdd(fox.MethodAny, "/api*{mount}", fox.Sub(api))
 Requests matching the prefix are delegated to the mounted router with the remaining path.
 
 Use cases include:
-- Applying middleware, matchers or other configuration to a routing prefix
+- Applying middleware, matchers or other configuration to a route prefix
 - Managing entire route subtree at runtime (e.g. insert, update, or delete via the parent router)
 - Organizing routes into groups with shared configuration
 
