@@ -23,7 +23,7 @@ Fox supports **mutation on its routing tree while handling requests concurrently
 The router supports complex routing patterns, enforces clear priority rules, and performs strict validation to prevent misconfigurations.
 
 ## Disclaimer
-The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
+The current API is not yet stabilized. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
 **Runtime updates:** Register, update and delete route handler safely at any time without impact on performance.
@@ -57,7 +57,7 @@ the canonical path, or enforcing strict matching based on your needs.
     * [Hostname routing](#hostname-routing)
   * [Warning about context](#warning-about-context)
 * [Concurrency](#concurrency)
-  * [Managing routes a runtime](#managing-routes-a-runtime)
+  * [Managing routes at runtime](#managing-routes-at-runtime)
   * [ACID Transaction](#acid-transaction)
   * [Managed read-write transaction](#managed-read-write-transaction)
   * [Unmanaged read-write transaction](#unmanaged-read-write-transaction)
@@ -109,8 +109,8 @@ func main() {
 ````
 
 #### Named parameters
-Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching 
-segment are recorder as [Param](https://pkg.go.dev/github.com/fox-toolkit/fox#Param) and accessible via the 
+Routes can include named parameters using curly braces `{name}` to match exactly one non-empty route segment. The matching
+segments are recorded as [Param](https://pkg.go.dev/github.com/fox-toolkit/fox#Param) and accessible via the 
 [Context](https://pkg.go.dev/github.com/fox-toolkit/fox#Context). Named parameters are supported anywhere in 
 the route, but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 
@@ -151,7 +151,7 @@ Pattern /products/{name:[A-Za-z]+}
 
 #### Named Wildcards (Catch-all)
 Named wildcard start with a plus sign `+` followed by a name `{param}` and match any sequence of characters
-including slashes, but cannot match an empty string. The matching segment are also accessible via
+including slashes, but cannot match an empty string. The matching segments are also accessible via
 [Context](https://pkg.go.dev/github.com/fox-toolkit/fox#Context). Catch-all parameters are supported anywhere in the route,
 but only one parameter is allowed per segment (or hostname label) and must appear at the end of the segment.
 Consecutive catch-all parameter are not allowed.
@@ -338,25 +338,25 @@ func Hello(c *fox.Context) {
 ````
 
 ## Concurrency
-Fox implements an immutable Radix Tree that supports lock-free read while allowing a single writer to make progress.
-Updates are applied by calculating the change which would be made to the tree were it mutable, assembling those changes
-into a **patch** which is propagated to the root and applied in a **single atomic operation**. The result is a shallow copy 
-of the tree, where only the modified path and its ancestors are cloned, ensuring minimal memory overhead.
-Multiple patches can be applied in a single transaction, with intermediate nodes cached during the process to prevent 
-redundant cloning.
+Fox implements an **immutable radix tree** with copy-on-write semantics, which support lock-free reads while allowing
+a single concurrent writer. Mutations follow a three-phase pattern: first, descend recursively through the tree to
+locate the insertion point; then as the call stack unwinds, copy each node along the modified path back to the root and finally,
+update the root in a **single atomic operation**. The result is a shallow copy of the tree, where unmodified branches
+are shared between the old and new tree. Multiple mutations can be applied in a single transaction, where each cloned node is cached 
+to avoid copying it more than once.
 
 ### Other key points
 
 - Routing requests is lock-free (reading thread never block, even while writes are ongoing)
-- The router always see a consistent version of the tree while routing request
+- The router always sees a consistent version of the tree while routing request
 - Reading threads do not block writing threads (adding, updating or removing a handler can be done concurrently)
 - Writing threads block each other but never block reading threads
 
 As such threads that route requests should never encounter latency due to ongoing writes or other concurrent readers.
 
-### Managing routes a runtime
+### Managing routes at runtime
 #### Routing mutation
-In this example, the handler for `routes/{action}` allow to dynamically register, update and delete handler for the
+In this example, the handler for `routes/{action}` allows to dynamically register, update and delete handler for the
 given route and method. Thanks to Fox's design, those actions are perfectly safe and may be executed concurrently.
 
 ````go
@@ -434,7 +434,7 @@ the tree, ensuring they do not observe any ongoing or committed changes made aft
 // from the function then the transaction is committed. If an error is returned then the entire transaction is
 // aborted.
 if err := f.Updates(func(txn *fox.Txn) error {
-	if _, err := txn.Add(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+	if _, err := txn.Add(fox.MethodGet, "example.com/hello/{name}", Handler); err != nil {
 		return err
 	}
 
@@ -443,7 +443,7 @@ if err := f.Updates(func(txn *fox.Txn) error {
 	// When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
 	// It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 	// observed in the result returned by PatternPrefix (or any other iterator).
-	for route := range it.PatternPrefix("tmp.exemple.com/") {
+	for route := range it.PatternPrefix("tmp.example.com/") {
 		if _, err := txn.Delete(slices.Collect(route.Methods()), route.Pattern()); err != nil {
 			return err
 		}
@@ -472,7 +472,7 @@ _ = f.View(func(txn *fox.Txn) error {
 txn := f.Txn(true)
 defer txn.Abort()
 
-if _, err := txn.Add(fox.MethodGet, "exemple.com/hello/{name}", Handler); err != nil {
+if _, err := txn.Add(fox.MethodGet, "example.com/hello/{name}", Handler); err != nil {
 	log.Printf("error inserting route: %s", err)
 	return
 }
@@ -482,7 +482,7 @@ it := txn.Iter()
 // When Iter() is called on a write transaction, it creates a point-in-time snapshot of the transaction state.
 // It means that writing on the current transaction while iterating is allowed, but the mutation will not be
 // observed in the result returned by PatternPrefix (or any other iterator).
-for route := range it.PatternPrefix("tmp.exemple.com/") {
+for route := range it.PatternPrefix("tmp.example.com/") {
 	if _, err := txn.Delete(slices.Collect(route.Methods()), route.Pattern()); err != nil {
 		log.Printf("error deleting route: %s", err)
 		return
@@ -577,7 +577,7 @@ f := fox.MustRouter()
 f.MustAdd(fox.MethodGet, "/articles/{id}", fox.WrapH(articles))
 ````
 
-Wrapping any standard `http.Hanlder` middleware
+Wrapping any standard `http.Handler` middleware
 ````go
 corsMw, _ := cors.NewMiddleware(cors.Config{
 	Origins:        []string{"https://example.com"},
@@ -654,7 +654,7 @@ import (
 func main() {
 	corsMw, err := cors.NewMiddleware(cors.Config{
 		Origins:        []string{"https://example.com"},
-		Methods:        []string{http.MethodGet, http.MethodGet, http.MethodPost},
+		Methods:        []string{http.MethodHead, http.MethodGet, http.MethodPost},
 		RequestHeaders: []string{"Authorization"},
 	})
 	if err != nil {
@@ -868,7 +868,7 @@ In those micro benchmarks, we can see that `Fox` scale really well, even with lo
 data structure (e.g. `fox.Context` slice) containing the matching parameters in order to remove completely heap allocation. 
 
 ### Github
-Finally, this benchmark execute a request for each GitHub API route (203 routes).
+Finally, this benchmark executes a request for each GitHub API route (203 routes).
 
 **GOMAXPROCS: 1**
 ```
@@ -910,8 +910,6 @@ See [`LICENSE-fox-logo.txt`](https://github.com/fox-toolkit/fox/blob/static/LICE
 
 ## Acknowledgements
 - [hashicorp/go-immutable-radix](https://github.com/hashicorp/go-immutable-radix): Fox Tree design is inspired by Hashicorp's Immutable Radix Tree.
-- [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter): some feature that implements Fox are inspired from Julien Schmidt's router. Most notably,
-this package uses the optimized [httprouter.Cleanpath](https://github.com/julienschmidt/httprouter/blob/master/path.go) function.
 - [realclientip/realclientip-go](https://github.com/realclientip/realclientip-go): Fox uses a derivative version of Adam Pritchard's `realclientip-go` library. 
 See his insightful [blog post](https://adam-p.ca/blog/2022/03/x-forwarded-for/) on the topic for more details.
 - The router API is influenced by popular routers such as [Gin](https://github.com/gin-gonic/gin) and [Echo](https://github.com/labstack/echo).
