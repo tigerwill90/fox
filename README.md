@@ -276,12 +276,6 @@ since they act as placeholders rather than actual domain labels. As such, they d
 nor the 253-character limit for the full hostname. Internationalized domain names (IDNs) should be specified using an ASCII
 (Punycode) representation.
 
-The DNS specification permits a trailing period to be used to denote the root, e.g., `example.com` and `example.com.` are equivalent,
-but the latter is more explicit and is required to be accepted by applications. Fox will reject route registered with
-trailing period. However, the router will automatically strip any trailing period from incoming request host so it can match
-the route regardless of a trailing period. Note that FQDN (with trailing period) does not play well with golang
-TLS stdlib (see traefik/traefik#9157 (comment)).
-
 #### Priority rules
 
 The router is designed to balance routing flexibility, performance, and predictability. Internally, it uses a radix tree to
