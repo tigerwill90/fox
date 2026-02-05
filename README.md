@@ -273,7 +273,7 @@ Use cases include:
 Hostnames are validated to conform to the [LDH (letters, digits, hyphens) rule](https://datatracker.ietf.org/doc/html/rfc3696.html#section-2)
 (lowercase only) and SRV-like "underscore labels". Wildcard segments within hostnames, such as `{sub}.example.com/`, are exempt from LDH validation
 since they act as placeholders rather than actual domain labels. As such, they do not count toward the hard limit of 63 characters per label,
-nor the 255-character limit for the full hostname (including periods). Internationalized domain names (IDNs) should be specified using an ASCII
+nor the 253-character limit for the full hostname. Internationalized domain names (IDNs) should be specified using an ASCII
 (Punycode) representation.
 
 The DNS specification permits a trailing period to be used to denote the root, e.g., `example.com` and `example.com.` are equivalent,
