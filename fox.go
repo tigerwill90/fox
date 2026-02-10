@@ -1212,6 +1212,12 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 			}
 
 			if url[i] == ':' {
+				// Optional wildcards (*{param}) do not support regular expressions because they match
+				// empty strings, making it impossible to disambiguate routes with different regexps that
+				// both match the same empty-string path.
+				if url[startCatchAll] == '*' {
+					return parsedRoute{}, fmt.Errorf("%w: %w in optional wildcard", ErrInvalidRoute, ErrRegexpNotAllowed)
+				}
 				previous = state
 				state = stateRegex
 				i++

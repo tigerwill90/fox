@@ -3283,6 +3283,11 @@ func TestParseRoute(t *testing.T) {
 			wantErr: ErrInvalidRoute,
 		},
 		{
+			name:    "unsupported regexp in optional wildcard",
+			path:    "/foo/*{any:[A-z]+}",
+			wantErr: ErrInvalidRoute,
+		},
+		{
 			name:    "unbalanced braces in param regexp",
 			path:    "/foo/{bar:[A-z]+",
 			wantErr: ErrInvalidRoute,
@@ -4825,9 +4830,7 @@ func TestTree_Has(t *testing.T) {
 		"/users/uid_{id:[A-z]+}/ch",
 		"/john/doe/",
 		"/foo/*{name}",
-		"/foo/*{name:[A-z]+}",
 		"/foo/uid_*{id}",
-		"/foo/uid_*{id:[A-z]+}",
 	}
 
 	f, _ := NewRouter(AllowRegexpParam(true))
