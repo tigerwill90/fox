@@ -199,8 +199,9 @@ Pattern /src/file=*{path}
 /src/file=                          matches
 ````
 
-Named wildcard can include regular expression using the syntax `+{name:regexp}` or `*{name:regexp}`. Regular expressions cannot
-contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Regexp support is opt-in via `fox.AllowRegexpParam(true)` option.
+Named wildcards can include a regular expression constraint using the syntax `+{name:regexp}`. Regular expressions cannot
+contain capturing groups, but can use non-capturing groups `(?:pattern)` instead. Optional wildcards (`*{param}`) do not
+support regular expressions. Regexp support is opt-in via `fox.AllowRegexpParam(true)` option.
 
 ````
 Pattern /src/+{filepath:[A-Za-z/]+\.json}
