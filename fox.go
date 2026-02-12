@@ -362,7 +362,7 @@ func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool
 	defer tree.pool.Put(c)
 	c.resetWithRequest(r)
 
-	path := c.Path()
+	path := routingPath(r)
 
 	idx, n, tsr := tree.lookup(method, r.Host, path, c, true)
 	if n != nil {
@@ -381,7 +381,7 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	c := tree.pool.Get().(*Context)
 	c.resetWithWriter(w, r)
 
-	path := c.Path()
+	path := routingPath(r)
 
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if n != nil {
@@ -591,7 +591,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := tree.pool.Get().(*Context)
 	c.reset(w, r)
 
-	path := c.Path()
+	path := routingPath(r)
 
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
 	if !tsr && n != nil {
@@ -998,7 +998,7 @@ func Sub(router *Router) HandlerFunc {
 		// reslice from the original path to include it, avoiding an allocation from "/" + suffix.
 		suffix := cmp.Or((*c.params)[len(*c.params)-1], "/")
 		if !strings.HasPrefix(suffix, "/") {
-			path := c.Path()
+			path := routingPath(c.req)
 			slashPos := len(path) - len(suffix) - 1
 			if path[slashPos] == slashDelim {
 				suffix = path[slashPos:]
@@ -1292,9 +1292,13 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 			switch url[i] {
 			case '{':
 				if sb.Len() > 0 {
+					seg, err := pathUnescape(sb.String())
+					if err != nil {
+						return parsedRoute{}, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
+					}
 					tokens = append(tokens, token{
 						typ:    nodeStatic,
-						value:  sb.String(),
+						value:  seg,
 						hsplit: i < endHost,
 					})
 					sb.Reset()
@@ -1304,9 +1308,13 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 				paramCnt++
 			case '*', '+':
 				if sb.Len() > 0 {
+					seg, err := pathUnescape(sb.String())
+					if err != nil {
+						return parsedRoute{}, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
+					}
 					tokens = append(tokens, token{
 						typ:    nodeStatic,
-						value:  sb.String(),
+						value:  seg,
 						hsplit: i < endHost,
 					})
 					sb.Reset()
@@ -1434,9 +1442,13 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 	}
 
 	if sb.Len() > 0 {
+		seg, err := pathUnescape(sb.String())
+		if err != nil {
+			return parsedRoute{}, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
+		}
 		tokens = append(tokens, token{
 			typ:   nodeStatic,
-			value: sb.String(),
+			value: seg,
 		})
 	}
 
@@ -1467,6 +1479,21 @@ func braceIndice(s string, startLevel int) int {
 		}
 	}
 	return -1
+}
+
+// routingPath returns the request path in the form used for radix tree matching.
+// All percent-encoded bytes are decoded except %2F, which is preserved and normalized
+// to uppercase to maintain the distinction between path segment separators and literal
+// slashes within segments.
+func routingPath(r *http.Request) string {
+	if r.URL.RawPath == "" {
+		return r.URL.Path
+	}
+	p, err := pathUnescape(r.URL.RawPath)
+	if err != nil {
+		return r.URL.RawPath
+	}
+	return p
 }
 
 func applyMiddleware(scope HandlerScope, mws []middleware, h HandlerFunc) HandlerFunc {

@@ -5273,12 +5273,12 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	inserted := 0
 	_ = r.Updates(func(txn *Txn) error {
 		for rte := range routes {
-			rte, err := txn.Add(MethodGet, "/"+rte, emptyHandler, WithName("/"+rte))
+			rr, err := txn.Add(MethodGet, "/"+rte, emptyHandler, WithName("/"+rte))
 			if err != nil {
-				assert.Nil(t, rte, "route /%s", rte)
+				assert.Nilf(t, rr, "route /%s", rte)
 				continue
 			}
-			assert.NotNilf(t, rte, "route /%v", rte)
+			assert.NotNilf(t, rr, "route /%s", rte)
 			inserted++
 		}
 		return nil
