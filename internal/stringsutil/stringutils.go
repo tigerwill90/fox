@@ -1,4 +1,6 @@
-package stringutil
+package stringsutil
+
+import "strings"
 
 // EqualStringsASCIIIgnoreCase performs case-insensitive comparison of two strings
 // containing ASCII characters. Only supports ASCII letters (A-Z, a-z), digits (0-9), hyphen (-) and underscore (_).
@@ -45,4 +47,44 @@ func ToLowerASCII(b byte) byte {
 		return b + ('a' - 'A')
 	}
 	return b
+}
+
+func NormalizeHexUppercase(s string) string {
+	var buf strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '%' || i+2 >= len(s) {
+			if buf.Len() > 0 {
+				buf.WriteByte(s[i])
+			}
+			continue
+		}
+		hi, lo := s[i+1], s[i+2]
+		hiUpper := upperHex(hi)
+		loUpper := upperHex(lo)
+		if hi != hiUpper || lo != loUpper {
+			if buf.Len() == 0 {
+				buf.Grow(len(s))
+				buf.WriteString(s[:i])
+			}
+			buf.WriteByte('%')
+			buf.WriteByte(hiUpper)
+			buf.WriteByte(loUpper)
+		} else if buf.Len() > 0 {
+			buf.WriteByte('%')
+			buf.WriteByte(hi)
+			buf.WriteByte(lo)
+		}
+		i += 2
+	}
+	if buf.Len() == 0 {
+		return s
+	}
+	return buf.String()
+}
+
+func upperHex(c byte) byte {
+	if 'a' <= c && c <= 'f' {
+		return c - ('a' - 'A')
+	}
+	return c
 }

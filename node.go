@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/fox-toolkit/fox/internal/netutil"
-	"github.com/fox-toolkit/fox/internal/stringutil"
+	"github.com/fox-toolkit/fox/internal/stringsutil"
 )
 
 const offsetZero = 0
@@ -100,13 +100,13 @@ func lookupByHostname(root *node, method, host, path string, c *Context, lazy bo
 Walk:
 	for len(search) > 0 {
 		if !skipStatic {
-			label := stringutil.ToLowerASCII(search[0])
+			label := stringsutil.ToLowerASCII(search[0])
 			num := len(matched.statics)
 			idx := sort.Search(num, func(i int) bool { return matched.statics[i].label >= label })
 			if idx < num && matched.statics[idx].label == label {
 				child := matched.statics[idx]
 				keyLen := len(child.key)
-				if keyLen <= len(search) && stringutil.EqualStringsASCIIIgnoreCase(search[:keyLen], child.key) {
+				if keyLen <= len(search) && stringsutil.EqualStringsASCIIIgnoreCase(search[:keyLen], child.key) {
 					if len(matched.params) > 0 || len(matched.wildcards) > 0 {
 						*c.skipStack = append(*c.skipStack, skipNode{
 							node:         matched,

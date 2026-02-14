@@ -78,7 +78,12 @@ func BenchmarkGithubAll(b *testing.B) {
 		require.NoError(b, onlyError(f.Add([]string{route.method}, route.path, emptyHandler)))
 	}
 
-	benchRoute(b, f, githubAPI)
+	data := make([]route, 0, len(githubAPI))
+	for _, r := range githubAPI {
+		data = append(data, route{method: r.method, path: replaceParams.ReplaceAllString(r.path, "xxx")})
+	}
+
+	benchRoute(b, f, data)
 }
 
 func BenchmarkStaticAllMux(b *testing.B) {

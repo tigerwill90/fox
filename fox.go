@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 
 	"github.com/fox-toolkit/fox/internal/slicesutil"
+	"github.com/fox-toolkit/fox/internal/stringsutil"
 )
 
 const (
@@ -1292,13 +1293,9 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 			switch url[i] {
 			case '{':
 				if sb.Len() > 0 {
-					seg, err := pathUnescape(sb.String())
-					if err != nil {
-						return parsedRoute{}, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
-					}
 					tokens = append(tokens, token{
 						typ:    nodeStatic,
-						value:  seg,
+						value:  sb.String(),
 						hsplit: i < endHost,
 					})
 					sb.Reset()
@@ -1308,13 +1305,9 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 				paramCnt++
 			case '*', '+':
 				if sb.Len() > 0 {
-					seg, err := pathUnescape(sb.String())
-					if err != nil {
-						return parsedRoute{}, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
-					}
 					tokens = append(tokens, token{
 						typ:    nodeStatic,
-						value:  seg,
+						value:  sb.String(),
 						hsplit: i < endHost,
 					})
 					sb.Reset()
@@ -1442,13 +1435,9 @@ func (fox *Router) parseRoute(url string) (parsedRoute, error) {
 	}
 
 	if sb.Len() > 0 {
-		seg, err := pathUnescape(sb.String())
-		if err != nil {
-			return parsedRoute{}, fmt.Errorf("%w: %w", ErrInvalidRoute, err)
-		}
 		tokens = append(tokens, token{
 			typ:   nodeStatic,
-			value: seg,
+			value: sb.String(),
 		})
 	}
 
@@ -1481,19 +1470,11 @@ func braceIndice(s string, startLevel int) int {
 	return -1
 }
 
-// routingPath returns the request path in the form used for radix tree matching.
-// All percent-encoded bytes are decoded except %2F, which is preserved and normalized
-// to uppercase to maintain the distinction between path segment separators and literal
-// slashes within segments.
 func routingPath(r *http.Request) string {
 	if r.URL.RawPath == "" {
-		return r.URL.Path
+		return r.URL.EscapedPath()
 	}
-	p, err := pathUnescape(r.URL.RawPath)
-	if err != nil {
-		return r.URL.RawPath
-	}
-	return p
+	return stringsutil.NormalizeHexUppercase(r.URL.EscapedPath())
 }
 
 func applyMiddleware(scope HandlerScope, mws []middleware, h HandlerFunc) HandlerFunc {
