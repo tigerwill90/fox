@@ -12,6 +12,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,6 +33,8 @@ var (
 	pathHandler    = HandlerFunc(func(c *Context) { _ = c.String(200, c.Path()) })
 	patternHandler = HandlerFunc(func(c *Context) { _ = c.String(200, c.Pattern()) })
 )
+
+var replaceParams = regexp.MustCompile(`[*+]?\{[^}]+}`)
 
 type mockResponseWriter struct{}
 
@@ -1086,7 +1089,8 @@ func TestParamsRoute(t *testing.T) {
 				key = match[1 : len(match)-1]
 			}
 			value := match
-			assert.Equal(t, value, c.Param(key))
+			ps, _ := url.PathUnescape(c.Param(key))
+			assert.Equal(t, value, ps)
 		}
 		assert.Equal(t, c.Path(), c.Pattern())
 		_ = c.String(200, c.Path())
@@ -1213,7 +1217,8 @@ func TestParamsRouteTxn(t *testing.T) {
 				key = match[1 : len(match)-1]
 			}
 			value := match
-			assert.Equal(t, value, c.Param(key))
+			ps, _ := url.PathUnescape(c.Param(key))
+			assert.Equal(t, value, ps)
 		}
 		assert.Equal(t, c.Path(), c.Pattern())
 		_ = c.String(200, c.Path())
@@ -1249,7 +1254,8 @@ func TestParamsRouteWithDomain(t *testing.T) {
 				key = match[1 : len(match)-1]
 			}
 			value := match
-			assert.Equal(t, value, c.Param(key))
+			ps, _ := url.PathUnescape(c.Param(key))
+			assert.Equal(t, value, ps)
 		}
 
 		assert.Equal(t, netutil.StripHostPort(c.Host())+c.Path(), c.Pattern())
@@ -1281,7 +1287,8 @@ func TestParamsRouteWithDomainTxn(t *testing.T) {
 				key = match[1 : len(match)-1]
 			}
 			value := match
-			assert.Equal(t, value, c.Param(key))
+			ps, _ := url.PathUnescape(c.Param(key))
+			assert.Equal(t, value, ps)
 		}
 
 		assert.Equal(t, netutil.StripHostPort(c.Host())+c.Path(), c.Pattern())
@@ -1311,11 +1318,18 @@ func TestParamsRouteMalloc(t *testing.T) {
 	for _, route := range githubAPI {
 		require.NoError(t, onlyError(r.Add([]string{route.method}, route.path, emptyHandler)))
 	}
-	for _, route := range githubAPI {
+
+	data := make([]route, 0, len(githubAPI))
+	for _, r := range githubAPI {
+		data = append(data, route{method: r.method, path: replaceParams.ReplaceAllString(r.path, "xxx")})
+	}
+
+	for _, route := range data {
 		req := httptest.NewRequest(route.method, route.path, nil)
 		w := httptest.NewRecorder()
 		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
 		assert.Equal(t, float64(0), allocs)
+		assert.Equal(t, http.StatusOK, w.Code)
 	}
 }
 
@@ -1472,7 +1486,13 @@ func TestParamsRouteWithDomainMalloc(t *testing.T) {
 	for _, route := range githubAPI {
 		require.NoError(t, onlyError(r.Add([]string{route.method}, "foo.{bar}.com"+route.path, emptyHandler)))
 	}
-	for _, route := range githubAPI {
+
+	data := make([]route, 0, len(githubAPI))
+	for _, r := range githubAPI {
+		data = append(data, route{method: r.method, path: replaceParams.ReplaceAllString(r.path, "xxx")})
+	}
+
+	for _, route := range data {
 		req := httptest.NewRequest(route.method, route.path, nil)
 		req.Host = "foo.{bar}.com"
 		w := httptest.NewRecorder()
@@ -1486,7 +1506,13 @@ func TestOverlappingRouteMalloc(t *testing.T) {
 	for _, route := range overlappingRoutes {
 		require.NoError(t, onlyError(r.Add([]string{route.method}, route.path, emptyHandler)))
 	}
-	for _, route := range overlappingRoutes {
+
+	data := make([]route, 0, len(overlappingRoutes))
+	for _, r := range overlappingRoutes {
+		data = append(data, route{method: r.method, path: replaceParams.ReplaceAllString(r.path, "xxx")})
+	}
+
+	for _, route := range data {
 		req := httptest.NewRequest(route.method, route.path, nil)
 		w := httptest.NewRecorder()
 		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
@@ -4721,7 +4747,8 @@ func TestRouter_Lookup(t *testing.T) {
 				key = match[1 : len(match)-1]
 			}
 			value := match
-			assert.Equal(t, value, cc.Param(key))
+			ps, _ := url.PathUnescape(cc.Param(key))
+			assert.Equal(t, value, ps)
 		}
 
 		cc.Close()
@@ -5273,12 +5300,12 @@ func TestFuzzInsertLookupUpdateAndDelete(t *testing.T) {
 	inserted := 0
 	_ = r.Updates(func(txn *Txn) error {
 		for rte := range routes {
-			rte, err := txn.Add(MethodGet, "/"+rte, emptyHandler, WithName("/"+rte))
+			rr, err := txn.Add(MethodGet, "/"+rte, emptyHandler, WithName("/"+rte))
 			if err != nil {
-				assert.Nil(t, rte, "route /%s", rte)
+				assert.Nilf(t, rr, "route /%s", rte)
 				continue
 			}
-			assert.NotNilf(t, rte, "route /%v", rte)
+			assert.NotNilf(t, rr, "route /%s", rte)
 			inserted++
 		}
 		return nil

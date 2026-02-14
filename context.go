@@ -208,12 +208,10 @@ func (c *Context) Method() string {
 
 // Path returns the request [url.URL.RawPath] if not empty, or fallback to the [url.URL.Path].
 func (c *Context) Path() string {
-	path := c.req.URL.Path
 	if len(c.req.URL.RawPath) > 0 {
-		// Using RawPath to prevent unintended match (e.g. /search/a%2Fb/1)
-		path = c.req.URL.RawPath
+		return c.req.URL.RawPath
 	}
-	return path
+	return c.req.URL.Path
 }
 
 // Host returns the request host.
