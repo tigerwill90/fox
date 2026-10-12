@@ -8,7 +8,6 @@
 package nfa
 
 import (
-	"errors"
 	"regexp"
 	"regexp/syntax"
 	"slices"
@@ -21,9 +20,10 @@ type Regexp struct {
 	fwd, rev prog
 }
 
-// Compile compiles re for simulation. The expression of re must start with a ^ outside any
-// repetition, as the expressions of route patterns do.
-func Compile(re *regexp.Regexp) (*Regexp, error) {
+// Compile compiles re for simulation. Ends and Starts agree with MatchString only when re is
+// anchored at both ends, as the expressions of route patterns are. The backward program used by
+// Starts is compiled only when backward is true.
+func Compile(re *regexp.Regexp, backward bool) (*Regexp, error) {
 	expr, err := syntax.Parse(re.String(), syntax.Perl)
 	if err != nil {
 		return nil, err
@@ -33,18 +33,12 @@ func Compile(re *regexp.Regexp) (*Regexp, error) {
 	if r.fwd, err = compile(expr); err != nil {
 		return nil, err
 	}
-	if !r.fwd.anchored() {
-		return nil, errors.New("expression not anchored at the start")
-	}
-	if r.rev, err = compile(reverse(expr)); err != nil {
-		return nil, err
+	if backward {
+		if r.rev, err = compile(reverse(expr)); err != nil {
+			return nil, err
+		}
 	}
 	return &r, nil
-}
-
-// Len returns the number of instructions of the forward program.
-func (r *Regexp) Len() int {
-	return len(r.fwd.inst)
 }
 
 type prog struct {
@@ -58,21 +52,6 @@ func compile(expr *syntax.Regexp) (prog, error) {
 		return prog{}, err
 	}
 	return prog{inst: p.Inst, start: uint32(p.Start)}, nil // nolint:gosec // an instruction index of p
-}
-
-// anchored reports whether p starts with a ^ that no loop returns to. Seen relies on it: a
-// pass seeds its start state only once, so the seed never collides with a recorded state.
-func (p *prog) anchored() bool {
-	i := p.inst[p.start]
-	if i.Op != syntax.InstEmptyWidth || syntax.EmptyOp(i.Arg) != syntax.EmptyBeginText { // nolint:gosec // Arg holds an EmptyOp
-		return false
-	}
-	for _, i := range p.inst {
-		if i.Out == p.start || ((i.Op == syntax.InstAlt || i.Op == syntax.InstAltMatch) && i.Arg == p.start) {
-			return false
-		}
-	}
-	return true
 }
 
 // reverse returns an expression matching the reversal of every string expr matches. It expects a
@@ -120,53 +99,52 @@ func (s *Scratch) grow(n int) {
 	s.stack = make([]uint32, 0, n)
 }
 
-// Seen records the states reached at delimiter positions by the passes of one program over one
-// string. A pass drops a state already seen, since every match reachable from it was already
+// Visited records the states reached at delimiter positions by the passes of one program over one
+// string. A pass drops a state already visited, since every match reachable from it was already
 // reported by an earlier pass.
-type Seen struct {
+type Visited struct {
 	delims []int
 	bits   []uint64
 }
 
-// Reset prepares s for a program of n instructions over a string whose delimiter positions, in
-// increasing order, are delims.
-func (s *Seen) Reset(n int, delims []int) {
-	s.delims = delims
-	words := (n*len(delims) + 63) / 64
-	if cap(s.bits) < words {
-		s.bits = make([]uint64, words)
+// Reset prepares v for the passes of r over a string whose delimiter positions, in increasing
+// order, are delims.
+func (v *Visited) Reset(r *Regexp, delims []int) {
+	v.delims = delims
+	words := (len(r.fwd.inst)*len(delims) + 63) / 64
+	if cap(v.bits) < words {
+		v.bits = make([]uint64, words)
 		return
 	}
-	s.bits = s.bits[:words]
-	clear(s.bits)
+	v.bits = v.bits[:words]
+	clear(v.bits)
 }
 
-// Size returns the memory held by s in bytes.
-func (s *Seen) Size() int {
-	return cap(s.bits) * 8
+// Size returns the memory held by v in bytes.
+func (v *Visited) Size() int {
+	return cap(v.bits) * 8
 }
 
-func (s *Seen) testAndSet(pc uint32, ord int) bool {
-	k := int(pc)*len(s.delims) + ord
+func (v *Visited) testAndSet(pc uint32, ord int) bool {
+	k := int(pc)*len(v.delims) + ord
 	w, b := k/64, uint64(1)<<(k%64)
-	if s.bits[w]&b != 0 {
+	if v.bits[w]&b != 0 {
 		return true
 	}
-	s.bits[w] |= b
+	v.bits[w] |= b
 	return false
 }
 
-// Ends appends to dst, in increasing order, every position e such that s[start:e] matches r and
-// e is either a position of delim after start or len(s). When seen is not nil, the states the
-// pass reaches at a delimiter are recorded in seen, and the states recorded by earlier passes are
-// dropped.
-func (r *Regexp) Ends(sc *Scratch, s string, start int, delim byte, seen *Seen, dst []int) []int {
+// Ends appends to dst, in increasing order, every position e of delim after start such that
+// s[start:e] matches r. When visited is not nil, the states the pass reaches at a delimiter are
+// recorded in visited, and the states recorded by earlier passes are dropped.
+func (r *Regexp) Ends(sc *Scratch, s string, start int, delim byte, visited *Visited, dst []int) []int {
 	p := &r.fwd
 	sc.grow(len(p.inst))
-	// ord is the index in seen.delims of the next delimiter the pass reaches.
+	// ord is the index in visited.delims of the next delimiter the pass reaches.
 	ord := 0
-	if seen != nil {
-		ord, _ = slices.BinarySearch(seen.delims, start+1)
+	if visited != nil {
+		ord, _ = slices.BinarySearch(visited.delims, start+1)
 	}
 
 	cur, next := &sc.cur, &sc.next
@@ -174,21 +152,18 @@ func (r *Regexp) Ends(sc *Scratch, s string, start int, delim byte, seen *Seen, 
 	cur.add(p.start)
 	prev := rune(-1)
 	pos := start
-	for {
-		if pos > start && (pos == len(s) || s[pos] == delim) && p.accepts(sc, cur, syntax.EmptyOpContext(prev, -1)) {
+	for pos < len(s) {
+		if pos > start && s[pos] == delim && p.accepts(sc, cur, syntax.EmptyOpContext(prev, -1)) {
 			dst = append(dst, pos)
-		}
-		if pos == len(s) {
-			return dst
 		}
 
 		c, w := utf8.DecodeRuneInString(s[pos:])
 		p.step(sc, cur, next, prev, c)
 		pos += w
-		if seen != nil && pos < len(s) && s[pos] == delim {
+		if visited != nil && pos < len(s) && s[pos] == delim {
 			n := 0
 			for _, pc := range next.dense {
-				if !seen.testAndSet(pc, ord) {
+				if !visited.testAndSet(pc, ord) {
 					next.sparse[pc] = n
 					next.dense[n] = pc
 					n++
@@ -203,10 +178,12 @@ func (r *Regexp) Ends(sc *Scratch, s string, start int, delim byte, seen *Seen, 
 		cur, next = next, cur
 		prev = c
 	}
+	return dst
 }
 
 // Starts sets bit i of dst for every i in [0, len(s)) such that s[i:] matches r, where i is 0 or
-// follows an ASCII byte. Other bits are unspecified. dst must hold len(s) bits.
+// follows an ASCII byte. Other bits are unspecified. dst must hold len(s) bits, and r must be
+// compiled with its backward program.
 func (r *Regexp) Starts(sc *Scratch, s string, dst []uint64) {
 	p := &r.rev
 	sc.grow(len(p.inst))

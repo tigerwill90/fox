@@ -205,15 +205,17 @@ Walk:
 				evaluated := wildcardOffset > 0
 				var rm *regexpMemo
 				if wildcardNode.regexp == nil {
-					end = c.memo.bound(wildcardNode, searchStart, end)
-				} else if wildcardNode.nested || evaluated {
-					rm = c.memo.scan(wildcardNode, host, charsMatched, dotDelim, evaluated)
+					end = c.memo.searchEnd(wildcardNode, searchStart, end)
+				} else if evaluated {
+					rm = c.memo.listEnds(wildcardNode, host, charsMatched, dotDelim)
+				} else if wildcardNode.nested {
+					rm = c.memo.beginScan(wildcardNode, host, charsMatched, dotDelim)
 				}
 
 				for {
 					var captureEnd int
 					if rm != nil && rm.listed {
-						if captureEnd = rm.next(searchStart, len(host)); captureEnd < 0 {
+						if captureEnd = rm.nextEnd(searchStart); captureEnd < 0 {
 							break
 						}
 					} else {
@@ -237,12 +239,12 @@ Walk:
 					if wildcardNode.regexp != nil && (rm == nil || !rm.listed) {
 						// A second evaluation lists every capture end that matches in a single pass.
 						if evaluated {
-							rm = c.memo.scan(wildcardNode, host, charsMatched, dotDelim, true)
+							rm = c.memo.listEnds(wildcardNode, host, charsMatched, dotDelim)
 							searchStart = captureEnd
 							continue
 						}
 						evaluated = true
-						if !c.memo.match(wildcardNode, capturedValue) {
+						if !c.memo.matchRegexp(wildcardNode, capturedValue) {
 							searchStart = captureEnd + 1
 							continue
 						}
@@ -277,7 +279,7 @@ Walk:
 				}
 
 				if wildcardNode.regexp == nil {
-					c.memo.record(wildcardNode, charsMatched)
+					c.memo.markExhausted(wildcardNode, charsMatched)
 				}
 
 				nextChildIdx := i + 1
@@ -302,7 +304,7 @@ Walk:
 				}
 
 				// The path lookup below does not depend on the hostname capture, so it fails again.
-				if len(c.memo.failed) > 0 && c.memo.pathFailed(wildcardNode) {
+				if c.memo.pathFailed(wildcardNode) {
 					continue
 				}
 
@@ -319,7 +321,10 @@ Walk:
 				if idx, subNode, subTsr := lookupByPath(wildcardNode, method, path, c, lazy, stackOffset); subNode != nil {
 					return idx, subNode, subTsr
 				}
-				c.memo.setPathFailed(wildcardNode, path)
+				// Only a backtrack can reach this node again.
+				if stackOffset > 0 {
+					c.memo.setPathFailed(wildcardNode, path)
+				}
 
 				*c.skipStack = (*c.skipStack)[:stackOffset]
 				*c.params = (*c.params)[:paramCnt]
@@ -329,13 +334,16 @@ Walk:
 		goto Backtrack
 	}
 
-	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil && (len(c.memo.failed) == 0 || !c.memo.pathFailed(matched)) {
+	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil && !c.memo.pathFailed(matched) {
 		stackOffset := len(*c.skipStack)
 		idx, subNode, subTsr := lookupByPath(matched, method, path, c, lazy, stackOffset)
 		if subNode != nil {
 			return idx, subNode, subTsr
 		}
-		c.memo.setPathFailed(matched, path)
+		// Only a backtrack can reach this node again.
+		if stackOffset > 0 {
+			c.memo.setPathFailed(matched, path)
+		}
 
 		// Remove any unused skip nodes added during the path lookup.
 		*c.skipStack = (*c.skipStack)[:stackOffset]
@@ -515,9 +523,11 @@ Walk:
 				evaluated := wildcardOffset > 0
 				var rm *regexpMemo
 				if wildcardNode.regexp == nil {
-					end = c.memo.bound(wildcardNode, searchStart, end)
-				} else if wildcardNode.nested || evaluated {
-					rm = c.memo.scan(wildcardNode, path, charsMatched, slashDelim, evaluated)
+					end = c.memo.searchEnd(wildcardNode, searchStart, end)
+				} else if evaluated {
+					rm = c.memo.listEnds(wildcardNode, path, charsMatched, slashDelim)
+				} else if wildcardNode.nested {
+					rm = c.memo.beginScan(wildcardNode, path, charsMatched, slashDelim)
 				}
 
 				// An infix wildcard has a single static child, its key starts with a slash.
@@ -526,19 +536,19 @@ Walk:
 				for {
 					captureEnd := -1
 					if rm != nil && rm.listed {
-						captureEnd = rm.next(searchStart, len(path))
+						captureEnd = rm.nextEnd(searchStart)
 					} else if idx := strings.IndexByte(path[searchStart:end], slashDelim); idx >= 0 {
 						// Search for next slash from current offset
 						captureEnd = searchStart + idx
 					}
 
 					if captureEnd < 0 {
-						// When the frontier stopped the search early, the tsr below was already tried.
+						// When the search stopped before the end of the path, the tsr below was already tried.
 						if end == len(path) && path[len(path)-1] != slashDelim {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
-								if wildcardNode.regexp != nil && !c.memo.matchesRest(wildcardNode, rm, path, offset) {
+								if wildcardNode.regexp != nil && !c.memo.matchSuffix(wildcardNode, path, offset) {
 									break
 								}
 								for j, route := range child.routes {
@@ -568,8 +578,8 @@ Walk:
 						continue
 					}
 
-					// Skip the capture if the rest of the path can match the static child neither
-					// directly nor with a trailing slash added.
+					// Skip the capture when the rest of the path neither starts with the static child key
+					// nor is a prefix of it, as no route below can match it, even with a trailing slash.
 					if rest := path[captureEnd:]; !strings.HasPrefix(rest, key) && !strings.HasPrefix(key, rest) {
 						searchStart = captureEnd + 1
 						continue
@@ -578,12 +588,12 @@ Walk:
 					if wildcardNode.regexp != nil && (rm == nil || !rm.listed) {
 						// A second evaluation lists every capture end that matches in a single pass.
 						if evaluated {
-							rm = c.memo.scan(wildcardNode, path, charsMatched, slashDelim, true)
+							rm = c.memo.listEnds(wildcardNode, path, charsMatched, slashDelim)
 							searchStart = captureEnd
 							continue
 						}
 						evaluated = true
-						if !c.memo.match(wildcardNode, capturedValue) {
+						if !c.memo.matchRegexp(wildcardNode, capturedValue) {
 							searchStart = captureEnd + 1
 							continue
 						}
@@ -620,7 +630,7 @@ Walk:
 				}
 
 				if wildcardNode.regexp == nil {
-					c.memo.record(wildcardNode, charsMatched)
+					c.memo.markExhausted(wildcardNode, charsMatched)
 				}
 
 				nextChildIdx := i + 1

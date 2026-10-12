@@ -56,15 +56,15 @@ func randString(rng *rand.Rand) string {
 func compileTest(t testing.TB, expr string) (*regexp.Regexp, *Regexp) {
 	re, err := regexp.Compile("^(?:" + expr + ")$")
 	require.NoError(t, err)
-	r, err := Compile(re)
+	r, err := Compile(re, true)
 	require.NoError(t, err)
 	return re, r
 }
 
 func wantEnds(re *regexp.Regexp, s string, start int, delim byte) []int {
 	var ends []int
-	for e := start + 1; e <= len(s); e++ {
-		if (e == len(s) || s[e] == delim) && re.MatchString(s[start:e]) {
+	for e := start + 1; e < len(s); e++ {
+		if s[e] == delim && re.MatchString(s[start:e]) {
 			ends = append(ends, e)
 		}
 	}
@@ -133,20 +133,20 @@ func TestStarts(t *testing.T) {
 	}
 }
 
-func TestEndsSeen(t *testing.T) {
+func TestEndsVisited(t *testing.T) {
 	rng := rand.New(rand.NewPCG(5, 6))
 	for _, expr := range exprs {
 		t.Run(expr, func(t *testing.T) {
 			re, r := compileTest(t, expr)
 			sc := new(Scratch)
-			var seen Seen
+			var visited Visited
 			for range 2000 {
 				s := randString(rng)
-				seen.Reset(r.Len(), delimsOf(s, '/'))
+				visited.Reset(r, delimsOf(s, '/'))
 				reported := make(map[int]bool)
 				for range 4 {
 					start := rng.IntN(len(s) + 1)
-					got := r.Ends(sc, s, start, '/', &seen, nil)
+					got := r.Ends(sc, s, start, '/', &visited, nil)
 					assert.True(t, slices.IsSorted(got))
 					for _, e := range wantEnds(re, s, start, '/') {
 						assert.True(t, reported[e] || slices.Contains(got, e))
@@ -173,7 +173,7 @@ func FuzzEnds(f *testing.F) {
 		if err != nil {
 			return
 		}
-		r, err := Compile(re)
+		r, err := Compile(re, true)
 		require.NoError(t, err)
 		start = max(0, min(start, len(s)))
 		sc := new(Scratch)

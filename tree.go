@@ -567,14 +567,15 @@ func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*
 	return nc, nil
 }
 
-// compileNFA compiles the regexp of a wildcard for simulation, or returns nil without regexp.
-func compileNFA(re *regexp.Regexp) *nfa.Regexp {
+// compileNFA compiles the regexp of a wildcard for simulation, or returns nil without regexp. Only a
+// nested wildcard needs the backward program, to match a suffix from many starts.
+func compileNFA(re *regexp.Regexp, nested bool) *nfa.Regexp {
 	if re == nil {
 		return nil
 	}
-	r, err := nfa.Compile(re)
+	r, err := nfa.Compile(re, nested)
 	if err != nil {
-		// The parser compiles every expression anchored as ^(?:expr)$.
+		// The expression already compiled with regexp.
 		panic(fmt.Sprintf("unreachable: %s: %v", re, err))
 	}
 	return r
@@ -593,7 +594,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 			&node{
 				key:    key,
 				regexp: tk.regexp,
-				nfa:    compileNFA(tk.regexp),
+				nfa:    compileNFA(tk.regexp, tk.nested),
 				nested: tk.nested,
 			},
 			remaining,
