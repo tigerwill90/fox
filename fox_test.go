@@ -1317,6 +1317,38 @@ func TestRouter_ServeHTTP_ParamsWithDomainMalloc(t *testing.T) {
 	}
 }
 
+func TestRouter_ServeHTTP_InfixWildcardMalloc(t *testing.T) {
+	r, _ := NewRouter(WithAllowRegexpParam(true), WithNoRouteHandler(emptyHandler))
+	require.NoError(t, onlyError(r.Add(MethodGet, "/+{a}/x/+{b}/y", emptyHandler)))
+	require.NoError(t, onlyError(r.Add(MethodGet, "/+{a}/z", emptyHandler)))
+	require.NoError(t, onlyError(r.Add(MethodGet, "/r/+{a}/x/+{b:(?:[ab]+/)*[ab]+}/y", emptyHandler)))
+	require.NoError(t, onlyError(r.Add(MethodGet, "/v2/+{name:[a-z]+(?:/[a-z]+)*}/manifests/{reference}", emptyHandler)))
+	require.NoError(t, onlyError(r.Add(MethodGet, "/v2/+{name:[a-z]+(?:/[a-z]+)*}/blobs/{digest}", emptyHandler)))
+	require.NoError(t, onlyError(r.Add(MethodGet, "/m/+{a}/x/+{b}", emptyHandler, WithHeaderMatcher("X-Tok", "a"))))
+	require.NoError(t, onlyError(r.Add(MethodGet, "+{a}.x.+{b}.y.com/foo", emptyHandler)))
+	require.NoError(t, onlyError(r.Add(MethodGet, "+{a}.z.com/foo", emptyHandler)))
+
+	cases := []struct {
+		host string
+		path string
+	}{
+		{host: "example.com", path: "/q/x/w/z"},
+		{host: "example.com", path: "/r/a/x/c/x/b/y"},
+		{host: "example.com", path: "/v2/" + strings.Repeat("abc/", 200) + "img/manifests/latest"},
+		{host: "q.x.w.z.com", path: "/foo"},
+		{host: "example.com", path: "/m" + strings.Repeat("/a/x", 50)},
+	}
+
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.Host = tc.host
+		w := httptest.NewRecorder()
+		allocs := testing.AllocsPerRun(100, func() { r.ServeHTTP(w, req) })
+		assert.Equal(t, float64(0), allocs)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+}
+
 func TestOverlappingRouteMalloc(t *testing.T) {
 	r, _ := NewRouter()
 	for _, route := range overlappingRoutes {

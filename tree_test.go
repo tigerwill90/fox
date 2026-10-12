@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -848,6 +849,23 @@ func Test_iTree_lookup_Domain(t *testing.T) {
 				{
 					Key:   "any",
 					Value: "A.B",
+				},
+			},
+		},
+		{
+			name: "infix wildcard favors the hostname with the longest static tail",
+			routes: []string{
+				"+{h}.x.com/foo",
+				"+{h}.com/foo",
+			},
+			host:     "a.x.com",
+			path:     "/foo",
+			wantPath: "+{h}.x.com/foo",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "h",
+					Value: "a",
 				},
 			},
 		},
@@ -1986,7 +2004,7 @@ func Test_iTree_lookup_EmptyCatchAll(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", tc.path, c, false)
 			require.False(t, tsr)
 			require.Nil(t, n)
 			assert.Equal(t, 0, idx)
@@ -2020,7 +2038,7 @@ func Test_iTree_lookup_WithParams(t *testing.T) {
 	tree := f.getTree()
 	for _, rte := range routes {
 		c := newTestContext(f)
-		idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, rte, c, false, 0)
+		idx, n, tsr := tree.lookup(http.MethodGet, "", rte, c, false)
 		require.NotNilf(t, n, "route: %s", rte)
 		require.NotNilf(t, n.routes[idx], "route: %s", rte)
 		assert.False(t, tsr)
@@ -2075,7 +2093,7 @@ func Test_iTree_lookup_ParamEmptySegment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", tc.path, c, false)
 			assert.Nil(t, n)
 			assert.Equal(t, 0, idx)
 			assert.Empty(t, slices.Collect(c.Params()))
@@ -3109,7 +3127,7 @@ func Test_iTree_lookup_Overlapping(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", tc.path, c, false)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, tsr)
@@ -3124,7 +3142,7 @@ func Test_iTree_lookup_Overlapping(t *testing.T) {
 
 			// Test with lazy
 			c = newTestContext(f)
-			idx, n, tsr = lookupByPath(tree.patterns, http.MethodGet, tc.path, c, true, 0)
+			idx, n, tsr = tree.lookup(http.MethodGet, "", tc.path, c, true)
 			require.NotNil(t, n)
 			require.NotNil(t, n.routes[idx])
 			assert.False(t, tsr)
@@ -3144,6 +3162,19 @@ func Test_iTree_lookup_InfixWildcard(t *testing.T) {
 		wantTsr    bool
 		wantParams []Param
 	}{
+		{
+			name:     "infix wildcard favors the route with the longest static tail",
+			routes:   []string{"/+{w}/x/y", "/+{w}/y"},
+			path:     "/a/x/y",
+			wantPath: "/+{w}/x/y",
+			wantTsr:  false,
+			wantParams: Params{
+				{
+					Key:   "w",
+					Value: "a",
+				},
+			},
+		},
 		{
 			name:     "simple infix wildcard",
 			routes:   []string{"/foo/+{args}/bar"},
@@ -4262,7 +4293,7 @@ func Test_iTree_lookup_InfixWildcard(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern.str)
 			assert.Equal(t, tc.wantTsr, tsr)
@@ -4632,13 +4663,178 @@ func Test_iTree_lookup_InfixWildcardTsr(t *testing.T) {
 			tree := f.getTree()
 
 			c := newTestContext(f)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.path, c, false, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", tc.path, c, false)
 			require.NotNil(t, n)
 			assert.Equal(t, tc.wantPath, n.routes[idx].pattern.str)
 			assert.Equal(t, tc.wantTsr, tsr)
 			c.route = n.routes[idx]
 			assert.Equal(t, tc.wantParams, slices.Collect(c.Params()))
 		})
+	}
+}
+
+func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
+	docker := `[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*)*`
+	registry := []string{
+		"/v2/+{name:" + docker + "}/manifests/{reference}",
+		"/v2/+{name:" + docker + "}/blobs/{digest}",
+		"/v2/+{name:" + docker + "}/tags/list",
+	}
+	cases := []struct {
+		name      string
+		routes    []string
+		opts      []RouteOption
+		request   func(n int) (host, path string)
+		wantMatch bool
+	}{
+		{
+			name:   "regexp infix followed by a param",
+			routes: registry,
+			request: func(n int) (string, string) {
+				return "", "/v2/" + strings.Repeat("abcdefg/", n) + "img/manifests/latest"
+			},
+			wantMatch: true,
+		},
+		{
+			name:   "regexp infix followed by a param near miss",
+			routes: registry,
+			request: func(n int) (string, string) {
+				return "", "/v2/" + strings.Repeat("abcdefg/", n) + "img/manifests/latest/x"
+			},
+		},
+		{
+			name:    "multi infix near miss",
+			routes:  []string{"/files/+{p}/thumb/+{q}/download"},
+			request: func(n int) (string, string) { return "", "/files" + strings.Repeat("/thumb", n) },
+		},
+		{
+			name:    "regexp infix near miss",
+			routes:  []string{"/files/+{p:(?:x/)*x}/x"},
+			request: func(n int) (string, string) { return "", "/files/" + strings.Repeat("x/", n) + "Z" },
+		},
+		{
+			name:      "regexp infix rejecting the shorter captures",
+			routes:    []string{"/files/+{p:(?:x/)*y}/x"},
+			request:   func(n int) (string, string) { return "", "/files/" + strings.Repeat("x/", n) + "y/x" },
+			wantMatch: true,
+		},
+		{
+			name:    "regexp infix below an infix",
+			routes:  []string{"/+{a}/x/+{b:(?:[a-z]+/)*[a-z]+}/y"},
+			request: func(n int) (string, string) { return "", strings.Repeat("/a/x", n) + "/z" },
+		},
+		{
+			name:    "regexp infix with trailing slash below an infix",
+			routes:  []string{"/+{a}/x/+{b:(?:[a-z]+/)*[a-z]+}/"},
+			opts:    []RouteOption{WithTrailingSlash(RelaxedSlash)},
+			request: func(n int) (string, string) { return "", strings.Repeat("/a/x", n) + "/Z" },
+		},
+		{
+			name:    "regexp suffix below an infix",
+			routes:  []string{"/+{a}/x/+{b:[a-z/]+}"},
+			request: func(n int) (string, string) { return "", strings.Repeat("/a/x", n) + "/Z" },
+		},
+		{
+			name:   "hostname infix followed by a path",
+			routes: []string{"+{sub}.example.+{tld}/{a}/x"},
+			request: func(n int) (string, string) {
+				return strings.Repeat("a.example.", n) + "com", "/" + strings.Repeat("a", n) + "/y"
+			},
+		},
+		{
+			name:    "hostname regexp infix below an infix",
+			routes:  []string{"+{a}.x.+{b:(?:[a-z]+\\.)*[a-z]+}.com/"},
+			request: func(n int) (string, string) { return strings.Repeat("a.x.", n) + "org", "/" },
+		},
+	}
+
+	work := func(f *Router, host, path string) (int, bool) {
+		c := newTestContext(f)
+		_, n, _ := f.getTree().lookup(http.MethodGet, host, path, c, false)
+		return c.memo.work + c.memo.scratch.Steps, n != nil
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := NewRouter(WithAllowRegexpParam(true))
+			for _, rte := range tc.routes {
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler, tc.opts...)))
+			}
+			host, path := tc.request(500)
+			small, matched := work(f, host, path)
+			assert.Equal(t, tc.wantMatch, matched)
+			host, path = tc.request(2000)
+			large, matched := work(f, host, path)
+			assert.Equal(t, tc.wantMatch, matched)
+			assert.Less(t, large, 6*small)
+		})
+	}
+}
+
+type countingMatcher struct {
+	calls *int
+}
+
+func (m countingMatcher) Match(RequestContext) bool {
+	*m.calls++
+	return false
+}
+
+func (m countingMatcher) Equal(o Matcher) bool {
+	om, ok := o.(countingMatcher)
+	return ok && om.calls == m.calls
+}
+
+func Test_iTree_lookup_MatcherEvaluatedOnce(t *testing.T) {
+	var calls int
+	f, _ := NewRouter()
+	require.NoError(t, onlyError(f.Add(MethodGet, "/+{a}/x/+{b}", emptyHandler, WithMatcher(countingMatcher{calls: &calls}))))
+	path := strings.Repeat("/a/x", 100)
+	c := newTextContextOnly(f, httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+	_, n, _ := f.getTree().lookup(http.MethodGet, "", path, c, false)
+	assert.Nil(t, n)
+	assert.Equal(t, 1, calls)
+}
+
+func Test_iTree_lookup_ReusedContext(t *testing.T) {
+	f, _ := NewRouter(WithAllowRegexpParam(true), WithTrailingSlash(RelaxedSlash))
+	for _, rte := range []string{
+		"/+{w:a.*}/{p}/",
+		"/files/+{p:[a-z/]+}/{name}",
+		"/+{a}/x/+{b:(?:[a-z]+/)*[a-z]+}/y",
+		"/+{a}/x/+{f:[a-z/]+}",
+		"+{h:[a-z.]+}.x.+{i:(?:[a-z]+\\.)*[a-z]+}.com/",
+		"+{sub}.example.+{tld}/{a}/x",
+	} {
+		require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+	}
+
+	requests := []struct{ host, path string }{
+		{"", "/a/a/b//x/a.b"},
+		{"", "/files/a/bb/ccc/dddd"},
+		{"", "/files/x/y/zz"},
+		{"", "/ab//b/x"},
+		{"", "/a/x/a/x/b/c/y"},
+		{"", "/a/x/a/x/b/C"},
+		{"", "/a/x/b/c"},
+		{"a.x.b.c.com", "/"},
+		{"a.b.x.c.x.d.com", "/"},
+		{"a.example.b.example.com", "/b/x"},
+		{"a.example.b.example.com", "/b/y"},
+		{"", "/a/a/b//x/a.b"},
+	}
+
+	tree := f.getTree()
+	reused := newTestContext(f)
+	for _, req := range requests {
+		fresh := newTestContext(f)
+		wantIdx, wantNode, wantTsr := tree.lookup(http.MethodGet, req.host, req.path, fresh, false)
+		*reused.params = (*reused.params)[:0]
+		idx, n, tsr := tree.lookup(http.MethodGet, req.host, req.path, reused, false)
+		assert.Equal(t, wantNode, n)
+		assert.Equal(t, wantIdx, idx)
+		assert.Equal(t, wantTsr, tsr)
+		assert.Equal(t, *fresh.params, *reused.params)
 	}
 }
 
@@ -4827,7 +5023,7 @@ func Test_iTree_lookup_Tsr(t *testing.T) {
 			}
 			tree := f.getTree()
 			c := newTestContext(f)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, tc.key, c, true, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", tc.key, c, true)
 			assert.Equal(t, tc.want, tsr)
 			if tc.want {
 				require.NotNil(t, n)
@@ -4931,7 +5127,7 @@ func Test_iTree_lookup_TsrMatchers(t *testing.T) {
 			c := newTestContext(f)
 			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
 			c.resetWithRequest(req)
-			idx, n, tsr := lookupByPath(tree.patterns, http.MethodGet, req.URL.Path, c, true, 0)
+			idx, n, tsr := tree.lookup(http.MethodGet, "", req.URL.Path, c, true)
 			if tc.wantPath == "" {
 				assert.Nil(t, n)
 				return

@@ -46,6 +46,12 @@ func Test_parsePattern(t *testing.T) {
 		return tk
 	}
 
+	nestedWildcardToken := func(v, reg string) token {
+		tk := wildcardToken(v, reg)
+		tk.nested = true
+		return tk
+	}
+
 	hostParamToken := func(v, reg string) token {
 		tk := token{
 			value: v,
@@ -200,9 +206,9 @@ func Test_parsePattern(t *testing.T) {
 				staticToken("/foo/bar/", false),
 				wildcardToken("bar", ""),
 				staticToken("/x", false),
-				wildcardToken("args", ""),
+				nestedWildcardToken("args", ""),
 				staticToken("/y/", false),
-				wildcardToken("z", ""),
+				nestedWildcardToken("z", ""),
 				staticToken("/", false),
 				paramToken("b", ""),
 			)),
@@ -696,9 +702,9 @@ func Test_parsePattern(t *testing.T) {
 				staticToken("/foo/bar/", false),
 				wildcardToken("bar", ""),
 				staticToken("/x", false),
-				wildcardToken("args", ""),
+				nestedWildcardToken("args", ""),
 				staticToken("/y/", false),
-				wildcardToken("z", ""),
+				nestedWildcardToken("z", ""),
 				staticToken("/", false),
 				paramToken("b", ""),
 			)),
@@ -740,9 +746,9 @@ func Test_parsePattern(t *testing.T) {
 				staticToken("/foo/bar/", false),
 				wildcardToken("bar", ""),
 				staticToken("/x", false),
-				wildcardToken("args", ""),
+				nestedWildcardToken("args", ""),
 				staticToken("/y/", false),
-				wildcardToken("z", ""),
+				nestedWildcardToken("z", ""),
 				staticToken("/", false),
 				paramToken("b", ""),
 			)),
@@ -962,7 +968,7 @@ func Test_parsePattern(t *testing.T) {
 				staticToken("/foo/", false),
 				wildcardToken("bar", "[A-z]+"),
 				staticToken("/a", false),
-				wildcardToken("baz", "[0-9]+"),
+				nestedWildcardToken("baz", "[0-9]+"),
 			)),
 			wantN: 2,
 		},

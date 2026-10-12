@@ -3,6 +3,7 @@ package fox
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -185,6 +186,67 @@ func BenchmarkInfixCatchAll(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		f.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkInfixCatchAllNearMiss(b *testing.B) {
+	f, _ := NewRouter()
+	f.MustAdd(MethodGet, "/files/+{p}/thumb/+{q}/download", emptyHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/files"+strings.Repeat("/thumb", 1024), nil)
+	w := new(mockResponseWriter)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkRegexp(b *testing.B) {
+	deep := strings.Repeat("abc/", 32) + "abc"
+	cases := []struct {
+		name  string
+		route string
+		path  string
+	}{
+		{name: "param", route: "/users/{id:[0-9]+}", path: "/users/12345"},
+		{name: "suffix", route: "/files/+{p:[a-z/]+}", path: "/files/abc/def/ghi"},
+		{name: "infix_class_short", route: "/files/+{p:[a-z/]+}/meta", path: "/files/abc/meta"},
+		{name: "infix_class_deep", route: "/files/+{p:[a-z/]+}/meta", path: "/files/" + deep + "/meta"},
+		{name: "infix_class_param_deep", route: "/files/+{p:[a-z/]+}/{name}", path: "/files/" + deep + "/meta"},
+		{name: "infix_short", route: "/files/+{p:(?:[a-z]+/)*[a-z]+}/meta", path: "/files/abc/meta"},
+		{name: "infix_deep", route: "/files/+{p:(?:[a-z]+/)*[a-z]+}/meta", path: "/files/" + deep + "/meta"},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			f, _ := NewRouter(WithAllowRegexpParam(true))
+			f.MustAdd(MethodGet, tc.route, emptyHandler)
+
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			w := new(mockResponseWriter)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				f.ServeHTTP(w, req)
+			}
+		})
+	}
+}
+
+func BenchmarkRegexpInsert(b *testing.B) {
+	f, _ := NewRouter(WithAllowRegexpParam(true))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f.MustAdd(MethodGet, "/files/+{p:[a-z0-9/._-]+}/meta", emptyHandler)
+		_, _ = f.Delete(MethodGet, "/files/+{p:[a-z0-9/._-]+}/meta")
 	}
 }
 

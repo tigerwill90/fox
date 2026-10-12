@@ -455,6 +455,7 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 		if tk.typ != nodeStatic {
 			rte.params = append(rte.params, tk.value)
 		}
+		rte.nested = rte.nested || tk.nested
 	}
 
 	for _, opt := range opts {
