@@ -118,9 +118,13 @@ func TestEndsNext(t *testing.T) {
 				start := rng.IntN(len(s) + 1)
 				want := wantEnds(re, s, start, '/')
 				l.Start(r, s, start, '/')
+				reach := start
 				for range 4 {
 					from := start + rng.IntN(len(s)-start+1)
-					assert.Equal(t, firstEnd(want, from), l.Next(from))
+					end := l.Next(from)
+					assert.Equal(t, firstEnd(want, from), end)
+					reach = max(reach, from, end)
+					assert.GreaterOrEqual(t, l.Reach(), reach)
 				}
 			}
 		})

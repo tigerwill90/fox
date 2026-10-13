@@ -33,8 +33,10 @@ type pikeVM struct {
 	nodes []vmNode
 	kids  []int32
 	// seen holds the stamp of each state of the linked nodes at the current position.
-	seen      []uint64
-	cur, next vmList
+	seen []uint64
+	// cur and next point to the threads of the current and the next position, held in lists.
+	cur, next *vmList
+	lists     [2]vmList
 	matched   []uint32
 	// caps holds the capture blocks of the threads, and spare the buffer they move to when caps
 	// exceeds capsLimit.
@@ -138,12 +140,17 @@ func (vm *pikeVM) run(method, s, path string, c *Context, lazy bool, f skipNode)
 	vm.hits, vm.hitParams = vm.hits[:0], vm.hitParams[:0]
 	vm.caps, vm.capsLimit = append(vm.caps[:0], 0), minCapsLimit
 
+	// The buffers keep their roles across lookups, so a lookup of the same input allocates nothing.
+	vm.cur, vm.next = &vm.lists[0], &vm.lists[1]
 	vm.next.reset()
 	vm.pos = vm.tick()
 	from := vm.begin(root, f)
-	swapped, moved := false, false
+	if from < len(s) {
+		vm.nextClass = regprog.Class(s[from])
+	}
+	moved := false
 	for q := from; q < len(s) && len(vm.next.threads) > 0; q++ {
-		vm.cur, vm.next, swapped = vm.next, vm.cur, !swapped
+		vm.cur, vm.next = vm.next, vm.cur
 		vm.next.reset()
 		vm.pos = vm.tick()
 		if len(vm.caps) > vm.capsLimit {
@@ -151,19 +158,16 @@ func (vm *pikeVM) run(method, s, path string, c *Context, lazy bool, f skipNode)
 			moved = !moved
 		}
 		c.lookup.steps += len(vm.cur.threads)
-		vm.prevClass = regprog.Class(s[q])
+		vm.prevClass = vm.nextClass
 		if q+1 < len(s) {
 			vm.nextClass = regprog.Class(s[q+1])
 		}
-		for i := range vm.cur.threads {
-			if vm.step(&vm.cur.threads[i], q) {
+		cur := vm.cur
+		for i := range cur.threads {
+			if vm.step(&cur.threads[i], cur.pcs, q) {
 				break
 			}
 		}
-	}
-	// The buffers keep their roles across lookups, so a lookup of the same input allocates nothing.
-	if swapped {
-		vm.cur, vm.next = vm.next, vm.cur
 	}
 	if moved {
 		vm.caps, vm.spare = vm.spare, vm.caps
@@ -285,9 +289,9 @@ func (vm *pikeVM) moveCaps() {
 	vm.capsLimit = max(minCapsLimit, 2*len(caps))
 }
 
-// step advances the thread t over the byte at q, in the order of the walk. It reports whether a
-// match cuts the threads after t.
-func (vm *pikeVM) step(t *vmThread, q int) bool {
+// step advances the thread t over the byte at q, in the order of the walk. The regexp states of
+// the current threads are in pcs. It reports whether a match cuts the threads after t.
+func (vm *pikeVM) step(t *vmThread, pcs []uint32, q int) bool {
 	p := q + 1
 	s := vm.s
 	nd := &vm.nodes[t.node]
@@ -317,7 +321,7 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 		return false
 	}
 
-	prog, pcs := nd.n.prog, vm.cur.pcs[t.lo:t.hi]
+	prog, pcs := nd.n.prog, pcs[t.lo:t.hi]
 	base := nd.infix
 	if t.kind == vmSuffixRegexp {
 		base = nd.suffix
@@ -371,8 +375,9 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 	if end {
 		return false
 	}
-	lo := len(vm.next.pcs)
-	next := vm.next.pcs
+	list := vm.next
+	lo := len(list.pcs)
+	next := list.pcs
 	if prog.Expands() {
 		next = prog.Next(next, pcs, vm.prevClass, vm.nextClass, vm.seen[base:int(base)+prog.Len()], vm.pos, &vm.stack)
 	} else {
@@ -387,9 +392,9 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 			}
 		}
 	}
-	vm.next.pcs = next
+	list.pcs = next
 	if len(next) > lo {
-		vm.next.threads = append(vm.next.threads, vmThread{kind: t.kind, node: t.node, lo: int32(lo), hi: int32(len(next)), caps: caps, start: start}) // nolint:gosec
+		list.threads = append(list.threads, vmThread{kind: t.kind, node: t.node, lo: int32(lo), hi: int32(len(next)), caps: caps, start: start}) // nolint:gosec
 	}
 	return false
 }

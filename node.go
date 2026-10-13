@@ -208,7 +208,7 @@ Walk:
 					end = c.lookup.scanEnd(wildcardNode, searchStart, end)
 				} else if evaluated {
 					ends = c.lookup.ends(wildcardNode, host, charsMatched, dotDelim)
-				} else if wildcardNode.nested && c.lookup.retryScan(wildcardNode) {
+				} else if wildcardNode.nested && c.lookup.retryScan(wildcardNode, charsMatched) {
 					goto VM
 				}
 
@@ -538,7 +538,7 @@ Walk:
 					end = c.lookup.scanEnd(wildcardNode, searchStart, end)
 				} else if evaluated {
 					ends = c.lookup.ends(wildcardNode, path, charsMatched, slashDelim)
-				} else if wildcardNode.nested && c.lookup.retryScan(wildcardNode) {
+				} else if wildcardNode.nested && c.lookup.retryScan(wildcardNode, charsMatched) {
 					goto VM
 				}
 
@@ -560,7 +560,7 @@ Walk:
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
-								if wildcardNode.regexp != nil && !c.lookup.matchRegexp(wildcardNode, path[offset:]) {
+								if wildcardNode.regexp != nil && !c.lookup.matchTail(wildcardNode, path[offset:]) {
 									break
 								}
 								for j, route := range child.routes {

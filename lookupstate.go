@@ -97,14 +97,15 @@ func (s *lookupState) matchRegexp(n *node, in string) bool {
 // regexpWildcard is a regexp wildcard during a lookup. An infix scan first evaluates the regexp on
 // one capture, as most lookups need no more. When it needs a second evaluation, a single pass lists
 // the capture ends that match, one at a time. The Pike VM takes over when a nested node is scanned
-// or tried as a suffix a second time.
+// over bytes a previous scan looked at, or tried as a suffix a second time.
 type regexpWildcard struct {
 	node *node
 	// ends lists the capture ends of the scan that match.
 	ends regprog.Ends
 	// scanned and suffixed report whether the walk scanned the infix captures of a nested node, and
-	// tried it on the rest of the input.
-	scanned, suffixed bool
+	// tried it on the rest of the input. listed reports whether the last scan looked at no byte past
+	// the reach of its listing.
+	scanned, suffixed, listed bool
 }
 
 // regexp returns the regexp wildcard n tracked by the lookup.
@@ -126,12 +127,12 @@ func (s *lookupState) regexp(n *node) *regexpWildcard {
 	return w
 }
 
-// retryScan reports whether the walk scanned the infix captures of the nested node n before, and
-// records this scan.
-func (s *lookupState) retryScan(n *node) bool {
+// retryScan reports whether a scan of the nested node n from start would look at bytes an earlier
+// scan looked at, and records this scan. A scan that did not list its ends ran to the end of the input.
+func (s *lookupState) retryScan(n *node, start int) bool {
 	w := s.regexp(n)
-	retry := w.scanned
-	w.scanned = true
+	retry := w.scanned && (!w.listed || w.ends.Reach() >= start)
+	w.scanned, w.listed = true, false
 	return retry
 }
 
@@ -144,13 +145,22 @@ func (s *lookupState) retrySuffix(n *node) bool {
 	return retry
 }
 
-// ends returns the listing of the capture ends of the scan of n from start. A node is scanned from a
-// single start before the Pike VM takes over, and its ends are asked in increasing order, so the
-// listing runs once. It starts over otherwise.
+// ends returns the listing of the capture ends of the scan of n from start. A scan asks for its ends
+// in increasing order, so its listing runs once. It starts over otherwise.
 func (s *lookupState) ends(n *node, in string, start int, delim byte) *regprog.Ends {
-	e := &s.regexp(n).ends
-	e.Start(n.prog, in, start, delim)
-	return e
+	w := s.regexp(n)
+	w.listed = true
+	w.ends.Start(n.prog, in, start, delim)
+	return &w.ends
+}
+
+// matchTail reports whether the rest of the input from the start of the scan of n matches its regexp.
+// The scan then looked at the input to its end.
+func (s *lookupState) matchTail(n *node, in string) bool {
+	if n.nested {
+		s.regexp(n).listed = false
+	}
+	return s.matchRegexp(n, in)
 }
 
 func (s *lookupState) pathVM() *pikeVM {

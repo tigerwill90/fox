@@ -4726,6 +4726,22 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 			request: func(n int) (string, string) { return "", strings.Repeat("/a/x", n) + "/z" },
 		},
 		{
+			name:    "regexp infix listed below its last capture below an infix",
+			routes:  []string{"/+{a}/x/+{b:z[a-z/]*}/y"},
+			request: func(n int) (string, string) { return "", strings.Repeat("/a/x", n) + "/y/y" },
+		},
+		{
+			name:    "regexp infix scanned to the end after a listed scan below an infix",
+			routes:  []string{"/+{a}/x/+{b:z[a-z/]*}/y"},
+			request: func(n int) (string, string) { return "", "/a/x/q/y/y" + strings.Repeat("/a/x", n) + "/Z" },
+		},
+		{
+			name:    "regexp infix with trailing slash listed below an infix",
+			routes:  []string{"/+{a}/x/+{b:z[a-z]*}/"},
+			opts:    []RouteOption{WithTrailingSlash(RelaxedSlash)},
+			request: func(n int) (string, string) { return "", strings.Repeat("/a/x", n) + "/Z" },
+		},
+		{
 			name:    "regexp infix with trailing slash below an infix",
 			routes:  []string{"/+{a}/x/+{b:(?:[a-z]+/)*[a-z]+}/"},
 			opts:    []RouteOption{WithTrailingSlash(RelaxedSlash)},
@@ -4802,6 +4818,44 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 	}
 }
 
+func Test_iTree_lookup_InfixWildcardDisjointScans(t *testing.T) {
+	cases := []struct {
+		name   string
+		route  string
+		host   string
+		path   string
+		params []string
+	}{
+		{
+			name:   "path",
+			route:  "/+{site}/archive/+{date:[0-9]{4}/[0-9]{2}/[0-9]{2}}/{slug}",
+			path:   "/blog/archive/engineering/archive/2026/10/13/pike-vm",
+			params: []string{"blog/archive/engineering", "2026/10/13", "pike-vm"},
+		},
+		{
+			name:   "hostname",
+			route:  "+{bucket}.s3.+{region:[a-z]{2}-[a-z]+-[0-9]}.amazonaws.com/+{key}",
+			host:   "logs.s3.backup.s3.eu-west-1.amazonaws.com",
+			path:   "/2026/app.log",
+			params: []string{"logs.s3.backup", "eu-west-1", "2026/app.log"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := NewRouter(WithAllowRegexpParam(true))
+			require.NoError(t, onlyError(f.Add(MethodGet, tc.route, emptyHandler)))
+			c := newTestContext(f)
+			idx, n, _ := f.getTree().lookup(http.MethodGet, tc.host, tc.path, c, false)
+			require.NotNil(t, n)
+			assert.Equal(t, tc.route, n.routes[idx].Pattern())
+			assert.Equal(t, tc.params, *c.params)
+			assert.Nil(t, c.lookup.pathPikeVM)
+			assert.Nil(t, c.lookup.hostPikeVM)
+		})
+	}
+}
+
 func Test_iTree_lookup_PikeVM(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -4823,9 +4877,9 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 		{
 			name:   "param after infix",
 			routes: []string{"/+{a}/x/+{b:[a-z/]+}/{p}/z"},
-			path:   "/a/x/B/x/c/d/z",
+			path:   "/a/x/b/x/C/x/c/d/z",
 			want:   "/+{a}/x/+{b:[a-z/]+}/{p}/z",
-			params: []string{"a/x/B", "c", "d"},
+			params: []string{"a/x/b/x/C", "c", "d"},
 		},
 		{
 			name:   "suffix without regexp after infix",
@@ -4977,26 +5031,26 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 		{
 			name:   "hostname regexp with closures followed at each step",
 			routes: []string{"+{a}.x.+{b:(?:[a-z.]?){18}}.com/"},
-			host:   "a.x.9.x.b.c.com",
+			host:   "a.x.b.x.c.9.x.b.c.com",
 			path:   "/",
 			want:   "+{a}.x.+{b:(?:[a-z.]?){18}}.com/",
-			params: []string{"a.x.9", "b.c"},
+			params: []string{"a.x.b.x.c.9", "b.c"},
 		},
 		{
 			name:   "hostname infix",
 			routes: []string{"+{a}.x.+{b:(?:[a-z]+\\.)*[a-z]+}.com/p"},
-			host:   "A.X.b9.X.C.COM",
+			host:   "A.X.b.X.c9.X.C.COM",
 			path:   "/p",
 			want:   "+{a}.x.+{b:(?:[a-z]+\\.)*[a-z]+}.com/p",
-			params: []string{"A.X.b9", "C"},
+			params: []string{"A.X.b.X.c9", "C"},
 		},
 		{
 			name:   "hostname non ascii",
 			routes: []string{"+{a}.x.+{b:[a-zé.]+}.com/"},
-			host:   "a.x.\xff.x.é.com",
+			host:   "a.x.é.x.\xff.x.é.com",
 			path:   "/",
 			want:   "+{a}.x.+{b:[a-zé.]+}.com/",
-			params: []string{"a.x.\xff", "é"},
+			params: []string{"a.x.é.x.\xff", "é"},
 		},
 		{
 			name:   "hostname suffix with a path vm",
@@ -5017,10 +5071,10 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 		{
 			name:   "hostname path lookup matched again",
 			routes: []string{"+{a}.x.+{b:c|x\\.x\\.c\\.y}.y.+{s}/"},
-			host:   "q.x.Z.x.x.x.c.y.y.w",
+			host:   "q.x.x.x.Z.x.x.x.c.y.y.w",
 			path:   "/",
 			want:   "+{a}.x.+{b:c|x\\.x\\.c\\.y}.y.+{s}/",
-			params: []string{"q.x.Z", "x.x.c.y", "w"},
+			params: []string{"q.x.x.x.Z", "x.x.c.y", "w"},
 		},
 	}
 

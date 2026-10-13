@@ -404,7 +404,9 @@ type Ends struct {
 	start, pos         int
 	// steps counts the positions stepped since the listing was created. It exists to make linearity
 	// testable.
-	steps    int
+	steps int
+	// reach is the furthest position the listing was asked from, or stepped to before a restart.
+	reach    int
 	delim    byte
 	accepted bool
 }
@@ -415,12 +417,19 @@ func (e *Ends) Start(r *Regexp, s string, start int, delim byte) {
 		return
 	}
 	e.r, e.s, e.start, e.delim = r, s, start, delim
+	e.pos, e.reach = start, start
 	e.restart()
+}
+
+// Reach returns the furthest position of s the listing was asked from or stepped to.
+func (e *Ends) Reach() int {
+	return max(e.reach, e.pos)
 }
 
 // restart moves the listing back to its start.
 func (e *Ends) restart() {
 	r, s := e.r, e.s
+	e.reach = max(e.reach, e.pos)
 	e.pos, e.accepted = e.start, false
 	if cap(e.seen) < len(r.inst) {
 		e.seen = make([]uint64, len(r.inst))
@@ -440,6 +449,7 @@ func (e *Ends) Steps() int {
 // Next returns the first end at or after from, or -1 if there is none. When from is before the end
 // returned last, the listing starts over.
 func (e *Ends) Next(from int) int {
+	e.reach = max(e.reach, from)
 	if from < e.pos {
 		e.restart()
 	}
