@@ -207,9 +207,10 @@ func BenchmarkInfixCatchAllNearMiss(b *testing.B) {
 func BenchmarkRegexp(b *testing.B) {
 	deep := strings.Repeat("abc/", 32) + "abc"
 	cases := []struct {
-		name  string
-		route string
-		path  string
+		name   string
+		route  string
+		path   string
+		others []string
 	}{
 		{name: "param", route: "/users/{id:[0-9]+}", path: "/users/12345"},
 		{name: "suffix", route: "/files/+{p:[a-z/]+}", path: "/files/abc/def/ghi"},
@@ -218,12 +219,27 @@ func BenchmarkRegexp(b *testing.B) {
 		{name: "infix_class_param_deep", route: "/files/+{p:[a-z/]+}/{name}", path: "/files/" + deep + "/meta"},
 		{name: "infix_short", route: "/files/+{p:(?:[a-z]+/)*[a-z]+}/meta", path: "/files/abc/meta"},
 		{name: "infix_deep", route: "/files/+{p:(?:[a-z]+/)*[a-z]+}/meta", path: "/files/" + deep + "/meta"},
+		{name: "infix_nested_short", route: "/+{a}/x/+{b:[a-z/]+}/y", path: "/a/x/B/x/c/y"},
+		{name: "infix_nested_near_miss", route: "/+{a}/x/+{b:[a-z/]+}/y", path: strings.Repeat("/a/x", 1<<10) + "/Z"},
+		{name: "infix_nested_near_miss_64k", route: "/+{a}/x/+{b:[a-z/]+}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
+		{name: "infix_nested_bounded_near_miss_64k", route: "/+{a}/x/+{b:[a-z0-9-]{1,63}(?:/[a-z0-9-]{1,63})*}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
+		{name: "infix_nested_counted_near_miss_64k", route: "/+{a}/x/+{b:.{1,255}}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
+		{name: "infix_nested_optional_chain_near_miss_64k", route: "/+{a}/x/+{b:(?:[a-z/]?){64}}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
+		{
+			name:   "infix_nested_siblings_near_miss_64k",
+			route:  "/+{a}/x/+{b:[a-z/]+}/y",
+			path:   strings.Repeat("/a/x", 1<<14) + "/Z",
+			others: []string{"/+{a}/x/+{c:[0-9/]+}/z", "/+{a}/x/+{d:(?:[a-z]+/)*[a-z]+}/w"},
+		},
 	}
 
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {
 			f, _ := NewRouter(WithAllowRegexpParam(true))
 			f.MustAdd(MethodGet, tc.route, emptyHandler)
+			for _, rte := range tc.others {
+				f.MustAdd(MethodGet, rte, emptyHandler)
+			}
 
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 			w := new(mockResponseWriter)

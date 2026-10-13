@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/fox-toolkit/fox/internal/netutil"
-	"github.com/fox-toolkit/fox/internal/nfa"
+	"github.com/fox-toolkit/fox/internal/regprog"
 	"github.com/fox-toolkit/fox/internal/stringsutil"
 )
 
@@ -24,9 +25,12 @@ type node struct {
 	// When present, captured segments must match this pattern during lookup.
 	regexp *regexp.Regexp
 
-	// nfa is regexp compiled for simulation, set for wildcard nodes with a regexp. It finds in a
-	// single pass the capture ends of an infix wildcard, or the starts of a suffix wildcard, that match.
-	nfa *nfa.Regexp
+	// prog is regexp compiled for simulation, set for wildcard nodes with a regexp. It finds in a
+	// single pass the capture ends of an infix wildcard that match, and runs in the Pike VM.
+	prog *regprog.Regexp
+
+	// vm is the Pike VM program of the subtree, compiled by the first lookup that runs it.
+	vm atomic.Pointer[vmProg]
 
 	// key identifies the node's content and varies by node type:
 	//
@@ -208,8 +212,8 @@ Walk:
 					end = c.memo.searchEnd(wildcardNode, searchStart, end)
 				} else if evaluated {
 					rm = c.memo.listEnds(wildcardNode, host, charsMatched, dotDelim)
-				} else if wildcardNode.nested {
-					rm = c.memo.beginScan(wildcardNode, host, charsMatched, dotDelim)
+				} else if wildcardNode.nested && c.memo.rescan(wildcardNode) {
+					goto VM
 				}
 
 				for {
@@ -249,10 +253,6 @@ Walk:
 							continue
 						}
 					}
-					if rm != nil {
-						rm.markTried(captureEnd)
-					}
-
 					// We have a potential match, save backtrack state
 					// The next attempt should search starting one position after current searchStart
 					*c.skipStack = append(*c.skipStack, skipNode{
@@ -308,8 +308,13 @@ Walk:
 					continue
 				}
 
-				if wildcardNode.regexp != nil && !c.memo.matchSuffix(wildcardNode, host, charsMatched) {
-					continue
+				if wildcardNode.regexp != nil {
+					if wildcardNode.nested && c.memo.resuffix(wildcardNode) {
+						goto VM
+					}
+					if !c.memo.matchRegexp(wildcardNode, search) {
+						continue
+					}
 				}
 
 				paramCnt := len(*c.params)
@@ -347,6 +352,17 @@ Walk:
 
 		// Remove any unused skip nodes added during the path lookup.
 		*c.skipStack = (*c.skipStack)[:stackOffset]
+	}
+	goto Backtrack
+
+VM:
+	// A nested wildcard is reached again: the Pike VM runs the subtree of the outermost infix
+	// wildcard, and the walk resumes below it when nothing matches.
+	{
+		f := vmFrame(c, 0)
+		if index, n, tsr = c.memo.hostPikeVM().lookup(method, host, path, c, lazy, f); n != nil {
+			return
+		}
 	}
 
 Backtrack:
@@ -526,8 +542,8 @@ Walk:
 					end = c.memo.searchEnd(wildcardNode, searchStart, end)
 				} else if evaluated {
 					rm = c.memo.listEnds(wildcardNode, path, charsMatched, slashDelim)
-				} else if wildcardNode.nested {
-					rm = c.memo.beginScan(wildcardNode, path, charsMatched, slashDelim)
+				} else if wildcardNode.nested && c.memo.rescan(wildcardNode) {
+					goto VM
 				}
 
 				// An infix wildcard has a single static child, its key starts with a slash.
@@ -548,7 +564,7 @@ Walk:
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
-								if wildcardNode.regexp != nil && !c.memo.matchSuffix(wildcardNode, path, offset) {
+								if wildcardNode.regexp != nil && !c.memo.matchRegexp(wildcardNode, path[offset:]) {
 									break
 								}
 								for j, route := range child.routes {
@@ -598,10 +614,6 @@ Walk:
 							continue
 						}
 					}
-					if rm != nil {
-						rm.markTried(captureEnd)
-					}
-
 					// We have a potential match, save backtrack state
 					// The next attempt should search starting one position after current searchStart
 					*c.skipStack = append(*c.skipStack, skipNode{
@@ -654,8 +666,13 @@ Walk:
 					continue // Not a suffix catchall
 				}
 
-				if wildcardNode.regexp != nil && !c.memo.matchSuffix(wildcardNode, path, charsMatched) {
-					continue
+				if wildcardNode.regexp != nil {
+					if wildcardNode.nested && c.memo.resuffix(wildcardNode) {
+						goto VM
+					}
+					if !c.memo.matchRegexp(wildcardNode, search) {
+						continue
+					}
 				}
 
 				for i, route := range wildcardNode.routes {
@@ -710,6 +727,19 @@ Walk:
 				return i, parent, true
 			}
 		}
+	}
+	goto Backtrack
+
+VM:
+	// A nested wildcard is reached again: the Pike VM runs the subtree of the outermost infix
+	// wildcard, and the walk resumes below it when nothing matches.
+	{
+		f := vmFrame(c, stackOffset)
+		if index, n, tsr = c.memo.pathPikeVM().lookup(method, path, path, c, lazy, f); n != nil {
+			return
+		}
+		matched, charsMatched = f.node, f.charsMatched
+		search = path[charsMatched:]
 	}
 
 Backtrack:

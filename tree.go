@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fox-toolkit/fox/internal/nfa"
+	"github.com/fox-toolkit/fox/internal/regprog"
 	"github.com/fox-toolkit/fox/internal/simplelru"
 	"github.com/fox-toolkit/fox/internal/slicesutil"
 )
@@ -567,13 +567,12 @@ func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*
 	return nc, nil
 }
 
-// compileNFA compiles the regexp of a wildcard for simulation, or returns nil without regexp. Only a
-// nested wildcard needs the backward program, to match a suffix from many starts.
-func compileNFA(re *regexp.Regexp, nested bool) *nfa.Regexp {
+// compileProg compiles the regexp of a wildcard for simulation, or returns nil without regexp.
+func compileProg(re *regexp.Regexp) *regprog.Regexp {
 	if re == nil {
 		return nil
 	}
-	r, err := nfa.Compile(re, nested)
+	r, err := regprog.Compile(re)
 	if err != nil {
 		// The expression already compiled with regexp.
 		panic(fmt.Sprintf("unreachable: %s: %v", re, err))
@@ -594,7 +593,7 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 			&node{
 				key:    key,
 				regexp: tk.regexp,
-				nfa:    compileNFA(tk.regexp, tk.nested),
+				prog:   compileProg(tk.regexp),
 				nested: tk.nested,
 			},
 			remaining,
@@ -865,6 +864,8 @@ func (t *tXn) writeNode(n *node) *node {
 	}
 
 	if _, ok := t.writable.Get(n); ok {
+		// The node is about to change in place.
+		n.vm.Store(nil)
 		return n
 	}
 
@@ -872,7 +873,7 @@ func (t *tXn) writeNode(n *node) *node {
 		label:  n.label,
 		key:    n.key,
 		regexp: n.regexp,
-		nfa:    n.nfa,
+		prog:   n.prog,
 		host:   n.host,
 		nested: n.nested,
 	}

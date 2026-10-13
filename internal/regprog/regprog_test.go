@@ -2,16 +2,14 @@
 // Mount of this source code is governed by a Apache-2.0 license that can be found
 // at https://github.com/fox-toolkit/fox/blob/master/LICENSE.txt.
 
-package nfa
+package regprog
 
 import (
 	"math/rand/v2"
 	"regexp"
 	"regexp/syntax"
-	"slices"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +32,10 @@ var exprs = []string{
 	"[^\\x{FFFD}]+",
 	"é+/?",
 	"(?U)a+b",
+	"(?:a?){20}b?",
+	"(?:[a-z/]?){24}",
+	"(?:\\b?a?/?){12}",
+	"(?m)(?:^?a?$?){10}",
 }
 
 const alphabet = "ab/.A_-\n"
@@ -56,7 +58,7 @@ func randString(rng *rand.Rand) string {
 func compileTest(t testing.TB, expr string) (*regexp.Regexp, *Regexp) {
 	re, err := regexp.Compile("^(?:" + expr + ")$")
 	require.NoError(t, err)
-	r, err := Compile(re, true)
+	r, err := Compile(re)
 	require.NoError(t, err)
 	return re, r
 }
@@ -71,91 +73,75 @@ func wantEnds(re *regexp.Regexp, s string, start int, delim byte) []int {
 	return ends
 }
 
-func wantStarts(re *regexp.Regexp, s string) []int {
-	var starts []int
-	for i := range len(s) {
-		if (i == 0 || s[i-1] < utf8.RuneSelf) && re.MatchString(s[i:]) {
-			starts = append(starts, i)
-		}
+func gotEnds(r *Regexp, p *Pass, s string, start int) []int {
+	p.Reset(r, s, start, '/')
+	var ends []int
+	for e := p.Next(start); e >= 0; e = p.Next(e + 1) {
+		ends = append(ends, e)
 	}
-	return starts
+	return ends
 }
 
-func gotStarts(r *Regexp, sc *Scratch, s string) []int {
-	bits := make([]uint64, (len(s)+63)/64)
-	r.Starts(sc, s, bits)
-	var starts []int
-	for i := range len(s) {
-		if (i == 0 || s[i-1] < utf8.RuneSelf) && bits[i/64]&(1<<(i%64)) != 0 {
-			starts = append(starts, i)
+func firstEnd(ends []int, from int) int {
+	for _, e := range ends {
+		if e >= from {
+			return e
 		}
 	}
-	return starts
+	return -1
 }
 
-func delimsOf(s string, delim byte) []int {
-	var delims []int
-	for i := range len(s) {
-		if s[i] == delim {
-			delims = append(delims, i)
-		}
-	}
-	return delims
-}
-
-func TestEnds(t *testing.T) {
+func TestPass(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	for _, expr := range exprs {
 		t.Run(expr, func(t *testing.T) {
 			re, r := compileTest(t, expr)
-			sc := new(Scratch)
+			p := new(Pass)
 			for range 5000 {
 				s := randString(rng)
 				for start := 0; start <= len(s); start++ {
-					assert.Equal(t, wantEnds(re, s, start, '/'), r.Ends(sc, s, start, '/', nil, nil))
+					assert.Equal(t, wantEnds(re, s, start, '/'), gotEnds(r, p, s, start))
 				}
 			}
 		})
 	}
 }
 
-func TestStarts(t *testing.T) {
+func TestPassNext(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 4))
 	for _, expr := range exprs {
 		t.Run(expr, func(t *testing.T) {
 			re, r := compileTest(t, expr)
-			sc := new(Scratch)
-			for range 5000 {
+			p := new(Pass)
+			for range 2000 {
 				s := randString(rng)
-				assert.Equal(t, wantStarts(re, s), gotStarts(r, sc, s))
+				start := rng.IntN(len(s) + 1)
+				want := wantEnds(re, s, start, '/')
+				p.Reset(r, s, start, '/')
+				for range 4 {
+					from := start + rng.IntN(len(s)-start+1)
+					assert.Equal(t, firstEnd(want, from), p.Next(from))
+				}
 			}
 		})
 	}
 }
 
-func TestEndsVisited(t *testing.T) {
-	rng := rand.New(rand.NewPCG(5, 6))
-	for _, expr := range exprs {
-		t.Run(expr, func(t *testing.T) {
-			re, r := compileTest(t, expr)
-			sc := new(Scratch)
-			var visited Visited
-			for range 2000 {
-				s := randString(rng)
-				visited.Reset(r, delimsOf(s, '/'))
-				reported := make(map[int]bool)
-				for range 4 {
-					start := rng.IntN(len(s) + 1)
-					got := r.Ends(sc, s, start, '/', &visited, nil)
-					assert.True(t, slices.IsSorted(got))
-					for _, e := range wantEnds(re, s, start, '/') {
-						assert.True(t, reported[e] || slices.Contains(got, e))
-					}
-					for _, e := range got {
-						assert.True(t, re.MatchString(s[start:e]))
-						reported[e] = true
-					}
-				}
+func TestFollow(t *testing.T) {
+	for _, tc := range []struct {
+		expr    string
+		expands bool
+	}{
+		{expr: "[a-z0-9]+(?:(?:\\.|_|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:\\.|_|__|-+)[a-z0-9]+)*)*", expands: false},
+		{expr: "(?:[a-z]+/){1,255}", expands: false},
+		{expr: "(?:a?){16}", expands: true},
+		{expr: "(?:a?){1000}", expands: true},
+	} {
+		t.Run(tc.expr, func(t *testing.T) {
+			_, r := compileTest(t, tc.expr)
+			assert.Equal(t, tc.expands, r.Expands())
+			for _, f := range r.follow {
+				assert.LessOrEqual(t, len(f.pcs), (maxClosure+2)*r.Len())
 			}
 		})
 	}
@@ -173,11 +159,9 @@ func FuzzEnds(f *testing.F) {
 		if err != nil {
 			return
 		}
-		r, err := Compile(re, true)
+		r, err := Compile(re)
 		require.NoError(t, err)
 		start = max(0, min(start, len(s)))
-		sc := new(Scratch)
-		assert.Equal(t, wantEnds(re, s, start, '/'), r.Ends(sc, s, start, '/', nil, nil))
-		assert.Equal(t, wantStarts(re, s), gotStarts(r, sc, s))
+		assert.Equal(t, wantEnds(re, s, start, '/'), gotEnds(r, new(Pass), s, start))
 	})
 }
