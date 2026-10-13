@@ -66,6 +66,61 @@ func TestStripHostPort(t *testing.T) {
 	}
 }
 
+func TestSplitHostPort(t *testing.T) {
+	cases := []struct {
+		hostPort string
+		host     string
+		port     string
+		ok       bool
+	}{
+		{"localhost:http", "localhost", "http", true},
+		{"localhost:80", "localhost", "80", true},
+		{"localhost%lo0:http", "localhost%lo0", "http", true},
+		{"localhost%lo0:80", "localhost%lo0", "80", true},
+		{"[localhost%lo0]:http", "localhost%lo0", "http", true},
+		{"[localhost%lo0]:80", "localhost%lo0", "80", true},
+		{"127.0.0.1:http", "127.0.0.1", "http", true},
+		{"127.0.0.1:80", "127.0.0.1", "80", true},
+		{"[::1]:http", "::1", "http", true},
+		{"[::1]:80", "::1", "80", true},
+		{"[::1%lo0]:http", "::1%lo0", "http", true},
+		{"[::1%lo0]:80", "::1%lo0", "80", true},
+		{":http", "", "http", true},
+		{":80", "", "80", true},
+		{"golang.org:", "golang.org", "", true},
+		{"127.0.0.1:", "127.0.0.1", "", true},
+		{"[::1]:", "::1", "", true},
+		{"golang.org:https%foo", "golang.org", "https%foo", true},
+		{"", "", "", false},
+		{"golang.org", "", "", false},
+		{"127.0.0.1", "", "", false},
+		{"[::1]", "", "", false},
+		{"[fe80::1%lo0]", "", "", false},
+		{"[localhost%lo0]", "", "", false},
+		{"localhost%lo0", "", "", false},
+		{"::1", "", "", false},
+		{"fe80::1%lo0", "", "", false},
+		{"fe80::1%lo0:80", "", "", false},
+		{"[foo:bar]", "", "", false},
+		{"[foo:bar]baz", "", "", false},
+		{"[foo]bar:baz", "", "", false},
+		{"[foo]:[bar]:baz", "", "", false},
+		{"[foo]:[bar]baz", "", "", false},
+		{"foo[bar]:baz", "", "", false},
+		{"foo[bar:baz", "", "", false},
+		{"foo]bar:baz", "", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.hostPort, func(t *testing.T) {
+			host, port, ok := SplitHostPort(tc.hostPort)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.host, host)
+			assert.Equal(t, tc.port, port)
+		})
+	}
+}
+
 func TestParsePrefix(t *testing.T) {
 	cases := []struct {
 		name       string

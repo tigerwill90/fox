@@ -1337,6 +1337,7 @@ func TestRouter_ServeHTTP_InfixWildcardMalloc(t *testing.T) {
 		{host: "example.com", path: "/v2/" + strings.Repeat("abc/", 200) + "img/manifests/latest"},
 		{host: "q.x.w.z.com", path: "/foo"},
 		{host: "example.com", path: "/m" + strings.Repeat("/a/x", 50)},
+		{host: "a:b:c", path: "/q/x/w/z"},
 	}
 
 	for _, tc := range cases {

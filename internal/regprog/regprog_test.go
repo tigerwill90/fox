@@ -151,6 +151,29 @@ func TestFollow(t *testing.T) {
 	}
 }
 
+func TestConsumes(t *testing.T) {
+	for _, tc := range []struct {
+		expr                   string
+		slash, dot, underscore bool
+	}{
+		{expr: "[a-z]+", slash: false, dot: false, underscore: false},
+		{expr: "[^/]+", slash: false, dot: true, underscore: true},
+		{expr: "\\d+|a", slash: false, dot: false, underscore: false},
+		{expr: "(?i)[a-z]+\\.", slash: false, dot: true, underscore: false},
+		{expr: "[a-z/]+", slash: true, dot: false, underscore: false},
+		{expr: ".+", slash: true, dot: true, underscore: true},
+		{expr: "\\W", slash: true, dot: true, underscore: false},
+		{expr: "a|(?:b/)+", slash: true, dot: false, underscore: false},
+	} {
+		t.Run(tc.expr, func(t *testing.T) {
+			_, r := compileTest(t, tc.expr)
+			assert.Equal(t, tc.slash, r.Consumes('/'))
+			assert.Equal(t, tc.dot, r.Consumes('.'))
+			assert.Equal(t, tc.underscore, r.Consumes('_'))
+		})
+	}
+}
+
 func FuzzEnds(f *testing.F) {
 	for _, expr := range exprs {
 		f.Add(expr, "ab/a.b/é/", 0)

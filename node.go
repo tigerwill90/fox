@@ -80,7 +80,8 @@ func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int
 	}
 
 	host := netutil.StripHostPort(hostPort)
-	if host == "" {
+	// A hostname never contains a slash, so no hostname route can match.
+	if host == "" || strings.IndexByte(host, slashDelim) >= 0 {
 		return lookupByPath(n, method, path, c, lazy, offsetZero)
 	}
 
@@ -544,6 +545,9 @@ Walk:
 
 				// An infix wildcard has a single static child, its key starts with a slash.
 				key := wildcardNode.statics[0].key
+				// A regexp that never matches a slash only matches the capture that ends at the first one. A nested
+				// node scans on, as its gate takes a scan without listing for one that ran to the end.
+				single := wildcardNode.prog != nil && !wildcardNode.nested && !wildcardNode.prog.Consumes(slashDelim)
 
 				for {
 					captureEnd := -1
@@ -552,10 +556,14 @@ Walk:
 					} else if idx := strings.IndexByte(path[searchStart:end], slashDelim); idx >= 0 {
 						// Search for next slash from current offset
 						captureEnd = searchStart + idx
+						if single {
+							end = captureEnd + 1
+						}
 					}
 
 					if captureEnd < 0 {
-						// When the search stopped before the end of the path, the tsr below was already tried.
+						// When the search stopped before the end of the path, the tsr below was already tried or
+						// the regexp never matches the rest of the path.
 						if end == len(path) && path[len(path)-1] != slashDelim {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,

@@ -1308,6 +1308,29 @@ func Test_iTree_lookup_Domain(t *testing.T) {
 			wantTsr:  false,
 		},
 		{
+			name: "host with a slash does not match the path of a hostname route",
+			routes: []string{
+				"a.api/x",
+				"a.api/x/y",
+				"/y",
+			},
+			host:     "a.api/x",
+			path:     "/y",
+			wantPath: "/y",
+			wantTsr:  false,
+		},
+		{
+			name: "host with a slash captured by a hostname param falls back to path only route",
+			routes: []string{
+				"{sub}.example.com/x",
+				"/x",
+			},
+			host:     "a/b.example.com",
+			path:     "/x",
+			wantPath: "/x",
+			wantTsr:  false,
+		},
+		{
 			name: "boundary hostname static path with hostname wildcard sibling",
 			routes: []string{
 				"example.com/p",
@@ -4789,6 +4812,14 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 			routes:  []string{"+{a}.x.+{b:[a-z.]+}/"},
 			request: func(n int) (string, string) { return strings.Repeat("a.x.", n) + "9", "/" },
 		},
+		{
+			name:   "hostname with slashes falls back to path only route",
+			routes: []string{"+{v1}.api/+{v2:.*x}", "/+{v2:.*x}"},
+			request: func(n int) (string, string) {
+				return strings.Repeat("/.api", n), "/" + strings.Repeat("a", n) + "x"
+			},
+			wantMatch: true,
+		},
 	}
 
 	steps := func(f *Router, host, path string) (int, bool) {
@@ -4818,6 +4849,30 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 	}
 }
 
+func Test_iTree_lookup_InfixWildcardSingleSegment(t *testing.T) {
+	cases := []struct {
+		name  string
+		route string
+		path  string
+		steps int
+	}{
+		{name: "rejected by the static key", route: "/+{v:[a-z]+}/x", path: strings.Repeat("/v", 1000), steps: 1},
+		{name: "empty first capture", route: "/+{v:a}/api", path: strings.Repeat("/", 1000) + "Z", steps: 1},
+		{name: "rejected by the regexp", route: "/+{v:[a-z]+}/x", path: "/1" + strings.Repeat("/x", 1000), steps: 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := NewRouter(WithAllowRegexpParam(true))
+			require.NoError(t, onlyError(f.Add(MethodGet, tc.route, emptyHandler)))
+			c := newTestContext(f)
+			_, n, _ := f.getTree().lookup(http.MethodGet, "", tc.path, c, false)
+			assert.Nil(t, n)
+			assert.Equal(t, tc.steps, c.lookup.steps)
+		})
+	}
+}
+
 func Test_iTree_lookup_InfixWildcardDisjointScans(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -4831,6 +4886,12 @@ func Test_iTree_lookup_InfixWildcardDisjointScans(t *testing.T) {
 			route:  "/+{site}/archive/+{date:[0-9]{4}/[0-9]{2}/[0-9]{2}}/{slug}",
 			path:   "/blog/archive/engineering/archive/2026/10/13/pike-vm",
 			params: []string{"blog/archive/engineering", "2026/10/13", "pike-vm"},
+		},
+		{
+			name:   "path with a single segment regexp",
+			route:  "/+{site}/archive/+{year:[0-9]+}/{slug}",
+			path:   "/blog/archive/engineering/archive/2026/pike-vm",
+			params: []string{"blog/archive/engineering", "2026", "pike-vm"},
 		},
 		{
 			name:   "hostname",

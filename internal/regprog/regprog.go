@@ -68,6 +68,8 @@ type Regexp struct {
 	// last[p] reports, for each rune instruction, whether a match follows it at the end of the
 	// string, after a byte of class p.
 	last [3][]bool
+	// matched is the union of ascii.
+	matched [2]uint64
 	// expands reports whether a closure is too large to be listed.
 	expands bool
 }
@@ -119,6 +121,8 @@ func Compile(re *regexp.Regexp) (*Regexp, error) {
 					r.ascii[i][c/64] |= 1 << (c % 64)
 				}
 			}
+			r.matched[0] |= r.ascii[i][0]
+			r.matched[1] |= r.ascii[i][1]
 		}
 	}
 
@@ -171,6 +175,12 @@ func (r *Regexp) MatchRune(pc uint32, c rune) bool {
 		return r.ascii.Has(pc, byte(c)) // nolint:gosec // an ASCII rune
 	}
 	return r.inst[pc].MatchRune(c)
+}
+
+// Consumes reports whether a rune instruction of r matches b, which must be ASCII. When none does, no
+// string with b matches r.
+func (r *Regexp) Consumes(b byte) bool {
+	return r.matched[b>>6&1]&(1<<(b&63)) != 0
 }
 
 // ASCII returns the sets of the ASCII bytes the rune instructions match.
