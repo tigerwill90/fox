@@ -168,7 +168,7 @@ func (r *Route) matchSlow(method string, c *Context) bool {
 		}
 	}
 	// Matchers never see the captured params, so a failure holds for the rest of the lookup.
-	if r.nested && c.memo.matcherFailed(r) {
+	if r.nested && c.lookup.matcherFailed(r) {
 		return false
 	}
 	c.matcherRoute = r
@@ -176,7 +176,7 @@ func (r *Route) matchSlow(method string, c *Context) bool {
 	for _, m := range r.matchers {
 		if !m.Match(sealed) {
 			if r.nested {
-				c.memo.setMatcherFailed(r)
+				c.lookup.setMatcherFailed(r)
 			}
 			return false
 		}

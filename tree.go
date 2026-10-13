@@ -46,7 +46,7 @@ func (t *iTree) allocateContext() *Context {
 	return &Context{
 		params:    new(make([]string, 0, t.maxParams)),
 		skipStack: new(make(skipStack, 0, t.maxDepth)),
-		memo:      new(lookupMemo),
+		lookup:    new(lookupState),
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree: t,
@@ -864,8 +864,6 @@ func (t *tXn) writeNode(n *node) *node {
 	}
 
 	if _, ok := t.writable.Get(n); ok {
-		// The node is about to change in place.
-		n.vm.Store(nil)
 		return n
 	}
 

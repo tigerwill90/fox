@@ -50,9 +50,9 @@ func classRune(c int) rune {
 // then costs at most maxClosure entries, and the lists of a program hold O(len(prog)) entries.
 const maxClosure = 16
 
-// Expand marks an entry of a Follow that is an empty instruction: the entries of that instruction
+// expand marks an entry of a Follow that is an empty instruction: the entries of that instruction
 // follow in turn.
-const Expand = 1 << 31
+const expand = 1 << 31
 
 // Regexp is a regular expression compiled for simulation. The empty transitions are followed at
 // compile time, for every context of the empty-width assertions, unless a closure is too large.
@@ -75,8 +75,8 @@ type Regexp struct {
 // Follow holds the instructions that follow each instruction without consuming a rune. A rune
 // instruction lists the rune instructions of its closure, or when the closure has more than
 // maxClosure instructions, the instruction it leads to. Then an empty instruction lists the
-// instructions it leads to, and the entries marked with Expand, followed in turn, reach the whole
-// closure.
+// instructions it leads to, and the entries marked with expand, followed in turn by Next, reach the
+// whole closure.
 type Follow struct {
 	off []uint32
 	pcs []uint32
@@ -95,8 +95,8 @@ func (s Sets) Has(pc uint32, b byte) bool {
 	return s[pc][b>>6&1]&(1<<(b&63)) != 0
 }
 
-// Compile compiles re for simulation. A pass agrees with MatchString only when re is anchored at
-// both ends, as the expressions of route patterns are.
+// Compile compiles re for simulation. The simulation agrees with MatchString only when re is
+// anchored at both ends, as the expressions of route patterns are.
 func Compile(re *regexp.Regexp) (*Regexp, error) {
 	expr, err := syntax.Parse(re.String(), syntax.Perl)
 	if err != nil {
@@ -165,8 +165,8 @@ func (r *Regexp) Len() int {
 	return len(r.inst)
 }
 
-// Match reports whether the rune instruction pc matches c.
-func (r *Regexp) Match(pc uint32, c rune) bool {
+// MatchRune reports whether the rune instruction pc matches c.
+func (r *Regexp) MatchRune(pc uint32, c rune) bool {
 	if c < utf8.RuneSelf {
 		return r.ascii.Has(pc, byte(c)) // nolint:gosec // an ASCII rune
 	}
@@ -189,7 +189,8 @@ func (r *Regexp) Follow(prev, next uint8) *Follow {
 	return r.follow[3*prev+next]
 }
 
-// Expands reports whether some entries of the closures of r are marked with Expand.
+// Expands reports whether some entries of the closures of r are marked with expand. Only Next
+// follows them.
 func (r *Regexp) Expands() bool {
 	return r.expands
 }
@@ -225,12 +226,12 @@ func (r *Regexp) Next(dst, pcs []uint32, prev, next uint8, seen []uint64, stamp 
 	st := (*stack)[:0]
 	for _, pc := range pcs {
 		for _, q := range f.Of(pc) {
-			if seen[q&^Expand] != stamp {
-				seen[q&^Expand] = stamp
-				if q < Expand {
+			if seen[q&^expand] != stamp {
+				seen[q&^expand] = stamp
+				if q < expand {
 					dst = append(dst, q)
 				} else {
-					st = append(st, q&^Expand)
+					st = append(st, q&^expand)
 				}
 			}
 		}
@@ -239,12 +240,12 @@ func (r *Regexp) Next(dst, pcs []uint32, prev, next uint8, seen []uint64, stamp 
 		pc := st[len(st)-1]
 		st = st[:len(st)-1]
 		for _, q := range f.Of(pc) {
-			if seen[q&^Expand] != stamp {
-				seen[q&^Expand] = stamp
-				if q < Expand {
+			if seen[q&^expand] != stamp {
+				seen[q&^expand] = stamp
+				if q < expand {
 					dst = append(dst, q)
 				} else {
-					st = append(st, q&^Expand)
+					st = append(st, q&^expand)
 				}
 			}
 		}
@@ -312,9 +313,9 @@ func (b *builder) closure(dst []uint32, pc uint32, flag syntax.EmptyOp, limit in
 }
 
 // follow returns the instructions that follow each instruction when the assertions of flag hold,
-// with the entries of the empty instructions when expand is set. It reports whether a closure
+// with the entries of the empty instructions when empties is set. It reports whether a closure
 // visits more than maxClosure instructions.
-func (b *builder) follow(flag syntax.EmptyOp, expand bool) (*Follow, bool) {
+func (b *builder) follow(flag syntax.EmptyOp, empties bool) (*Follow, bool) {
 	f := &Follow{off: make([]uint32, len(b.inst)+1)}
 	expands := false
 	for pc := range b.inst {
@@ -326,7 +327,7 @@ func (b *builder) follow(flag syntax.EmptyOp, expand bool) (*Follow, bool) {
 				f.pcs = b.entry(f.pcs[:n], in.Out)
 				expands = true
 			}
-		case expand:
+		case empties:
 			empty(in, flag, func(pc uint32) { f.pcs = b.entry(f.pcs, pc) })
 		}
 		f.off[pc+1] = uint32(len(f.pcs)) // nolint:gosec // a closure size
@@ -342,7 +343,7 @@ func (b *builder) entry(dst []uint32, pc uint32) []uint32 {
 	case in.Op == syntax.InstMatch || in.Op == syntax.InstFail:
 		return dst
 	}
-	return append(dst, pc|Expand)
+	return append(dst, pc|expand)
 }
 
 // last reports, for each rune instruction, whether a match follows it when the assertions of flag
@@ -390,10 +391,10 @@ func (b *builder) last(flag syntax.EmptyOp) []bool {
 	return last
 }
 
-// Pass lists the ends of the prefixes of s[start:] that match a program: the positions e of delim
+// Ends lists the ends of the prefixes of s[start:] that match a program: the positions e of delim
 // after start such that s[start:e] matches. Each call to Next resumes where the previous one stopped,
-// so listing every end costs a single pass, and the memory of a pass depends on the program only.
-type Pass struct {
+// so listing every end costs a single pass, and the memory of a listing depends on the program only.
+type Ends struct {
 	r                  *Regexp
 	s                  string
 	cur, next, matched []uint32
@@ -401,70 +402,72 @@ type Pass struct {
 	seen               []uint64
 	stamp              uint64
 	start, pos         int
-	// Steps counts the rune instructions stepped.
-	Steps    int
-	delim    byte
-	accepted bool
+	delim              byte
+	accepted           bool
 }
 
-// Reset starts a pass of r over s from start.
-func (p *Pass) Reset(r *Regexp, s string, start int, delim byte) {
-	p.r, p.s, p.start, p.pos, p.delim, p.accepted = r, s, start, start, delim, false
-	if cap(p.seen) < len(r.inst) {
-		p.seen = make([]uint64, len(r.inst))
+// Start starts the listing of the ends of r over s from start, unless that listing is in progress.
+func (e *Ends) Start(r *Regexp, s string, start int, delim byte) {
+	if e.r == r && e.s == s && e.start == start && e.delim == delim {
+		return
 	}
-	p.seen = p.seen[:len(r.inst)]
-	p.cur = p.cur[:0]
-	if start < len(s) {
-		p.cur = append(p.cur, r.First(Class(s[start]))...)
-	}
+	e.r, e.s, e.start, e.delim = r, s, start, delim
+	e.restart()
 }
 
-// Started reports whether p is a pass of r over s from start.
-func (p *Pass) Started(r *Regexp, s string, start int) bool {
-	return p.r == r && p.s == s && p.start == start
+// restart moves the listing back to its start.
+func (e *Ends) restart() {
+	r, s := e.r, e.s
+	e.pos, e.accepted = e.start, false
+	if cap(e.seen) < len(r.inst) {
+		e.seen = make([]uint64, len(r.inst))
+	}
+	e.seen = e.seen[:len(r.inst)]
+	e.cur = e.cur[:0]
+	if e.start < len(s) {
+		e.cur = append(e.cur, r.First(Class(s[e.start]))...)
+	}
 }
 
 // Next returns the first end at or after from, or -1 if there is none. When from is before the end
-// returned last, the pass starts over.
-func (p *Pass) Next(from int) int {
-	if from < p.pos {
-		p.Reset(p.r, p.s, p.start, p.delim)
+// returned last, the listing starts over.
+func (e *Ends) Next(from int) int {
+	if from < e.pos {
+		e.restart()
 	}
-	if p.accepted && p.pos >= from {
-		return p.pos
+	if e.accepted && e.pos >= from {
+		return e.pos
 	}
-	r, s := p.r, p.s
-	for len(p.cur) > 0 && p.pos < len(s) {
-		p.Steps += len(p.cur)
-		matched := p.matched[:0]
-		if b := s[p.pos]; b < utf8.RuneSelf {
-			for _, pc := range p.cur {
+	r, s := e.r, e.s
+	for len(e.cur) > 0 && e.pos < len(s) {
+		matched := e.matched[:0]
+		if b := s[e.pos]; b < utf8.RuneSelf {
+			for _, pc := range e.cur {
 				if r.ascii.Has(pc, b) {
 					matched = append(matched, pc)
 				}
 			}
-			p.pos++
+			e.pos++
 		} else {
-			c, w := utf8.DecodeRuneInString(s[p.pos:])
-			for _, pc := range p.cur {
+			c, w := utf8.DecodeRuneInString(s[e.pos:])
+			for _, pc := range e.cur {
 				if r.inst[pc].MatchRune(c) {
 					matched = append(matched, pc)
 				}
 			}
-			p.pos += w
+			e.pos += w
 		}
-		p.matched = matched
-		prev := Class(s[p.pos-1])
-		p.accepted = p.pos < len(s) && s[p.pos] == p.delim && r.Accepts(prev, matched)
-		next := p.next[:0]
-		if p.pos < len(s) {
-			p.stamp++
-			next = r.Next(next, matched, prev, Class(s[p.pos]), p.seen, p.stamp, &p.stack)
+		e.matched = matched
+		prev := Class(s[e.pos-1])
+		e.accepted = e.pos < len(s) && s[e.pos] == e.delim && r.Accepts(prev, matched)
+		next := e.next[:0]
+		if e.pos < len(s) {
+			e.stamp++
+			next = r.Next(next, matched, prev, Class(s[e.pos]), e.seen, e.stamp, &e.stack)
 		}
-		p.cur, p.next = next, p.cur
-		if p.accepted && p.pos >= from {
-			return p.pos
+		e.cur, e.next = next, e.cur
+		if e.accepted && e.pos >= from {
+			return e.pos
 		}
 	}
 	return -1

@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/fox-toolkit/fox/internal/netutil"
 	"github.com/fox-toolkit/fox/internal/regprog"
@@ -28,9 +27,6 @@ type node struct {
 	// prog is regexp compiled for simulation, set for wildcard nodes with a regexp. It finds in a
 	// single pass the capture ends of an infix wildcard that match, and runs in the Pike VM.
 	prog *regprog.Regexp
-
-	// vm is the Pike VM program of the subtree, compiled by the first lookup that runs it.
-	vm atomic.Pointer[vmProg]
 
 	// key identifies the node's content and varies by node type:
 	//
@@ -75,8 +71,8 @@ type node struct {
 
 func (n *node) lookup(method, hostPort, path string, c *Context, lazy bool) (int, *node, bool) {
 	*c.skipStack = (*c.skipStack)[:0]
-	if c.memo.used {
-		c.memo.reset()
+	if c.lookup.dirty {
+		c.lookup.reset()
 	}
 	// The tree for this method, we only have path registered
 	if len(n.params) == 0 && len(n.wildcards) == 0 && len(n.statics) == 1 && n.statics[0].label == slashDelim {
@@ -207,19 +203,19 @@ Walk:
 				end := len(host)
 				// A resumed scan already evaluated the regexp once.
 				evaluated := wildcardOffset > 0
-				var rm *regexpMemo
+				var ends *regprog.Ends
 				if wildcardNode.regexp == nil {
-					end = c.memo.searchEnd(wildcardNode, searchStart, end)
+					end = c.lookup.scanEnd(wildcardNode, searchStart, end)
 				} else if evaluated {
-					rm = c.memo.listEnds(wildcardNode, host, charsMatched, dotDelim)
-				} else if wildcardNode.nested && c.memo.rescan(wildcardNode) {
+					ends = c.lookup.ends(wildcardNode, host, charsMatched, dotDelim)
+				} else if wildcardNode.nested && c.lookup.retryScan(wildcardNode) {
 					goto VM
 				}
 
 				for {
 					var captureEnd int
-					if rm != nil && rm.listed {
-						if captureEnd = rm.nextEnd(searchStart); captureEnd < 0 {
+					if ends != nil {
+						if captureEnd = ends.Next(searchStart); captureEnd < 0 {
 							break
 						}
 					} else {
@@ -231,7 +227,7 @@ Walk:
 						captureEnd = searchStart + idx
 					}
 
-					c.memo.work++
+					c.lookup.steps++
 					capturedValue := host[charsMatched:captureEnd]
 
 					// Skip empty captures (consecutive dot)
@@ -240,15 +236,15 @@ Walk:
 						continue
 					}
 
-					if wildcardNode.regexp != nil && (rm == nil || !rm.listed) {
+					if wildcardNode.regexp != nil && ends == nil {
 						// A second evaluation lists every capture end that matches in a single pass.
 						if evaluated {
-							rm = c.memo.listEnds(wildcardNode, host, charsMatched, dotDelim)
+							ends = c.lookup.ends(wildcardNode, host, charsMatched, dotDelim)
 							searchStart = captureEnd
 							continue
 						}
 						evaluated = true
-						if !c.memo.matchRegexp(wildcardNode, capturedValue) {
+						if !wildcardNode.regexp.MatchString(capturedValue) {
 							searchStart = captureEnd + 1
 							continue
 						}
@@ -279,7 +275,7 @@ Walk:
 				}
 
 				if wildcardNode.regexp == nil {
-					c.memo.markExhausted(wildcardNode, charsMatched)
+					c.lookup.markExhausted(wildcardNode, charsMatched)
 				}
 
 				nextChildIdx := i + 1
@@ -304,15 +300,15 @@ Walk:
 				}
 
 				// The path lookup below does not depend on the hostname capture, so it fails again.
-				if c.memo.pathFailed(wildcardNode) {
+				if c.lookup.pathFailed(wildcardNode) {
 					continue
 				}
 
 				if wildcardNode.regexp != nil {
-					if wildcardNode.nested && c.memo.resuffix(wildcardNode) {
+					if wildcardNode.nested && c.lookup.retrySuffix(wildcardNode) {
 						goto VM
 					}
-					if !c.memo.matchRegexp(wildcardNode, search) {
+					if !wildcardNode.regexp.MatchString(search) {
 						continue
 					}
 				}
@@ -328,7 +324,7 @@ Walk:
 				}
 				// Only a backtrack can reach this node again.
 				if stackOffset > 0 {
-					c.memo.setPathFailed(wildcardNode, path)
+					c.lookup.setPathFailed(wildcardNode)
 				}
 
 				*c.skipStack = (*c.skipStack)[:stackOffset]
@@ -339,7 +335,7 @@ Walk:
 		goto Backtrack
 	}
 
-	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil && !c.memo.pathFailed(matched) {
+	if _, pathChild := matched.getStaticEdge(slashDelim); pathChild != nil && !c.lookup.pathFailed(matched) {
 		stackOffset := len(*c.skipStack)
 		idx, subNode, subTsr := lookupByPath(matched, method, path, c, lazy, stackOffset)
 		if subNode != nil {
@@ -347,7 +343,7 @@ Walk:
 		}
 		// Only a backtrack can reach this node again.
 		if stackOffset > 0 {
-			c.memo.setPathFailed(matched, path)
+			c.lookup.setPathFailed(matched)
 		}
 
 		// Remove any unused skip nodes added during the path lookup.
@@ -359,8 +355,8 @@ VM:
 	// A nested wildcard is reached again: the Pike VM runs the subtree of the outermost infix
 	// wildcard, and the walk resumes below it when nothing matches.
 	{
-		f := vmFrame(c, 0)
-		if index, n, tsr = c.memo.hostPikeVM().lookup(method, host, path, c, lazy, f); n != nil {
+		f := outermostInfix(c, 0)
+		if index, n, tsr = c.lookup.hostVM().run(method, host, path, c, lazy, f); n != nil {
 			return
 		}
 	}
@@ -537,12 +533,12 @@ Walk:
 				end := len(path)
 				// A resumed scan already evaluated the regexp once.
 				evaluated := wildcardOffset > 0
-				var rm *regexpMemo
+				var ends *regprog.Ends
 				if wildcardNode.regexp == nil {
-					end = c.memo.searchEnd(wildcardNode, searchStart, end)
+					end = c.lookup.scanEnd(wildcardNode, searchStart, end)
 				} else if evaluated {
-					rm = c.memo.listEnds(wildcardNode, path, charsMatched, slashDelim)
-				} else if wildcardNode.nested && c.memo.rescan(wildcardNode) {
+					ends = c.lookup.ends(wildcardNode, path, charsMatched, slashDelim)
+				} else if wildcardNode.nested && c.lookup.retryScan(wildcardNode) {
 					goto VM
 				}
 
@@ -551,8 +547,8 @@ Walk:
 
 				for {
 					captureEnd := -1
-					if rm != nil && rm.listed {
-						captureEnd = rm.nextEnd(searchStart)
+					if ends != nil {
+						captureEnd = ends.Next(searchStart)
 					} else if idx := strings.IndexByte(path[searchStart:end], slashDelim); idx >= 0 {
 						// Search for next slash from current offset
 						captureEnd = searchStart + idx
@@ -564,7 +560,7 @@ Walk:
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
-								if wildcardNode.regexp != nil && !c.memo.matchRegexp(wildcardNode, path[offset:]) {
+								if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(path[offset:]) {
 									break
 								}
 								for j, route := range child.routes {
@@ -585,7 +581,7 @@ Walk:
 						break
 					}
 
-					c.memo.work++
+					c.lookup.steps++
 					capturedValue := path[charsMatched:captureEnd]
 
 					// Skip empty captures (consecutive slashes)
@@ -601,15 +597,15 @@ Walk:
 						continue
 					}
 
-					if wildcardNode.regexp != nil && (rm == nil || !rm.listed) {
+					if wildcardNode.regexp != nil && ends == nil {
 						// A second evaluation lists every capture end that matches in a single pass.
 						if evaluated {
-							rm = c.memo.listEnds(wildcardNode, path, charsMatched, slashDelim)
+							ends = c.lookup.ends(wildcardNode, path, charsMatched, slashDelim)
 							searchStart = captureEnd
 							continue
 						}
 						evaluated = true
-						if !c.memo.matchRegexp(wildcardNode, capturedValue) {
+						if !wildcardNode.regexp.MatchString(capturedValue) {
 							searchStart = captureEnd + 1
 							continue
 						}
@@ -642,7 +638,7 @@ Walk:
 				}
 
 				if wildcardNode.regexp == nil {
-					c.memo.markExhausted(wildcardNode, charsMatched)
+					c.lookup.markExhausted(wildcardNode, charsMatched)
 				}
 
 				nextChildIdx := i + 1
@@ -667,10 +663,10 @@ Walk:
 				}
 
 				if wildcardNode.regexp != nil {
-					if wildcardNode.nested && c.memo.resuffix(wildcardNode) {
+					if wildcardNode.nested && c.lookup.retrySuffix(wildcardNode) {
 						goto VM
 					}
-					if !c.memo.matchRegexp(wildcardNode, search) {
+					if !wildcardNode.regexp.MatchString(search) {
 						continue
 					}
 				}
@@ -734,8 +730,8 @@ VM:
 	// A nested wildcard is reached again: the Pike VM runs the subtree of the outermost infix
 	// wildcard, and the walk resumes below it when nothing matches.
 	{
-		f := vmFrame(c, stackOffset)
-		if index, n, tsr = c.memo.pathPikeVM().lookup(method, path, path, c, lazy, f); n != nil {
+		f := outermostInfix(c, stackOffset)
+		if index, n, tsr = c.lookup.pathVM().run(method, path, path, c, lazy, f); n != nil {
 			return
 		}
 		matched, charsMatched = f.node, f.charsMatched

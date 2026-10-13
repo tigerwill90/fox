@@ -16,9 +16,6 @@ const (
 	vmInfix                     // consumes an infix capture without regexp
 	vmInfixRegexp               // consumes an infix capture with a regexp
 	vmSuffixRegexp              // consumes a suffix capture with a regexp
-
-	// vmExpand marks the regexp threads of a program whose closures are followed at each step.
-	vmExpand uint8 = 8
 )
 
 // pikeVM runs the walk of lookupByPath, or of lookupByHostname, below a node in a single pass over
@@ -31,15 +28,16 @@ type pikeVM struct {
 	method   string
 	// s is the input of the VM, the hostname or the path, and path is the path of the lookup.
 	s, path string
-	// nodes and kids are those of the program run.
+	// nodes holds the nodes of the subtree linked by the run as threads reach them, and kids holds
+	// their kid slots, -1 until the kid is linked.
 	nodes []vmNode
 	kids  []int32
-	// seen holds the stamp of the states reached at the current position.
+	// seen holds the stamp of each state of the linked nodes at the current position.
 	seen      []uint64
 	cur, next vmList
 	matched   []uint32
-	// caps holds the captures of the threads, and spare the buffer they move to when caps exceeds
-	// capsLimit.
+	// caps holds the capture blocks of the threads, and spare the buffer they move to when caps
+	// exceeds capsLimit.
 	caps, spare []int
 	best        []int
 	// hits holds the path lookups of a hostname VM that matched, with their params in hitParams.
@@ -52,6 +50,8 @@ type pikeVM struct {
 	pos       uint64
 	bestIdx   int
 	bestHit   int
+	// size is the number of states of the linked nodes.
+	size int32
 	// prevClass and nextClass are the classes of the bytes before and after the current position.
 	prevClass, nextClass uint8
 	delim                byte
@@ -59,24 +59,20 @@ type pikeVM struct {
 	bestTsr              bool
 }
 
-// vmProg is the program of the Pike VM for the subtree of a node.
-type vmProg struct {
-	nodes []vmNode
-	kids  []int32
-	size  int32
-}
-
-// vmNode is a node of the subtree run by the Pike VM.
+// vmNode is a node of the subtree linked by a run, referred to by its index in pikeVM.nodes. Linking
+// grows nodes, so a vmNode is read before any call that can link and never through a pointer kept
+// across one. Its indexes, like every index of the VM into the subtree, are bounded by the program
+// and fit in an int32.
 type vmNode struct {
 	n, parent *node
-	prog      *regprog.Regexp
 	// id is the state of the visit of the node, followed by the state of the start of its key,
 	// segment or capture.
 	id int32
 	// infix and suffix are the first states of the regexp program, run as an infix capture and as a
 	// suffix.
 	infix, suffix int32
-	// kids is the index in vmProg.kids of the statics, params then wildcards of the node.
+	// kids is the index in pikeVM.kids of the slots of the statics, params then wildcards of the
+	// node. The root has slots for its wildcards only.
 	kids, statics, params int32
 }
 
@@ -88,17 +84,16 @@ type vmThread struct {
 	node int32
 	// lo and hi delimit the regexp states of the thread in vmList.pcs.
 	lo, hi int32
-	caps   vmCaps
+	// caps is the offset of the capture block of the thread in pikeVM.caps.
+	caps int
 	// start is the start of the capture in progress, or the number of key bytes consumed by a static
 	// thread.
 	start int
 }
 
-// vmCaps are the n pairs of captures at off in pikeVM.caps. They never change, so threads share
-// them.
-type vmCaps struct {
-	off, n int32
-}
+// A capture block in pikeVM.caps holds a number n of captures followed by their n pairs of start and
+// end. Blocks never change, so threads share them. noCaps is the offset of the empty block.
+const noCaps = 0
 
 type vmList struct {
 	threads []vmThread
@@ -119,23 +114,9 @@ type vmHit struct {
 	tsr    bool
 }
 
-func (m *lookupMemo) pathPikeVM() *pikeVM {
-	if m.vm == nil {
-		m.vm = &pikeVM{delim: slashDelim}
-	}
-	return m.vm
-}
-
-func (m *lookupMemo) hostPikeVM() *pikeVM {
-	if m.hostVM == nil {
-		m.hostVM = &pikeVM{delim: dotDelim, host: true}
-	}
-	return m.hostVM
-}
-
-// vmFrame returns the skip node of the outermost infix wildcard of the lookup from stackOffset, and
-// truncates the skip stack and the params to it.
-func vmFrame(c *Context, stackOffset int) skipNode {
+// outermostInfix returns the skip node of the outermost infix wildcard of the lookup from
+// stackOffset, and truncates the skip stack and the params to it.
+func outermostInfix(c *Context, stackOffset int) skipNode {
 	stack := (*c.skipStack)[stackOffset:]
 	i := slices.IndexFunc(stack, func(f skipNode) bool { return f.wildcardOffset > 0 })
 	if i < 0 {
@@ -147,23 +128,19 @@ func vmFrame(c *Context, stackOffset int) skipNode {
 	return f
 }
 
-// lookup returns what the walk returns from the wildcards of f.node, starting with the one at
+// run returns what the walk returns from the wildcards of f.node, starting with the one at
 // f.childWildcardIdx from f.charsMatched of s, or a nil node when nothing matches there.
-func (vm *pikeVM) lookup(method, s, path string, c *Context, lazy bool, f skipNode) (int, *node, bool) {
+func (vm *pikeVM) run(method, s, path string, c *Context, lazy bool, f skipNode) (int, *node, bool) {
 	vm.c, vm.method, vm.s, vm.path, vm.lazy = c, method, s, path, lazy
-	prog := program(f.node)
-	vm.nodes, vm.kids = prog.nodes, prog.kids
-	if cap(vm.seen) < int(prog.size) {
-		vm.seen = make([]uint64, prog.size)
-	}
-	vm.seen = vm.seen[:prog.size]
+	vm.nodes, vm.kids, vm.seen, vm.size = vm.nodes[:0], vm.kids[:0], vm.seen[:0], 0
+	root := vm.link(f.node, nil, true)
 	vm.bestNode = nil
 	vm.hits, vm.hitParams = vm.hits[:0], vm.hitParams[:0]
-	vm.caps, vm.capsLimit = vm.caps[:0], minCapsLimit
+	vm.caps, vm.capsLimit = append(vm.caps[:0], 0), minCapsLimit
 
 	vm.next.reset()
 	vm.pos = vm.tick()
-	from := vm.begin(f)
+	from := vm.begin(root, f)
 	swapped, moved := false, false
 	for q := from; q < len(s) && len(vm.next.threads) > 0; q++ {
 		vm.cur, vm.next, swapped = vm.next, vm.cur, !swapped
@@ -173,7 +150,7 @@ func (vm *pikeVM) lookup(method, s, path string, c *Context, lazy bool, f skipNo
 			vm.moveCaps()
 			moved = !moved
 		}
-		c.memo.work += len(vm.cur.threads)
+		c.lookup.steps += len(vm.cur.threads)
 		vm.prevClass = regprog.Class(s[q])
 		if q+1 < len(s) {
 			vm.nextClass = regprog.Class(s[q+1])
@@ -193,46 +170,51 @@ func (vm *pikeVM) lookup(method, s, path string, c *Context, lazy bool, f skipNo
 	}
 
 	n := vm.bestNode
-	vm.c, vm.bestNode, vm.nodes, vm.kids = nil, nil, nil, nil
-	if n == nil {
-		return 0, nil, false
-	}
-	if !lazy {
-		for i := 0; i < len(vm.best); i += 2 {
-			*c.params = append(*c.params, s[vm.best[i]:vm.best[i+1]])
+	if n != nil && !lazy {
+		best := vm.best
+		for i := 0; i < len(best); i += 2 {
+			*c.params = append(*c.params, s[best[i]:best[i+1]])
 		}
 		if vm.host {
 			h := &vm.hits[vm.bestHit]
 			*c.params = append(*c.params, vm.hitParams[h.lo:h.hi]...)
 		}
 	}
+	// The pooled VM keeps no node of the tree.
+	clear(vm.nodes)
+	clear(vm.hits)
+	vm.c, vm.bestNode = nil, nil
+	if n == nil {
+		return 0, nil, false
+	}
 	return vm.bestIdx, n, vm.bestTsr
 }
 
-// begin adds the first threads of the walk from f, and returns their position. The walk tried the
-// captures of the wildcard of f that end before the current one, and they failed. When that
-// wildcard has no regexp and no regexp suffix of f.node starts with it, the threads start at the end
-// of the current capture: its visit, then the thread of the longer captures. A wildcard without
-// regexp comes last, so no other infix of f.node follows it.
-func (vm *pikeVM) begin(f skipNode) int {
-	root, i := &vm.nodes[0], f.childWildcardIdx
+// begin adds the first threads of the walk from f, whose node is linked as root, and returns their
+// position. The walk tried the captures of the wildcard of f that end before the current one, and
+// they failed. When that wildcard has no regexp and no regexp suffix of f.node starts with it, the
+// threads start at the end of the current capture: its visit, then the thread of the longer
+// captures. A wildcard without regexp comes last, so no other infix of f.node follows it.
+func (vm *pikeVM) begin(root int32, f skipNode) int {
+	i := f.childWildcardIdx
 	if n := f.node; n.wildcards[i].prog == nil {
 		for _, w := range n.wildcards {
 			if w.prog != nil && vm.isSuffix(w) {
-				vm.wildcards(root, f.charsMatched, i, vmCaps{})
+				vm.wildcards(root, f.charsMatched, i, noCaps)
 				return f.charsMatched
 			}
 		}
 		// The suffix catch-alls of f.node come last in the walk: a later match replaces theirs.
-		vm.wildcards(root, f.charsMatched, i+1, vmCaps{})
+		vm.wildcards(root, f.charsMatched, i+1, noCaps)
 		end := f.charsMatched + f.wildcardOffset - 1
-		kid := vm.kids[root.kids+root.statics+root.params+int32(i)] // nolint:gosec // a child index
-		if !vm.visit(kid, end, vmCaps{}, f.charsMatched) {
-			vm.spawn(vmInfix, kid, vmCaps{}, f.charsMatched)
+		// The root has slots for its wildcards only.
+		kid := vm.kid(root, int32(i), n.wildcards[i]) // nolint:gosec // a child index
+		if !vm.visit(kid, end, noCaps, f.charsMatched) {
+			vm.spawn(vmInfix, kid, noCaps, f.charsMatched)
 		}
 		return end
 	}
-	vm.wildcards(root, f.charsMatched, i, vmCaps{})
+	vm.wildcards(root, f.charsMatched, i, noCaps)
 	return f.charsMatched
 }
 
@@ -241,74 +223,66 @@ func (vm *pikeVM) tick() uint64 {
 	return vm.stamp
 }
 
-// minCapsLimit is the size of pikeVM.caps above which the captures of the threads move to the
+// link adds the node n of the subtree, with its states and a slot for each kid, and returns its
+// index. The root has slots for its wildcards only.
+func (vm *pikeVM) link(n, parent *node, root bool) int32 {
+	v := int32(len(vm.nodes))                                                  // nolint:gosec // a node index
+	nd := vmNode{n: n, parent: parent, id: vm.size, kids: int32(len(vm.kids))} // nolint:gosec // a slot index
+	vm.size += 2
+	if n.prog != nil {
+		size := int32(n.prog.Len()) // nolint:gosec // a program size
+		nd.infix, nd.suffix = vm.size, vm.size+size
+		vm.size += 2 * size
+	}
+	if !root {
+		nd.statics, nd.params = int32(len(n.statics)), int32(len(n.params)) // nolint:gosec // child counts
+	}
+	vm.nodes = append(vm.nodes, nd)
+	for range int(nd.statics+nd.params) + len(n.wildcards) {
+		vm.kids = append(vm.kids, -1)
+	}
+	// The states past the previous size hold the stamps of earlier runs only.
+	vm.seen = slices.Grow(vm.seen, int(vm.size)-len(vm.seen))[:vm.size]
+	return v
+}
+
+// kid returns the node of the kid slot of v, and links child to it on first use.
+func (vm *pikeVM) kid(v, slot int32, child *node) int32 {
+	nd := &vm.nodes[v]
+	i := nd.kids + slot
+	if k := vm.kids[i]; k >= 0 {
+		return k
+	}
+	k := vm.link(child, nd.n, false)
+	vm.kids[i] = k
+	return k
+}
+
+// minCapsLimit is the size of pikeVM.caps above which the capture blocks of the threads move to the
 // spare buffer.
 const minCapsLimit = 1 << 7
 
-// moveCaps moves the captures of the current threads to the spare buffer, which drops the others.
+// moveCaps moves the capture blocks of the current threads to the spare buffer, which drops the
+// others.
 func (vm *pikeVM) moveCaps() {
-	old, caps := vm.caps, vm.spare[:0]
+	old, caps := vm.caps, append(vm.spare[:0], 0)
 	for i := range vm.cur.threads {
 		t := &vm.cur.threads[i]
-		if t.caps.n == 0 {
+		if t.caps == noCaps {
 			continue
 		}
-		// A moved capture is replaced by its new offset, as a negative number.
-		if off := old[t.caps.off]; off < 0 {
-			t.caps.off = int32(-1 - off) // nolint:gosec // an offset in caps
+		// The header of a moved block is replaced by its new offset, as a negative number.
+		if n := old[t.caps]; n < 0 {
+			t.caps = -1 - n
 			continue
 		}
 		off := len(caps)
-		caps = append(caps, old[t.caps.off:t.caps.off+2*t.caps.n]...)
-		old[t.caps.off] = -1 - off
-		t.caps.off = int32(off) // nolint:gosec // an offset in caps
+		caps = append(caps, old[t.caps:t.caps+1+2*old[t.caps]]...)
+		old[t.caps] = -1 - off
+		t.caps = off
 	}
 	vm.caps, vm.spare = caps, old
 	vm.capsLimit = max(minCapsLimit, 2*len(caps))
-}
-
-// program returns the program of the subtree of n, compiled once.
-func program(n *node) *vmProg {
-	if p := n.vm.Load(); p != nil {
-		return p
-	}
-	p := new(vmProg)
-	p.compile(n, nil, true)
-	n.vm.Store(p)
-	return p
-}
-
-// compile adds n and its subtree. The root keeps its wildcards only.
-func (p *vmProg) compile(n, parent *node, root bool) int32 {
-	v := int32(len(p.nodes))                                                               // nolint:gosec // a node index
-	nd := vmNode{n: n, parent: parent, id: p.size, prog: n.prog, kids: int32(len(p.kids))} // nolint:gosec
-	p.size += 2
-	if n.prog != nil {
-		size := int32(n.prog.Len()) // nolint:gosec // a program size
-		nd.infix, nd.suffix = p.size, p.size+size
-		p.size += 2 * size
-	}
-	if !root {
-		nd.statics, nd.params = int32(len(n.statics)), int32(len(n.params)) // nolint:gosec
-	}
-	p.nodes = append(p.nodes, nd)
-	p.kids = append(p.kids, make([]int32, int(nd.statics+nd.params)+len(n.wildcards))...)
-	i := nd.kids
-	if !root {
-		for _, child := range n.statics {
-			p.kids[i] = p.compile(child, n, false)
-			i++
-		}
-		for _, child := range n.params {
-			p.kids[i] = p.compile(child, n, false)
-			i++
-		}
-	}
-	for _, child := range n.wildcards {
-		p.kids[i] = p.compile(child, n, false)
-		i++
-	}
-	return v
 }
 
 // step advances the thread t over the byte at q, in the order of the walk. It reports whether a
@@ -334,18 +308,20 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 		return false
 	case vmInfix:
 		if p == len(s) {
-			return !vm.host && vm.infixTsr(nd, caps, start)
+			return !vm.host && vm.infixTsr(nd.n, nd.parent, caps, start)
 		}
 		if s[p] == vm.delim && vm.visit(t.node, p, caps, start) {
 			return true
 		}
 		vm.spawn(vmInfix, t.node, caps, start)
 		return false
-	case vmInfixRegexp | vmExpand, vmSuffixRegexp | vmExpand:
-		return vm.stepExpand(t, q, nd)
 	}
 
-	pcs := vm.cur.pcs[t.lo:t.hi]
+	prog, pcs := nd.n.prog, vm.cur.pcs[t.lo:t.hi]
+	base := nd.infix
+	if t.kind == vmSuffixRegexp {
+		base = nd.suffix
+	}
 	switch {
 	case t.wait > 1:
 		vm.push(vmThread{kind: t.kind, wait: t.wait - 1, node: t.node, caps: caps, start: start}, pcs)
@@ -353,7 +329,7 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 	case t.wait == 0:
 		matched, w := vm.matched[:0], 1
 		if b := s[q]; b < utf8.RuneSelf {
-			sets := nd.prog.ASCII()
+			sets := prog.ASCII()
 			for _, pc := range pcs {
 				if sets.Has(pc, b) {
 					matched = append(matched, pc)
@@ -363,7 +339,7 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 			var r rune
 			r, w = utf8.DecodeRuneInString(s[q:])
 			for _, pc := range pcs {
-				if nd.prog.Match(pc, r) {
+				if prog.MatchRune(pc, r) {
 					matched = append(matched, pc)
 				}
 			}
@@ -382,12 +358,12 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 
 	// pcs holds the rune instructions that matched the rune ending at p.
 	end := p == len(s)
-	if (end || t.kind == vmInfixRegexp && s[p] == vm.delim) && nd.prog.Accepts(vm.prevClass, pcs) {
+	if (end || t.kind == vmInfixRegexp && s[p] == vm.delim) && prog.Accepts(vm.prevClass, pcs) {
 		switch {
 		case t.kind == vmSuffixRegexp:
-			return vm.matchSuffix(nd, vm.capture(caps, start, p))
+			return vm.matchSuffix(nd.n, vm.capture(caps, start, p))
 		case end:
-			return !vm.host && vm.infixTsr(nd, caps, start)
+			return !vm.host && vm.infixTsr(nd.n, nd.parent, caps, start)
 		case vm.visit(t.node, p, caps, start):
 			return true
 		}
@@ -395,19 +371,19 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 	if end {
 		return false
 	}
-	base := nd.infix
-	if t.kind == vmSuffixRegexp {
-		base = nd.suffix
-	}
-	seen, pos := vm.seen, vm.pos
 	lo := len(vm.next.pcs)
 	next := vm.next.pcs
-	follow := nd.prog.Follow(vm.prevClass, vm.nextClass)
-	for _, pc := range pcs {
-		for _, f := range follow.Of(pc) {
-			if id := base + int32(f); seen[id] != pos { // nolint:gosec // an instruction index
-				seen[id] = pos
-				next = append(next, f)
+	if prog.Expands() {
+		next = prog.Next(next, pcs, vm.prevClass, vm.nextClass, vm.seen[base:int(base)+prog.Len()], vm.pos, &vm.stack)
+	} else {
+		seen, pos := vm.seen, vm.pos
+		follow := prog.Follow(vm.prevClass, vm.nextClass)
+		for _, pc := range pcs {
+			for _, f := range follow.Of(pc) {
+				if id := base + int32(f); seen[id] != pos { // nolint:gosec // an instruction index
+					seen[id] = pos
+					next = append(next, f)
+				}
 			}
 		}
 	}
@@ -418,88 +394,14 @@ func (vm *pikeVM) step(t *vmThread, q int) bool {
 	return false
 }
 
-// stepExpand advances the regexp thread t of nd over the byte at q, as step does for a program
-// whose closures are listed. The expansion of the closures stays out of the loop of step.
-func (vm *pikeVM) stepExpand(t *vmThread, q int, nd *vmNode) bool {
-	p, s := q+1, vm.s
-	kind := t.kind &^ vmExpand
-	pcs := vm.cur.pcs[t.lo:t.hi]
-	switch {
-	case t.wait > 1:
-		next := *t
-		next.wait--
-		vm.push(next, pcs)
-		return false
-	case t.wait == 0:
-		matched, w := vm.matched[:0], 1
-		if b := s[q]; b < utf8.RuneSelf {
-			sets := nd.prog.ASCII()
-			for _, pc := range pcs {
-				if sets.Has(pc, b) {
-					matched = append(matched, pc)
-				}
-			}
-		} else {
-			var r rune
-			r, w = utf8.DecodeRuneInString(s[q:])
-			for _, pc := range pcs {
-				if nd.prog.Match(pc, r) {
-					matched = append(matched, pc)
-				}
-			}
-		}
-		vm.matched = matched
-		if len(matched) == 0 {
-			return false
-		}
-		if w > 1 {
-			next := *t
-			next.wait = uint8(w - 1) // nolint:gosec // a rune size
-			vm.push(next, matched)
-			return false
-		}
-		pcs = matched
-	}
-
-	end := p == len(s)
-	if (end || kind == vmInfixRegexp && s[p] == vm.delim) && nd.prog.Accepts(vm.prevClass, pcs) && vm.accept(t, nd, p) {
-		return true
-	}
-	if end {
-		return false
-	}
-	base := nd.infix
-	if kind == vmSuffixRegexp {
-		base = nd.suffix
-	}
-	lo := len(vm.next.pcs)
-	vm.next.pcs = nd.prog.Next(vm.next.pcs, pcs, vm.prevClass, vm.nextClass, vm.seen[base:int(base)+nd.prog.Len()], vm.pos, &vm.stack)
-	if hi := len(vm.next.pcs); hi > lo {
-		vm.next.threads = append(vm.next.threads, vmThread{kind: t.kind, node: t.node, lo: int32(lo), hi: int32(hi), caps: t.caps, start: t.start}) // nolint:gosec
-	}
-	return false
-}
-
-// accept runs the match of the capture of the regexp thread t of nd that ends at p, as step does,
-// and reports whether it cuts the threads after t.
-func (vm *pikeVM) accept(t *vmThread, nd *vmNode, p int) bool {
-	switch {
-	case t.kind&^vmExpand == vmSuffixRegexp:
-		return vm.matchSuffix(nd, vm.capture(t.caps, t.start, p))
-	case p == len(vm.s):
-		return !vm.host && vm.infixTsr(nd, t.caps, t.start)
-	}
-	return vm.visit(t.node, p, t.caps, t.start)
-}
-
-// matchSuffix returns the match of the suffix wildcard of nd whose capture ends the input.
-func (vm *pikeVM) matchSuffix(nd *vmNode, caps vmCaps) bool {
+// matchSuffix returns the match of the suffix wildcard n whose capture ends the input.
+func (vm *pikeVM) matchSuffix(n *node, caps int) bool {
 	if vm.host {
-		return vm.pathLookup(nd.n, caps)
+		return vm.pathLookup(n, caps)
 	}
-	for i, route := range nd.n.routes {
+	for i, route := range n.routes {
 		if route.match(vm.method, vm.c) {
-			return vm.found(i, nd.n, false, caps)
+			return vm.found(i, n, false, caps)
 		}
 	}
 	return false
@@ -507,28 +409,29 @@ func (vm *pikeVM) matchSuffix(nd *vmNode, caps vmCaps) bool {
 
 // visit runs the walk at the node v reached at p, with the capture from start to p unless start is
 // negative. It reports whether a match cuts the threads after it.
-func (vm *pikeVM) visit(v int32, p int, caps vmCaps, start int) bool {
+func (vm *pikeVM) visit(v int32, p, caps, start int) bool {
 	nd := &vm.nodes[v]
 	if vm.seen[nd.id] == vm.pos {
 		return false
 	}
 	vm.seen[nd.id] = vm.pos
+	n, parent := nd.n, nd.parent
 	if start >= 0 {
 		caps = vm.capture(caps, start, p)
 	}
 	if vm.host {
-		return vm.visitHost(nd, p, caps)
+		return vm.visitHost(v, p, caps)
 	}
 	// The walk of lookupByPath.
-	n, path := nd.n, vm.s
+	path := vm.s
 	if p == len(path) {
-		return vm.atEnd(nd, caps)
+		return vm.atEnd(n, parent, caps)
 	}
 
 	if i, child := n.getStaticEdge(path[p]); child != nil {
 		rest, key := path[p:], child.key
 		if strings.HasPrefix(rest, key) {
-			vm.spawn(vmStatic, vm.kids[nd.kids+int32(i)], caps, 0) // nolint:gosec // a child index
+			vm.spawn(vmStatic, vm.kid(v, int32(i), child), caps, 0) // nolint:gosec // a child index
 		} else if len(key) == len(rest)+1 && key[len(key)-1] == slashDelim && key[len(key)-2] != slashDelim && strings.HasPrefix(key, rest) {
 			if i, tn := matchTrailingSlash(child, vm.method, vm.c, true); tn != nil {
 				return vm.found(i, tn, true, vm.empty(caps, tn != child))
@@ -538,22 +441,22 @@ func (vm *pikeVM) visit(v int32, p int, caps vmCaps, start int) bool {
 
 	if len(n.params) > 0 {
 		if path[p] == slashDelim {
-			if vm.backtrack(nd, p, caps) {
+			if vm.backtrack(n, p, caps) {
 				return true
 			}
 			if len(n.wildcards) == 0 {
 				return false
 			}
 		} else {
-			vm.params(nd, p, caps)
+			vm.params(v, p, caps)
 		}
 	}
-	return vm.wildcards(nd, p, 0, caps)
+	return vm.wildcards(v, p, 0, caps)
 }
 
-// visitHost runs the walk at nd reached at p, as lookupByHostname does.
-func (vm *pikeVM) visitHost(nd *vmNode, p int, caps vmCaps) bool {
-	n, host := nd.n, vm.s
+// visitHost runs the walk at the node v reached at p, as lookupByHostname does.
+func (vm *pikeVM) visitHost(v int32, p, caps int) bool {
+	n, host := vm.nodes[v].n, vm.s
 	if p == len(host) {
 		if _, child := n.getStaticEdge(slashDelim); child != nil {
 			return vm.pathLookup(n, caps)
@@ -562,46 +465,49 @@ func (vm *pikeVM) visitHost(nd *vmNode, p int, caps vmCaps) bool {
 	}
 	if i, child := n.getStaticEdge(stringsutil.ToLowerASCII(host[p])); child != nil {
 		if key := child.key; len(key) <= len(host)-p && stringsutil.EqualStringsASCIIIgnoreCase(host[p:p+len(key)], key) {
-			vm.spawn(vmStatic, vm.kids[nd.kids+int32(i)], caps, 0) // nolint:gosec // a child index
+			vm.spawn(vmStatic, vm.kid(v, int32(i), child), caps, 0) // nolint:gosec // a child index
 		}
 	}
 	if len(n.params) > 0 && host[p] != dotDelim {
-		vm.params(nd, p, caps)
+		vm.params(v, p, caps)
 	}
-	return vm.wildcards(nd, p, 0, caps)
+	return vm.wildcards(v, p, 0, caps)
 }
 
-// params adds the threads of the params of nd that match the segment at p.
-func (vm *pikeVM) params(nd *vmNode, p int, caps vmCaps) {
+// params adds the threads of the params of the node v that match the segment at p.
+func (vm *pikeVM) params(v int32, p, caps int) {
+	nd := &vm.nodes[v]
+	n, slot := nd.n, nd.statics
 	segment := vm.s[p:]
 	if end := strings.IndexByte(segment, vm.delim); end >= 0 {
 		segment = segment[:end]
 	}
-	for i, param := range nd.n.params {
+	for i, param := range n.params {
 		if param.regexp == nil || param.regexp.MatchString(segment) {
-			vm.spawn(vmParam, vm.kids[nd.kids+nd.statics+int32(i)], caps, p) // nolint:gosec
+			vm.spawn(vmParam, vm.kid(v, slot+int32(i), param), caps, p) // nolint:gosec // a child index
 		}
 	}
 }
 
-// wildcards runs the walk at the wildcards of nd from the one at from, reached at p.
-func (vm *pikeVM) wildcards(nd *vmNode, p, from int, caps vmCaps) bool {
-	n := nd.n
+// wildcards runs the walk at the wildcards of the node v from the one at from, reached at p.
+func (vm *pikeVM) wildcards(v int32, p, from, caps int) bool {
+	nd := &vm.nodes[v]
+	n, slot := nd.n, nd.statics+nd.params
 	if len(n.wildcards) == 0 {
-		return vm.backtrack(nd, p, caps)
+		return vm.backtrack(n, p, caps)
 	}
-	kids := vm.kids[nd.kids+nd.statics+nd.params:]
 	for i := from; i < len(n.wildcards); i++ {
 		w := n.wildcards[i]
 		if !vm.isInfix(w) {
 			continue
 		}
+		kid := vm.kid(v, slot+int32(i), w) // nolint:gosec // a child index
 		if w.prog == nil {
-			vm.spawn(vmInfix, kids[i], caps, p)
+			vm.spawn(vmInfix, kid, caps, p)
 		} else {
-			vm.start(vmInfixRegexp, kids[i], p, caps)
+			vm.start(vmInfixRegexp, kid, p, caps)
 		}
-		if i+1 < len(n.wildcards) && vm.backtrack(nd, p, caps) {
+		if i+1 < len(n.wildcards) && vm.backtrack(n, p, caps) {
 			return true
 		}
 	}
@@ -611,7 +517,7 @@ func (vm *pikeVM) wildcards(nd *vmNode, p, from int, caps vmCaps) bool {
 			continue
 		}
 		if w.prog != nil {
-			vm.start(vmSuffixRegexp, kids[i], p, caps)
+			vm.start(vmSuffixRegexp, vm.kid(v, slot+int32(i), w), p, caps) // nolint:gosec // a child index
 			continue
 		}
 		if vm.host {
@@ -626,7 +532,7 @@ func (vm *pikeVM) wildcards(nd *vmNode, p, from int, caps vmCaps) bool {
 			}
 		}
 	}
-	return vm.backtrack(nd, p, caps)
+	return vm.backtrack(n, p, caps)
 }
 
 // isInfix reports whether the walk scans the infix captures of the wildcard w.
@@ -645,23 +551,23 @@ func (vm *pikeVM) isSuffix(w *node) bool {
 	return w.isLeaf()
 }
 
-// backtrack returns the trailing slash match the walk of a path checks at the Backtrack label.
-func (vm *pikeVM) backtrack(nd *vmNode, p int, caps vmCaps) bool {
+// backtrack returns the trailing slash match the walk of a path checks at the Backtrack label of n.
+func (vm *pikeVM) backtrack(n *node, p, caps int) bool {
 	path := vm.s
-	if vm.host || p != len(path)-1 || path[p] != slashDelim || !nd.n.isLeaf() || strings.HasSuffix(path, "//") {
+	if vm.host || p != len(path)-1 || path[p] != slashDelim || !n.isLeaf() || strings.HasSuffix(path, "//") {
 		return false
 	}
-	for i, route := range nd.n.routes {
+	for i, route := range n.routes {
 		if route.handleSlash != ExactSlash && !route.pattern.catchAll && route.match(vm.method, vm.c) {
-			return vm.found(i, nd.n, true, caps)
+			return vm.found(i, n, true, caps)
 		}
 	}
 	return false
 }
 
-// atEnd returns the matches the walk checks at nd once the path is consumed.
-func (vm *pikeVM) atEnd(nd *vmNode, caps vmCaps) bool {
-	n, path := nd.n, vm.s
+// atEnd returns the matches the walk checks at n, a child of parent, once the path is consumed.
+func (vm *pikeVM) atEnd(n, parent *node, caps int) bool {
+	path := vm.s
 	for i, route := range n.routes {
 		if route.match(vm.method, vm.c) {
 			return vm.found(i, n, false, caps)
@@ -678,24 +584,24 @@ func (vm *pikeVM) atEnd(nd *vmNode, caps vmCaps) bool {
 		if i, tn := matchTrailingSlash(child, vm.method, vm.c, true); tn != nil {
 			return vm.found(i, tn, true, vm.empty(caps, tn != child))
 		}
-	} else if n.key == "/" && nd.parent != nil && nd.parent.isLeaf() && !strings.HasSuffix(path, "//") {
-		for i, route := range nd.parent.routes {
+	} else if n.key == "/" && parent != nil && parent.isLeaf() && !strings.HasSuffix(path, "//") {
+		for i, route := range parent.routes {
 			if route.handleSlash != ExactSlash && !route.pattern.catchAll && route.match(vm.method, vm.c) {
-				return vm.found(i, nd.parent, true, caps)
+				return vm.found(i, parent, true, caps)
 			}
 		}
 	}
 	return false
 }
 
-// infixTsr returns the trailing slash match the walk records once the infix captures of nd from
-// start are tried, after the suffix catch-alls of its parent.
-func (vm *pikeVM) infixTsr(nd *vmNode, caps vmCaps, start int) bool {
+// infixTsr returns the trailing slash match the walk records once the infix captures of n from start
+// are tried, after the suffix catch-alls of its parent.
+func (vm *pikeVM) infixTsr(n, parent *node, caps, start int) bool {
 	path := vm.s
 	if path[len(path)-1] == slashDelim {
 		return false
 	}
-	_, child := nd.n.getStaticEdge(slashDelim)
+	_, child := n.getStaticEdge(slashDelim)
 	if child == nil || !child.isLeaf() || child.key != "/" {
 		return false
 	}
@@ -703,7 +609,7 @@ func (vm *pikeVM) infixTsr(nd *vmNode, caps vmCaps, start int) bool {
 		if route.handleSlash == ExactSlash || !route.match(vm.method, vm.c) {
 			continue
 		}
-		for _, w := range nd.parent.wildcards {
+		for _, w := range parent.wildcards {
 			if !w.isLeaf() || w.regexp != nil && !w.regexp.MatchString(path[start:]) {
 				continue
 			}
@@ -719,9 +625,9 @@ func (vm *pikeVM) infixTsr(nd *vmNode, caps vmCaps, start int) bool {
 }
 
 // pathLookup returns the match of the path lookup the walk of a hostname starts from n.
-func (vm *pikeVM) pathLookup(n *node, caps vmCaps) bool {
+func (vm *pikeVM) pathLookup(n *node, caps int) bool {
 	c := vm.c
-	if c.memo.pathFailed(n) {
+	if c.lookup.pathFailed(n) {
 		return false
 	}
 	i := slices.IndexFunc(vm.hits, func(h vmHit) bool { return h.from == n })
@@ -731,7 +637,7 @@ func (vm *pikeVM) pathLookup(n *node, caps vmCaps) bool {
 		*c.skipStack = (*c.skipStack)[:stackOffset]
 		if leaf == nil {
 			*c.params = (*c.params)[:paramCnt]
-			c.memo.setPathFailed(n, vm.path)
+			c.lookup.setPathFailed(n)
 			return false
 		}
 		lo := len(vm.hitParams)
@@ -747,18 +653,15 @@ func (vm *pikeVM) pathLookup(n *node, caps vmCaps) bool {
 
 // start adds a thread for a regexp capture of the node v from p. The capture is not empty, and the
 // regexp sees no byte before it.
-func (vm *pikeVM) start(kind uint8, v int32, p int, caps vmCaps) {
+func (vm *pikeVM) start(kind uint8, v int32, p, caps int) {
 	nd := &vm.nodes[v]
 	base := nd.infix
 	if kind == vmSuffixRegexp {
 		base = nd.suffix
 	}
-	if nd.prog.Expands() {
-		kind |= vmExpand
-	}
 	seen, pos := vm.seen, vm.pos
 	lo := len(vm.next.pcs)
-	for _, pc := range nd.prog.First(regprog.Class(vm.s[p])) {
+	for _, pc := range nd.n.prog.First(regprog.Class(vm.s[p])) {
 		if id := base + int32(pc); seen[id] != pos { // nolint:gosec // an instruction index
 			seen[id] = pos
 			vm.next.pcs = append(vm.next.pcs, pc)
@@ -770,7 +673,7 @@ func (vm *pikeVM) start(kind uint8, v int32, p int, caps vmCaps) {
 }
 
 // spawn adds a thread of a static, a param or an infix without regexp, unless the state is reached.
-func (vm *pikeVM) spawn(kind uint8, v int32, caps vmCaps, start int) {
+func (vm *pikeVM) spawn(kind uint8, v int32, caps, start int) {
 	id := vm.nodes[v].id + 1
 	if vm.seen[id] == vm.pos {
 		return
@@ -787,16 +690,23 @@ func (vm *pikeVM) push(t vmThread, pcs []uint32) {
 	vm.next.threads = append(vm.next.threads, t)
 }
 
-// capture returns caps followed by the capture [start, end).
-func (vm *pikeVM) capture(caps vmCaps, start, end int) vmCaps {
+// pairs returns the start and end pairs of the capture block at off.
+func (vm *pikeVM) pairs(off int) []int {
+	n := vm.caps[off]
+	return vm.caps[off+1 : off+1+2*n]
+}
+
+// capture returns a capture block with the captures of caps followed by [start, end).
+func (vm *pikeVM) capture(caps, start, end int) int {
 	off := len(vm.caps)
-	vm.caps = append(vm.caps, vm.caps[caps.off:caps.off+2*caps.n]...)
+	vm.caps = append(vm.caps, vm.caps[caps]+1)
+	vm.caps = append(vm.caps, vm.pairs(caps)...)
 	vm.caps = append(vm.caps, start, end)
-	return vmCaps{off: int32(off), n: caps.n + 1} // nolint:gosec // an offset in caps
+	return off
 }
 
 // empty returns caps followed by an empty capture when add is set.
-func (vm *pikeVM) empty(caps vmCaps, add bool) vmCaps {
+func (vm *pikeVM) empty(caps int, add bool) int {
 	if !add {
 		return caps
 	}
@@ -804,8 +714,8 @@ func (vm *pikeVM) empty(caps vmCaps, add bool) vmCaps {
 }
 
 // found records the match of the route i of n, and reports that it cuts the threads after it.
-func (vm *pikeVM) found(i int, n *node, tsr bool, caps vmCaps) bool {
+func (vm *pikeVM) found(i int, n *node, tsr bool, caps int) bool {
 	vm.bestIdx, vm.bestNode, vm.bestTsr = i, n, tsr
-	vm.best = append(vm.best[:0], vm.caps[caps.off:caps.off+2*caps.n]...)
+	vm.best = append(vm.best[:0], vm.pairs(caps)...)
 	return true
 }

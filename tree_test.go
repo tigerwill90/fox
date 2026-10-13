@@ -4775,14 +4775,10 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 		},
 	}
 
-	work := func(f *Router, host, path string) (int, bool) {
+	steps := func(f *Router, host, path string) (int, bool) {
 		c := newTestContext(f)
 		_, n, _ := f.getTree().lookup(http.MethodGet, host, path, c, false)
-		work := c.memo.work
-		for _, rm := range c.memo.regexps {
-			work += rm.pass.Steps
-		}
-		return work, n != nil
+		return c.lookup.steps, n != nil
 	}
 
 	for _, tc := range cases {
@@ -4792,10 +4788,10 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler, tc.opts...)))
 			}
 			host, path := tc.request(500)
-			small, matched := work(f, host, path)
+			small, matched := steps(f, host, path)
 			assert.Equal(t, tc.wantMatch, matched)
 			host, path = tc.request(2000)
-			large, matched := work(f, host, path)
+			large, matched := steps(f, host, path)
 			assert.Equal(t, tc.wantMatch, matched)
 			assert.Less(t, large, 6*small)
 		})
@@ -5055,7 +5051,7 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 	}
 }
 
-func Test_iTree_lookup_PikeVMProgram(t *testing.T) {
+func Test_iTree_lookup_PikeVMTxnWrites(t *testing.T) {
 	f, _ := NewRouter(WithAllowRegexpParam(true))
 	require.NoError(t, onlyError(f.Add(MethodGet, "/+{a}/x/+{b:[a-z/]+}/y", emptyHandler)))
 	req := httptest.NewRequest(http.MethodGet, "/a/x/B/x/c/z", nil)

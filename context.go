@@ -73,7 +73,7 @@ type Context struct {
 	req       *http.Request
 	params    *[]string
 	skipStack *skipStack
-	memo      *lookupMemo
+	lookup    *lookupState
 	route     *Route
 	// Set by matchSlow, read only via onlyRequestContext.
 	matcherRoute  *Route

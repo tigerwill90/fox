@@ -73,10 +73,10 @@ func wantEnds(re *regexp.Regexp, s string, start int, delim byte) []int {
 	return ends
 }
 
-func gotEnds(r *Regexp, p *Pass, s string, start int) []int {
-	p.Reset(r, s, start, '/')
+func gotEnds(r *Regexp, l *Ends, s string, start int) []int {
+	l.Start(r, s, start, '/')
 	var ends []int
-	for e := p.Next(start); e >= 0; e = p.Next(e + 1) {
+	for e := l.Next(start); e >= 0; e = l.Next(e + 1) {
 		ends = append(ends, e)
 	}
 	return ends
@@ -91,36 +91,36 @@ func firstEnd(ends []int, from int) int {
 	return -1
 }
 
-func TestPass(t *testing.T) {
+func TestEnds(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	for _, expr := range exprs {
 		t.Run(expr, func(t *testing.T) {
 			re, r := compileTest(t, expr)
-			p := new(Pass)
+			l := new(Ends)
 			for range 5000 {
 				s := randString(rng)
 				for start := 0; start <= len(s); start++ {
-					assert.Equal(t, wantEnds(re, s, start, '/'), gotEnds(r, p, s, start))
+					assert.Equal(t, wantEnds(re, s, start, '/'), gotEnds(r, l, s, start))
 				}
 			}
 		})
 	}
 }
 
-func TestPassNext(t *testing.T) {
+func TestEndsNext(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 4))
 	for _, expr := range exprs {
 		t.Run(expr, func(t *testing.T) {
 			re, r := compileTest(t, expr)
-			p := new(Pass)
+			l := new(Ends)
 			for range 2000 {
 				s := randString(rng)
 				start := rng.IntN(len(s) + 1)
 				want := wantEnds(re, s, start, '/')
-				p.Reset(r, s, start, '/')
+				l.Start(r, s, start, '/')
 				for range 4 {
 					from := start + rng.IntN(len(s)-start+1)
-					assert.Equal(t, firstEnd(want, from), p.Next(from))
+					assert.Equal(t, firstEnd(want, from), l.Next(from))
 				}
 			}
 		})
@@ -162,6 +162,6 @@ func FuzzEnds(f *testing.F) {
 		r, err := Compile(re)
 		require.NoError(t, err)
 		start = max(0, min(start, len(s)))
-		assert.Equal(t, wantEnds(re, s, start, '/'), gotEnds(r, new(Pass), s, start))
+		assert.Equal(t, wantEnds(re, s, start, '/'), gotEnds(r, new(Ends), s, start))
 	})
 }
