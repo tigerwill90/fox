@@ -610,7 +610,7 @@ func (vm *pikeVM) infixTsr(n, parent *node, caps, start int) bool {
 			continue
 		}
 		for _, w := range parent.wildcards {
-			if !w.isLeaf() || w.regexp != nil && !w.regexp.MatchString(path[start:]) {
+			if !w.isLeaf() || w.regexp != nil && !vm.c.lookup.matchRegexp(w, path[start:]) {
 				continue
 			}
 			for i, route := range w.routes {
@@ -637,7 +637,7 @@ func (vm *pikeVM) pathLookup(n *node, caps int) bool {
 		*c.skipStack = (*c.skipStack)[:stackOffset]
 		if leaf == nil {
 			*c.params = (*c.params)[:paramCnt]
-			c.lookup.setPathFailed(n)
+			c.lookup.setPathFailed(n, vm.path)
 			return false
 		}
 		lo := len(vm.hitParams)

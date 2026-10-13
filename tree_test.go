@@ -4778,7 +4778,11 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 	steps := func(f *Router, host, path string) (int, bool) {
 		c := newTestContext(f)
 		_, n, _ := f.getTree().lookup(http.MethodGet, host, path, c, false)
-		return c.lookup.steps, n != nil
+		steps := c.lookup.steps
+		for _, w := range c.lookup.regexps {
+			steps += w.ends.Steps()
+		}
+		return steps, n != nil
 	}
 
 	for _, tc := range cases {

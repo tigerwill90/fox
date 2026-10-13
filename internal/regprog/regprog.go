@@ -402,8 +402,11 @@ type Ends struct {
 	seen               []uint64
 	stamp              uint64
 	start, pos         int
-	delim              byte
-	accepted           bool
+	// steps counts the positions stepped since the listing was created. It exists to make linearity
+	// testable.
+	steps    int
+	delim    byte
+	accepted bool
 }
 
 // Start starts the listing of the ends of r over s from start, unless that listing is in progress.
@@ -429,6 +432,11 @@ func (e *Ends) restart() {
 	}
 }
 
+// Steps returns the number of positions stepped since the listing was created.
+func (e *Ends) Steps() int {
+	return e.steps
+}
+
 // Next returns the first end at or after from, or -1 if there is none. When from is before the end
 // returned last, the listing starts over.
 func (e *Ends) Next(from int) int {
@@ -440,6 +448,7 @@ func (e *Ends) Next(from int) int {
 	}
 	r, s := e.r, e.s
 	for len(e.cur) > 0 && e.pos < len(s) {
+		e.steps++
 		matched := e.matched[:0]
 		if b := s[e.pos]; b < utf8.RuneSelf {
 			for _, pc := range e.cur {

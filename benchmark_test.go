@@ -3,6 +3,7 @@ package fox
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -189,47 +190,29 @@ func BenchmarkInfixCatchAll(b *testing.B) {
 	}
 }
 
-func BenchmarkInfixCatchAllNearMiss(b *testing.B) {
-	f, _ := NewRouter()
-	f.MustAdd(MethodGet, "/files/+{p}/thumb/+{q}/download", emptyHandler)
-
-	req := httptest.NewRequest(http.MethodGet, "/files"+strings.Repeat("/thumb", 1024), nil)
-	w := new(mockResponseWriter)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		f.ServeHTTP(w, req)
-	}
-}
-
 func BenchmarkRegexp(b *testing.B) {
 	deep := strings.Repeat("abc/", 32) + "abc"
 	cases := []struct {
-		name   string
-		route  string
-		path   string
-		others []string
+		name  string
+		route string
+		host  string
+		path  string
 	}{
 		{name: "param", route: "/users/{id:[0-9]+}", path: "/users/12345"},
 		{name: "suffix", route: "/files/+{p:[a-z/]+}", path: "/files/abc/def/ghi"},
-		{name: "infix_class_short", route: "/files/+{p:[a-z/]+}/meta", path: "/files/abc/meta"},
-		{name: "infix_class_deep", route: "/files/+{p:[a-z/]+}/meta", path: "/files/" + deep + "/meta"},
-		{name: "infix_class_param_deep", route: "/files/+{p:[a-z/]+}/{name}", path: "/files/" + deep + "/meta"},
 		{name: "infix_short", route: "/files/+{p:(?:[a-z]+/)*[a-z]+}/meta", path: "/files/abc/meta"},
 		{name: "infix_deep", route: "/files/+{p:(?:[a-z]+/)*[a-z]+}/meta", path: "/files/" + deep + "/meta"},
-		{name: "infix_nested_short", route: "/+{a}/x/+{b:[a-z/]+}/y", path: "/a/x/B/x/c/y"},
-		{name: "infix_nested_near_miss", route: "/+{a}/x/+{b:[a-z/]+}/y", path: strings.Repeat("/a/x", 1<<10) + "/Z"},
-		{name: "infix_nested_near_miss_64k", route: "/+{a}/x/+{b:[a-z/]+}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
-		{name: "infix_nested_bounded_near_miss_64k", route: "/+{a}/x/+{b:[a-z0-9-]{1,63}(?:/[a-z0-9-]{1,63})*}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
-		{name: "infix_nested_counted_near_miss_64k", route: "/+{a}/x/+{b:.{1,255}}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
-		{name: "infix_nested_optional_chain_near_miss_64k", route: "/+{a}/x/+{b:(?:[a-z/]?){64}}/y", path: strings.Repeat("/a/x", 1<<14) + "/Z"},
+		{name: "infix_class_param_deep", route: "/files/+{p:[a-z/]+}/{name}", path: "/files/" + deep + "/meta"},
 		{
-			name:   "infix_nested_siblings_near_miss_64k",
-			route:  "/+{a}/x/+{b:[a-z/]+}/y",
-			path:   strings.Repeat("/a/x", 1<<14) + "/Z",
-			others: []string{"/+{a}/x/+{c:[0-9/]+}/z", "/+{a}/x/+{d:(?:[a-z]+/)*[a-z]+}/w"},
+			name:  "infix_nested_fallback",
+			route: "/+{site}/archive/+{date:[0-9]{4}/[0-9]{2}/[0-9]{2}}/{slug}",
+			path:  "/blog/archive/engineering/archive/2026/10/13/pike-vm-for-routers",
+		},
+		{
+			name:  "host_nested_fallback",
+			route: "+{bucket}.s3.+{region:[a-z]{2}-[a-z]+-[0-9]}.amazonaws.com/+{key}",
+			host:  "logs.s3.backup.s3.eu-west-1.amazonaws.com",
+			path:  "/2026/10/13/app.log.gz",
 		},
 	}
 
@@ -237,11 +220,11 @@ func BenchmarkRegexp(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			f, _ := NewRouter(WithAllowRegexpParam(true))
 			f.MustAdd(MethodGet, tc.route, emptyHandler)
-			for _, rte := range tc.others {
-				f.MustAdd(MethodGet, rte, emptyHandler)
-			}
 
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.host != "" {
+				req.Host = tc.host
+			}
 			w := new(mockResponseWriter)
 
 			b.ReportAllocs()
@@ -250,6 +233,85 @@ func BenchmarkRegexp(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				f.ServeHTTP(w, req)
 			}
+		})
+	}
+}
+
+func BenchmarkInfixNearMiss(b *testing.B) {
+	path := strings.Repeat("/a/x", 1<<14) + "/Z"
+	cases := []struct {
+		name   string
+		routes []string
+		host   string
+		path   string
+		re     string
+	}{
+		{name: "nested", routes: []string{"/+{a}/x/+{b}/y"}, path: path, re: `^/(.+)/x/(.+)/y$`},
+		{name: "nested_class", routes: []string{"/+{a}/x/+{b:[a-z/]+}/y"}, path: path, re: `^/(.+)/x/([a-z/]+)/y$`},
+		{
+			name:   "nested_bounded",
+			routes: []string{"/+{a}/x/+{b:[a-z0-9-]{1,63}(?:/[a-z0-9-]{1,63})*}/y"},
+			path:   path,
+			re:     `^/(.+)/x/([a-z0-9-]{1,63}(?:/[a-z0-9-]{1,63})*)/y$`,
+		},
+		{name: "nested_counted", routes: []string{"/+{a}/x/+{b:.{1,255}}/y"}, path: path, re: `^/(.+)/x/(.{1,255})/y$`},
+		{name: "nested_optional_chain", routes: []string{"/+{a}/x/+{b:(?:[a-z/]?){64}}/y"}, path: path, re: `^/(.+)/x/((?:[a-z/]?){64})/y$`},
+		{
+			name:   "nested_siblings",
+			routes: []string{"/+{a}/x/+{b:[a-z/]+}/y", "/+{a}/x/+{c:[0-9/]+}/z", "/+{a}/x/+{d:(?:[a-z]+/)*[a-z]+}/w"},
+			path:   path,
+			re:     `^/(.+)/x/(?:([a-z/]+)/y|([0-9/]+)/z|((?:[a-z]+/)*[a-z]+)/w)$`,
+		},
+		{name: "nested_suffix", routes: []string{"/+{a}/x/+{b:[a-z/]+}"}, path: path, re: `^/(.+)/x/([a-z/]+)$`},
+		{name: "nested_non_ascii", routes: []string{"/+{a}/x/+{b:[^/]+}/y"}, path: strings.Repeat("/é/x", 1<<14) + "/Z", re: `^/(.+)/x/([^/]+)/y$`},
+		{
+			name:   "host_nested",
+			routes: []string{`+{a}.x.+{b:(?:[a-z]+\.)*[a-z]+}.com/`},
+			host:   strings.Repeat("a.x.", 1<<14) + "org",
+			path:   "/",
+			re:     `^(.+)\.x\.((?:[a-z]+\.)*[a-z]+)\.com$`,
+		},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.Run("fox", func(b *testing.B) {
+				f, _ := NewRouter(WithAllowRegexpParam(true))
+				for _, rte := range tc.routes {
+					f.MustAdd(MethodGet, rte, emptyHandler)
+				}
+
+				req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+				if tc.host != "" {
+					req.Host = tc.host
+				}
+				rte, _ := f.Match(http.MethodGet, req)
+				require.Nil(b, rte)
+				w := new(mockResponseWriter)
+
+				b.ReportAllocs()
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					f.ServeHTTP(w, req)
+				}
+			})
+
+			b.Run("go", func(b *testing.B) {
+				re := regexp.MustCompile(tc.re)
+				in := tc.path
+				if tc.host != "" {
+					in = tc.host
+				}
+				require.Nil(b, re.FindStringSubmatchIndex(in))
+
+				b.ReportAllocs()
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					re.FindStringSubmatchIndex(in)
+				}
+			})
 		})
 	}
 }

@@ -244,7 +244,7 @@ Walk:
 							continue
 						}
 						evaluated = true
-						if !wildcardNode.regexp.MatchString(capturedValue) {
+						if !c.lookup.matchRegexp(wildcardNode, capturedValue) {
 							searchStart = captureEnd + 1
 							continue
 						}
@@ -308,7 +308,7 @@ Walk:
 					if wildcardNode.nested && c.lookup.retrySuffix(wildcardNode) {
 						goto VM
 					}
-					if !wildcardNode.regexp.MatchString(search) {
+					if !c.lookup.matchRegexp(wildcardNode, search) {
 						continue
 					}
 				}
@@ -324,7 +324,7 @@ Walk:
 				}
 				// Only a backtrack can reach this node again.
 				if stackOffset > 0 {
-					c.lookup.setPathFailed(wildcardNode)
+					c.lookup.setPathFailed(wildcardNode, path)
 				}
 
 				*c.skipStack = (*c.skipStack)[:stackOffset]
@@ -343,7 +343,7 @@ Walk:
 		}
 		// Only a backtrack can reach this node again.
 		if stackOffset > 0 {
-			c.lookup.setPathFailed(matched)
+			c.lookup.setPathFailed(matched, path)
 		}
 
 		// Remove any unused skip nodes added during the path lookup.
@@ -560,7 +560,7 @@ Walk:
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
 								// We have the path /foo/x/y/z for the route /foo/+{any:[A-z]}/ that may be matched with a ts,
 								// but we need to make sure that the regexp match too.
-								if wildcardNode.regexp != nil && !wildcardNode.regexp.MatchString(path[offset:]) {
+								if wildcardNode.regexp != nil && !c.lookup.matchRegexp(wildcardNode, path[offset:]) {
 									break
 								}
 								for j, route := range child.routes {
@@ -605,7 +605,7 @@ Walk:
 							continue
 						}
 						evaluated = true
-						if !wildcardNode.regexp.MatchString(capturedValue) {
+						if !c.lookup.matchRegexp(wildcardNode, capturedValue) {
 							searchStart = captureEnd + 1
 							continue
 						}
@@ -666,7 +666,7 @@ Walk:
 					if wildcardNode.nested && c.lookup.retrySuffix(wildcardNode) {
 						goto VM
 					}
-					if !wildcardNode.regexp.MatchString(search) {
+					if !c.lookup.matchRegexp(wildcardNode, search) {
 						continue
 					}
 				}

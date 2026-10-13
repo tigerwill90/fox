@@ -24,8 +24,9 @@ type lookupState struct {
 	exhausted []exhaustedScan
 	// regexps holds the regexp wildcards the lookup tracks, reused by truncating.
 	regexps []*regexpWildcard
-	// steps counts the capture candidates tried by the walk and the threads stepped by the Pike VM, over
-	// the lookups run with this state. It exists to make linearity testable.
+	// steps counts the capture candidates tried by the walk, the bytes evaluated by the regexps of
+	// wildcards and by the path lookups that failed from a hostname, and the threads stepped by the Pike
+	// VM, over the lookups run with this state. It exists to make linearity testable.
 	steps int
 	dirty bool
 }
@@ -71,8 +72,9 @@ func (s *lookupState) pathFailed(n *node) bool {
 	return len(s.failedPaths) > 0 && slices.Contains(s.failedPaths, n)
 }
 
-func (s *lookupState) setPathFailed(n *node) {
+func (s *lookupState) setPathFailed(n *node, path string) {
 	s.dirty = true
+	s.steps += len(path)
 	s.failedPaths = append(s.failedPaths, n)
 }
 
@@ -84,6 +86,12 @@ func (s *lookupState) matcherFailed(r *Route) bool {
 func (s *lookupState) setMatcherFailed(r *Route) {
 	s.dirty = true
 	s.failedMatchers = append(s.failedMatchers, r)
+}
+
+// matchRegexp reports whether in matches the regexp of the wildcard n.
+func (s *lookupState) matchRegexp(n *node, in string) bool {
+	s.steps += len(in)
+	return n.regexp.MatchString(in)
 }
 
 // regexpWildcard is a regexp wildcard during a lookup. An infix scan first evaluates the regexp on
