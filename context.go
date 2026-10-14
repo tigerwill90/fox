@@ -63,6 +63,8 @@ type RequestContext interface {
 	QueryParam(name string) string
 	// Header retrieves the value of the request header for the given key.
 	Header(key string) string
+
+	sealed()
 }
 
 // Context represents the context of the current HTTP request. It provides methods to access request data and
@@ -371,6 +373,8 @@ func (c *Context) Close() {
 	}
 }
 
+func (c *Context) sealed() {}
+
 func (c *Context) getQueries() url.Values {
 	if c.cachedQueries == nil {
 		if c.req != nil {
@@ -399,6 +403,7 @@ func (s onlyRequestContext) Host() string                  { return s.c.Host() }
 func (s onlyRequestContext) QueryParams() url.Values       { return s.c.QueryParams() }
 func (s onlyRequestContext) QueryParam(name string) string { return s.c.QueryParam(name) }
 func (s onlyRequestContext) Header(key string) string      { return s.c.Header(key) }
+func (s onlyRequestContext) sealed()                       {}
 
 // WrapF is an adapter for wrapping [http.HandlerFunc] and returns a [HandlerFunc] function.
 // The route parameters are being accessed by the wrapped handler through the context.
