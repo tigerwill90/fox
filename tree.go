@@ -301,12 +301,12 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 			// A method-less exact route matches every method, so it conflicts with a catch-all regardless of its methods.
 			// Conflicts are matcher-aware: /foo/?x=y and /foo/*{any}?a=b don't conflict because the exact path's matcher
 			// creates a gap, such as request with ?a=b (but not ?x=y) fail the exact match and fall through to the catch-empty.
-			// Since pattern matching precedes matcher evaluation, a conflict occurs when the exact path has no matchers (shadows all requests
-			// to that pattern) or matchers equal to the catch-empty's (both match the same request).
+			// Since pattern matching precedes matcher evaluation, a conflict occurs when the exact path's matchers are a subset of the
+			// catch-empty's (no matchers shadows all requests to that pattern).
 			var conflicts []*Route
 			if route.pattern.optionalCatchAll && p != nil {
 				for _, r := range p.routes {
-					if (len(r.matchers) == 0 || r.matchersEqual(route.matchers)) && (len(r.methods) == 0 || slicesutil.Overlap(r.methods, route.methods)) {
+					if r.matchersWithin(route.matchers) && (len(r.methods) == 0 || slicesutil.Overlap(r.methods, route.methods)) {
 						conflicts = append(conflicts, r)
 					}
 				}
@@ -317,7 +317,7 @@ func (t *tXn) insertTokens(p, n *node, tokens []token, route *Route) (*node, err
 
 			for _, wildcard := range n.wildcards {
 				for _, r := range wildcard.routes {
-					if r.pattern.optionalCatchAll && (len(route.matchers) == 0 || route.matchersEqual(r.matchers)) && (len(route.methods) == 0 || slicesutil.Overlap(route.methods, r.methods)) {
+					if r.pattern.optionalCatchAll && route.matchersWithin(r.matchers) && (len(route.methods) == 0 || slicesutil.Overlap(route.methods, r.methods)) {
 						conflicts = append(conflicts, r)
 					}
 				}
