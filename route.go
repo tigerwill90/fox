@@ -209,6 +209,20 @@ outer:
 	return true
 }
 
+// matchersWithin reports whether this [Route]'s matchers are a subset of the provided matchers.
+func (r *Route) matchersWithin(matchers []Matcher) bool {
+outer:
+	for _, a := range r.matchers {
+		for _, b := range matchers {
+			if a.Equal(b) {
+				continue outer
+			}
+		}
+		return false
+	}
+	return true
+}
+
 func routef(sb *strings.Builder, route *Route, pad int, showName bool) {
 	sb.WriteString(strings.Repeat(" ", pad))
 	sb.WriteString("method:")
