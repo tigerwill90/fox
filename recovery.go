@@ -110,7 +110,8 @@ func recovery(logger *slog.Logger, c *Context, handle RecoveryFunc) {
 			pattern = scopeToString(c.Scope())
 		}
 
-		logger.Error(
+		logger.ErrorContext(
+			c.Request().Context(),
 			sb.String(),
 			slog.String(LoggerRouteKey, pattern),
 			slog.Group(LoggerParamsKey, params...),
