@@ -203,6 +203,18 @@ first.second.example.com/avengers   matches
 example.com/avengers               no matches
 ````
 
+An infix catch-all captures the shortest value that lets the rest of the route match.
+
+````
+Pattern /+{repo}/blob/+{file}
+
+/org/repo/blob/main/docs/blob/readme.md    matches, repo=org/repo, file=main/docs/blob/readme.md
+
+Pattern /+{repo}/blob/{file}
+
+/org/repo/blob/main/docs/blob/readme.md    matches, repo=org/repo/blob/main/docs, file=readme.md
+````
+
 Optional named wildcard start with an asterisk `*` followed by a name `{param}` and match any sequence of characters
 **including empty** strings. Unlike `+{param}`, optional wildcards can only be used as a suffix.
 
@@ -292,7 +304,7 @@ store routes efficiently. When a request arrives, Fox evaluates routes in the fo
 1. **Hostname matching**
     - Routes with hostnames are evaluated before path-only routes
 
-2. **Pattern matching** (longest match, most specific first)
+2. **Pattern matching** (most specific first, segment by segment from left to right)
     - Static segments
     - Named parameters with regex constraints
     - Named parameters without constraints
