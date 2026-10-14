@@ -45,13 +45,13 @@ func classRune(c int) rune {
 	return [...]rune{'\n', 'a', ' '}[c]
 }
 
-// maxClosure is the number of instructions above which the closure of a rune instruction is followed
-// at each step, as the regexp package does, instead of being listed at compile time. A listed closure
-// then costs at most maxClosure entries, and the lists of a program hold O(len(prog)) entries.
+// maxClosure is the largest closure listed at compile time. A closure that visits more instructions is
+// followed at each step, as the regexp package does. A listed closure then holds at most maxClosure
+// entries, and the lists of a program O(len(prog)) entries.
 const maxClosure = 16
 
-// expand marks an entry of a Follow that is an empty instruction: the entries of that instruction
-// follow in turn.
+// expand marks an entry of a Follow that is an empty instruction. Next follows the entries of that
+// instruction in turn.
 const expand = 1 << 31
 
 // Regexp is a regular expression compiled for simulation. The empty transitions are followed at
@@ -75,10 +75,9 @@ type Regexp struct {
 }
 
 // Follow holds the instructions that follow each instruction without consuming a rune. A rune
-// instruction lists the rune instructions of its closure, or when the closure has more than
-// maxClosure instructions, the instruction it leads to. Then an empty instruction lists the
-// instructions it leads to, and the entries marked with expand, followed in turn by Next, reach the
-// whole closure.
+// instruction lists the rune instructions of its closure, or the instruction it leads to when the
+// closure has more than maxClosure instructions. An empty instruction then lists the instructions it
+// leads to, and Next follows the entries marked with expand to reach the whole closure.
 type Follow struct {
 	off []uint32
 	pcs []uint32
@@ -297,7 +296,7 @@ type builder struct {
 }
 
 // closure appends to dst the rune instructions reached from pc without consuming a rune when the
-// assertions of flag hold, in the order of the regexp package: Out before Arg. It reports false
+// assertions of flag hold, in the order of the regexp package, Out before Arg. It reports false
 // when it visits more than limit instructions.
 func (b *builder) closure(dst []uint32, pc uint32, flag syntax.EmptyOp, limit int) ([]uint32, bool) {
 	b.gen++
@@ -401,7 +400,7 @@ func (b *builder) last(flag syntax.EmptyOp) []bool {
 	return last
 }
 
-// Ends lists the ends of the prefixes of s[start:] that match a program: the positions e of delim
+// Ends lists the ends of the prefixes of s[start:] that match a program, the positions e of delim
 // after start such that s[start:e] matches. Each call to Next resumes where the previous one stopped,
 // so listing every end costs a single pass, and the memory of a listing depends on the program only.
 type Ends struct {
@@ -412,10 +411,9 @@ type Ends struct {
 	seen               []uint64
 	stamp              uint64
 	start, pos         int
-	// steps counts the positions stepped since the listing was created. It exists to make linearity
-	// testable.
+	// steps is only read by tests.
 	steps int
-	// reach is the furthest position the listing was asked from, or stepped to before a restart.
+	// reach is the highest position passed to Next, or stepped to before a restart.
 	reach    int
 	delim    byte
 	accepted bool
@@ -436,7 +434,7 @@ func (e *Ends) Reset() {
 	e.r, e.s = nil, ""
 }
 
-// Reach returns the furthest position of s the listing was asked from or stepped to.
+// Reach returns the highest position passed to Next or stepped to.
 func (e *Ends) Reach() int {
 	return max(e.reach, e.pos)
 }

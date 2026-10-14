@@ -24,8 +24,7 @@ type node struct {
 	// When present, captured segments must match this pattern during lookup.
 	regexp *regexp.Regexp
 
-	// prog is regexp compiled for simulation, set for wildcard nodes with a regexp. It finds in a
-	// single pass the capture ends of an infix wildcard that match, and runs in the Pike VM.
+	// prog is regexp compiled for simulation, set for wildcard nodes with a regexp.
 	prog *regprog.Regexp
 
 	// key identifies the node's content and varies by node type:
@@ -199,7 +198,7 @@ Walk:
 				}
 
 				// Start searching from the wildcard's base position + any accumulated offset from last
-				// node put in the skip stack, and stop before the capture ends already proven to fail.
+				// node put in the skip stack. Capture ends at or past end already failed.
 				searchStart := charsMatched + wildcardOffset
 				end := len(host)
 				// A resumed scan already evaluated the regexp once.
@@ -238,7 +237,6 @@ Walk:
 					}
 
 					if wildcardNode.regexp != nil && ends == nil {
-						// A second evaluation lists every capture end that matches in a single pass.
 						if evaluated {
 							ends = c.lookup.ends(wildcardNode, host, charsMatched, dotDelim)
 							searchStart = captureEnd
@@ -353,8 +351,7 @@ Walk:
 	goto Backtrack
 
 VM:
-	// A nested wildcard is reached again: the Pike VM runs the subtree of the outermost infix
-	// wildcard, and the walk resumes below it when nothing matches.
+	// The walk resumes below the outermost infix wildcard when the Pike VM finds no match.
 	{
 		f := outermostInfix(c, 0)
 		if index, n, tsr = c.lookup.hostVM().run(method, host, path, c, lazy, f); n != nil {
@@ -529,7 +526,7 @@ Walk:
 				}
 
 				// Start searching from the wildcard's base position + any accumulated offset from last
-				// node put in the skip stack, and stop before the capture ends already proven to fail.
+				// node put in the skip stack. Capture ends at or past end already failed.
 				searchStart := charsMatched + wildcardOffset
 				end := len(path)
 				// A resumed scan already evaluated the regexp once.
@@ -546,7 +543,7 @@ Walk:
 				// An infix wildcard has a single static child, its key starts with a slash.
 				key := wildcardNode.statics[0].key
 				// A regexp that never matches a slash only matches the capture that ends at the first one. A nested
-				// node scans on, as its gate takes a scan without listing for one that ran to the end.
+				// node scans to the end, as retryScan assumes a scan without listing ran to the end.
 				single := wildcardNode.prog != nil && !wildcardNode.nested && !wildcardNode.prog.Consumes(slashDelim)
 
 				for {
@@ -562,7 +559,7 @@ Walk:
 					}
 
 					if captureEnd < 0 {
-						// When the search stopped before the end of the path, the tsr below was already tried or
+						// When the search stopped before the end of the path, the tsr below was already checked or
 						// the regexp never matches the rest of the path.
 						if end == len(path) && path[len(path)-1] != slashDelim {
 							if _, child := wildcardNode.getStaticEdge(slashDelim); child != nil && child.isLeaf() && child.key == "/" {
@@ -598,15 +595,14 @@ Walk:
 						continue
 					}
 
-					// Skip the capture when the rest of the path neither starts with the static child key
-					// nor is a prefix of it, as no route below can match it, even with a trailing slash.
+					// No route below matches, even with a trailing slash, unless the rest of the path starts
+					// with the key of the static child or is a prefix of it.
 					if rest := path[captureEnd:]; !strings.HasPrefix(rest, key) && !strings.HasPrefix(key, rest) {
 						searchStart = captureEnd + 1
 						continue
 					}
 
 					if wildcardNode.regexp != nil && ends == nil {
-						// A second evaluation lists every capture end that matches in a single pass.
 						if evaluated {
 							ends = c.lookup.ends(wildcardNode, path, charsMatched, slashDelim)
 							searchStart = captureEnd
@@ -735,8 +731,7 @@ Walk:
 	goto Backtrack
 
 VM:
-	// A nested wildcard is reached again: the Pike VM runs the subtree of the outermost infix
-	// wildcard, and the walk resumes below it when nothing matches.
+	// The walk resumes below the outermost infix wildcard when the Pike VM finds no match.
 	{
 		f := outermostInfix(c, stackOffset)
 		if index, n, tsr = c.lookup.pathVM().run(method, path, path, c, lazy, f); n != nil {
