@@ -4755,17 +4755,18 @@ func TestRouter_Race_PikeVM(t *testing.T) {
 				assert.NoError(t, f.Updates(func(txn *Txn) error {
 					leaf := fmt.Sprintf("w%d_%d", g, i)
 					for _, p := range []string{path + leaf, host + path + leaf} {
-						require.NoError(t, onlyError(txn.Add(MethodGet, p, emptyHandler)))
+						assert.NoError(t, onlyError(txn.Add(MethodGet, p, emptyHandler)))
 					}
 					r, _ := txn.Match(http.MethodGet, request(nearPath, nearHost))
 					assert.Nil(t, r)
 					r, _ = txn.Match(http.MethodGet, request("/a/x/B/x/c/"+leaf, hitHost))
-					require.NotNil(t, r)
-					assert.Equal(t, host+path+leaf, r.Pattern())
+					if assert.NotNil(t, r) {
+						assert.Equal(t, host+path+leaf, r.Pattern())
+					}
 					if i > 0 {
 						prev := fmt.Sprintf("w%d_%d", g, i-1)
 						for _, p := range []string{path + prev, host + path + prev} {
-							require.NoError(t, onlyError(txn.Delete(MethodGet, p)))
+							assert.NoError(t, onlyError(txn.Delete(MethodGet, p)))
 						}
 					}
 					return nil
