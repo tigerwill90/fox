@@ -83,6 +83,8 @@ func newRouteNotFoundError(route *Route) error {
 	return fmt.Errorf("%w: %s", ErrRouteNotFound, sb.String())
 }
 
+// PatternError represents an error that occurred during route pattern parsing.
+// It contains the pattern, and the position of the offending segment.
 type PatternError struct {
 	err     error  // wrapped error
 	Pattern string // provided pattern

@@ -208,7 +208,7 @@ func (s SingleIPHeader) ClientIP(c fox.RequestContext) (netip.Addr, error) {
 	// RFC 2616 does not allow multiple instances of single-IP headers (or any non-list header).
 	// It is debatable whether it is better to treat multiple such headers as an error
 	// (more correct) or simply pick one of them (more flexible). As we've already
-	// told the user tom make sure the header is not spoofable, we're going to use the
+	// told the user to make sure the header is not spoofable, we're going to use the
 	// last header instance if there are multiple. (Using the last is arbitrary, but
 	// in theory it should be the newest value.)
 	ipStr := lastHeader(c.Request().Header, s.headerName)
@@ -272,7 +272,7 @@ func (s LeftmostNonPrivate) ClientIP(c fox.RequestContext) (netip.Addr, error) {
 }
 
 // RightmostNonPrivate derives the client IP from the rightmost valid, non-private/non-internal IP address in
-// the X-Fowarded-For or Forwarded header. This resolver should be used when all reverse proxies between the internet
+// the X-Forwarded-For or Forwarded header. This resolver should be used when all reverse proxies between the internet
 // and the server have private-space IP addresses. By default, loopback, link local and private net ip range are trusted.
 type RightmostNonPrivate struct {
 	headerName    string
