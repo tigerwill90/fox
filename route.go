@@ -23,6 +23,9 @@ type Route struct {
 	pattern     pattern
 	priority    uint
 	handleSlash TrailingSlashOption
+	// nested reports whether a wildcard follows another wildcard in the same part of the pattern
+	// (hostname or path), so a lookup can reach the route several times.
+	nested bool
 }
 
 // Handle calls the handler with the provided [Context]. See also [Route.HandleMiddleware].
@@ -164,10 +167,17 @@ func (r *Route) matchSlow(method string, c *Context) bool {
 			return false
 		}
 	}
+	// Matchers never see the captured params, so a failure holds for the rest of the lookup.
+	if r.nested && c.lookup.matcherFailed(r) {
+		return false
+	}
 	c.matcherRoute = r
 	sealed := onlyRequestContext{c}
 	for _, m := range r.matchers {
 		if !m.Match(sealed) {
+			if r.nested {
+				c.lookup.setMatcherFailed(r)
+			}
 			return false
 		}
 	}

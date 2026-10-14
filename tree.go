@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fox-toolkit/fox/internal/regprog"
 	"github.com/fox-toolkit/fox/internal/simplelru"
 	"github.com/fox-toolkit/fox/internal/slicesutil"
 )
@@ -45,6 +46,7 @@ func (t *iTree) allocateContext() *Context {
 	return &Context{
 		params:    new(make([]string, 0, t.maxParams)),
 		skipStack: new(make(skipStack, 0, t.maxDepth)),
+		lookup:    new(lookupState),
 		// This is a read only value, no reset. It's always the
 		// owner of the pool.
 		tree: t,
@@ -565,6 +567,19 @@ func (t *tXn) insertParam(n *node, tk token, remaining []token, route *Route) (*
 	return nc, nil
 }
 
+// compileProg compiles the regexp of a wildcard for simulation, or returns nil without regexp.
+func compileProg(re *regexp.Regexp) *regprog.Regexp {
+	if re == nil {
+		return nil
+	}
+	r, err := regprog.Compile(re)
+	if err != nil {
+		// The expression already compiled with regexp.
+		panic(fmt.Sprintf("unreachable: %s: %v", re, err))
+	}
+	return r
+}
+
 func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route) (*node, error) {
 	key := canonicalKey(tk)
 	idx, child := n.getWildcardEdge(key)
@@ -578,6 +593,8 @@ func (t *tXn) insertWildcard(n *node, tk token, remaining []token, route *Route)
 			&node{
 				key:    key,
 				regexp: tk.regexp,
+				prog:   compileProg(tk.regexp),
+				nested: tk.nested,
 			},
 			remaining,
 			route,
@@ -854,7 +871,9 @@ func (t *tXn) writeNode(n *node) *node {
 		label:  n.label,
 		key:    n.key,
 		regexp: n.regexp,
+		prog:   n.prog,
 		host:   n.host,
+		nested: n.nested,
 	}
 
 	if len(n.routes) != 0 {
@@ -977,6 +996,8 @@ type token struct {
 	value string
 	// The type of this token: static, param, or wildcard.
 	typ nodeType
+	// True if a wildcard precedes this wildcard in the same part of the pattern (hostname or path).
+	nested bool
 	// True if this token is part of the hostname portion of the route.
 	// Nodes created from tokens with hsplit=true cannot be merged
 	// during deletion to preserve the hostname/path boundary for lookupByPath optimization.

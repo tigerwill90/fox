@@ -6,7 +6,6 @@ package netutil
 
 import (
 	"errors"
-	"net"
 	"net/netip"
 	"strings"
 )
@@ -24,11 +23,44 @@ func StripHostPort(h string) string {
 		return strings.TrimSuffix(h, ".")
 	}
 
-	host, _, err := net.SplitHostPort(h)
-	if err != nil {
+	host, _, ok := SplitHostPort(h)
+	if !ok {
 		return h // on error, return unchanged
 	}
 	return strings.TrimSuffix(host, ".")
+}
+
+// SplitHostPort is [net.SplitHostPort] without the error value, so a failure does not allocate. It reports
+// false where [net.SplitHostPort] returns an error. Ported from net (Copyright 2009 The Go Authors, BSD-style
+// license).
+func SplitHostPort(hostport string) (host, port string, ok bool) {
+	j, k := 0, 0
+
+	// The port starts after the last colon.
+	i := strings.LastIndexByte(hostport, ':')
+	if i < 0 {
+		return "", "", false
+	}
+
+	if hostport[0] == '[' {
+		// Expect the first ']' just before the last ':'.
+		end := strings.IndexByte(hostport, ']')
+		if end < 0 || end+1 != i {
+			return "", "", false
+		}
+		host = hostport[1:end]
+		j, k = 1, end+1 // there can't be a '[' resp. ']' before these positions
+	} else {
+		host = hostport[:i]
+		if strings.IndexByte(host, ':') >= 0 {
+			return "", "", false
+		}
+	}
+	if strings.IndexByte(hostport[j:], '[') >= 0 || strings.IndexByte(hostport[k:], ']') >= 0 {
+		return "", "", false
+	}
+
+	return host, hostport[i+1:], true
 }
 
 // ParsePrefix parses s as a CIDR prefix or a single IP address treated as a full-length prefix.

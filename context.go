@@ -8,13 +8,13 @@ import (
 	"context"
 	"io"
 	"iter"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"slices"
 
 	"github.com/fox-toolkit/fox/internal/bytesconv"
+	"github.com/fox-toolkit/fox/internal/netutil"
 )
 
 // RequestContext provides read-only access to incoming HTTP request data, including request properties,
@@ -73,6 +73,7 @@ type Context struct {
 	req       *http.Request
 	params    *[]string
 	skipStack *skipStack
+	lookup    *lookupState
 	route     *Route
 	// Set by matchSlow, read only via onlyRequestContext.
 	matcherRoute  *Route
@@ -151,7 +152,7 @@ func (c *Context) SetWriter(w ResponseWriter) {
 // connections on a Unix domain socket, or the remote address was overwritten), the zero [netip.Addr]
 // is returned.
 func (c *Context) RemoteIP() netip.Addr {
-	ipStr, _, _ := net.SplitHostPort(c.req.RemoteAddr)
+	ipStr, _, _ := netutil.SplitHostPort(c.req.RemoteAddr)
 
 	addr, err := netip.ParseAddr(ipStr)
 	if err != nil {

@@ -23,7 +23,9 @@ func compileAnchoredRegexp(expr string) (*regexp.Regexp, error) {
 }
 
 // Matcher evaluates if an HTTP request satisfies specific conditions. Matchers are evaluated after hostname and path
-// matching succeeds. All matchers associated with a route must match for the route to be selected.
+// matching succeeds. All matchers associated with a route must match for the route to be selected. Match must return
+// the same result for the same request and must not have side effects the application depends on. A lookup may
+// evaluate the matchers of routes it does not select, more than once and in any order.
 // Matcher implementations must be safe for concurrent use by multiple goroutines.
 type Matcher interface {
 	// Match evaluates if the [RequestContext] satisfies this matcher.

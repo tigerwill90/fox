@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"net"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -436,14 +435,12 @@ func (s RightmostTrustedRange) ClientIP(c fox.RequestContext) (netip.Addr, error
 // - [ErrInvalidIPAddress]: if the IP address cannot be parsed.
 // - [ErrUnspecifiedIPAddress]: if the IP address is unspecified (e.g., "::" or "0.0.0.0").
 func ParseAddr(ip string) (netip.Addr, error) {
-	host, _, err := net.SplitHostPort(ip)
-	if err == nil {
+	if host, _, ok := netutil.SplitHostPort(ip); ok {
 		ip = host
 	}
 
-	// We continue even if net.SplitHostPort returned an error. This is because it may
-	// complain that there are "too many colons" in an IPv6 address that has no brackets
-	// and no port. netip.ParseAddr will be the final arbiter of validity.
+	// A failed split may be an IPv6 address without brackets and port. netip.ParseAddr
+	// will be the final arbiter of validity.
 
 	// Square brackets around IPv6 addresses may be used in the Forwarded header.
 	// netip.ParseAddr doesn't like them, so we'll trim them off.
