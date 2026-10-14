@@ -64,8 +64,8 @@ type node struct {
 	// A node that belong to a host cannot be merged with a child key that start with a '/'.
 	host bool
 
-	// nested reports whether a wildcard precedes this wildcard node in the hostname or in the
-	// path, so a lookup can reach it at several offsets.
+	// nested reports whether a wildcard precedes this wildcard node in the same part of the
+	// pattern (hostname or path), so a lookup can reach it at several offsets.
 	nested bool
 }
 

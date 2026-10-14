@@ -14,7 +14,7 @@ type lookupState struct {
 	// that needs them.
 	pathPikeVM, hostPikeVM *pikeVM
 	// failedMatchers holds the routes whose matchers failed. Matchers never see the captured params.
-	failedMatchers []*Route
+	failedMatchers map[*Route]struct{}
 	// failedPaths holds the hostname nodes whose path lookup failed. A path lookup ignores the
 	// hostname captures.
 	failedPaths []*node
@@ -37,7 +37,9 @@ type exhaustedScan struct {
 }
 
 func (s *lookupState) reset() {
-	s.failedMatchers = s.failedMatchers[:0]
+	if len(s.failedMatchers) > 0 {
+		clear(s.failedMatchers)
+	}
 	s.failedPaths = s.failedPaths[:0]
 	s.exhausted = s.exhausted[:0]
 	s.regexps = s.regexps[:0]
@@ -80,12 +82,16 @@ func (s *lookupState) setPathFailed(n *node, path string) {
 
 // matcherFailed reports whether the matchers of r already failed.
 func (s *lookupState) matcherFailed(r *Route) bool {
-	return slices.Contains(s.failedMatchers, r)
+	_, ok := s.failedMatchers[r]
+	return ok
 }
 
 func (s *lookupState) setMatcherFailed(r *Route) {
 	s.dirty = true
-	s.failedMatchers = append(s.failedMatchers, r)
+	if s.failedMatchers == nil {
+		s.failedMatchers = make(map[*Route]struct{})
+	}
+	s.failedMatchers[r] = struct{}{}
 }
 
 // matchRegexp reports whether in matches the regexp of the wildcard n.
@@ -121,6 +127,9 @@ func (s *lookupState) regexp(n *node) *regexpWildcard {
 	}
 	if w == nil {
 		w = new(regexpWildcard)
+	} else {
+		// The listing of an earlier lookup is never resumed.
+		w.ends.Reset()
 	}
 	s.regexps = append(s.regexps, w)
 	w.node, w.scanned, w.suffixed = n, false, false

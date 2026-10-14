@@ -5170,6 +5170,20 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 	}
 }
 
+func Test_iTree_lookup_PikeVMMatcher(t *testing.T) {
+	var calls int
+	f, _ := NewRouter(WithAllowRegexpParam(true))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/+{a}/x/+{b:[a-z/]+}/y", emptyHandler, WithMatcher(countingMatcher{calls: &calls}))))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/+{a}/x/+{b:[a-z/]+}/{p}", emptyHandler)))
+	c := newTestContext(f)
+	idx, n, _ := f.getTree().lookup(http.MethodGet, "", "/a/x/b/x/C/x/c/y", c, false)
+	require.NotNil(t, n)
+	assert.Equal(t, "/+{a}/x/+{b:[a-z/]+}/{p}", n.routes[idx].Pattern())
+	assert.Equal(t, []string{"a/x/b/x/C", "c", "y"}, *c.params)
+	assert.NotNil(t, c.lookup.pathPikeVM)
+	assert.Positive(t, calls)
+}
+
 func Test_iTree_lookup_PikeVMTxnWrites(t *testing.T) {
 	f, _ := NewRouter(WithAllowRegexpParam(true))
 	require.NoError(t, onlyError(f.Add(MethodGet, "/+{a}/x/+{b:[a-z/]+}/y", emptyHandler)))
@@ -5274,6 +5288,9 @@ func Test_iTree_lookup_MatcherEvaluatedOnce(t *testing.T) {
 	_, n, _ := f.getTree().lookup(http.MethodGet, "", path, c, false)
 	assert.Nil(t, n)
 	assert.Equal(t, 1, calls)
+	_, n, _ = f.getTree().lookup(http.MethodGet, "", path, c, false)
+	assert.Nil(t, n)
+	assert.Equal(t, 2, calls)
 }
 
 func Test_iTree_lookup_ReusedContext(t *testing.T) {
@@ -5711,4 +5728,26 @@ func Test_iTree_deleteWildcard(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "/foo/{bar}", deletedRoute.Pattern())
 	assert.True(t, f.Has(MethodGet, "/foo/+{args}"))
+}
+
+func Test_lookupState_regexp(t *testing.T) {
+	re, err := compileAnchoredRegexp("[a-z/]+")
+	require.NoError(t, err)
+	n := &node{regexp: re, prog: compileProg(re)}
+	s := new(lookupState)
+
+	w := s.regexp(n)
+	w.scanned, w.suffixed = true, true
+	ends := s.ends(n, "a/b/c/d", 0, slashDelim)
+	assert.Equal(t, 1, ends.Next(0))
+	steps := ends.Steps()
+	s.reset()
+
+	got := s.regexp(n)
+	assert.Same(t, w, got)
+	assert.False(t, got.scanned)
+	assert.False(t, got.suffixed)
+	got.ends.Start(n.prog, strings.Clone("a/b/c/d"), 0, slashDelim)
+	assert.Equal(t, 1, got.ends.Next(1))
+	assert.Greater(t, got.ends.Steps(), steps)
 }

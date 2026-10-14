@@ -996,8 +996,8 @@ type token struct {
 	value string
 	// The type of this token: static, param, or wildcard.
 	typ nodeType
-	// True if a wildcard precedes this wildcard in the hostname or in the path. A lookup can then
-	// reach its node at several offsets.
+	// True if a wildcard precedes this wildcard in the same part of the pattern (hostname or path).
+	// A lookup can then reach its node at several offsets.
 	nested bool
 	// True if this token is part of the hostname portion of the route.
 	// Nodes created from tokens with hsplit=true cannot be merged

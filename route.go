@@ -23,8 +23,8 @@ type Route struct {
 	pattern     pattern
 	priority    uint
 	handleSlash TrailingSlashOption
-	// nested reports whether a wildcard of the pattern follows another wildcard in the hostname or
-	// in the path, so a lookup can reach the route several times.
+	// nested reports whether a wildcard follows another wildcard in the same part of the pattern
+	// (hostname or path), so a lookup can reach the route several times.
 	nested bool
 }
 

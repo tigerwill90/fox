@@ -431,6 +431,11 @@ func (e *Ends) Start(r *Regexp, s string, start int, delim byte) {
 	e.restart()
 }
 
+// Reset ends the listing, so the next Start begins a new one.
+func (e *Ends) Reset() {
+	e.r, e.s = nil, ""
+}
+
 // Reach returns the furthest position of s the listing was asked from or stepped to.
 func (e *Ends) Reach() int {
 	return max(e.reach, e.pos)

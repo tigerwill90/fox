@@ -131,6 +131,18 @@ func TestEndsNext(t *testing.T) {
 	}
 }
 
+func TestEndsReset(t *testing.T) {
+	re, r := compileTest(t, "[a-z/]+")
+	s := strings.Repeat("a/", 4)
+	l := new(Ends)
+	gotEnds(r, l, s, 0)
+	l.Reset()
+	assert.Nil(t, l.r)
+	assert.Empty(t, l.s)
+	clone := strings.Clone(s)
+	assert.Equal(t, wantEnds(re, clone, 0, '/'), gotEnds(r, l, clone, 0))
+}
+
 func TestFollow(t *testing.T) {
 	for _, tc := range []struct {
 		expr    string

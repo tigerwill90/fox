@@ -4722,6 +4722,60 @@ func TestRouter_Race_NewRoute(t *testing.T) {
 	wg.Wait()
 }
 
+func TestRouter_Race_PikeVM(t *testing.T) {
+	f, _ := NewRouter(WithAllowRegexpParam(true))
+	path, host := "/+{a}/x/+{b:[a-z/]+}/", "+{h}.x.+{i:(?:[a-z]+\\.)*[a-z]+}.com"
+	require.NoError(t, onlyError(f.Add(MethodGet, path+"y", emptyHandler)))
+	require.NoError(t, onlyError(f.Add(MethodGet, host+path+"y", emptyHandler)))
+	nearPath, nearHost, hitHost := strings.Repeat("/a/x", 50)+"/Z", strings.Repeat("a.x.", 10)+"org", "a.x.b.x.c.com"
+	request := func(path, host string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		return req
+	}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 200 {
+				for _, h := range []string{nearHost, hitHost} {
+					w := httptest.NewRecorder()
+					f.ServeHTTP(w, request(nearPath, h))
+					assert.Equal(t, http.StatusNotFound, w.Code)
+					w = httptest.NewRecorder()
+					f.ServeHTTP(w, request("/a/x/B/x/c/y", h))
+					assert.Equal(t, http.StatusOK, w.Code)
+				}
+			}
+		})
+	}
+	for g := range 2 {
+		wg.Go(func() {
+			for i := range 100 {
+				assert.NoError(t, f.Updates(func(txn *Txn) error {
+					leaf := fmt.Sprintf("w%d_%d", g, i)
+					for _, p := range []string{path + leaf, host + path + leaf} {
+						require.NoError(t, onlyError(txn.Add(MethodGet, p, emptyHandler)))
+					}
+					r, _ := txn.Match(http.MethodGet, request(nearPath, nearHost))
+					assert.Nil(t, r)
+					r, _ = txn.Match(http.MethodGet, request("/a/x/B/x/c/"+leaf, hitHost))
+					require.NotNil(t, r)
+					assert.Equal(t, host+path+leaf, r.Pattern())
+					if i > 0 {
+						prev := fmt.Sprintf("w%d_%d", g, i-1)
+						for _, p := range []string{path + prev, host + path + prev} {
+							require.NoError(t, onlyError(txn.Delete(MethodGet, p)))
+						}
+					}
+					return nil
+				}))
+			}
+		})
+	}
+	wg.Wait()
+}
+
 func TestRouter_ServeHTTP_Concurrent(t *testing.T) {
 	r, _ := NewRouter()
 
