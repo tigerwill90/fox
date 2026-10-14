@@ -4921,6 +4921,7 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 	cases := []struct {
 		name    string
 		routes  []string
+		failing []string
 		relaxed bool
 		host    string
 		path    string
@@ -4938,9 +4939,9 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 		{
 			name:   "param after infix",
 			routes: []string{"/+{a}/x/+{b:[a-z/]+}/{p}/z"},
-			path:   "/a/x/b/x/C/x/c/d/z",
+			path:   "/a/x/b/x/C/x/c/dd/z",
 			want:   "/+{a}/x/+{b:[a-z/]+}/{p}/z",
-			params: []string{"a/x/b/x/C", "c", "d"},
+			params: []string{"a/x/b/x/C", "c", "dd"},
 		},
 		{
 			name:   "suffix without regexp after infix",
@@ -5090,6 +5091,52 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 			path:   "/a/x/B/x//z",
 		},
 		{
+			name:    "infix without regexp with a tsr adding a slash",
+			routes:  []string{"/+{a}/x/+{b:[a-z/]+}/k/+{c}/y/"},
+			relaxed: true,
+			path:    "/a/x/B/x/c/k/d/y",
+			want:    "/+{a}/x/+{b:[a-z/]+}/k/+{c}/y/",
+			tsr:     true,
+			params:  []string{"a/x/B", "c", "d"},
+		},
+		{
+			name:   "infix without regexp started twice at a position",
+			routes: []string{"/+{a}/x/+{b:[a-z/]+}/k/+{c}/y"},
+			path:   "/a/x/B/x/c/k/k/d/y",
+			want:   "/+{a}/x/+{b:[a-z/]+}/k/+{c}/y",
+			params: []string{"a/x/B", "c", "k/d"},
+		},
+		{
+			name:   "regexp capture not matched at the end of the path",
+			routes: []string{"/+{a}/x/+{b:[a-z/]+z}/y"},
+			path:   "/a/x/B/x/c/d",
+		},
+		{
+			name:   "empty segment on a param",
+			routes: []string{"/+{a}/x/+{b:[a-z/]+}/y/{p}"},
+			path:   "/a/x/B/x/c/y//",
+		},
+		{
+			name:    "suffix with a failing matcher",
+			routes:  []string{"/+{a}/x/+{b:[a-z/]+}/y"},
+			failing: []string{"/+{a}/x/+{c:[a-z/]+}"},
+			path:    "/a/x/B/x/c/d",
+		},
+		{
+			name:    "tsr with a failing matcher",
+			routes:  []string{"/+{a}/x/+{b:[a-z/]+}/y/z"},
+			failing: []string{"/+{a}/x/+{b:[a-z/]+}/y"},
+			relaxed: true,
+			path:    "/a/x/B/x/c/y/",
+		},
+		{
+			name:    "infix tsr with a failing matcher",
+			routes:  []string{"/+{a}/x/+{c:[0-9/]+}"},
+			failing: []string{"/+{a}/x/+{b:[a-z/]+}/"},
+			relaxed: true,
+			path:    "/a/x/B/x/c",
+		},
+		{
 			name:   "hostname regexp with closures followed at each step",
 			routes: []string{"+{a}.x.+{b:(?:[a-z.]?){18}}.com/"},
 			host:   "a.x.b.x.c.9.x.b.c.com",
@@ -5137,6 +5184,30 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 			want:   "+{a}.x.+{b:c|x\\.x\\.c\\.y}.y.+{s}/",
 			params: []string{"q.x.x.x.Z", "x.x.c.y", "w"},
 		},
+		{
+			name:   "hostname param",
+			routes: []string{"+{a}.x.+{b:[a-z.]+}.{p}.com/"},
+			host:   "a.x.b.x.9.x.c.dd.com",
+			path:   "/",
+			want:   "+{a}.x.+{b:[a-z.]+}.{p}.com/",
+			params: []string{"a.x.b.x.9", "c", "dd"},
+		},
+		{
+			name:   "hostname suffix path lookup fails",
+			routes: []string{"+{a}.x.+{b:[a-z.]+}.k.+{s}/foo", "/bar"},
+			host:   "a.x.b.x.c.k.d",
+			path:   "/bar",
+			want:   "/bar",
+			params: []string{},
+		},
+		{
+			name:   "hostname consumed before the path",
+			routes: []string{"+{a}.x.+{b:[a-z.]+}.comy/", "+{a}.x.+{b:[a-z.]+}.comz/", "/p"},
+			host:   "a.x.b.x.c.com",
+			path:   "/p",
+			want:   "/p",
+			params: []string{},
+		},
 	}
 
 	for _, tc := range cases {
@@ -5148,6 +5219,9 @@ func Test_iTree_lookup_PikeVM(t *testing.T) {
 			f, _ := NewRouter(opts...)
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
+			}
+			for _, rte := range tc.failing {
+				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler, WithMatcher(countingMatcher{calls: new(int)}))))
 			}
 			tree := f.getTree()
 			for _, lazy := range []bool{false, true} {
