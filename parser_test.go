@@ -1898,6 +1898,26 @@ func TestPatternError_Position(t *testing.T) {
 			wantMsg:    "error parsing regexp",
 		},
 		{
+			name:       "regexp too large",
+			pattern:    "/foo/{a:[a-z]{1,1000}}",
+			options:    []GlobalOption{WithAllowRegexpParam(true)},
+			wantType:   "path",
+			wantReason: "regexp",
+			wantStart:  8,
+			wantEnd:    21,
+			wantMsg:    "expression too large",
+		},
+		{
+			name:       "regexp exceeds max size",
+			pattern:    "/foo/{a:[0-9]+}",
+			options:    []GlobalOption{WithAllowRegexpParam(true), WithMaxRegexpSize(3)},
+			wantType:   "path",
+			wantReason: "regexp",
+			wantStart:  8,
+			wantEnd:    14,
+			wantMsg:    "expression too large",
+		},
+		{
 			name:       "hostname label exceeds 63 chars before dot with param",
 			pattern:    strings.Repeat("a", 64) + "{b}.com/",
 			wantType:   "hostname",
@@ -2020,6 +2040,14 @@ func TestPatternError_Unwrap(t *testing.T) {
 		require.ErrorAs(t, err, &pe)
 		var syntaxErr *syntax.Error
 		assert.ErrorAs(t, pe, &syntaxErr)
+	})
+	t.Run("regexp too large wraps ErrLarge", func(t *testing.T) {
+		f := MustRouter(WithAllowRegexpParam(true))
+		_, _, err := f.parsePattern("/foo/{a:[a-z]{1,1000}}")
+		require.Error(t, err)
+		var syntaxErr *syntax.Error
+		require.ErrorAs(t, err, &syntaxErr)
+		assert.Equal(t, syntax.ErrLarge, syntaxErr.Code)
 	})
 	t.Run("non-regexp error returns nil on unwrap", func(t *testing.T) {
 		f := MustRouter()

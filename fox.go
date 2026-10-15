@@ -108,6 +108,7 @@ type Router struct {
 	maxParams              int
 	maxParamKeyBytes       int
 	maxMatchers            int
+	maxRegexpSize          int
 	mu                     sync.Mutex
 	handleSlash            TrailingSlashOption
 	mergeSlash             NormalizeOption
@@ -132,6 +133,7 @@ func initRouter() *Router {
 	r.maxParams = math.MaxUint8
 	r.maxParamKeyBytes = math.MaxUint8
 	r.maxMatchers = math.MaxUint8
+	r.maxRegexpSize = maxRegexpSize
 	r.handleSlash = ExactSlash
 	r.mergeSlash = ExactPath
 	r.collapseDots = ExactPath
@@ -144,6 +146,7 @@ type RouterInfo struct {
 	MaxRouteParams        int
 	MaxRouteParamKeyBytes int
 	MaxRouteMatchers      int
+	MaxRegexpSize         int
 	TrailingSlashOption   TrailingSlashOption
 	MergeSlashes          NormalizeOption
 	CollapseDotSegments   NormalizeOption
@@ -558,6 +561,7 @@ func (fox *Router) Info() RouterInfo {
 		MaxRouteParams:        fox.maxParams,
 		MaxRouteParamKeyBytes: fox.maxParamKeyBytes,
 		MaxRouteMatchers:      fox.maxMatchers,
+		MaxRegexpSize:         fox.maxRegexpSize,
 		NoMethod:              fox.handleMethodNotAllowed,
 		AutoOptions:           fox.handleOPTIONS,
 		TrailingSlashOption:   fox.handleSlash,

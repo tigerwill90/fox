@@ -1026,3 +1026,9 @@ func TestWithMatcher(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidConfig)
 	})
 }
+
+func TestWithMaxRegexpSize(t *testing.T) {
+	f := MustRouter(WithAllowRegexpParam(true), WithMaxRegexpSize(4))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/foo/{a:[0-9]+}", emptyHandler)))
+	assert.Equal(t, 4, f.Info().MaxRegexpSize)
+}

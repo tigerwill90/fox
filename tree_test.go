@@ -4834,7 +4834,7 @@ func Test_iTree_lookup_InfixWildcardLinear(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, _ := NewRouter(WithAllowRegexpParam(true))
+			f, _ := NewRouter(WithAllowRegexpParam(true), WithMaxRegexpSize(math.MaxUint16))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler, tc.opts...)))
 			}
@@ -5306,7 +5306,7 @@ func Test_iTree_lookup_InfixWildcardMemory(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.routes[0], func(t *testing.T) {
-			f, _ := NewRouter(WithAllowRegexpParam(true))
+			f, _ := NewRouter(WithAllowRegexpParam(true), WithMaxRegexpSize(math.MaxUint16))
 			for _, rte := range tc.routes {
 				require.NoError(t, onlyError(f.Add(MethodGet, rte, emptyHandler)))
 			}
