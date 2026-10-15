@@ -155,14 +155,15 @@ func (m QueryRegexpMatcher) Equal(matcher Matcher) bool {
 }
 
 // MatchHeader returns a [HeaderMatcher] that matches when the request contains an HTTP header with the given key and
-// a value equal to the given one. The key is canonicalized via [http.CanonicalHeaderKey]. An empty key returns an
-// error. See [WithHeaderMatcher] for the option counterpart.
+// a value equal to the given one. The key is canonicalized via [http.CanonicalHeaderKey]. An empty, Host or
+// Transfer-Encoding key returns an error. See [WithHeaderMatcher] for the option counterpart.
 func MatchHeader(key, value string) (HeaderMatcher, error) {
-	if key == "" {
-		return HeaderMatcher{}, errors.New("empty header key")
+	canonicalKey, err := matchableHeaderKey(key)
+	if err != nil {
+		return HeaderMatcher{}, err
 	}
 	return HeaderMatcher{
-		canonicalKey: http.CanonicalHeaderKey(key),
+		canonicalKey: canonicalKey,
 		value:        value,
 	}, nil
 }
@@ -209,21 +210,34 @@ func (m HeaderMatcher) String() string {
 
 // MatchHeaderRegexp returns a [HeaderRegexpMatcher] that matches when the request contains an HTTP header with the
 // given key whose value matches the given regular expression. The expression is auto anchored at both ends, requiring a
-// full match of the header value. The key is canonicalized via [http.CanonicalHeaderKey]. An empty key, or a regular
-// expression that is invalid or compiles to more than 1000 instructions, returns an error. See [WithHeaderRegexpMatcher]
-// for the option counterpart.
+// full match of the header value. The key is canonicalized via [http.CanonicalHeaderKey]. An empty, Host or
+// Transfer-Encoding key, or a regular expression that is invalid or compiles to more than 1000 instructions, returns an
+// error. See [WithHeaderRegexpMatcher] for the option counterpart.
 func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
-	if key == "" {
-		return HeaderRegexpMatcher{}, errors.New("empty header key")
+	canonicalKey, err := matchableHeaderKey(key)
+	if err != nil {
+		return HeaderRegexpMatcher{}, err
 	}
 	regex, err := compileAnchoredRegexp(expr)
 	if err != nil {
 		return HeaderRegexpMatcher{}, err
 	}
 	return HeaderRegexpMatcher{
-		canonicalKey: http.CanonicalHeaderKey(key),
+		canonicalKey: canonicalKey,
 		regex:        regex,
 	}, nil
+}
+
+func matchableHeaderKey(key string) (string, error) {
+	if key == "" {
+		return "", errors.New("empty header key")
+	}
+	switch canonicalKey := http.CanonicalHeaderKey(key); canonicalKey {
+	case "Host", "Transfer-Encoding":
+		return "", errors.New("unmatchable header key")
+	default:
+		return canonicalKey, nil
+	}
 }
 
 // HeaderRegexpMatcher matches a request when the configured header is present with any value matching the configured

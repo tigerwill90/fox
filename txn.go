@@ -294,10 +294,10 @@ func (txn *Txn) Match(method string, r *http.Request) (route *Route, tsr bool) {
 	path := c.RoutingPath()
 
 	idx, n, tsr := txn.rootTxn.patterns.lookup(method, r.Host, path, c, true)
-	if n != nil {
+	if n != nil && (!tsr || r.URL.Opaque == "") {
 		return n.routes[idx], tsr
 	}
-	return
+	return nil, false
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -320,13 +320,13 @@ func (txn *Txn) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *Con
 	path := c.RoutingPath()
 
 	idx, n, tsr := txn.rootTxn.patterns.lookup(r.Method, r.Host, path, c, false)
-	if n != nil {
+	if n != nil && (!tsr || r.URL.Opaque == "") {
 		c.route = n.routes[idx]
 		return c.route, c, tsr
 	}
 
 	tree.pool.Put(c)
-	return
+	return nil, nil, false
 }
 
 // Iter returns a collection of range iterators for traversing registered routes. When called on a write transaction,
