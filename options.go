@@ -237,7 +237,8 @@ func WithMaxRegexpSize(max uint16) GlobalOption {
 }
 
 // WithAllowRegexpParam enables support for regular expressions in route parameters. When enabled, parameters can include
-// regex patterns (e.g., {id:[0-9]+}). When disabled, routes containing regex patterns will fail with a [*PatternError].
+// regex patterns (e.g., {id:[0-9]+}). When disabled, route patterns containing a regular expression will fail with a
+// [*PatternError].
 func WithAllowRegexpParam(enable bool) GlobalOption {
 	return optionFunc(func(s sealedOption) error {
 		s.router.allowRegexp = enable
