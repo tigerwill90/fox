@@ -114,4 +114,7 @@ var (
 var MethodAny []string
 
 // nolint:gosec
-var blacklistedHeader = []string{HeaderAuthorization, HeaderProxyAuthorization, "X-Vault-Token", HeaderCookie, HeaderSetCookie, HeaderXCSRFToken}
+var blacklistedHeader = []string{
+	HeaderAuthorization, HeaderProxyAuthorization, "X-Vault-Token", HeaderCookie, HeaderSetCookie, HeaderXCSRFToken,
+	"X-XSRF-Token", "X-Api-Key", "X-Auth-Token", "X-Amz-Security-Token",
+}
