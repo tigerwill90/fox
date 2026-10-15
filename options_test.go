@@ -110,19 +110,8 @@ func TestWithOptionsHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
 
-	parseAllowHeader := func(allow string) []string {
-		if allow == "" {
-			return nil
-		}
-		parts := strings.Split(allow, ",")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		return parts
-	}
-
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.ElementsMatch(t, []string{"GET", "POST", "OPTIONS"}, parseAllowHeader(w.Header().Get("Allow")))
+	assert.Equal(t, "OPTIONS, GET, POST", w.Header().Get(HeaderAllow))
 	f, err = NewRouter(WithOptionsHandler(nil))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
 }
@@ -145,7 +134,7 @@ func TestRouter_ServeHTTP_AllowedMethodWithIgnoreTsEnable(t *testing.T) {
 			path:    "/foo/bar/",
 			req:     "/foo/bar",
 			target:  http.MethodTrace,
-			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"},
+			want:    []string{"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"},
 		},
 		{
 			name:    "all route except the first one",
@@ -153,16 +142,8 @@ func TestRouter_ServeHTTP_AllowedMethodWithIgnoreTsEnable(t *testing.T) {
 			path:    "/foo/baz",
 			req:     "/foo/baz/",
 			target:  http.MethodGet,
-			want:    []string{"POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD", "TRACE"},
+			want:    []string{"DELETE", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"},
 		},
-	}
-
-	parseAllowHeader := func(allow string) []string {
-		parts := strings.Split(allow, ",")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		return parts
 	}
 
 	for _, tc := range cases {
@@ -174,7 +155,7 @@ func TestRouter_ServeHTTP_AllowedMethodWithIgnoreTsEnable(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+			assert.Equal(t, strings.Join(tc.want, ", "), w.Header().Get(HeaderAllow))
 		})
 	}
 }
@@ -214,7 +195,7 @@ func TestRouter_ServeHTTP_AutomaticOptionsWithIgnoreTsEnable(t *testing.T) {
 			target:   "/foo/",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "CONNECT"},
-			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
+			want:     []string{"OPTIONS", "GET", "PUT", "TRACE"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -222,7 +203,7 @@ func TestRouter_ServeHTTP_AutomaticOptionsWithIgnoreTsEnable(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo/",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     []string{"GET", "OPTIONS", "PUT", "TRACE"},
+			want:     []string{"GET", "TRACE", "PUT", "OPTIONS"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -234,17 +215,6 @@ func TestRouter_ServeHTTP_AutomaticOptionsWithIgnoreTsEnable(t *testing.T) {
 		},
 	}
 
-	parseAllowHeader := func(allow string) []string {
-		if allow == "" {
-			return nil
-		}
-		parts := strings.Split(allow, ",")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		return parts
-	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := MustRouter(WithAutoOptions(true), WithTrailingSlash(RelaxedSlash))
@@ -252,7 +222,7 @@ func TestRouter_ServeHTTP_AutomaticOptionsWithIgnoreTsEnable(t *testing.T) {
 				require.NoError(t, onlyError(f.Add([]string{method}, tc.path, func(c *Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Request().URL.Path, nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(tc.methods, ","))
+					c.SetHeader("Allow", strings.Join(tc.methods, ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -260,7 +230,7 @@ func TestRouter_ServeHTTP_AutomaticOptionsWithIgnoreTsEnable(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+			assert.Equal(t, strings.Join(tc.want, ", "), w.Header().Get(HeaderAllow))
 		})
 	}
 }
@@ -344,7 +314,7 @@ func TestRouter_ServeHTTP_AllowedMethod(t *testing.T) {
 			},
 			target: "/foo/bar",
 			method: http.MethodTrace,
-			want:   []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
+			want:   []string{"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"},
 		},
 		{
 			name: "all route except the first one",
@@ -356,7 +326,7 @@ func TestRouter_ServeHTTP_AllowedMethod(t *testing.T) {
 			},
 			target: "/foo/baz",
 			method: http.MethodGet,
-			want:   []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
+			want:   []string{"CONNECT", "DELETE", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"},
 		},
 		{
 			name: "all route except patch and delete",
@@ -368,7 +338,7 @@ func TestRouter_ServeHTTP_AllowedMethod(t *testing.T) {
 			},
 			target: "/test",
 			method: http.MethodPatch,
-			want:   []string{"GET", "POST", "PUT", "CONNECT", "OPTIONS", "HEAD", "TRACE"},
+			want:   []string{"CONNECT", "GET", "HEAD", "OPTIONS", "POST", "PUT", "TRACE"},
 		},
 		{
 			name: "no auto OPTIONS request with other matching methods",
@@ -390,16 +360,8 @@ func TestRouter_ServeHTTP_AllowedMethod(t *testing.T) {
 			},
 			target: "/users/123",
 			method: http.MethodTrace,
-			want:   []string{"GET", "POST", "PUT", "CONNECT", "OPTIONS", "HEAD"},
+			want:   []string{"CONNECT", "GET", "HEAD", "OPTIONS", "POST", "PUT"},
 		},
-	}
-
-	parseAllowHeader := func(allow string) []string {
-		parts := strings.Split(allow, ",")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		return parts
 	}
 
 	rf := f.Info()
@@ -413,7 +375,7 @@ func TestRouter_ServeHTTP_AllowedMethod(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+			assert.Equal(t, strings.Join(tc.want, ", "), w.Header().Get(HeaderAllow))
 		})
 	}
 }
@@ -436,7 +398,7 @@ func TestRouter_ServeHTTP_AllowedMethodWithAutoOptions(t *testing.T) {
 			path:    "/foo/bar",
 			req:     "/foo/bar",
 			target:  http.MethodTrace,
-			want:    []string{"GET", "POST", "PUT", "DELETE", "PATCH", "CONNECT", "OPTIONS", "HEAD"},
+			want:    []string{"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"},
 		},
 		{
 			name:    "all route except the first one and inferred options from auto options",
@@ -444,16 +406,8 @@ func TestRouter_ServeHTTP_AllowedMethodWithAutoOptions(t *testing.T) {
 			path:    "/foo/baz/",
 			req:     "/foo/baz/",
 			target:  http.MethodGet,
-			want:    []string{"POST", "PUT", "DELETE", "PATCH", "CONNECT", "HEAD", "TRACE", "OPTIONS"},
+			want:    []string{"CONNECT", "DELETE", "HEAD", "PATCH", "POST", "PUT", "TRACE", "OPTIONS"},
 		},
-	}
-
-	parseAllowHeader := func(allow string) []string {
-		parts := strings.Split(allow, ",")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		return parts
 	}
 
 	for _, tc := range cases {
@@ -465,7 +419,7 @@ func TestRouter_ServeHTTP_AllowedMethodWithAutoOptions(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+			assert.Equal(t, strings.Join(tc.want, ", "), w.Header().Get(HeaderAllow))
 		})
 	}
 }
@@ -555,7 +509,7 @@ func TestRouter_ServeHTTP_AutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT"},
-			want:     []string{"GET", "PUT", "TRACE", "OPTIONS"},
+			want:     []string{"OPTIONS", "GET", "PUT", "TRACE"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -563,7 +517,7 @@ func TestRouter_ServeHTTP_AutomaticOptions(t *testing.T) {
 			target:   "/foo",
 			path:     "/foo",
 			methods:  []string{"GET", "TRACE", "PUT", "OPTIONS"},
-			want:     []string{"GET", "OPTIONS", "PUT", "TRACE"},
+			want:     []string{"GET", "TRACE", "PUT", "OPTIONS"},
 			wantCode: http.StatusNoContent,
 		},
 		{
@@ -573,17 +527,6 @@ func TestRouter_ServeHTTP_AutomaticOptions(t *testing.T) {
 			methods:  []string{"GET", "TRACE", "PUT"},
 			wantCode: http.StatusNotFound,
 		},
-	}
-
-	parseAllowHeader := func(allow string) []string {
-		if allow == "" {
-			return nil
-		}
-		parts := strings.Split(allow, ",")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		return parts
 	}
 
 	for _, tc := range cases {
@@ -596,7 +539,7 @@ func TestRouter_ServeHTTP_AutomaticOptions(t *testing.T) {
 				require.NoError(t, onlyError(f.Add([]string{method}, tc.path, func(c *Context) {
 					req := httptest.NewRequest(http.MethodGet, c.Request().URL.Path, nil)
 					req.Host = c.Host()
-					c.SetHeader("Allow", strings.Join(tc.methods, ","))
+					c.SetHeader("Allow", strings.Join(tc.methods, ", "))
 					c.Writer().WriteHeader(http.StatusNoContent)
 				})))
 			}
@@ -604,7 +547,7 @@ func TestRouter_ServeHTTP_AutomaticOptions(t *testing.T) {
 			w := httptest.NewRecorder()
 			f.ServeHTTP(w, req)
 			assert.Equal(t, tc.wantCode, w.Code)
-			assert.ElementsMatch(t, tc.want, parseAllowHeader(w.Header().Get("Allow")))
+			assert.Equal(t, strings.Join(tc.want, ", "), w.Header().Get(HeaderAllow))
 		})
 	}
 }

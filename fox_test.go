@@ -5485,33 +5485,6 @@ func TestRouter_AbsoluteFormEmptyPath(t *testing.T) {
 	assert.Equal(t, "/", w.Header().Get(HeaderLocation))
 }
 
-func TestRouter_AllowSorted(t *testing.T) {
-	f := MustRouter(WithNoMethod(true), WithAutoOptions(true), WithSystemWideOptions(true))
-	require.NoError(t, onlyError(f.Add([]string{http.MethodPut, http.MethodGet, http.MethodPatch, http.MethodDelete, http.MethodPost}, "/x", emptyHandler)))
-	require.NoError(t, onlyError(f.Add(MethodOptions, "/y", emptyHandler)))
-
-	cases := []struct {
-		method string
-		target string
-		want   string
-	}{
-		{method: http.MethodTrace, target: "/x", want: "DELETE, GET, PATCH, POST, PUT, OPTIONS"},
-		{method: http.MethodOptions, target: "/x", want: "OPTIONS, DELETE, GET, PATCH, POST, PUT"},
-		{method: http.MethodOptions, target: "*", want: "DELETE, GET, PATCH, POST, PUT, OPTIONS"},
-		{method: http.MethodGet, target: "/y", want: "OPTIONS"},
-	}
-
-	for _, tc := range cases {
-		for range 20 {
-			req := httptest.NewRequest(tc.method, "/", nil)
-			req.URL.Path = tc.target
-			w := httptest.NewRecorder()
-			f.ServeHTTP(w, req)
-			assert.Equal(t, tc.want, w.Header().Get(HeaderAllow))
-		}
-	}
-}
-
 func TestRouter_NormalizeInvalidOptions(t *testing.T) {
 	_, err := NewRouter(WithMergeSlashes(normalizeOptionSentinel))
 	assert.ErrorIs(t, err, ErrInvalidConfig)
