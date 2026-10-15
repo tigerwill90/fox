@@ -227,6 +227,15 @@ func WithMaxRouteMatchers(max uint16) GlobalOption {
 	})
 }
 
+// WithMaxRegexpSize set the maximum size of a regular expression in a route pattern, as the number of instructions of its
+// compiled program. The default max is 1000. Routes exceeding this limit will fail with a [*PatternError].
+func WithMaxRegexpSize(max uint16) GlobalOption {
+	return optionFunc(func(s sealedOption) error {
+		s.router.maxRegexpSize = int(max)
+		return nil
+	})
+}
+
 // WithAllowRegexpParam enables support for regular expressions in route parameters. When enabled, parameters can include
 // regex patterns (e.g., {id:[0-9]+}). When disabled, routes containing regex patterns will fail with a [*PatternError].
 func WithAllowRegexpParam(enable bool) GlobalOption {

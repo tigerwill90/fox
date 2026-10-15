@@ -652,6 +652,12 @@ func TestMatchQueryRegexp(t *testing.T) {
 			expr:    `a)|(?:`,
 			wantErr: true,
 		},
+		{
+			name:    "regexp too large",
+			key:     "id",
+			expr:    `[a-z]{1,1000}`,
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -761,6 +767,12 @@ func TestMatchHeaderRegexp(t *testing.T) {
 			name:    "regexp anchor escape rejected",
 			key:     "Content-Type",
 			expr:    `a)|(?:`,
+			wantErr: true,
+		},
+		{
+			name:    "regexp too large",
+			key:     "Content-Type",
+			expr:    `[a-z]{1,1000}`,
 			wantErr: true,
 		},
 	}

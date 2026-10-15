@@ -12,11 +12,16 @@ import (
 	"github.com/fox-toolkit/fox/internal/netutil"
 )
 
-// compileAnchoredRegexp compiles expr wrapped in ^(?:...)$ so the match must cover the whole value.
-// A source that is invalid on its own can still balance inside the wrapper
-// (e.g. "a)|(?:") and defeat the anchoring, so it must compile standalone.
+const maxRegexpSize = 1000
+
+// compileAnchoredRegexp compiles expr anchored at both ends. expr is parsed alone first, since an
+// unbalanced source like "a)|(?:" would otherwise escape the anchors.
 func compileAnchoredRegexp(expr string) (*regexp.Regexp, error) {
-	if _, err := syntax.Parse(expr, syntax.Perl); err != nil {
+	re, err := syntax.Parse(expr, syntax.Perl)
+	if err != nil {
+		return nil, err
+	}
+	if err = checkRegexpSize(expr, re, maxRegexpSize); err != nil {
 		return nil, err
 	}
 	return regexp.Compile("^(?:" + expr + ")$")
@@ -91,8 +96,8 @@ func (m QueryMatcher) String() string {
 
 // MatchQueryRegexp returns a [QueryRegexpMatcher] that matches when the request URL contains a query parameter with
 // the given key whose value matches the given regular expression. The expression is auto anchored at both ends, requiring
-// a full match of the parameter value. An empty key or invalid regular expression returns an error.
-// See [WithQueryRegexpMatcher] for the option counterpart.
+// a full match of the parameter value. An empty key, or a regular expression that is invalid or compiles to more than
+// 1000 instructions, returns an error. See [WithQueryRegexpMatcher] for the option counterpart.
 func MatchQueryRegexp(key, expr string) (QueryRegexpMatcher, error) {
 	if key == "" {
 		return QueryRegexpMatcher{}, errors.New("empty query key")
@@ -204,8 +209,9 @@ func (m HeaderMatcher) String() string {
 
 // MatchHeaderRegexp returns a [HeaderRegexpMatcher] that matches when the request contains an HTTP header with the
 // given key whose value matches the given regular expression. The expression is auto anchored at both ends, requiring a
-// full match of the header value. The key is canonicalized via [http.CanonicalHeaderKey]. An empty key or invalid
-// regular expression returns an error. See [WithHeaderRegexpMatcher] for the option counterpart.
+// full match of the header value. The key is canonicalized via [http.CanonicalHeaderKey]. An empty key, or a regular
+// expression that is invalid or compiles to more than 1000 instructions, returns an error. See [WithHeaderRegexpMatcher]
+// for the option counterpart.
 func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
 	if key == "" {
 		return HeaderRegexpMatcher{}, errors.New("empty header key")
