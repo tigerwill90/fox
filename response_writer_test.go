@@ -131,6 +131,7 @@ func TestRecorder_Hijack(t *testing.T) {
 		{
 			name: "implements Hijacker and hijack returns no error",
 			rec: &recorder{
+				size: notWritten,
 				ResponseWriter: struct {
 					http.ResponseWriter
 					http.Hijacker
@@ -145,6 +146,7 @@ func TestRecorder_Hijack(t *testing.T) {
 				_, _, err := w.Hijack()
 				assert.NoError(t, err)
 				assert.True(t, w.(*recorder).hijacked)
+				assert.True(t, w.Written())
 			},
 		},
 		{
@@ -161,6 +163,7 @@ func TestRecorder_Hijack(t *testing.T) {
 		{
 			name: "underlying hijacker returns an error does not mark hijacked",
 			rec: &recorder{
+				size: notWritten,
 				ResponseWriter: struct {
 					http.ResponseWriter
 					http.Hijacker
@@ -175,6 +178,7 @@ func TestRecorder_Hijack(t *testing.T) {
 				_, _, err := w.Hijack()
 				assert.ErrorIs(t, err, errHijack)
 				assert.False(t, w.(*recorder).hijacked)
+				assert.False(t, w.Written())
 			},
 		},
 	}

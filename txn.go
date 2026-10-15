@@ -171,6 +171,9 @@ func (txn *Txn) Delete(methods []string, pattern string, opts ...MatcherOption) 
 	if len(rte.matchers) > txn.fox.maxMatchers {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
 	}
+	if hasDuplicateMatcher(rte.matchers) {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "duplicate matcher")
+	}
 
 	// If this route is registered with methods, push the internal matcher at first position.
 	if len(methods) > 0 {

@@ -2292,6 +2292,33 @@ func TestRouter_Add_MatchersConstraint(t *testing.T) {
 			WithQueryMatcher("f", "g"),
 		)), ErrInvalidRoute)
 	})
+	t.Run("insert: reject duplicate matchers", func(t *testing.T) {
+		f, _ := NewRouter()
+		f.MustAdd(MethodGet, "/foo", emptyHandler, WithQueryMatcher("a", "b"))
+		assert.ErrorIs(t, onlyError(f.Add(MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithHeaderMatcher("c", "d"),
+			WithQueryMatcher("a", "b"),
+		)), ErrInvalidRoute)
+		assert.Equal(t, 1, f.Len())
+	})
+	t.Run("update: reject duplicate matchers", func(t *testing.T) {
+		f, _ := NewRouter()
+		f.MustAdd(MethodGet, "/foo", emptyHandler, WithQueryMatcher("a", "b"))
+		assert.ErrorIs(t, onlyError(f.Update(MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("a", "b"),
+		)), ErrInvalidRoute)
+	})
+	t.Run("delete: reject duplicate matchers", func(t *testing.T) {
+		f, _ := NewRouter()
+		f.MustAdd(MethodGet, "/foo", emptyHandler, WithQueryMatcher("a", "b"))
+		assert.ErrorIs(t, onlyError(f.Delete(MethodGet, "/foo",
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("a", "b"),
+		)), ErrInvalidRoute)
+		assert.Equal(t, 1, f.Len())
+	})
 	t.Run("insert: no priority or zero priority without matcher", func(t *testing.T) {
 		f, _ := NewRouter()
 		assert.NoError(t, onlyError(f.Add(MethodGet, "/foo", emptyHandler, WithMatchersPriority(0))))

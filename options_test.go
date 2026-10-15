@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -1031,4 +1032,19 @@ func TestWithMaxRegexpSize(t *testing.T) {
 	f := MustRouter(WithAllowRegexpParam(true), WithMaxRegexpSize(4))
 	require.NoError(t, onlyError(f.Add(MethodGet, "/foo/{a:[0-9]+}", emptyHandler)))
 	assert.Equal(t, 4, f.Info().MaxRegexpSize)
+}
+
+func TestWithMaxRegexpSize_RejectBeforeCompile(t *testing.T) {
+	f := MustRouter(WithAllowRegexpParam(true))
+	expr := strings.Repeat("a{1000}", 3000)
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := f.NewRoute(MethodGet, "/{a:"+expr+"}", emptyHandler)
+	_, merr := MatchHeaderRegexp("X", expr)
+	runtime.ReadMemStats(&after)
+
+	assert.Error(t, err)
+	assert.Error(t, merr)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(16<<20))
 }

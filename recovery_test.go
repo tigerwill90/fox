@@ -2,6 +2,8 @@ package fox
 
 import (
 	"bytes"
+	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -67,12 +69,86 @@ func TestRecoveryWithFunc(t *testing.T) {
 	require.NoError(t, onlyError(f.Add(MethodPost, "/", h)))
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set(HeaderAuthorization, "foobar")
+	req.Header.Set(HeaderXCSRFToken, "csrf-secret")
 	w := httptest.NewRecorder()
 	f.ServeHTTP(w, req)
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, errMsg, w.Body.String())
 	assert.Equal(t, woBuf.Len(), 0)
 	assert.NotEqual(t, weBuf.Len(), 0)
+	assert.NotContains(t, weBuf.String(), "foobar")
+	assert.NotContains(t, weBuf.String(), "csrf-secret")
+}
+
+func TestRecoveryWithFunc_InvalidStatus(t *testing.T) {
+	f, _ := NewRouter(WithMiddleware(Recovery(slog.DiscardHandler)))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/", func(c *Context) {
+		c.Writer().WriteHeader(0)
+	})))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRecoveryWithFunc_AbortWritten(t *testing.T) {
+	cases := []struct {
+		name string
+		h    HandlerFunc
+	}{
+		{
+			name: "after partial write",
+			h: func(c *Context) {
+				_, _ = c.Writer().Write([]byte("partial"))
+				_ = c.Writer().FlushError()
+				panic("boom")
+			},
+		},
+		{
+			name: "after hijack",
+			h: func(c *Context) {
+				conn, _, _ := c.Writer().Hijack()
+				_ = conn.Close()
+				panic("boom")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			weBuf := bytes.NewBuffer(nil)
+			called := false
+			done := make(chan struct{})
+			f, _ := NewRouter(WithMiddleware(
+				MiddlewareFunc(func(next HandlerFunc) HandlerFunc {
+					return func(c *Context) {
+						defer close(done)
+						next(c)
+					}
+				}),
+				RecoveryWithFunc(&slogpretty.Handler{We: weBuf, Wo: weBuf, Lvl: slog.LevelDebug}, func(c *Context, err any) {
+					called = true
+				}),
+			))
+			require.NoError(t, onlyError(f.Add(MethodGet, "/", tc.h)))
+
+			srv := httptest.NewUnstartedServer(f)
+			srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+			srv.Start()
+			defer srv.Close()
+
+			res, err := srv.Client().Get(srv.URL)
+			if err == nil {
+				_, err = io.ReadAll(res.Body)
+				_ = res.Body.Close()
+			}
+			assert.Error(t, err)
+			<-done
+			assert.False(t, called)
+			assert.Contains(t, weBuf.String(), "boom")
+		})
+	}
 }
 
 func TestRecoveryWithFunc_OtherScope(t *testing.T) {

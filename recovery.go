@@ -87,7 +87,7 @@ func recovery(logger *slog.Logger, c *Context, handle RecoveryFunc) {
 				if !ok {
 					continue
 				}
-				if slices.Contains(blacklistedHeader, string(before0)) {
+				if slices.ContainsFunc(blacklistedHeader, func(h string) bool { return strings.EqualFold(h, string(before0)) }) {
 					sb.Write(before0)
 					sb.WriteString(": <redacted>")
 					continue
@@ -118,7 +118,10 @@ func recovery(logger *slog.Logger, c *Context, handle RecoveryFunc) {
 			slog.Any(LoggerPanicKey, err),
 		)
 
-		if !c.Writer().Written() && !connIsBroken(err) {
+		if c.Writer().Written() {
+			panic(http.ErrAbortHandler)
+		}
+		if !connIsBroken(err) {
 			handle(c, err)
 		}
 	}

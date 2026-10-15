@@ -470,6 +470,9 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 	if len(rte.matchers) > fox.maxMatchers {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
 	}
+	if hasDuplicateMatcher(rte.matchers) {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "duplicate matcher")
+	}
 	if len(rte.matchers) == 0 && rte.priority > 0 {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matchers")
 	}

@@ -187,6 +187,11 @@ func TestRightmostTrustedCount_ClientIP(t *testing.T) {
 	_, err = s.ClientIP(c)
 	assert.ErrorIs(t, err, ErrRightmostTrustedCount)
 	assert.ErrorContains(t, err, "invalid IP address from the first trusted proxy")
+
+	req.Header.Set("Forwarded", `for=8.8.4.4;host="x,for=10.0.0.5;a=b";proto=https, for=fc00::1`)
+	ipAddr, err = s.ClientIP(c)
+	require.NoError(t, err)
+	assert.Equal(t, "8.8.4.4", ipAddr.String())
 }
 
 func TestRightmostTrustedRange_ClientIP(t *testing.T) {
@@ -697,11 +702,79 @@ func Test_parseForwardedListItem(t *testing.T) {
 			fwd:  `for= 1.1.1.1`,
 			want: mustParseAddr("1.1.1.1"),
 		},
+		{
+			name: "Semicolon in quoted value",
+			fwd:  `proto=https;host="x;for=10.0.0.5;a=b";for=8.8.4.4`,
+			want: mustParseAddr("8.8.4.4"),
+		},
+		{
+			name: "Escaped quote in quoted value",
+			fwd:  `host="x\";for=10.0.0.5";for=8.8.4.4`,
+			want: mustParseAddr("8.8.4.4"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := parseForwardedListItem(tt.fwd)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_backwardAddrSeq_Forwarded(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+		want   []netip.Addr
+	}{
+		{
+			name:   "comma in quoted value",
+			values: []string{`for=1.1.1.1, for=8.8.4.4;host="x,for=10.0.0.5;a=b";proto=https`},
+			want:   []netip.Addr{mustParseAddr("8.8.4.4"), mustParseAddr("1.1.1.1")},
+		},
+		{
+			name:   "escaped quote in quoted value",
+			values: []string{`for=1.1.1.1, for=8.8.4.4;host="x\",for=10.0.0.5"`},
+			want:   []netip.Addr{mustParseAddr("8.8.4.4"), mustParseAddr("1.1.1.1")},
+		},
+		{
+			name:   "unbalanced quote before trusted elements",
+			values: []string{`for="1.1.1.1, for=2.2.2.2, for=8.8.4.4`},
+			want:   []netip.Addr{mustParseAddr("8.8.4.4"), mustParseAddr("2.2.2.2"), {}},
+		},
+		{
+			name:   "unbalanced quote at the end of a client element",
+			values: []string{`for=1.1.1.1", for=8.8.4.4`},
+			want:   []netip.Addr{mustParseAddr("8.8.4.4"), {}},
+		},
+		{
+			name:   "multiple header values",
+			values: []string{`for=1.1.1.1, for="[2001:db8::1]:80"`, `for=8.8.4.4;host="a,b"`},
+			want:   []netip.Addr{mustParseAddr("8.8.4.4"), mustParseAddr("2001:db8::1"), mustParseAddr("1.1.1.1")},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := slices.Collect(backwardAddrSeq(tt.values, forwardedHdr))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_indexUnquoted(t *testing.T) {
+	tests := []struct {
+		s    string
+		want int
+	}{
+		{s: `a;b`, want: 1},
+		{s: `"a;b";c`, want: 5},
+		{s: `"a\";b";c`, want: 7},
+		{s: `"a;b"`, want: -1},
+		{s: `a"b;c`, want: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.s, func(t *testing.T) {
+			assert.Equal(t, tt.want, indexUnquoted(tt.s, ';'))
 		})
 	}
 }
@@ -2489,6 +2562,31 @@ func Test_orSlice(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, orSlice(tc.s1, tc.s2))
+		})
+	}
+}
+
+func BenchmarkBackwardAddrSeq_Forwarded(b *testing.B) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{name: "ipv4", value: `for=192.0.2.60;proto=https, for=198.51.100.17;proto=https, for=203.0.113.43;proto=https`},
+		{name: "ipv6 quoted", value: `for="[2001:db8:cafe::17]:4711";proto=https, for="[2001:db8::1]";proto=https, for="[2001:db8::2]"`},
+		{name: "host quoted", value: `for=192.0.2.60;host="example.com";proto=https, for=198.51.100.17;host="example.com";proto=https`},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			values := []string{tc.value}
+			var sink netip.Addr
+			b.ReportAllocs()
+			for b.Loop() {
+				for addr := range backwardAddrSeq(values, forwardedHdr) {
+					sink = addr
+				}
+			}
+			_ = sink
 		})
 	}
 }

@@ -140,9 +140,10 @@ func (r *recorder) WriteHeader(code int) {
 		return
 	}
 
+	// The underlying writer may panic on an invalid code, so record the status only after.
+	r.ResponseWriter.WriteHeader(code)
 	r.size = 0
 	r.status = code
-	r.ResponseWriter.WriteHeader(code)
 }
 
 // Write writes the data to the connection as part of an HTTP reply.
@@ -262,6 +263,8 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	c, rw, err := http.NewResponseController(r.ResponseWriter).Hijack()
 	if err == nil {
 		r.hijacked = true
+		// The response is taken over. Reports as written.
+		r.size = 0
 	}
 	return c, rw, err
 }
@@ -337,7 +340,7 @@ func relevantCaller() runtime.Frame {
 	for {
 		var more bool
 		frame, more = frames.Next()
-		if !strings.HasPrefix(frame.Function, "github.com/fox-toolkit/fox.") {
+		if !strings.HasPrefix(frame.Function, "github.com/fox-toolkit/fox.") && !strings.HasPrefix(frame.Function, "net/http.") {
 			return frame
 		}
 		if !more {

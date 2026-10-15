@@ -490,6 +490,9 @@ func (fox *Router) compileParamRegexp(rawRegex string, ignoreCase bool) (*regexp
 }
 
 func checkRegexpSize(expr string, re *syntax.Regexp, max int) error {
+	if minRegexpSize(re, max) > max {
+		return &syntax.Error{Code: syntax.ErrLarge, Expr: expr}
+	}
 	prog, err := syntax.Compile(re.Simplify())
 	if err != nil {
 		return err
@@ -498,6 +501,37 @@ func checkRegexpSize(expr string, re *syntax.Regexp, max int) error {
 		return &syntax.Error{Code: syntax.ErrLarge, Expr: expr}
 	}
 	return nil
+}
+
+// minRegexpSize returns a lower bound on the number of instructions re compiles to, capped at limit+1.
+// It never exceeds the compiled size, so a regexp within the limit is never rejected.
+func minRegexpSize(re *syntax.Regexp, limit int) int {
+	switch re.Op {
+	case syntax.OpNoMatch:
+		return 0
+	case syntax.OpLiteral:
+		return min(max(len(re.Rune), 1), limit+1)
+	case syntax.OpRepeat:
+		copies := re.Max
+		if copies < 0 {
+			copies = re.Min
+		}
+		if copies == 0 {
+			return 1
+		}
+		return min(copies*minRegexpSize(re.Sub[0], limit), limit+1)
+	}
+	if len(re.Sub) == 0 {
+		return 1
+	}
+	n := 0
+	for _, sub := range re.Sub {
+		n += minRegexpSize(sub, limit)
+		if n > limit {
+			return limit + 1
+		}
+	}
+	return n
 }
 
 // isASCIIControl reports whether c is an ASCII control character: a C0 byte
