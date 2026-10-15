@@ -2292,6 +2292,33 @@ func TestRouter_Add_MatchersConstraint(t *testing.T) {
 			WithQueryMatcher("f", "g"),
 		)), ErrInvalidRoute)
 	})
+	t.Run("insert: reject duplicate matchers", func(t *testing.T) {
+		f, _ := NewRouter()
+		f.MustAdd(MethodGet, "/foo", emptyHandler, WithQueryMatcher("a", "b"))
+		assert.ErrorIs(t, onlyError(f.Add(MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithHeaderMatcher("c", "d"),
+			WithQueryMatcher("a", "b"),
+		)), ErrInvalidRoute)
+		assert.Equal(t, 1, f.Len())
+	})
+	t.Run("update: reject duplicate matchers", func(t *testing.T) {
+		f, _ := NewRouter()
+		f.MustAdd(MethodGet, "/foo", emptyHandler, WithQueryMatcher("a", "b"))
+		assert.ErrorIs(t, onlyError(f.Update(MethodGet, "/foo", emptyHandler,
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("a", "b"),
+		)), ErrInvalidRoute)
+	})
+	t.Run("delete: reject duplicate matchers", func(t *testing.T) {
+		f, _ := NewRouter()
+		f.MustAdd(MethodGet, "/foo", emptyHandler, WithQueryMatcher("a", "b"))
+		assert.ErrorIs(t, onlyError(f.Delete(MethodGet, "/foo",
+			WithQueryMatcher("a", "b"),
+			WithQueryMatcher("a", "b"),
+		)), ErrInvalidRoute)
+		assert.Equal(t, 1, f.Len())
+	})
 	t.Run("insert: no priority or zero priority without matcher", func(t *testing.T) {
 		f, _ := NewRouter()
 		assert.NoError(t, onlyError(f.Add(MethodGet, "/foo", emptyHandler, WithMatchersPriority(0))))
@@ -5396,6 +5423,66 @@ func TestRouter_ConnectExactMatch(t *testing.T) {
 			assert.Empty(t, w.Header().Get(HeaderLocation))
 		}
 	}
+}
+
+func TestRouter_OpaqueRequestTarget(t *testing.T) {
+	const target = "http:http://internal/admin"
+
+	for _, slash := range []TrailingSlashOption{RelaxedSlash, RedirectSlash} {
+		for _, pattern := range []string{"/", "/*{any}", "example.com/"} {
+			f := MustRouter(WithTrailingSlash(slash), WithNoMethod(true), WithAutoOptions(true))
+			require.NoError(t, onlyError(f.Add(MethodGet, pattern, emptyHandler)))
+
+			for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodOptions} {
+				w := httptest.NewRecorder()
+				f.ServeHTTP(w, httptest.NewRequest(method, target, nil))
+				assert.Equal(t, http.StatusNotFound, w.Code)
+				assert.Empty(t, w.Header().Get(HeaderLocation))
+				assert.Empty(t, w.Header().Get(HeaderAllow))
+			}
+
+			route, tsr := f.Match(http.MethodGet, httptest.NewRequest(http.MethodGet, target, nil))
+			assert.Nil(t, route)
+			assert.False(t, tsr)
+
+			route, cc, tsr := f.Lookup(&recorder{ResponseWriter: httptest.NewRecorder()}, httptest.NewRequest(http.MethodGet, target, nil))
+			assert.Nil(t, route)
+			assert.Nil(t, cc)
+			assert.False(t, tsr)
+
+			_ = f.View(func(txn *Txn) error {
+				route, tsr := txn.Match(http.MethodGet, httptest.NewRequest(http.MethodGet, target, nil))
+				assert.Nil(t, route)
+				assert.False(t, tsr)
+
+				route, cc, tsr := txn.Lookup(&recorder{ResponseWriter: httptest.NewRecorder()}, httptest.NewRequest(http.MethodGet, target, nil))
+				assert.Nil(t, route)
+				assert.Nil(t, cc)
+				assert.False(t, tsr)
+				return nil
+			})
+		}
+	}
+}
+
+func TestRouter_AbsoluteFormEmptyPath(t *testing.T) {
+	f := MustRouter(WithTrailingSlash(RelaxedSlash))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/", func(c *Context) {
+		_ = c.String(http.StatusOK, c.Request().URL.RequestURI())
+	})))
+
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://example.com", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "/", w.Body.String())
+
+	f = MustRouter(WithTrailingSlash(RedirectSlash))
+	require.NoError(t, onlyError(f.Add(MethodGet, "/", emptyHandler)))
+
+	w = httptest.NewRecorder()
+	f.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://example.com", nil))
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.Equal(t, "/", w.Header().Get(HeaderLocation))
 }
 
 func TestRouter_NormalizeInvalidOptions(t *testing.T) {

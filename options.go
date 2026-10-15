@@ -342,7 +342,7 @@ func WithSystemWideOptions(enable bool) GlobalOption {
 // This option can be applied on a per-route basis or globally:
 //   - If applied globally, it affects all routes by default.
 //   - If applied to a specific route, it will override the global setting for that route.
-//   - Setting the resolver to nil is equivalent to no resolver configured.
+//   - On a route, a nil resolver disables client IP resolution for that route.
 func WithClientIPResolver(resolver ClientIPResolver) interface {
 	GlobalOption
 	RouteOption

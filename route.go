@@ -223,6 +223,17 @@ outer:
 	return true
 }
 
+func hasDuplicateMatcher(matchers []Matcher) bool {
+	for i := 1; i < len(matchers); i++ {
+		for _, m := range matchers[:i] {
+			if m.Equal(matchers[i]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func routef(sb *strings.Builder, route *Route, pad int, showName bool) {
 	sb.WriteString(strings.Repeat(" ", pad))
 	sb.WriteString("method:")

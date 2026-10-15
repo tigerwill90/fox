@@ -1590,16 +1590,6 @@ func Test_iTree_lookup_Matchers(t *testing.T) {
 			wantPattern: "/foo/bar",
 		},
 		{
-			name: "match with multiple same query matchers",
-			routes: []route{
-				{pattern: "example.com/{name}/bar/baz"},
-				{pattern: "/foo/bar", matchers: []Matcher{QueryMatcher{"a", "b"}, QueryMatcher{"a", "b"}}},
-			},
-			host:        "example.com",
-			path:        "/foo/bar?a=b",
-			wantPattern: "/foo/bar",
-		},
-		{
 			name: "match many query matchers",
 			routes: []route{
 				{pattern: "example.com/{name}/bar/baz"},

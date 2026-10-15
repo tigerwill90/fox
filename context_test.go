@@ -702,6 +702,28 @@ func TestWrapM_FlusherShim(t *testing.T) {
 	assert.True(t, w.Flushed)
 }
 
+func TestWrapM_UnwrapOnlyMiddleware(t *testing.T) {
+	mw := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h.ServeHTTP(unwrapWriter{w}, r)
+		})
+	}
+
+	f := MustRouter(WithMiddleware(WrapM(mw)))
+	f.MustAdd(MethodGet, "/", func(c *Context) {
+		require.NoError(t, c.Writer().FlushError())
+	})
+	f.MustAdd(MethodGet, "/std", WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, http.NewResponseController(w).Flush())
+	})))
+
+	for _, path := range []string{"/", "/std"} {
+		w := httptest.NewRecorder()
+		f.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.True(t, w.Flushed)
+	}
+}
+
 func BenchmarkWrapH(b *testing.B) {
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/a/b/c", nil)
 	w := httptest.NewRecorder()

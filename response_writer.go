@@ -140,9 +140,10 @@ func (r *recorder) WriteHeader(code int) {
 		return
 	}
 
+	// The underlying writer may panic on an invalid code, so record the status only after.
+	r.ResponseWriter.WriteHeader(code)
 	r.size = 0
 	r.status = code
-	r.ResponseWriter.WriteHeader(code)
 }
 
 // Write writes the data to the connection as part of an HTTP reply.
@@ -224,20 +225,26 @@ func (r *recorder) ReadFrom(src io.Reader) (n int64, err error) {
 // FlushError flushes buffered data to the client. If flush is not supported, FlushError returns an error
 // matching [http.ErrNotSupported]. See [http.Flusher] for more details.
 func (r *recorder) FlushError() error {
-	switch flusher := r.ResponseWriter.(type) {
-	case interface{ FlushError() error }:
-		if r.size == notWritten {
-			r.WriteHeader(r.status)
+	// Same walk as http.ResponseController, but the status is committed only once a flusher is found.
+	w := r.ResponseWriter
+	for {
+		switch flusher := w.(type) {
+		case interface{ FlushError() error }:
+			if r.size == notWritten {
+				r.WriteHeader(r.status)
+			}
+			return flusher.FlushError()
+		case http.Flusher:
+			if r.size == notWritten {
+				r.WriteHeader(r.status)
+			}
+			flusher.Flush()
+			return nil
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = flusher.Unwrap()
+		default:
+			return ErrNotSupported()
 		}
-		return flusher.FlushError()
-	case http.Flusher:
-		if r.size == notWritten {
-			r.WriteHeader(r.status)
-		}
-		flusher.Flush()
-		return nil
-	default:
-		return ErrNotSupported()
 	}
 }
 
@@ -253,14 +260,13 @@ func (r *recorder) Push(target string, opts *http.PushOptions) error {
 // Hijack lets the caller take over the connection. If hijacking the connection is not supported, Hijack returns
 // an error matching [http.ErrNotSupported]. See [http.Hijacker] for more details.
 func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if hijacker, ok := r.ResponseWriter.(http.Hijacker); ok {
-		c, rw, err := hijacker.Hijack()
-		if err == nil {
-			r.hijacked = true
-		}
-		return c, rw, err
+	c, rw, err := http.NewResponseController(r.ResponseWriter).Hijack()
+	if err == nil {
+		r.hijacked = true
+		// The response is taken over. Reports as written.
+		r.size = 0
 	}
-	return nil, nil, ErrNotSupported()
+	return c, rw, err
 }
 
 // SetReadDeadline sets the deadline for reading the entire request, including the body. Reads from the request
@@ -268,10 +274,7 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // deadline after it has been exceeded will not extend it. If SetReadDeadline is not supported, it returns
 // an error matching [http.ErrNotSupported].
 func (r *recorder) SetReadDeadline(deadline time.Time) error {
-	if w, ok := r.ResponseWriter.(interface{ SetReadDeadline(time.Time) error }); ok {
-		return w.SetReadDeadline(deadline)
-	}
-	return ErrNotSupported()
+	return http.NewResponseController(r.ResponseWriter).SetReadDeadline(deadline)
 }
 
 // SetWriteDeadline sets the deadline for writing the response. Writes to the response body after the deadline has
@@ -279,10 +282,7 @@ func (r *recorder) SetReadDeadline(deadline time.Time) error {
 // Setting the write deadline after it has been exceeded will not extend it. If SetWriteDeadline is not supported,
 // it returns an error matching [http.ErrNotSupported].
 func (r *recorder) SetWriteDeadline(deadline time.Time) error {
-	if w, ok := r.ResponseWriter.(interface{ SetWriteDeadline(time.Time) error }); ok {
-		return w.SetWriteDeadline(deadline)
-	}
-	return ErrNotSupported()
+	return http.NewResponseController(r.ResponseWriter).SetWriteDeadline(deadline)
 }
 
 // EnableFullDuplex indicates that the request handler will interleave reads from [http.Request.Body]
@@ -297,10 +297,7 @@ func (r *recorder) SetWriteDeadline(deadline time.Time) error {
 // For HTTP/2 requests, the Go HTTP server always permits concurrent reads and responses.
 // If EnableFullDuplex is not supported, it returns an error matching [http.ErrNotSupported].
 func (r *recorder) EnableFullDuplex() error {
-	if w, ok := r.ResponseWriter.(interface{ EnableFullDuplex() error }); ok {
-		return w.EnableFullDuplex()
-	}
-	return ErrNotSupported()
+	return http.NewResponseController(r.ResponseWriter).EnableFullDuplex()
 }
 
 type noUnwrap struct {
@@ -343,7 +340,7 @@ func relevantCaller() runtime.Frame {
 	for {
 		var more bool
 		frame, more = frames.Next()
-		if !strings.HasPrefix(frame.Function, "github.com/fox-toolkit/fox.") {
+		if !strings.HasPrefix(frame.Function, "github.com/fox-toolkit/fox.") && !strings.HasPrefix(frame.Function, "net/http.") {
 			return frame
 		}
 		if !more {

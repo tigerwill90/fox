@@ -531,19 +531,28 @@ func lastHeader(headers http.Header, headerName string) string {
 func backwardAddrSeq(values []string, headerName string) iter.Seq[netip.Addr] {
 	return func(yield func(netip.Addr) bool) {
 		for i := len(values) - 1; i >= 0; i-- {
+			if headerName == forwardedHdr {
+				// A comma inside a quoted string (e.g. a host parameter copied from the client) does not
+				// separate elements, otherwise a client could inject a "for=" into a trusted proxy element.
+				v := values[i]
+				for {
+					sep := lastUnquoted(v, ',')
+					if !yield(parseForwardedListItem(strings.TrimSpace(v[sep+1:]))) {
+						return
+					}
+					if sep < 0 {
+						break
+					}
+					v = v[:sep]
+				}
+				continue
+			}
+
 			for rawListItem := range iterutil.BackwardSplitStringSeq(values[i], ",") {
 				// The IPs are often comma-space separated, so we'll need to trim the string
 				rawListItem = strings.TrimSpace(rawListItem)
 
-				var addr netip.Addr
-				// If this is the XFF header, rawListItem is just an IP;
-				// if it's the Forwarded header, then there's more parsing to do.
-				if headerName == forwardedHdr {
-					addr = parseForwardedListItem(rawListItem)
-				} else { // == XFF
-					addr, _ = ParseAddr(rawListItem)
-				}
-
+				addr, _ := ParseAddr(rawListItem)
 				if !yield(addr) {
 					return
 				}
@@ -593,22 +602,27 @@ func parseForwardedListItem(fwd string) netip.Addr {
 	// First split up "for=", "by=", "host=", etc.
 	// A valid syntax have at most 4 section, e.g. by=<identifier>;for=<identifier>;host=<host>;proto=<http|https>
 	// Find the "for=" part, since that has the IP we want (maybe)
+	// A semicolon inside a quoted string does not separate pairs.
 	var forPart string
-	for fp := range iterutil.Take(iterutil.SplitStringSeq(fwd, ";"), 4) {
-		// Whitespace is allowed around the semicolons
-		fp = strings.TrimSpace(fp)
-
-		fpSplit := strings.SplitN(fp, "=", 2)
-		if len(fpSplit) != 2 {
-			// There are too few equal signs in this part
-			continue
+	for range 4 {
+		sep := indexUnquoted(fwd, ';')
+		fp := fwd
+		if sep >= 0 {
+			fp = fwd[:sep]
 		}
 
-		if strings.EqualFold(fpSplit[0], "for") {
+		// Whitespace is allowed around the semicolons
+		key, value, ok := strings.Cut(strings.TrimSpace(fp), "=")
+		if ok && strings.EqualFold(key, "for") {
 			// We found the "for=" part
-			forPart = fpSplit[1]
+			forPart = value
 			break
 		}
+
+		if sep < 0 {
+			break
+		}
+		fwd = fwd[sep+1:]
 	}
 
 	// There shouldn't (per RFC 7239) be spaces around the semicolon or equal sign. It might
@@ -631,6 +645,67 @@ func parseForwardedListItem(fwd string) netip.Addr {
 	// The zero Addr is returned if the IP extracted from the "for=" part isn't valid
 	addr, _ := ParseAddr(forPart)
 	return addr
+}
+
+// lastUnquoted returns the index of the last sep in s outside a quoted string, or -1.
+// It scans from the end, so an unbalanced quote sent by the client cannot change the elements added by trusted proxies.
+func lastUnquoted(s string, sep byte) int {
+	quoted := false
+	for i := len(s) - 1; i >= 0; i-- {
+		switch s[i] {
+		case sep:
+			if !quoted {
+				return i
+			}
+		case '"':
+			if !quoted || !isEscaped(s, i) {
+				quoted = !quoted
+			}
+		}
+	}
+	return -1
+}
+
+// indexUnquoted returns the index of the first sep in s that is outside a quoted string, or -1.
+func indexUnquoted(s string, sep byte) int {
+	i := strings.IndexByte(s, sep)
+	start := 0
+	for i >= 0 {
+		q := strings.IndexByte(s[start:i], '"')
+		if q < 0 {
+			return i
+		}
+		// The quote left of the candidate opens a quoted string, find the one that closes it.
+		c := start + q
+		for {
+			n := strings.IndexByte(s[c+1:], '"')
+			if n < 0 {
+				return -1
+			}
+			c += n + 1
+			if !isEscaped(s, c) {
+				break
+			}
+		}
+		if i < c {
+			n := strings.IndexByte(s[c+1:], sep)
+			if n < 0 {
+				return -1
+			}
+			i = c + 1 + n
+		}
+		start = c + 1
+	}
+	return -1
+}
+
+// isEscaped reports whether s[i] is preceded by an odd number of backslashes.
+func isEscaped(s string, i int) bool {
+	n := 0
+	for i--; i >= 0 && s[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 1
 }
 
 // mustParseAddr panics if [ParseAddr] fails.

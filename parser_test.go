@@ -2066,3 +2066,44 @@ func TestPatternError_Unwrap(t *testing.T) {
 		assert.False(t, errors.As(err, &pe))
 	})
 }
+
+func Test_minRegexpSize(t *testing.T) {
+	cases := []struct {
+		expr  string
+		limit int
+		want  int
+	}{
+		{expr: `a`, limit: 1000, want: 1},
+		{expr: `abc`, limit: 1000, want: 3},
+		{expr: `[a-z]+`, limit: 1000, want: 1},
+		{expr: `a{3}`, limit: 1000, want: 3},
+		{expr: `a{2,5}`, limit: 1000, want: 5},
+		{expr: `a{2,}`, limit: 1000, want: 2},
+		{expr: `a{0}`, limit: 1000, want: 1},
+		{expr: `a*`, limit: 1000, want: 1},
+		{expr: `(?:)`, limit: 1000, want: 1},
+		{expr: `(?:a|bc)`, limit: 1000, want: 3},
+		{expr: `\b`, limit: 1000, want: 1},
+		{expr: `(?i)k`, limit: 1000, want: 1},
+		{expr: `[^\x00-\x{10FFFF}]`, limit: 1000, want: 1},
+		{expr: `(?:a{0,3}){2,}`, limit: 1000, want: 6},
+		{expr: `(?:(?:)*){10}`, limit: 1000, want: 10},
+		{expr: `(?:a{10}){100}`, limit: 1000, want: 1000},
+		{expr: `(?:a{10}){100}`, limit: 999, want: 1000},
+		{expr: strings.Repeat("a{1000}", 3000), limit: 1000, want: 1001},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.expr[:min(len(tc.expr), 32)], func(t *testing.T) {
+			re, err := syntax.Parse(tc.expr, syntax.Perl)
+			require.NoError(t, err)
+			got := minRegexpSize(re, tc.limit)
+			assert.Equal(t, tc.want, got)
+			if got <= tc.limit {
+				prog, err := syntax.Compile(re.Simplify())
+				require.NoError(t, err)
+				assert.LessOrEqual(t, got, len(prog.Inst))
+			}
+		})
+	}
+}

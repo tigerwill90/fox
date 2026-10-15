@@ -131,6 +131,7 @@ func TestRecorder_Hijack(t *testing.T) {
 		{
 			name: "implements Hijacker and hijack returns no error",
 			rec: &recorder{
+				size: notWritten,
 				ResponseWriter: struct {
 					http.ResponseWriter
 					http.Hijacker
@@ -145,6 +146,7 @@ func TestRecorder_Hijack(t *testing.T) {
 				_, _, err := w.Hijack()
 				assert.NoError(t, err)
 				assert.True(t, w.(*recorder).hijacked)
+				assert.True(t, w.Written())
 			},
 		},
 		{
@@ -161,6 +163,7 @@ func TestRecorder_Hijack(t *testing.T) {
 		{
 			name: "underlying hijacker returns an error does not mark hijacked",
 			rec: &recorder{
+				size: notWritten,
 				ResponseWriter: struct {
 					http.ResponseWriter
 					http.Hijacker
@@ -175,6 +178,7 @@ func TestRecorder_Hijack(t *testing.T) {
 				_, _, err := w.Hijack()
 				assert.ErrorIs(t, err, errHijack)
 				assert.False(t, w.(*recorder).hijacked)
+				assert.False(t, w.Written())
 			},
 		},
 	}
@@ -364,6 +368,59 @@ func TestRecorder_EnableFullDuplex(t *testing.T) {
 			tc.assert(t, tc.rec)
 		})
 	}
+}
+
+type unwrapWriter struct {
+	http.ResponseWriter
+}
+
+func (w unwrapWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+type capableWriter struct {
+	*httptest.ResponseRecorder
+	hijacked bool
+}
+
+func (w *capableWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.hijacked = true
+	return nil, nil, nil
+}
+
+func (w *capableWriter) SetReadDeadline(time.Time) error  { return nil }
+func (w *capableWriter) SetWriteDeadline(time.Time) error { return nil }
+func (w *capableWriter) EnableFullDuplex() error          { return nil }
+
+func TestRecorder_UnwrapChain(t *testing.T) {
+	inner := &capableWriter{ResponseRecorder: httptest.NewRecorder()}
+	rec := new(recorder)
+	rec.reset(unwrapWriter{unwrapWriter{inner}})
+
+	require.NoError(t, rec.FlushError())
+	assert.True(t, inner.Flushed)
+	assert.True(t, rec.Written())
+	assert.NoError(t, rec.SetReadDeadline(time.Now()))
+	assert.NoError(t, rec.SetWriteDeadline(time.Now()))
+	assert.NoError(t, rec.EnableFullDuplex())
+
+	_, _, err := rec.Hijack()
+	require.NoError(t, err)
+	assert.True(t, inner.hijacked)
+	assert.True(t, rec.hijacked)
+}
+
+func TestRecorder_UnwrapChain_NotSupported(t *testing.T) {
+	rec := new(recorder)
+	rec.reset(unwrapWriter{struct{ http.ResponseWriter }{httptest.NewRecorder()}})
+
+	assert.ErrorIs(t, rec.FlushError(), http.ErrNotSupported)
+	assert.False(t, rec.Written())
+	assert.ErrorIs(t, rec.SetReadDeadline(time.Now()), http.ErrNotSupported)
+	assert.ErrorIs(t, rec.SetWriteDeadline(time.Now()), http.ErrNotSupported)
+	assert.ErrorIs(t, rec.EnableFullDuplex(), http.ErrNotSupported)
+
+	_, _, err := rec.Hijack()
+	assert.ErrorIs(t, err, http.ErrNotSupported)
+	assert.False(t, rec.hijacked)
 }
 
 func TestRecorder_WriteHeader_Superfluous(t *testing.T) {

@@ -706,6 +706,18 @@ func TestMatchHeader(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "host key",
+			key:     "host",
+			value:   "example.com",
+			wantErr: true,
+		},
+		{
+			name:    "transfer-encoding key",
+			key:     "Transfer-Encoding",
+			value:   "chunked",
+			wantErr: true,
+		},
+		{
 			name:      "empty value is valid",
 			key:       "X-Custom",
 			value:     "",
@@ -755,6 +767,18 @@ func TestMatchHeaderRegexp(t *testing.T) {
 			name:    "empty key",
 			key:     "",
 			expr:    `application/.*`,
+			wantErr: true,
+		},
+		{
+			name:    "host key",
+			key:     "Host",
+			expr:    `.*\.example\.com`,
+			wantErr: true,
+		},
+		{
+			name:    "transfer-encoding key",
+			key:     "transfer-encoding",
+			expr:    `chunked`,
 			wantErr: true,
 		},
 		{

@@ -393,10 +393,10 @@ func (fox *Router) Match(method string, r *http.Request) (route *Route, tsr bool
 	path := c.RoutingPath()
 
 	idx, n, tsr := tree.lookup(method, r.Host, path, c, true)
-	if n != nil {
+	if n != nil && (!tsr || r.URL.Opaque == "") {
 		return n.routes[idx], tsr
 	}
-	return
+	return nil, false
 }
 
 // Lookup performs a manual route lookup for a given [http.Request], returning the matched [Route] along with a
@@ -415,13 +415,13 @@ func (fox *Router) Lookup(w ResponseWriter, r *http.Request) (route *Route, cc *
 	path := c.RoutingPath()
 
 	idx, n, tsr := tree.lookup(r.Method, r.Host, path, c, false)
-	if n != nil {
+	if n != nil && (!tsr || r.URL.Opaque == "") {
 		c.route = n.routes[idx]
 		return c.route, c, tsr
 	}
 
 	tree.pool.Put(c)
-	return
+	return nil, nil, false
 }
 
 // NewRoute create a new [Route], configured with the provided options.
@@ -469,6 +469,9 @@ func (fox *Router) NewRoute(methods []string, pattern string, handler HandlerFun
 
 	if len(rte.matchers) > fox.maxMatchers {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRoute, ErrTooManyMatchers)
+	}
+	if hasDuplicateMatcher(rte.matchers) {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "duplicate matcher")
 	}
 	if len(rte.matchers) == 0 && rte.priority > 0 {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidRoute, "priority requires matchers")
@@ -683,7 +686,7 @@ func (fox *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		orig.Pattern = r.Pattern
 		c.route.hall(c)
 		return
-	} else if tsr && n != nil && r.Method != http.MethodConnect && r.URL.Path != "/" {
+	} else if tsr && n != nil && r.Method != http.MethodConnect && r.URL.Path != "/" && r.URL.Opaque == "" {
 		route := n.routes[idx]
 		if route.handleSlash == RelaxedSlash {
 			c.route = route
@@ -710,6 +713,7 @@ NoMatch:
 	*c.params = (*c.params)[:0]
 	r.Pattern = ""
 	orig.Pattern = ""
+	nonCanonical = nonCanonical || r.URL.Opaque != ""
 
 	isOPTIONS := r.Method == http.MethodOptions
 
@@ -722,10 +726,14 @@ NoMatch:
 		_, hasOPTIONS := tree.methods[http.MethodOptions]
 		mayHandleOPTIONS := fox.handleOPTIONS && len(tree.methods) > 0
 
+		methods := make([]string, 0, 16)
 		for method := range tree.methods {
-			if method == http.MethodOptions {
-				continue
+			if method != http.MethodOptions {
+				methods = append(methods, method)
 			}
+		}
+		slices.Sort(methods)
+		for _, method := range methods {
 			if sb.Len() > 0 {
 				sb.WriteString(", ")
 			}
@@ -782,7 +790,12 @@ NoMatch:
 				var sb strings.Builder
 				sb.Grow(150)
 				sb.WriteString(http.MethodOptions)
+				methods := make([]string, 0, 16)
 				for method := range seen {
+					methods = append(methods, method)
+				}
+				slices.Sort(methods)
+				for _, method := range methods {
 					sb.WriteString(", ")
 					sb.WriteString(method)
 				}
@@ -812,10 +825,14 @@ NoMatch:
 			var sb strings.Builder
 			sb.Grow(150)
 
+			methods := make([]string, 0, 16)
 			for method := range seen {
-				if method == r.Method {
-					continue
+				if method != r.Method {
+					methods = append(methods, method)
 				}
+			}
+			slices.Sort(methods)
+			for _, method := range methods {
 				if sb.Len() > 0 {
 					sb.WriteString(", ")
 				}
