@@ -341,9 +341,10 @@ func relevantCaller() runtime.Frame {
 	frames := runtime.CallersFrames(pc[:n])
 	var frame runtime.Frame
 	for {
-		f, more := frames.Next()
-		if !strings.HasPrefix(f.Function, "github.com/fox-toolkit/fox.") {
-			return f
+		var more bool
+		frame, more = frames.Next()
+		if !strings.HasPrefix(frame.Function, "github.com/fox-toolkit/fox.") {
+			return frame
 		}
 		if !more {
 			break
