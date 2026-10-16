@@ -4904,14 +4904,14 @@ func TestRouter_ServeHTTP_Concurrent(t *testing.T) {
 }
 
 func atomicSync() (start func(), wait func()) {
-	var n int32
+	var n atomic.Int32
 
 	start = func() {
-		atomic.StoreInt32(&n, 1)
+		n.Store(1)
 	}
 
 	wait = func() {
-		for atomic.LoadInt32(&n) != 1 {
+		for n.Load() != 1 {
 			time.Sleep(1 * time.Microsecond)
 		}
 	}

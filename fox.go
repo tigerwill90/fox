@@ -869,7 +869,8 @@ func DefaultNoMethodHandler(c *Context) {
 	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
-// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
+// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request
+// with a “204 No Content” reply.
 func DefaultOptionsHandler(c *Context) {
 	c.Writer().WriteHeader(http.StatusNoContent)
 }
