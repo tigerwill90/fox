@@ -69,7 +69,7 @@ func (txn *Txn) AddRoute(route *Route) error {
 		return ErrReadOnlyTxn
 	}
 	if route == nil || route.hbase == nil {
-		return ErrInvalidRoute
+		return fmt.Errorf("%w: missing route", ErrInvalidRoute)
 	}
 
 	return txn.rootTxn.insert(route, modeInsert)
@@ -125,7 +125,7 @@ func (txn *Txn) UpdateRoute(route *Route) error {
 		return ErrReadOnlyTxn
 	}
 	if route == nil || route.hbase == nil {
-		return ErrInvalidRoute
+		return fmt.Errorf("%w: missing route", ErrInvalidRoute)
 	}
 
 	return txn.rootTxn.insert(route, modeUpdate)
@@ -206,7 +206,7 @@ func (txn *Txn) DeleteRoute(route *Route) (*Route, error) {
 	}
 
 	if route == nil || route.hbase == nil {
-		return nil, ErrInvalidRoute
+		return nil, fmt.Errorf("%w: missing route", ErrInvalidRoute)
 	}
 
 	rte, deleted := txn.rootTxn.delete(route)

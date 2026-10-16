@@ -8,10 +8,6 @@
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/fox-toolkit/fox)
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/fox-toolkit/fox)
 
-> [!NOTE]
-> This repository has been transferred from `github.com/tigerwill90/fox` to `github.com/fox-toolkit/fox`.
-> Existing users should update their imports and `go.mod` accordingly.
-
 Fox is a lightweight and high performance HTTP request router for [Go](https://go.dev/), designed for building reverse proxies,
 API gateways, or other applications that require managing routes at runtime based on configuration changes or external events.
 It is also well-suited for general use cases such as microservices and REST APIs, though it focuses on routing and does not include 
@@ -20,9 +16,6 @@ convenience helpers found in full-featured frameworks, such as automatic binding
 Fox supports **mutation on its routing tree while handling requests concurrently**. Internally, it uses a Radix Tree that supports
 **lock-free** reads while allowing a concurrent writer, and is optimized for high-concurrency reads and low-concurrency writes.
 The router supports complex routing patterns, enforces clear priority rules, and performs strict validation to prevent misconfigurations.
-
-## Disclaimer
-The current API is not yet stabilized. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
 
 ## Features
 **Runtime updates:** Register, update and delete route handler safely at any time without impact on performance.
@@ -68,7 +61,6 @@ serving the normalized path directly or redirecting to the canonical form.
 * [Handling OPTIONS Requests and CORS Automatically](#handling-options-requests-and-cors-automatically)
 * [Resolving Client IP](#resolving-client-ip)
 * [Benchmark](#benchmark)
-* [Road to v1](#road-to-v1)
 * [Contributions](#contributions)
 * [License](#license)
 ---
@@ -867,17 +859,6 @@ BenchmarkPat_GithubAll         	    2144	   1112931 ns/op	 1834945 B/op	   28773
 BenchmarkGorillaMux_GithubAll  	    1870	   1288365 ns/op	  230339 B/op	    1620 allocs/op
 BenchmarkMartini_GithubAll     	    1711	   1401655 ns/op	  236944 B/op	    2805 allocs/op
 ```
-
-## Road to v1
-- [x] [Update route syntax](https://github.com/fox-toolkit/fox/pull/10#issue-1643728309) @v0.6.0
-- [x] [Route overlapping](https://github.com/fox-toolkit/fox/pull/9#issue-1642887919) @v0.7.0
-- [x] [Route overlapping (catch-all and params)](https://github.com/fox-toolkit/fox/pull/24#issue-1784686061) @v0.10.0
-- [x] [Ignore trailing slash](https://github.com/fox-toolkit/fox/pull/32), [Builtin Logger Middleware](https://github.com/fox-toolkit/fox/pull/33), [Client IP Derivation](https://github.com/fox-toolkit/fox/pull/33) @v0.14.0
-- [x] [Support infix wildcard](https://github.com/fox-toolkit/fox/pull/46), [Support hostname routing](https://github.com/fox-toolkit/fox/pull/48), [Support ACID transaction](https://github.com/fox-toolkit/fox/pull/49) @v0.18.0
-- [x] [Support regexp params](https://github.com/fox-toolkit/fox/pull/68) @v0.25.0
-- [x] [Support route matchers](https://github.com/fox-toolkit/fox/pull/69), [Support SubRouter](https://github.com/fox-toolkit/fox/pull/70), [Method-less tree](https://github.com/fox-toolkit/fox/pull/71) @v0.26.0
-- [x] Programmatic error handling
-- [ ] Improving performance and stabilizing API
 
 ## Contributions
 This project aims to provide a lightweight, high-performance router that is easy to use and hard to misuse, designed for building API gateways and reverse proxies.
