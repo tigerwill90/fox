@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fox-toolkit/fox/internal/netutil"
+	"golang.org/x/net/http/httpguts"
 )
 
 const maxRegexpSize = 1000
@@ -43,7 +44,7 @@ type Matcher interface {
 }
 
 // MatchQuery returns a [QueryMatcher] that matches when the request URL contains a query parameter with the given key
-// and a value equal to the given one. An empty key returns an error. See [WithQueryMatcher] for the option counterpart.
+// and a value equal to the given one. See [WithQueryMatcher] for the option counterpart.
 func MatchQuery(key, value string) (QueryMatcher, error) {
 	if key == "" {
 		return QueryMatcher{}, errors.New("empty query key")
@@ -94,10 +95,9 @@ func (m QueryMatcher) String() string {
 	return "q:" + m.key + "=" + m.value
 }
 
-// MatchQueryRegexp returns a [QueryRegexpMatcher] that matches when the request URL contains a query parameter with
-// the given key whose value matches the given regular expression. The expression is auto anchored at both ends, requiring
-// a full match of the parameter value. An empty key, or a regular expression that is invalid or compiles to more than
-// 1000 instructions, returns an error. See [WithQueryRegexpMatcher] for the option counterpart.
+// MatchQueryRegexp returns a [QueryRegexpMatcher] that matches when the request URL contains a query parameter with the
+// given key whose value matches the given regular expression. The expression is auto anchored at both ends, requiring a
+// full match of the parameter value. See [WithQueryRegexpMatcher] for the option counterpart.
 func MatchQueryRegexp(key, expr string) (QueryRegexpMatcher, error) {
 	if key == "" {
 		return QueryRegexpMatcher{}, errors.New("empty query key")
@@ -154,9 +154,9 @@ func (m QueryRegexpMatcher) Equal(matcher Matcher) bool {
 	return m.key == om.key && m.regex.String() == om.regex.String()
 }
 
-// MatchHeader returns a [HeaderMatcher] that matches when the request contains an HTTP header with the given key and
-// a value equal to the given one. The key is canonicalized via [http.CanonicalHeaderKey]. An empty, Host or
-// Transfer-Encoding key returns an error. See [WithHeaderMatcher] for the option counterpart.
+// MatchHeader returns a [HeaderMatcher] that matches when the request contains an HTTP header with the given key and a
+// value equal to the given one. The key is canonicalized via [http.CanonicalHeaderKey]. See [WithHeaderMatcher] for the
+// option counterpart.
 func MatchHeader(key, value string) (HeaderMatcher, error) {
 	canonicalKey, err := matchableHeaderKey(key)
 	if err != nil {
@@ -210,9 +210,8 @@ func (m HeaderMatcher) String() string {
 
 // MatchHeaderRegexp returns a [HeaderRegexpMatcher] that matches when the request contains an HTTP header with the
 // given key whose value matches the given regular expression. The expression is auto anchored at both ends, requiring a
-// full match of the header value. The key is canonicalized via [http.CanonicalHeaderKey]. An empty, Host or
-// Transfer-Encoding key, or a regular expression that is invalid or compiles to more than 1000 instructions, returns an
-// error. See [WithHeaderRegexpMatcher] for the option counterpart.
+// full match of the header value. The key is canonicalized via [http.CanonicalHeaderKey]. See [WithHeaderRegexpMatcher]
+// for the option counterpart.
 func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
 	canonicalKey, err := matchableHeaderKey(key)
 	if err != nil {
@@ -231,6 +230,9 @@ func MatchHeaderRegexp(key, expr string) (HeaderRegexpMatcher, error) {
 func matchableHeaderKey(key string) (string, error) {
 	if key == "" {
 		return "", errors.New("empty header key")
+	}
+	if !httpguts.ValidHeaderFieldName(key) {
+		return "", errors.New("invalid header key")
 	}
 	switch canonicalKey := http.CanonicalHeaderKey(key); canonicalKey {
 	case "Host", "Transfer-Encoding":
@@ -284,9 +286,8 @@ func (m HeaderRegexpMatcher) String() string {
 
 // MatchClientIP returns a [ClientIPMatcher] that matches when the resolved client IP belongs to the given CIDR range.
 // The ip parameter accepts both single IP addresses (e.g., "192.168.1.1") and CIDR notation (e.g., "192.168.1.0/24").
-// An invalid value returns an error. The client IP is resolved via the configured [ClientIPResolver]; without one,
-// the matcher always fails. See [WithClientIPMatcher] for the option counterpart and [WithClientIPResolver] to
-// configure the resolver.
+// The client IP is resolved via the configured [ClientIPResolver]. Without one, the matcher always fails. See
+// [WithClientIPMatcher] for the option counterpart and [WithClientIPResolver] to configure the resolver.
 func MatchClientIP(ip string) (ClientIPMatcher, error) {
 	prefix, err := netutil.ParsePrefix(ip)
 	if err != nil {
@@ -333,9 +334,9 @@ func (m ClientIPMatcher) String() string {
 }
 
 // MatchScheme returns a [SchemeMatcher] that matches when the request connection scheme equals the given value. Only
-// "http" and "https" are accepted (case-insensitive); any other value returns an error. The scheme is derived solely
-// from the TLS state of the connection between the client and the server, ignoring r.URL.Scheme to prevent spoofing
-// via HTTP/1.1 absolute-form requests. See [WithSchemeMatcher] for the option counterpart.
+// "http" and "https" are accepted (case-insensitive). The scheme is derived solely from the TLS state of the connection
+// between the client and the server, ignoring r.URL.Scheme to prevent spoofing via HTTP/1.1 absolute-form requests. See
+// [WithSchemeMatcher] for the option counterpart.
 func MatchScheme(scheme string) (SchemeMatcher, error) {
 	s := strings.ToLower(scheme)
 	if s != "http" && s != "https" {

@@ -718,6 +718,18 @@ func TestMatchHeader(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "key with space",
+			key:     "X Foo",
+			value:   "bar",
+			wantErr: true,
+		},
+		{
+			name:    "key with trailing colon",
+			key:     "X-Foo:",
+			value:   "bar",
+			wantErr: true,
+		},
+		{
 			name:      "empty value is valid",
 			key:       "X-Custom",
 			value:     "",
