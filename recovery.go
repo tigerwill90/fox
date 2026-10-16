@@ -56,12 +56,12 @@ func RecoveryWithFunc(handler slog.Handler, handle RecoveryFunc) MiddlewareFunc 
 // Recovery returns a middleware that recovers from any panics, logs the error, request details, and stack trace
 // using the provided [slog.Handler] and writes a 500 status code response if a panic occurs.
 func Recovery(handler slog.Handler) MiddlewareFunc {
-	return RecoveryWithFunc(handler, DefaultHandleRecovery)
+	return RecoveryWithFunc(handler, DefaultRecoveryFunc)
 }
 
-// DefaultHandleRecovery is a default implementation of the [RecoveryFunc].
+// DefaultRecoveryFunc is a default implementation of the [RecoveryFunc].
 // It responds with a status code 500 and writes a generic error message.
-func DefaultHandleRecovery(c *Context, _ any) {
+func DefaultRecoveryFunc(c *Context, _ any) {
 	http.Error(c.Writer(), http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }
 

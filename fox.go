@@ -147,7 +147,7 @@ type RouterInfo struct {
 	MaxRouteParamKeyBytes int
 	MaxRouteMatchers      int
 	MaxRegexpSize         int
-	TrailingSlashOption   TrailingSlashOption
+	TrailingSlash         TrailingSlashOption
 	MergeSlashes          NormalizeOption
 	CollapseDotSegments   NormalizeOption
 	NoMethod              bool
@@ -567,7 +567,7 @@ func (fox *Router) Info() RouterInfo {
 		MaxRegexpSize:         fox.maxRegexpSize,
 		NoMethod:              fox.handleMethodNotAllowed,
 		AutoOptions:           fox.handleOPTIONS,
-		TrailingSlashOption:   fox.handleSlash,
+		TrailingSlash:         fox.handleSlash,
 		MergeSlashes:          fox.mergeSlash,
 		CollapseDotSegments:   fox.collapseDots,
 		ClientIPResolver:      !ok,
@@ -869,7 +869,8 @@ func DefaultNoMethodHandler(c *Context) {
 	http.Error(c.Writer(), http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 }
 
-// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request with a "200 OK" reply.
+// DefaultOptionsHandler is a simple [HandlerFunc] that replies to each request
+// with a “204 No Content” reply.
 func DefaultOptionsHandler(c *Context) {
 	c.Writer().WriteHeader(http.StatusNoContent)
 }

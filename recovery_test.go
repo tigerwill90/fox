@@ -298,7 +298,7 @@ func TestRecoveryWithFunc_BrokenPipe(t *testing.T) {
 
 func BenchmarkRecoveryWithFunc(b *testing.B) {
 
-	f, _ := NewRouter(WithMiddleware(RecoveryWithFunc(slog.DiscardHandler, DefaultHandleRecovery)))
+	f, _ := NewRouter(WithMiddleware(RecoveryWithFunc(slog.DiscardHandler, DefaultRecoveryFunc)))
 	f.MustAdd(MethodGet, "/{1}/{2}/{3}", func(c *Context) {
 		panic("yolo")
 	})

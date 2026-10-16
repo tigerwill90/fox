@@ -79,8 +79,8 @@ func (r *Route) Annotation(key any) any {
 	return r.annots[key]
 }
 
-// TrailingSlashOption returns the configured [TrailingSlashOption] for this [Route].
-func (r *Route) TrailingSlashOption() TrailingSlashOption {
+// TrailingSlash returns the configured [TrailingSlashOption] for this [Route].
+func (r *Route) TrailingSlash() TrailingSlashOption {
 	return r.handleSlash
 }
 

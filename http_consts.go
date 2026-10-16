@@ -8,24 +8,23 @@ import "net/http"
 
 // MIME types
 const (
-	charsetUTF8                          = "charset=utf-8"
-	MIMEApplicationJSON                  = "application/json"
-	MIMEApplicationJSONCharsetUTF8       = MIMEApplicationJSON + "; " + charsetUTF8
-	MIMEApplicationJavaScript            = "application/javascript"
-	MIMEApplicationJavaScriptCharsetUTF8 = MIMEApplicationJavaScript + "; " + charsetUTF8
-	MIMEApplicationXML                   = "application/xml"
-	MIMEApplicationXMLCharsetUTF8        = MIMEApplicationXML + "; " + charsetUTF8
-	MIMETextXML                          = "text/xml"
-	MIMETextXMLCharsetUTF8               = MIMETextXML + "; " + charsetUTF8
-	MIMEApplicationForm                  = "application/x-www-form-urlencoded"
-	MIMEApplicationProtobuf              = "application/protobuf"
-	MIMEApplicationMsgpack               = "application/msgpack"
-	MIMETextHTML                         = "text/html"
-	MIMETextHTMLCharsetUTF8              = MIMETextHTML + "; " + charsetUTF8
-	MIMETextPlain                        = "text/plain"
-	MIMETextPlainCharsetUTF8             = MIMETextPlain + "; " + charsetUTF8
-	MIMEMultipartForm                    = "multipart/form-data"
-	MIMEOctetStream                      = "application/octet-stream"
+	charsetUTF8                   = "charset=utf-8"
+	MIMEApplicationJSON           = "application/json"
+	MIMETextJavaScript            = "text/javascript"
+	MIMETextJavaScriptCharsetUTF8 = MIMETextJavaScript + "; " + charsetUTF8
+	MIMEApplicationXML            = "application/xml"
+	MIMEApplicationXMLCharsetUTF8 = MIMEApplicationXML + "; " + charsetUTF8
+	MIMETextXML                   = "text/xml"
+	MIMETextXMLCharsetUTF8        = MIMETextXML + "; " + charsetUTF8
+	MIMEApplicationForm           = "application/x-www-form-urlencoded"
+	MIMEApplicationProtobuf       = "application/protobuf"
+	MIMEApplicationMsgpack        = "application/msgpack"
+	MIMETextHTML                  = "text/html"
+	MIMETextHTMLCharsetUTF8       = MIMETextHTML + "; " + charsetUTF8
+	MIMETextPlain                 = "text/plain"
+	MIMETextPlainCharsetUTF8      = MIMETextPlain + "; " + charsetUTF8
+	MIMEMultipartForm             = "multipart/form-data"
+	MIMEOctetStream               = "application/octet-stream"
 )
 
 // Headers
@@ -87,9 +86,9 @@ const (
 	HeaderReferrerPolicy = "Referrer-Policy"
 
 	// Platform Header for single IP
-	HeaderCFConnectionIP       = "CF-Connecting-IP"
+	HeaderCFConnectingIP       = "CF-Connecting-IP"
 	HeaderTrueClientIP         = "True-Client-IP"
-	HeaderFastClientIP         = "Fastly-Client-IP"
+	HeaderFastlyClientIP       = "Fastly-Client-IP"
 	HeaderXAzureClientIP       = "X-Azure-ClientIP"
 	HeaderXAzureSocketIP       = "X-Azure-SocketIP"
 	HeaderXAppengineRemoteAddr = "X-Appengine-Remote-Addr"

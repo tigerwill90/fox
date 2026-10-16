@@ -264,7 +264,7 @@ func (c *Context) Route() *Route {
 	return c.route
 }
 
-// String sends a formatted string with the specified status code.
+// String sends a string with the specified status code.
 func (c *Context) String(code int, s string) (err error) {
 	if c.w.Header().Get(HeaderContentType) == "" {
 		c.w.Header().Set(HeaderContentType, MIMETextPlainCharsetUTF8)

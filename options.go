@@ -247,12 +247,12 @@ func WithAllowRegexpParam(enable bool) GlobalOption {
 }
 
 // WithMiddleware attaches middleware to the router or to a specific route. The middlewares are executed
-// in the order they are added. When applied globally, the middleware affects all handlers, including special handlers
-// such as NotFound, MethodNotAllowed, AutoOption, and the internal redirect handler.
+// in the order they are added. When applied globally, the middleware affects all handlers, including the NoRoute,
+// NoMethod, Options and RejectPath handlers and the internal redirect handlers (see [AllHandlers]).
 //
 // This option can be applied on a per-route basis or globally:
-// - If applied globally, the middleware will be applied to all routes and handlers by default.
-// - If applied to a specific route, the middleware will only apply to that route and will be chained after any global middleware.
+//   - If applied globally, the middleware will be applied to all routes and handlers by default.
+//   - If applied to a specific route, the middleware will only apply to that route and will be chained after any global middleware.
 func WithMiddleware(m ...MiddlewareFunc) interface {
 	GlobalOption
 	RouteOption

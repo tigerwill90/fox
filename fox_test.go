@@ -1270,14 +1270,14 @@ func TestRouter_ServeHTTP_Handle(t *testing.T) {
 		require.NoError(t, f.AddRoute(want))
 		got := f.Route(MethodGet, "/foo")
 		assert.Equal(t, want, got)
-		assert.Equal(t, RedirectSlash, got.TrailingSlashOption())
+		assert.Equal(t, RedirectSlash, got.TrailingSlash())
 
 		want, err = f.NewRoute(MethodGet, "/foo", emptyHandler, WithAnnotation("baz", "baz"))
 		require.NoError(t, err)
 		require.NoError(t, f.UpdateRoute(want))
 		got = f.Route(MethodGet, "/foo")
 		assert.Equal(t, want, got)
-		assert.Equal(t, ExactSlash, got.TrailingSlashOption())
+		assert.Equal(t, ExactSlash, got.TrailingSlash())
 	})
 
 	t.Run("route with invalid method", func(t *testing.T) {
@@ -2509,7 +2509,7 @@ func TestRouter_ServeHTTP_IgnoreTrailingSlash(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := NewRouter(WithTrailingSlash(RelaxedSlash))
 			rf := f.Info()
-			assert.Equal(t, RelaxedSlash, rf.TrailingSlashOption)
+			assert.Equal(t, RelaxedSlash, rf.TrailingSlash)
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Add([]string{tc.method}, path, func(c *Context) {
 					_ = c.String(http.StatusOK, c.Pattern())
@@ -2725,13 +2725,13 @@ func TestRouter_ServeHTTP_RedirectTrailingSlash(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := NewRouter(WithTrailingSlash(RedirectSlash))
 			rf := f.Info()
-			assert.Equal(t, RedirectSlash, rf.TrailingSlashOption)
+			assert.Equal(t, RedirectSlash, rf.TrailingSlash)
 
 			for _, path := range tc.paths {
 				require.NoError(t, onlyError(f.Add([]string{tc.method}, path, emptyHandler)))
 				rte := f.Route([]string{tc.method}, path)
 				require.NotNil(t, rte)
-				assert.Equal(t, RedirectSlash, rte.TrailingSlashOption())
+				assert.Equal(t, RedirectSlash, rte.TrailingSlash())
 			}
 
 			req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -2752,7 +2752,7 @@ func TestRouter_ServeHTTP_RedirectTrailingSlash(t *testing.T) {
 					require.NoError(t, onlyError(f.Add(MethodAny, path, emptyHandler)))
 					rte := f.Route(MethodAny, path)
 					require.NotNil(t, rte)
-					assert.Equal(t, RedirectSlash, rte.TrailingSlashOption())
+					assert.Equal(t, RedirectSlash, rte.TrailingSlash())
 				}
 
 				req := httptest.NewRequest(tc.method, tc.req, nil)
@@ -4904,14 +4904,14 @@ func TestRouter_ServeHTTP_Concurrent(t *testing.T) {
 }
 
 func atomicSync() (start func(), wait func()) {
-	var n int32
+	var n atomic.Int32
 
 	start = func() {
-		atomic.StoreInt32(&n, 1)
+		n.Store(1)
 	}
 
 	wait = func() {
-		for atomic.LoadInt32(&n) != 1 {
+		for n.Load() != 1 {
 			time.Sleep(1 * time.Microsecond)
 		}
 	}
