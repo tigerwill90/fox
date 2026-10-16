@@ -147,7 +147,7 @@ type RouterInfo struct {
 	MaxRouteParamKeyBytes int
 	MaxRouteMatchers      int
 	MaxRegexpSize         int
-	TrailingSlashOption   TrailingSlashOption
+	TrailingSlash         TrailingSlashOption
 	MergeSlashes          NormalizeOption
 	CollapseDotSegments   NormalizeOption
 	NoMethod              bool
@@ -567,7 +567,7 @@ func (fox *Router) Info() RouterInfo {
 		MaxRegexpSize:         fox.maxRegexpSize,
 		NoMethod:              fox.handleMethodNotAllowed,
 		AutoOptions:           fox.handleOPTIONS,
-		TrailingSlashOption:   fox.handleSlash,
+		TrailingSlash:         fox.handleSlash,
 		MergeSlashes:          fox.mergeSlash,
 		CollapseDotSegments:   fox.collapseDots,
 		ClientIPResolver:      !ok,
