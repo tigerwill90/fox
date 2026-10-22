@@ -16,6 +16,7 @@ type pattern struct {
 	optionalCatchAll bool
 	catchAll         bool // the last path token is a wildcard
 	endHost          int
+	hostParams       int
 }
 
 func (fox *Router) parsePattern(raw string) (pattern, int, error) {
@@ -51,6 +52,7 @@ func (fox *Router) parsePattern(raw string) (pattern, int, error) {
 		}
 	}
 
+	hostParams := paramCount
 	pathTokens, optCatchAll, paramCount, pe := fox.parsePath(path, paramCount)
 	if pe != nil {
 		pe.Pattern = raw
@@ -68,6 +70,7 @@ func (fox *Router) parsePattern(raw string) (pattern, int, error) {
 		str:              raw,
 		tokens:           tokens,
 		endHost:          endHost,
+		hostParams:       hostParams,
 		optionalCatchAll: optCatchAll,
 		catchAll:         pathTokens[len(pathTokens)-1].typ == nodeWildcard,
 	}, paramCount, nil

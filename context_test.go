@@ -310,6 +310,26 @@ func TestContext_ClientIP(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoClientIPResolver)
 }
 
+func TestContext_ClientIPResolverOnlyRequestContext(t *testing.T) {
+	t.Parallel()
+	resolver := ClientIPResolverFunc(func(c RequestContext) (netip.Addr, error) {
+		_, isContext := c.(*Context)
+		assert.False(t, isContext)
+		return netip.MustParseAddr("192.0.2.1"), nil
+	})
+
+	_, c := NewTestContext(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/foo", nil), WithClientIPResolver(resolver))
+	_, err := c.ClientIP()
+	require.NoError(t, err)
+
+	f := MustRouter()
+	f.MustAdd(MethodGet, "/foo", func(c *Context) {
+		_, err := c.ClientIP()
+		require.NoError(t, err)
+	}, WithClientIPResolver(resolver))
+	f.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/foo", nil))
+}
+
 func TestContext_Stream(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
