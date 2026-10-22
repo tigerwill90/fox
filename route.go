@@ -97,6 +97,12 @@ func (r *Route) ParamsLen() int {
 	return len(r.params)
 }
 
+// HostnameParamsLen returns the number of parameters in the hostname part of this [Route].
+// Hostname parameters come first in [Route.Params] and [Context.Params].
+func (r *Route) HostnameParamsLen() int {
+	return r.pattern.hostParams
+}
+
 // Params returns an iterator over all parameters name for this [Route].
 func (r *Route) Params() iter.Seq[string] {
 	return func(yield func(string) bool) {

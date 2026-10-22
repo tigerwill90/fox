@@ -76,6 +76,64 @@ func TestRoute_HostnamePath(t *testing.T) {
 	}
 }
 
+func TestRoute_HostnameParamsLen(t *testing.T) {
+	cases := []struct {
+		name          string
+		pattern       string
+		wantParams    []string
+		wantHostCount int
+	}{
+		{
+			name:    "only static path",
+			pattern: "/foo/bar",
+		},
+		{
+			name:       "only path params",
+			pattern:    "/users/{id}/files/+{path}",
+			wantParams: []string{"id", "path"},
+		},
+		{
+			name:       "static host and path params",
+			pattern:    "a.b.c/users/{id}",
+			wantParams: []string{"id"},
+		},
+		{
+			name:          "host param and slash",
+			pattern:       "{sub}.example.com/",
+			wantParams:    []string{"sub"},
+			wantHostCount: 1,
+		},
+		{
+			name:          "host and path params",
+			pattern:       "{a}.{b}.example.com/users/{id}",
+			wantParams:    []string{"a", "b", "id"},
+			wantHostCount: 2,
+		},
+		{
+			name:          "host and path wildcards",
+			pattern:       "+{sub}.example.com/files/+{path}",
+			wantParams:    []string{"sub", "path"},
+			wantHostCount: 1,
+		},
+		{
+			name:          "regex host param",
+			pattern:       "{sub:[a-z]+}.example.com/{id:[0-9]+}",
+			wantParams:    []string{"sub", "id"},
+			wantHostCount: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, _ := NewRouter(WithAllowRegexpParam(true))
+			r, err := f.Add(MethodGet, tc.pattern, emptyHandler)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantParams, slices.Collect(r.Params()))
+			assert.Equal(t, tc.wantHostCount, r.HostnameParamsLen())
+		})
+	}
+}
+
 func TestRoute_Methods(t *testing.T) {
 	f := MustRouter()
 	f.MustAdd([]string{http.MethodHead, http.MethodOptions, http.MethodGet}, "/foo/bar", emptyHandler)

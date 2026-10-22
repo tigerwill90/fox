@@ -17,13 +17,11 @@ import (
 	"github.com/fox-toolkit/fox/internal/netutil"
 )
 
-// RequestContext provides read-only access to incoming HTTP request data, including request properties,
-// headers, query parameters, and client IP information. It is implemented by [Context].
+// RequestContext is the subset of the [Context] API that gives access to the incoming request, including its
+// properties, headers, query parameters and client IP. It gives no access to the response.
 //
-// The RequestContext API is not thread-safe. Its lifetime is limited to the scope of its caller:
-// within a [Matcher], it is valid only for the duration of the [Matcher.Match] call; within a [HandlerFunc],
-// it is valid only for the duration of the handler execution. The underlying context may be reused after
-// the call returns.
+// The RequestContext API is not thread-safe. It is valid only for the duration of the call that receives it, such
+// as [Matcher.Match] or [ClientIPResolver.ClientIP]. The underlying context may be reused after the call returns.
 type RequestContext interface {
 	// Request returns the current [http.Request].
 	Request() *http.Request
@@ -176,9 +174,9 @@ func (c *Context) ClientIP() (netip.Addr, error) {
 	// We may be in a handler which does not match a route like NotFound handler.
 	if c.route == nil {
 		resolver := c.fox.clientip
-		return resolver.ClientIP(c)
+		return resolver.ClientIP(onlyRequestContext{c})
 	}
-	return c.route.clientip.ClientIP(c)
+	return c.route.clientip.ClientIP(onlyRequestContext{c})
 }
 
 // Params returns an iterator over the matched wildcard parameters for the current route.
@@ -386,8 +384,8 @@ func (c *Context) getQueries() url.Values {
 	return c.cachedQueries
 }
 
-// onlyRequestContext wraps *Context so matchers can only reach the [RequestContext] interface and cannot
-// misuse the full Context API.
+// onlyRequestContext wraps *Context so matchers and client IP resolvers can only use the [RequestContext]
+// interface and cannot misuse the full Context API.
 type onlyRequestContext struct {
 	c *Context
 }
